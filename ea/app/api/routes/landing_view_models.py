@@ -2747,7 +2747,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("investment_require_floorplan") or property_preferences.get("require_floorplan")),
                 "tooltip": "Use this for cleaner underwriting. Listings without a layout stay out of the final investment shortlist.",
-                "step": "areas",
+                "step": "children",
                 "hidden": not show_investment_underwriting_controls or land_only_search,
             },
             {
@@ -2757,7 +2757,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("investment_require_legal_clarity")),
                 "tooltip": "Exclude auctions, leasehold-style structures, and other legally messy deals when you want a cleaner shortlist first.",
-                "step": "areas",
+                "step": "children",
                 "hidden": not show_investment_underwriting_controls,
             },
             {
@@ -2767,7 +2767,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("investment_require_tenant_clarity")),
                 "tooltip": "Penalize or exclude listings that do not make occupancy or rentability clear enough for a fast investment read.",
-                "step": "areas",
+                "step": "children",
                 "hidden": not show_investment_underwriting_controls,
             },
             {
@@ -2777,7 +2777,7 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("investment_avoid_major_renovation")),
                 "tooltip": "Exclude listings whose own text suggests major renovation, core refurbishment, or a fixer-upper posture.",
-                "step": "areas",
+                "step": "children",
                 "hidden": not show_investment_underwriting_controls,
             },
             {
@@ -3881,11 +3881,6 @@ def app_section_payload(
                     "key": "what",
                     "label": "What",
                     "detail": "Property type, budget, size, and move-in guardrails.",
-                },
-                {
-                    "key": "areas",
-                    "label": "Strategy",
-                    "detail": "Target areas, spillover distance, and investment guardrails.",
                 },
                 {
                     "key": "children",

@@ -39,26 +39,26 @@
       <tbody>
         {% for agent in search_agents %}
         <tr class="{% if agent.get('is_active') %}is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
-          <td>
+          <td data-label="Watch">
             <strong>{{ agent.get('name') or 'Saved search' }}</strong>
             <div class="pqx-automation-row-meta">
               <span class="pqx-pill">{{ agent.get('status_label') or ('Active' if agent.get('enabled') else 'Paused') }}</span>
               {% if agent.get('is_active') %}<span class="pqx-pill good">Selected</span>{% endif %}
             </div>
           </td>
-          <td>
+          <td data-label="Scope">
             <span>{{ agent.get('scope_label') or 'No scope saved' }}</span>
             <small>{{ agent.get('provider_count') or 0 }} provider{{ '' if agent.get('provider_count') == 1 else 's' }}</small>
           </td>
-          <td>
+          <td data-label="Cadence">
             <span>{{ agent.get('run_label') or 'Waiting' }}</span>
             <small>{{ agent.get('duration_label') or 'No window set' }}</small>
           </td>
-          <td>
+          <td data-label="Delivery">
             <span>{{ agent.get('delivery_label') or 'Delivery not set' }}</span>
             <small>{{ agent.get('notification_label') or 'No cap set' }}</small>
           </td>
-          <td>
+          <td data-label="Actions">
             <div class="pqx-actions">
               <button class="pqx-button primary" type="button" data-search-agent-action="run">Run</button>
               <button class="pqx-button" type="button" data-search-agent-action="load">Edit</button>
@@ -72,7 +72,7 @@
         </tr>
         {% else %}
         <tr data-property-search-agent-row data-search-agent-id="current" data-search-agent-payload="{}">
-          <td colspan="5">
+          <td colspan="5" data-label="Saved search">
             <div class="pqx-empty">
               <strong>No saved search yet</strong>
               <span>Save a search brief to create the first recurring watch.</span>

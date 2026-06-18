@@ -2331,6 +2331,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert ">What matters<" in setup.text
     assert 'data-pqx-save-what-matters' in setup.text
     assert 'data-pqx-load-what-matters' in setup.text
+    assert ">Strategy<" not in setup.text
+    assert 'data-property-field-step="areas"' not in setup.text
+    assert 'data-property-field-step="children" data-property-field-name="investment_require_floorplan"' in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
     assert 'name="max_distance_to_library_importance"' in setup.text
     assert 'name="max_distance_to_playground_importance"' in setup.text
@@ -3232,6 +3235,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Monteverde land" in page.text
     assert "Saved searches" in page.text
     assert "pqx-automation-table" in page.text
+    assert 'td data-label="Actions"' in page.text
+    assert 'td data-label="Delivery"' in page.text
     assert "Selected watch, delivery, repair" not in page.text
     assert "Limits" not in page.text
     assert 'href="/app/agents"' in page.text
@@ -3242,6 +3247,10 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Delete</button>" not in page.text
     assert "/app/search?load_agent=" in page.text
     assert "/app/search?run_agent=" in page.text
+    template = _read_workbench_bundle()
+    assert ".pqx-automation-table thead {\n        display: none;" in template
+    assert ".pqx-automation-table td::before" in template
+    assert "content: attr(data-label);" in template
 
 
 def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
@@ -3564,6 +3573,7 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     checked_paths = [
         repo_root / "ea/app/templates/app/property_decision_workbench.html",
+        repo_root / "ea/app/templates/app/_property_account_panel.html",
         repo_root / "ea/app/templates/app/object_detail.html",
         repo_root / "ea/app/api/routes/landing.py",
         repo_root / "ea/app/api/routes/landing_view_models.py",
@@ -3577,6 +3587,9 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
         "Generated asset receipts",
         "Missing-fact OODA queued.",
         "Open the packet to inspect OODA.",
+        "account truth",
+        "checkout truth",
+        "settings noise",
         '"OODA"',
         ">OODA<",
     )
