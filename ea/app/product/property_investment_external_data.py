@@ -243,13 +243,42 @@ def _feed_content_type_allowed(content_type: str) -> bool:
     )
 
 
+def _normalized_feed_host(value: object) -> str:
+    raw = str(value or "").strip().lower().rstrip(".")
+    if not raw:
+        return ""
+    if "://" in raw:
+        parsed = urllib.parse.urlparse(raw)
+        raw = str(parsed.hostname or "").strip().lower().rstrip(".")
+    return raw
+
+
+def _normalized_allowed_feed_host(value: object) -> str:
+    host = _normalized_feed_host(value)
+    if host.startswith("*."):
+        suffix = host[2:].strip(".")
+        return f"*.{suffix}" if suffix else ""
+    return host
+
+
 def _feed_allowed_hosts() -> set[str]:
     raw = str(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS") or "").strip()
     return {
-        host.strip().lower()
-        for host in raw.split(",")
-        if host.strip()
+        normalized
+        for normalized in (_normalized_allowed_feed_host(host) for host in raw.split(","))
+        if normalized
     }
+
+
+def _feed_hostname_matches_allowed(host: str, allowed_host: str) -> bool:
+    normalized_host = _normalized_feed_host(host)
+    normalized_allowed = _normalized_allowed_feed_host(allowed_host)
+    if not normalized_host or not normalized_allowed:
+        return False
+    if normalized_allowed.startswith("*."):
+        suffix = normalized_allowed[2:]
+        return normalized_host != suffix and normalized_host.endswith(f".{suffix}")
+    return normalized_host == normalized_allowed
 
 
 def _feed_url_allowed(url: str) -> bool:
@@ -258,7 +287,10 @@ def _feed_url_allowed(url: str) -> bool:
     host = str(parsed.hostname or "").strip().lower()
     if scheme == "https":
         allowed_hosts = _feed_allowed_hosts()
-        return bool(host) and host in allowed_hosts
+        return bool(host) and any(
+            _feed_hostname_matches_allowed(host, allowed_host)
+            for allowed_host in allowed_hosts
+        )
     if scheme == "http" and _truthy(os.getenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOW_INSECURE_HTTP")):
         return host in {"127.0.0.1", "localhost"}
     return False

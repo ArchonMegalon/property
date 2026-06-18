@@ -51,6 +51,15 @@ def test_env_example_keeps_property_source_cache_inside_property_repo() -> None:
     assert "/docker/fleet/state/property_source_listing_cache.json" not in env
 
 
+def test_env_example_keeps_external_investment_feeds_fail_closed_and_durable() -> None:
+    env = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS=" in env
+    assert "EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH=/docker/property/state/property_investment_external_cache.json" in env
+    assert "EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOW_INSECURE_HTTP=1" not in env
+    assert "/tmp/propertyquarry/state/property_investment_external_cache.json" not in env
+
+
 def test_prod_compose_keeps_fastestvpn_repo_local_and_default_off() -> None:
     compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
 

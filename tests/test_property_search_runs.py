@@ -288,6 +288,67 @@ def test_investment_external_feed_rejects_https_host_without_allowlist(monkeypat
     assert payload == {}
 
 
+def test_investment_external_feed_allows_only_exact_or_wildcard_subdomains(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", "https://rent.data.example.test/feed")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS", "example.test, *.data.example.test")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", str(tmp_path / "investment_cache.json"))
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_TTL_SECONDS", "60")
+    calls: list[str] = []
+
+    class _Response:
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "application/json"}
+            self._sent = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size: int = -1) -> bytes:
+            if self._sent:
+                return b""
+            self._sent = True
+            return b'{"annual_rent_eur": 18000, "source_label": "Approved data feed"}'
+
+    def _urlopen(request, *args, **kwargs):
+        calls.append(str(request.full_url))
+        return _Response()
+
+    monkeypatch.setattr(property_investment_external_data.urllib.request, "urlopen", _urlopen)
+
+    payload = property_investment_external_data._fetch_external_feed(
+        "EA_PROPERTY_RENT_ROLL_FEED",
+        {"country_code": "AT", "purchase_price_eur": 300000},
+    )
+
+    assert calls
+    assert payload["annual_rent_eur"] == 18000
+    assert payload["source_mode"] == "live_feed"
+
+
+def test_investment_external_feed_wildcard_does_not_match_apex_or_lookalike_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS", "*.data.example.test")
+
+    def _unexpected_urlopen(*args, **kwargs):
+        raise AssertionError("urlopen should not run for non-matching wildcard feed hosts")
+
+    monkeypatch.setattr(property_investment_external_data.urllib.request, "urlopen", _unexpected_urlopen)
+
+    for url in (
+        "https://data.example.test/feed",
+        "https://evil-data.example.test/feed",
+        "https://data.example.test.evil.test/feed",
+    ):
+        monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", url)
+        payload = property_investment_external_data._fetch_external_feed(
+            "EA_PROPERTY_RENT_ROLL_FEED",
+            {"country_code": "AT", "purchase_price_eur": 300000, "url": url},
+        )
+        assert payload == {}
+
+
 def test_investment_external_feed_rejects_oversized_response(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", "https://example.test/feed")
     monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS", "example.test")
@@ -320,6 +381,20 @@ def test_investment_external_cache_path_defaults_to_durable_state_dir(monkeypatc
     monkeypatch.delenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", raising=False)
 
     assert property_investment_external_data._cache_path() == Path("/docker/property/state/property_investment_external_cache.json")
+
+
+def test_investment_external_cache_file_is_private(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cache_path = tmp_path / "investment_cache.json"
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", str(cache_path))
+
+    property_investment_external_data._put_cached_feed_payload(
+        lane="EA_PROPERTY_RENT_ROLL_FEED",
+        request_payload={"country_code": "AT"},
+        data={"annual_rent_eur": 18000},
+    )
+
+    assert cache_path.exists()
+    assert oct(cache_path.stat().st_mode & 0o777) == "0o600"
 
 
 def test_findmyhome_entry_links_are_not_treated_as_supported_property_listings() -> None:
