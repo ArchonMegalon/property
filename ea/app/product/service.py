@@ -5586,6 +5586,46 @@ def _property_location_text_conflicts_with_hints(
         normalized_hint = re.sub(r"[^a-z0-9äöüß]+", "", lowered_hint)
         if normalized_hint:
             hint_values.add(normalized_hint)
+    selection_hint_values = set(hint_values)
+    explicit_hint_postal_codes = frozenset(re.findall(r"\b\d{4}\b", " ".join(str(item or "") for item in location_hints).lower()))
+    if "wien" in hint_values or "vienna" in hint_values or any(
+        re.fullmatch(r"1\d{3}", value) for value in hint_values
+    ):
+        hint_values.update({"wien", "vienna"})
+
+    def _normalized_location_token(value: object) -> str:
+        return re.sub(r"[^a-z0-9äöüß]+", "", str(value or "").strip().lower())
+
+    def _add_hint_equivalent(value: object) -> None:
+        raw = str(value or "").strip().lower()
+        normalized = _normalized_location_token(raw)
+        if raw:
+            hint_values.add(raw)
+        if normalized:
+            hint_values.add(normalized)
+
+    def _term_matches_hint(value: object) -> bool:
+        raw = str(value or "").strip().lower()
+        normalized = _normalized_location_token(raw)
+        if not raw and not normalized:
+            return False
+        if explicit_hint_postal_codes:
+            term_postal_codes = frozenset(re.findall(r"\b\d{4}\b", raw))
+            if term_postal_codes and any(code in explicit_hint_postal_codes for code in term_postal_codes):
+                return True
+            return raw in selection_hint_values or normalized in selection_hint_values
+        if raw in hint_values or normalized in hint_values:
+            return True
+        return any(
+            bool(hint)
+            and (
+                hint in raw
+                or hint in normalized
+                or (normalized and normalized in hint)
+                or (raw and raw in hint)
+            )
+            for hint in hint_values
+        )
 
     requested_all_country = any(
         re.sub(r"[^a-z0-9äöüß]+", "", value) in {"costarica", "austria", "osterreich", "österreich"}
@@ -5594,7 +5634,7 @@ def _property_location_text_conflicts_with_hints(
     if requested_all_country:
         return False
 
-    known_locations: set[str] = set()
+    location_option_rows: list[dict[str, object]] = []
     region_keys = [str(region_code or "").strip().lower()]
     try:
         region_keys.extend(str(row.get("value") or "").strip().lower() for row in region_options_for_country(normalized_country))
@@ -5608,19 +5648,32 @@ def _property_location_text_conflicts_with_hints(
         for option in options:
             if not isinstance(option, dict):
                 continue
-            for field in ("value", "label"):
-                candidate = str(option.get(field) or "").strip().lower()
-                if candidate:
-                    known_locations.add(candidate)
+            location_option_rows.append(option)
+            selected_by_hint = any(
+                _term_matches_hint(option.get(field))
+                for field in ("value", "label", "detail")
+            )
+            if selected_by_hint:
+                for field in ("value", "label"):
+                    _add_hint_equivalent(option.get(field))
+
+    known_locations: set[str] = set()
+    for option in location_option_rows:
+        if not isinstance(option, dict):
+            continue
+        for field in ("value", "label"):
+            candidate = str(option.get(field) or "").strip().lower()
+            if candidate:
+                known_locations.add(candidate)
     known_locations = {
         value
         for value in known_locations
         if len(re.sub(r"[^a-z0-9äöüß]+", "", value)) > 2
-        and re.sub(r"[^a-z0-9äöüß]+", "", value) not in hint_values
+        and _normalized_location_token(value) not in hint_values
         and value not in {"all costa rica", "costa rica", "all austria", "austria", "österreich", "osterreich"}
     }
     for known in known_locations:
-        normalized_known = re.sub(r"[^a-z0-9äöüß]+", "", known)
+        normalized_known = _normalized_location_token(known)
         if not normalized_known or normalized_known in hint_values:
             continue
         if known in raw_text or normalized_known in normalized_text:
@@ -5788,10 +5841,23 @@ def _property_candidate_matches_requested_location(
         str(facts.get("exact_address") or "").strip(),
         *address_lines,
     ]
+    strong_concrete_parts = [
+        str(property_url or "").strip(),
+        str(title or "").strip(),
+        str(facts.get("district") or "").strip(),
+        str(facts.get("postal_name") or "").strip()
+        if str(facts.get("postal_name") or "").strip().lower() != source_scope_location
+        else "",
+        str(facts.get("location") or "").strip(),
+        str(facts.get("street_address") or "").strip(),
+        str(facts.get("exact_address") or "").strip(),
+        *address_lines,
+    ]
 
     concrete_text = " ".join(part for part in concrete_parts if part).lower()
     normalized_concrete_text = re.sub(r"[^a-z0-9äöüß]+", "", concrete_text)
     real_concrete_text = " ".join(part for part in real_concrete_parts if part).lower()
+    strong_concrete_text = " ".join(part for part in strong_concrete_parts if part).lower()
 
     def _matches_text(raw_text: str, normalized_text: str) -> bool:
         for hint in hints:
@@ -5812,10 +5878,16 @@ def _property_candidate_matches_requested_location(
     explicit_hint_postal_codes = frozenset(re.findall(r"\b\d{4}\b", hint_text))
     wants_vienna = "wien" in hint_text or "vienna" in hint_text or any(str(code).startswith("1") for code in explicit_hint_postal_codes)
     real_concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", real_concrete_text))
+    strong_concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", strong_concrete_text))
     exact_postal_match = bool(
         explicit_hint_postal_codes
         and real_concrete_postal_codes
         and any(code in explicit_hint_postal_codes for code in real_concrete_postal_codes)
+    )
+    strong_exact_postal_match = bool(
+        explicit_hint_postal_codes
+        and strong_concrete_postal_codes
+        and any(code in explicit_hint_postal_codes for code in strong_concrete_postal_codes)
     )
     if explicit_hint_postal_codes and real_concrete_postal_codes and not any(
         code in explicit_hint_postal_codes for code in real_concrete_postal_codes
@@ -5832,7 +5904,7 @@ def _property_candidate_matches_requested_location(
         region_code=effective_region_code,
         location_hints=hints,
         concrete_text=real_concrete_text,
-    ) and not exact_postal_match:
+    ) and not strong_exact_postal_match:
         return False
 
     concrete_postal_codes = tuple(re.findall(r"\b\d{4}\b", concrete_text))
@@ -30663,6 +30735,19 @@ class ProductService:
                     review_existing_total += 1
                 if top_watch_candidate is not None and str(top_watch_candidate.get("source_ref") or "").strip() == source_ref:
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
+                if opened_status == "suppressed":
+                    if is_good_fit:
+                        high_fit_for_source = max(0, high_fit_for_source - 1)
+                        high_fit_total = max(0, high_fit_total - 1)
+                    if top_watch_candidate is not None and str(top_watch_candidate.get("source_ref") or "").strip() == source_ref:
+                        top_watch_candidate = None
+                    _report(
+                        step="source_review_suppressed",
+                        message=f"Suppressed candidate after review gate for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                    )
+                    continue
 
                 if notify_telegram and is_good_fit:
                     pending_telegram_notifications.append(

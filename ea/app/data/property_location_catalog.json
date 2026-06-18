@@ -1,4 +1,127 @@
 {
+  "AT": {
+    "regions": [
+      {"value": "austria", "label": "All Austria", "detail": "Country-wide search"},
+      {"value": "vienna", "label": "Vienna", "detail": "Vienna districts and common district aliases"},
+      {"value": "lower_austria", "label": "Lower Austria", "detail": "Niederösterreich"},
+      {"value": "upper_austria", "label": "Upper Austria", "detail": "Oberösterreich"},
+      {"value": "styria", "label": "Styria", "detail": "Steiermark"},
+      {"value": "salzburg", "label": "Salzburg", "detail": "Salzburg city and state"},
+      {"value": "tyrol", "label": "Tyrol", "detail": "Tirol"},
+      {"value": "carinthia", "label": "Carinthia", "detail": "Kärnten"},
+      {"value": "vorarlberg", "label": "Vorarlberg", "detail": "Vorarlberg"},
+      {"value": "burgenland", "label": "Burgenland", "detail": "Burgenland"}
+    ],
+    "locations": {
+      "austria": [
+        {"value": "Austria", "label": "All Austria", "detail": "Country-wide"},
+        {"value": "Wien", "label": "Vienna", "detail": "Capital city"},
+        {"value": "Graz", "label": "Graz", "detail": "Styria"},
+        {"value": "Linz", "label": "Linz", "detail": "Upper Austria"},
+        {"value": "Salzburg", "label": "Salzburg", "detail": "Salzburg"},
+        {"value": "Innsbruck", "label": "Innsbruck", "detail": "Tyrol"},
+        {"value": "Klagenfurt", "label": "Klagenfurt", "detail": "Carinthia"},
+        {"value": "Villach", "label": "Villach", "detail": "Carinthia"},
+        {"value": "Wels", "label": "Wels", "detail": "Upper Austria"},
+        {"value": "Steyr", "label": "Steyr", "detail": "Upper Austria"},
+        {"value": "Gmunden", "label": "Gmunden", "detail": "Upper Austria"},
+        {"value": "Schärding", "label": "Schärding", "detail": "Upper Austria"},
+        {"value": "Schaerding", "label": "Schaerding", "detail": "Upper Austria"},
+        {"value": "Klosterneuburg", "label": "Klosterneuburg", "detail": "Lower Austria"},
+        {"value": "Mödling", "label": "Mödling", "detail": "Lower Austria"},
+        {"value": "Moedling", "label": "Moedling", "detail": "Lower Austria"},
+        {"value": "Baden", "label": "Baden", "detail": "Lower Austria"},
+        {"value": "Krems", "label": "Krems", "detail": "Lower Austria"},
+        {"value": "Hollabrunn", "label": "Hollabrunn", "detail": "Lower Austria"},
+        {"value": "St. Pölten", "label": "St. Pölten", "detail": "Lower Austria"},
+        {"value": "Sankt Pölten", "label": "Sankt Pölten", "detail": "Lower Austria"},
+        {"value": "Wiener Neustadt", "label": "Wiener Neustadt", "detail": "Lower Austria"},
+        {"value": "Jagerberg", "label": "Jagerberg", "detail": "Styria"},
+        {"value": "Jägerberg", "label": "Jägerberg", "detail": "Styria"},
+        {"value": "Natters", "label": "Natters", "detail": "Tyrol"}
+      ],
+      "vienna": [
+        {"value": "1010 Vienna", "label": "Innere Stadt", "detail": "1st district"},
+        {"value": "1020 Vienna", "label": "Leopoldstadt", "detail": "2nd district"},
+        {"value": "Praterstraße", "label": "Praterstraße", "detail": "1020 Vienna"},
+        {"value": "Praterstrasse", "label": "Praterstrasse", "detail": "1020 Vienna"},
+        {"value": "Prater", "label": "Prater", "detail": "1020 Vienna"},
+        {"value": "1030 Vienna", "label": "Landstraße", "detail": "3rd district"},
+        {"value": "1040 Vienna", "label": "Wieden", "detail": "4th district"},
+        {"value": "1050 Vienna", "label": "Margareten", "detail": "5th district"},
+        {"value": "1060 Vienna", "label": "Mariahilf", "detail": "6th district"},
+        {"value": "1070 Vienna", "label": "Neubau", "detail": "7th district"},
+        {"value": "1080 Vienna", "label": "Josefstadt", "detail": "8th district"},
+        {"value": "1090 Vienna", "label": "Alsergrund", "detail": "9th district"},
+        {"value": "1100 Vienna", "label": "Favoriten", "detail": "10th district"},
+        {"value": "1110 Vienna", "label": "Simmering", "detail": "11th district"},
+        {"value": "1120 Vienna", "label": "Meidling", "detail": "12th district"},
+        {"value": "1130 Vienna", "label": "Hietzing", "detail": "13th district"},
+        {"value": "1140 Vienna", "label": "Penzing", "detail": "14th district"},
+        {"value": "Hütteldorf", "label": "Hütteldorf", "detail": "1140 Vienna"},
+        {"value": "Huetteldorf", "label": "Huetteldorf", "detail": "1140 Vienna"},
+        {"value": "1150 Vienna", "label": "Rudolfsheim-Fünfhaus", "detail": "15th district"},
+        {"value": "Rudolfsheim", "label": "Rudolfsheim", "detail": "1150 Vienna"},
+        {"value": "Fünfhaus", "label": "Fünfhaus", "detail": "1150 Vienna"},
+        {"value": "Fuenfhaus", "label": "Fuenfhaus", "detail": "1150 Vienna"},
+        {"value": "1160 Vienna", "label": "Ottakring", "detail": "16th district"},
+        {"value": "1170 Vienna", "label": "Hernals", "detail": "17th district"},
+        {"value": "1180 Vienna", "label": "Währing", "detail": "18th district"},
+        {"value": "Waehring", "label": "Waehring", "detail": "18th district"},
+        {"value": "1190 Vienna", "label": "Döbling", "detail": "19th district"},
+        {"value": "Doebling", "label": "Doebling", "detail": "19th district"},
+        {"value": "1200 Vienna", "label": "Brigittenau", "detail": "20th district"},
+        {"value": "1210 Vienna", "label": "Floridsdorf", "detail": "21st district"},
+        {"value": "1220 Vienna", "label": "Donaustadt", "detail": "22nd district"},
+        {"value": "Aspern", "label": "Aspern", "detail": "1220 Vienna"},
+        {"value": "Kaisermühlen", "label": "Kaisermühlen", "detail": "1220 Vienna"},
+        {"value": "Kaisermuehlen", "label": "Kaisermuehlen", "detail": "1220 Vienna"},
+        {"value": "1230 Vienna", "label": "Liesing", "detail": "23rd district"}
+      ],
+      "upper_austria": [
+        {"value": "Linz", "label": "Linz", "detail": "Upper Austria"},
+        {"value": "Wels", "label": "Wels", "detail": "Upper Austria"},
+        {"value": "Steyr", "label": "Steyr", "detail": "Upper Austria"},
+        {"value": "Gmunden", "label": "Gmunden", "detail": "Upper Austria"},
+        {"value": "Schärding", "label": "Schärding", "detail": "Upper Austria"},
+        {"value": "Schaerding", "label": "Schaerding", "detail": "Upper Austria"}
+      ],
+      "lower_austria": [
+        {"value": "St. Pölten", "label": "St. Pölten", "detail": "Lower Austria"},
+        {"value": "Sankt Pölten", "label": "Sankt Pölten", "detail": "Lower Austria"},
+        {"value": "Klosterneuburg", "label": "Klosterneuburg", "detail": "Lower Austria"},
+        {"value": "Mödling", "label": "Mödling", "detail": "Lower Austria"},
+        {"value": "Moedling", "label": "Moedling", "detail": "Lower Austria"},
+        {"value": "Baden", "label": "Baden", "detail": "Lower Austria"},
+        {"value": "Krems", "label": "Krems", "detail": "Lower Austria"},
+        {"value": "Hollabrunn", "label": "Hollabrunn", "detail": "Lower Austria"},
+        {"value": "Wiener Neustadt", "label": "Wiener Neustadt", "detail": "Lower Austria"}
+      ],
+      "styria": [
+        {"value": "Graz", "label": "Graz", "detail": "Styria"},
+        {"value": "Jagerberg", "label": "Jagerberg", "detail": "Styria"},
+        {"value": "Jägerberg", "label": "Jägerberg", "detail": "Styria"}
+      ],
+      "salzburg": [
+        {"value": "Salzburg", "label": "Salzburg", "detail": "Salzburg"}
+      ],
+      "tyrol": [
+        {"value": "Innsbruck", "label": "Innsbruck", "detail": "Tyrol"},
+        {"value": "Natters", "label": "Natters", "detail": "Tyrol"}
+      ],
+      "carinthia": [
+        {"value": "Klagenfurt", "label": "Klagenfurt", "detail": "Carinthia"},
+        {"value": "Villach", "label": "Villach", "detail": "Carinthia"}
+      ],
+      "vorarlberg": [
+        {"value": "Bregenz", "label": "Bregenz", "detail": "Vorarlberg"},
+        {"value": "Dornbirn", "label": "Dornbirn", "detail": "Vorarlberg"}
+      ],
+      "burgenland": [
+        {"value": "Eisenstadt", "label": "Eisenstadt", "detail": "Burgenland"}
+      ]
+    }
+  },
   "CR": {
     "regions": [
       {"value": "costa_rica", "label": "All Costa Rica", "detail": "Country-wide search"},

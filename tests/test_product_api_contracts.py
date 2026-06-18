@@ -4508,6 +4508,100 @@ def test_property_scout_rejects_unselected_vienna_districts_before_review_packet
     assert assessed == []
 
 
+def test_property_scout_suppressed_review_gate_does_not_leak_into_ranked_candidates(monkeypatch) -> None:
+    principal_id = "cf-email:suppressed-review-gate.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Review Gate Office")
+    candidate_url = "https://generic-provider.example/listing/1010-valid"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://generic-provider.example/search?q=1010+Vienna",
+                "label": "Generic Provider | Austria | Rent | 1010 Vienna",
+                "platform": "derstandard_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "inner-city-1010",
+            "title": "Innere Stadt apartment, 1010 Wien",
+            "summary": "Valid provider card that passes the first search filters.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 72.0,
+                "postal_name": "1010 Wien",
+                "rent_display": "EUR 1.450",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("suppressed review candidates must not notify Telegram"),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: {"status": "suppressed", "reason": "property_location_conflicts_with_active_search"},
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 95.0,
+            "confidence": 0.9,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Hard filters passed."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_area_m2": 60,
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["review_created_total"] == 0
+    assert result["high_fit_total"] == 0
+    assert result["notified_total"] == 0
+    assert result["ranked_candidates"] == []
+    assert result["sources"][0]["top_candidates"] == []
+    assert result["sources"][0]["research_candidates"] == []
+
+
 def test_property_scout_min_area_keeps_unknown_area_for_scoring(monkeypatch) -> None:
     principal_id = "cf-email:min-area-unknown.search@example.com"
     client = build_product_client(principal_id=principal_id)

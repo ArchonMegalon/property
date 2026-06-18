@@ -1214,6 +1214,45 @@ def test_property_search_location_matching_rejects_non_vienna_title_even_with_vi
     ) is False
 
 
+def test_property_search_location_matching_rejects_catalog_alias_conflict_before_source_scope() -> None:
+    hints = _property_search_location_hints(
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+        }
+    )
+
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://familienwohnbau.at/wohnen-naehe-u4-huetteldorf",
+        title="WOHNEN NÄHE U4 HÜTTELDORF | Familienwohnbau",
+        summary="Provider result page was queried from a selected 1010 source scope.",
+        property_facts={
+            "source_scope_location": "1010 Vienna",
+            "source_city": "Vienna",
+            "country_code": "AT",
+            "region_code": "vienna",
+        },
+        country_code="AT",
+        region_code="vienna",
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://example.test/1010-inner-city",
+        title="Innere Stadt apartment, 1010 Wien",
+        summary="Sparse provider card.",
+        property_facts={
+            "source_scope_location": "1010 Vienna",
+            "source_city": "Vienna",
+            "country_code": "AT",
+            "region_code": "vienna",
+        },
+        country_code="AT",
+        region_code="vienna",
+    ) is True
+
+
 def test_property_search_location_hints_ignore_broad_austria_scope() -> None:
     assert _property_search_location_hints({"location_query": "Österreich"}) == ()
     assert _property_search_location_hints({"location_query": "All Austria"}) == ()
