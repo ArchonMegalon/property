@@ -4301,6 +4301,64 @@ def test_property_search_runs_can_be_cleared_for_current_principal_only() -> Non
             product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
 
 
+def test_property_search_runs_are_saved_until_user_deletes_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS", raising=False)
+    run_id = "retained-old-run"
+    principal_id = "exec-property-search-run-retained"
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    old_record = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT"},
+        force_refresh=False,
+    )
+    old_record["created_at"] = old_timestamp
+    old_record["updated_at"] = old_timestamp
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = old_record
+    try:
+        product_service._prune_property_search_runs()
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            assert run_id in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+
+def test_property_search_run_retention_env_allows_explicit_admin_pruning(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS", "60")
+    run_id = "explicit-retention-old-run"
+    principal_id = "exec-property-search-run-explicit-retention"
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    old_record = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT"},
+        force_refresh=False,
+    )
+    old_record["created_at"] = old_timestamp
+    old_record["updated_at"] = old_timestamp
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = old_record
+    try:
+        product_service._prune_property_search_runs()
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            assert run_id not in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
+
+
 def test_property_provider_catalog_generates_remax_austria_sources() -> None:
     rows = property_market_catalog.generated_source_specs(
         preferences={

@@ -12,7 +12,7 @@ from pathlib import Path
 from uuid import uuid4
 
 
-_PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
+_PROPERTY_SEARCH_RUN_TTL_SECONDS = 0
 _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
 
@@ -234,8 +234,11 @@ def _list_property_search_run_records(
 def _prune_property_search_run_records() -> None:
     if not _property_search_run_database_url():
         return
+    retention_seconds = _property_search_run_retention_seconds()
+    if retention_seconds <= 0:
+        return
     _ensure_property_search_run_schema()
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_PROPERTY_SEARCH_RUN_TTL_SECONDS)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=retention_seconds)).isoformat()
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM property_search_runs WHERE updated_at < %s", (cutoff,))
@@ -266,6 +269,17 @@ def _delete_property_search_run_record(
                 (normalized_run_id, normalized_principal_id),
             )
             return bool(cur.rowcount)
+
+
+def _property_search_run_retention_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS") or "").strip()
+    if not raw_value:
+        return _PROPERTY_SEARCH_RUN_TTL_SECONDS
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return _PROPERTY_SEARCH_RUN_TTL_SECONDS
+    return max(0, min(parsed, 10 * 365 * 24 * 60 * 60))
 
 
 def _property_source_listing_cache_ttl_seconds() -> int:

@@ -91,6 +91,57 @@ def _writer_neuronwriter(payload: dict[str, object]) -> dict[str, object]:
     return dict(writer.get("neuronwriter") or {}) if isinstance(writer.get("neuronwriter"), dict) else {}
 
 
+def _appendix_research_lines(
+    *,
+    source: dict[str, object],
+    redacted_payload: dict[str, object],
+    facts: dict[str, object],
+    editorial_sections: list[dict[str, object]],
+    risk_register: list[str],
+) -> list[str]:
+    rows: list[str] = []
+    for section in editorial_sections[:4]:
+        body = str(section.get("body") or "").strip()
+        if body:
+            rows.append(body)
+        for bullet in _safe_lines(section.get("bullets"), limit=2):
+            rows.append(bullet)
+        if len(rows) >= 8:
+            break
+
+    fact_sources: list[dict[str, object]] = [facts]
+    for payload in (redacted_payload, source):
+        if isinstance(payload.get("property_facts_json"), dict):
+            fact_sources.append(dict(payload.get("property_facts_json") or {}))
+        if isinstance(payload.get("facts"), dict):
+            fact_sources.append(dict(payload.get("facts") or {}))
+    for fact_source in fact_sources:
+        missing_research = dict(fact_source.get("missing_fact_research") or {}) if isinstance(fact_source.get("missing_fact_research"), dict) else {}
+        for item in list(missing_research.get("items") or [])[:3]:
+            if not isinstance(item, dict):
+                continue
+            row = " - ".join(
+                part
+                for part in (
+                    str(item.get("label") or item.get("field") or "Research item").strip(),
+                    str(item.get("status") or "").strip().replace("_", " "),
+                    str(item.get("evidence") or item.get("display_value") or "").strip(),
+                )
+                if part
+            )
+            if row:
+                rows.append(row)
+        if len(rows) >= 8:
+            break
+
+    if not rows:
+        rows.extend(risk_register[:4])
+    deduped = list(dict.fromkeys([row for row in rows if str(row or "").strip()]))
+    return deduped[:8] or [
+        "Deep research did not expose a decisive additional fact yet; verify operating costs, floorplan logic, and legal or energy documents manually."
+    ]
+
+
 def _visual_story(payload: dict[str, object], *, photo_refs: list[str], floorplan_refs: list[str]) -> dict[str, object]:
     magic_fit_scene = dict(payload.get("magic_fit_scene") or {}) if isinstance(payload.get("magic_fit_scene"), dict) else {}
     diorama_scene = dict(payload.get("diorama_scene") or {}) if isinstance(payload.get("diorama_scene"), dict) else {}
@@ -230,6 +281,7 @@ def compile_premium_dossier(
         *_property_narrative(redacted_payload),
     ]
     property_narrative = list(dict.fromkeys([line for line in property_narrative if line]))[:5]
+    appendix_mode = str(redacted_payload.get("appendix_mode") or source.get("appendix_mode") or "").strip().lower()
     return PremiumDossierCompileResult(
         title=title,
         recommended_title=recommended_title,
@@ -272,5 +324,16 @@ def compile_premium_dossier(
         neuronwriter_reason=str(neuronwriter.get("reason") or "").strip(),
         neuronwriter_share_url=str(neuronwriter.get("share_url") or neuronwriter.get("readonly_url") or "").strip(),
         neuronwriter_questions=_safe_lines(neuronwriter.get("questions"), limit=5),
+        appendix_mode=appendix_mode,
+        source_pdf_filename=str(redacted_payload.get("source_pdf_filename") or source.get("source_pdf_filename") or "").strip(),
+        appendix_research_lines=_appendix_research_lines(
+            source=source,
+            redacted_payload=redacted_payload,
+            facts=facts,
+            editorial_sections=editorial_sections,
+            risk_register=risk_register,
+        )
+        if appendix_mode.endswith("appendix")
+        else [],
         renderer_version=renderer_version,
     )

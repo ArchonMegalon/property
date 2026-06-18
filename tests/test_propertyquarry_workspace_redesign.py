@@ -2333,7 +2333,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-pqx-load-what-matters' in setup.text
     assert ">Strategy<" not in setup.text
     assert 'data-property-field-step="areas"' not in setup.text
-    assert 'data-property-field-step="children" data-property-field-name="investment_require_floorplan"' in setup.text
+    assert 'data-property-field-step="what" data-property-field-name="investment_require_floorplan"' in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
     assert 'name="max_distance_to_library_importance"' in setup.text
     assert 'name="max_distance_to_playground_importance"' in setup.text
@@ -4229,7 +4229,7 @@ def test_propertyquarry_workspace_exposes_investment_goal_and_guardrails() -> No
     assert "min_dscr: investmentResearchEnabled" in brief_script
     assert "const searchGoalField = form.querySelector('select[name=\"search_goal\"]');" in workbench_script
     assert "{ label: 'What', detail: 'Property type, budget, size, and move-in guardrails.' }" in workbench_script
-    assert "form.dataset.propertyExcludedSteps = 'what,children,reachability';" in workbench_script
+    assert "form.dataset.propertyExcludedSteps = 'children,reachability';" in workbench_script
     assert "form.dataset.propertyExcludedSteps = 'areas';" in workbench_script
     assert "const isSearchStep = !activeStep || activeStep === 'search' || activeStep === 'areas';" in workbench_script
     assert "const setConditionalWrapVisibility = (wrap, visible, reason" in workbench_script
@@ -4584,7 +4584,7 @@ def test_propertyquarry_workspace_hides_preference_profile_when_stored_feedback_
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
     assert 'data-property-field-name="use_stored_feedback_preferences"' in search.text
-    assert 'data-property-field-name="preference_person_id" hidden' in search.text
+    assert re.search(r'data-property-field-name="preference_person_id"[^>]*hidden', search.text)
 
 
 def test_propertyquarry_brief_script_declares_preference_person_before_payload_use() -> None:
@@ -4768,8 +4768,8 @@ def test_propertyquarry_workspace_hides_distance_importance_controls_without_dis
 
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
-    assert 'data-property-field-name="max_distance_to_library_importance" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_supermarket_importance" hidden' in search.text
+    assert re.search(r'data-property-field-name="max_distance_to_library_importance"[^>]*hidden', search.text)
+    assert re.search(r'data-property-field-name="max_distance_to_supermarket_importance"[^>]*hidden', search.text)
 
 
 def test_propertyquarry_workspace_setup_stays_user_facing(monkeypatch) -> None:

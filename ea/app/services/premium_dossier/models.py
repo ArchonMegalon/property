@@ -60,6 +60,9 @@ class PremiumDossierCompileResult:
     neuronwriter_reason: str = ""
     neuronwriter_share_url: str = ""
     neuronwriter_questions: list[str] = field(default_factory=list)
+    appendix_mode: str = ""
+    source_pdf_filename: str = ""
+    appendix_research_lines: list[str] = field(default_factory=list)
     renderer_version: str = ""
 
 

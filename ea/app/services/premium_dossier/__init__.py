@@ -94,6 +94,9 @@ def render_property_packet_pdf_via_premium_pipeline(
     )
     private_reference_media_included = _payload_has_private_reference_media(source) or _payload_has_private_reference_media(redaction.payload)
     html = render_premium_dossier_html(compiled, principal_id=principal_id)
+    expected_text = ["PropertyQuarry", compiled.title]
+    if normalized_appendix_mode.endswith("appendix"):
+        expected_text.extend(["Viewing Appendix", "Deep research results"])
     request = PremiumDossierRenderRequest(
         dossier_id=publication_id,
         renderer_version=PREMIUM_DOSSIER_RENDERER_VERSION,
@@ -107,7 +110,7 @@ def render_property_packet_pdf_via_premium_pipeline(
             "require_footer_band": True,
             "forbid_raw_url_text": True,
         },
-        expected_text=["PropertyQuarry", compiled.title],
+        expected_text=expected_text,
         forbidden_text=["principal_id", "token", "session", "cookie"],
     )
     render_result: PremiumDossierRenderResult | None = None
@@ -224,6 +227,7 @@ def render_property_packet_pdf_via_premium_pipeline(
         },
         "text_manifest_path": str(text_manifest_path) if text_manifest else "",
         "private_reference_media_included": private_reference_media_included,
+        "appendix_mode": normalized_appendix_mode,
         "redaction_policy_version": REDACTION_POLICY_VERSION,
         "premium_render_failures": render_failures[:5],
     }

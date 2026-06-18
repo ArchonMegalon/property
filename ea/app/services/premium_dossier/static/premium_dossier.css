@@ -187,6 +187,34 @@ ul {
   margin-bottom: 2mm;
 }
 
+.appendix-kicker,
+.appendix-label,
+.appendix-subheading {
+  font-family: "Segoe UI", Arial, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.appendix-kicker {
+  color: var(--gold);
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 5mm;
+}
+
+.appendix-label {
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 650;
+  margin-bottom: 2mm;
+}
+
+.appendix-subheading {
+  color: var(--forest);
+  font-size: 13px;
+  margin-bottom: 3mm;
+}
+
 .decision-pills {
   display: flex;
   flex-wrap: wrap;

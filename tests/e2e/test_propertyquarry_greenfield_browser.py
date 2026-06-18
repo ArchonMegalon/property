@@ -1713,11 +1713,14 @@ def test_propertyquarry_start_failure_explains_backend_reason(
         page.select_option('select[name="country_code"]', "AT")
         page.get_by_role("button", name="Select all areas", exact=True).click()
         page.locator('[data-property-step-trigger="providers"]').click()
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        expect(page.locator('[data-console-form-variant="property_search"]')).to_have_attribute(
+            "data-property-active-step",
+            "providers",
+        )
         page.locator("[data-property-start]").click()
-        page.wait_for_function("document.querySelector('[data-property-inline-error]')?.textContent.includes('Upgrade required for this run')")
-        assert page.locator("[data-property-inline-error]", has_text="Upgrade required for this run").is_visible()
-        assert page.locator("[data-property-inline-error]", has_text="plus plan").is_visible()
+        inline_error = page.locator("[data-property-inline-error]")
+        expect(inline_error).to_contain_text("Upgrade required for this run")
+        expect(inline_error).to_contain_text("plus plan")
     finally:
         context.close()
 

@@ -583,7 +583,7 @@ _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS = (
     "justimmo.at",
     "immobilien.derstandard.at",
 )
-_PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
+_PROPERTY_SEARCH_RUN_TTL_SECONDS = 0
 _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
@@ -933,6 +933,17 @@ def _property_discovery_soft_distance_penalty(*, requested_limit_m: float, actua
 
 def _property_search_run_expired(at_iso: str, *, ttl_seconds: int = _PROPERTY_SEARCH_RUN_TTL_SECONDS) -> bool:
     return _state_property_search_run_expired(at_iso, ttl_seconds=ttl_seconds, parse_utcish=_parse_utcish)
+
+
+def _property_search_run_retention_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS") or "").strip()
+    if not raw_value:
+        return _PROPERTY_SEARCH_RUN_TTL_SECONDS
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return _PROPERTY_SEARCH_RUN_TTL_SECONDS
+    return max(0, min(parsed, 10 * 365 * 24 * 60 * 60))
 
 
 def _property_search_run_stale_seconds() -> int:
@@ -2148,11 +2159,13 @@ def _new_property_search_run_record(
 
 
 def _prune_property_search_runs() -> None:
+    retention_seconds = _property_search_run_retention_seconds()
     with _PROPERTY_SEARCH_RUN_LOCK:
         expired = [
             run_id
             for run_id, state in list(_PROPERTY_SEARCH_RUN_REGISTRY.items())
-            if _property_search_run_expired(str(state.get("updated_at") or state.get("created_at") or ""), ttl_seconds=_PROPERTY_SEARCH_RUN_TTL_SECONDS)
+            if retention_seconds > 0
+            and _property_search_run_expired(str(state.get("updated_at") or state.get("created_at") or ""), ttl_seconds=retention_seconds)
         ]
         for run_id in expired:
             _PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)

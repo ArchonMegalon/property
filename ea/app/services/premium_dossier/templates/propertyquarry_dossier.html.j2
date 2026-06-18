@@ -25,6 +25,64 @@
       </div>
     </section>
 
+    {% if dossier.appendix_mode %}
+    <section class="page">
+      <div class="page-inner">
+        <div class="appendix-kicker">Viewing Appendix</div>
+        <div class="decision-grid">
+          <div class="decision-panel">
+            <div class="appendix-label">
+              {% if dossier.source_pdf_filename %}
+              Appendix to uploaded PDF: {{ dossier.source_pdf_filename }}
+              {% else %}
+              Appendix to uploaded property PDF
+              {% endif %}
+            </div>
+            <h2>{{ dossier.title }}</h2>
+            {% if dossier.property_narrative %}
+            {% for line in dossier.property_narrative[:2] %}
+            <p class="decision-copy">{{ line }}</p>
+            {% endfor %}
+            {% else %}
+            <p class="decision-copy">PropertyQuarry reviewed the uploaded source PDF and generated the decision, research, and media follow-up artifacts.</p>
+            {% endif %}
+            <div class="decision-pills">
+              <span class="pill">{{ dossier.privacy_mode.value.replace('_', ' ') }}</span>
+              {% if dossier.confidence_label %}<span class="pill">Confidence · {{ dossier.confidence_label }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="action-rail">
+            <div class="action-copy">
+              <h3>Artifact links</h3>
+              <p>Use these actions to inspect the live visual layer and continue the owner review without exposing raw source internals.</p>
+            </div>
+            {% if dossier.tour_url %}<a class="cta" href="{{ dossier.tour_url }}">Open 3D control</a>{% endif %}
+            {% if dossier.flythrough_url %}<a class="cta cta-secondary" href="{{ dossier.flythrough_url }}">Play fly-through</a>{% endif %}
+            {% if dossier.review_url %}<a class="cta cta-secondary" href="{{ dossier.review_url }}">Open dossier</a>{% endif %}
+          </div>
+        </div>
+        <div class="two-col" style="margin-top:28px;">
+          <div class="panel">
+            <h3 class="appendix-subheading">Deep research results</h3>
+            <ul>
+              {% for line in dossier.appendix_research_lines[:6] %}
+              <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="panel">
+            <h3 class="appendix-subheading">Most useful next checks</h3>
+            <ul>
+              {% for line in dossier.agent_questions[:4] %}
+              <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+    {% else %}
+
     <section class="page">
       <div class="page-inner">
         <div class="section-kicker">Executive decision</div>
@@ -367,5 +425,6 @@
         <p class="legal">This packet supports decision-making and does not replace legal, technical, surveying, tax, or investment advice.</p>
       </div>
     </section>
+    {% endif %}
   </body>
-  </html>
+</html>

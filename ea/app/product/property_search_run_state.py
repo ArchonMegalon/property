@@ -11,6 +11,8 @@ def property_search_run_expired(
     ttl_seconds: int,
     parse_utcish: Callable[[str], datetime | None],
 ) -> bool:
+    if int(ttl_seconds or 0) <= 0:
+        return False
     parsed = parse_utcish(at_iso)
     if parsed is None:
         return True

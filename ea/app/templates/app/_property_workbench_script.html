@@ -1998,7 +1998,7 @@
           setConditionalWrapVisibility(wrap, investmentResearchEnabled && activeStep === 'search', 'investment_research', { disableFieldset: true });
         });
         investmentGuardrailWraps.forEach((wrap) => {
-          setConditionalWrapVisibility(wrap, investmentResearchEnabled && activeStep === 'areas', 'investment_research', { disableFieldset: true });
+          setConditionalWrapVisibility(wrap, investmentResearchEnabled && activeStep === 'what', 'investment_research', { disableFieldset: true });
         });
         rentOnlyProviderPolicyWraps.forEach((wrap) => {
           setConditionalWrapVisibility(wrap, rentMode && activeStep === 'providers', 'listing_mode');
@@ -2041,7 +2041,7 @@
           if (commuteResearchField) commuteResearchField.checked = false;
           const lifestyleField = form.querySelector('input[name="enable_lifestyle_research"]');
           if (lifestyleField) lifestyleField.checked = false;
-          form.dataset.propertyExcludedSteps = 'what,children,reachability';
+          form.dataset.propertyExcludedSteps = 'children,reachability';
         } else {
           if (investmentField) investmentField.value = 'off';
           form.dataset.propertyExcludedSteps = 'areas';
