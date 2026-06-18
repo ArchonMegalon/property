@@ -161,6 +161,33 @@ def test_propertyquarry_search_surface_prewarm_touches_templates_and_catalogs(mo
     landing_routes._property_country_catalog_snapshot_json.cache_clear()
 
 
+def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
+    client = build_property_client(principal_id="exec-property-usage-copy")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    page = client.get("/app/settings/usage")
+
+    assert page.status_code == 200
+    assert "Usage and activation" in page.text
+    assert "Search runs, provider coverage, ranked homes, filtered homes" in page.text
+    assert "Property usage" in page.text
+    assert "Ranked homes" in page.text
+    assert "Provider sources checked" in page.text
+    forbidden_copy = (
+        "Current office loop",
+        "Queue pressure, memo activity",
+        "operator load",
+        "Memo items",
+        "Commitments",
+        "Handoffs",
+        "Draft approvals granted",
+        "Commitment closed",
+        "Memo open rate",
+    )
+    for marker in forbidden_copy:
+        assert marker not in page.text
+
+
 def test_propertyquarry_search_shell_prewarm_builds_search_payload(monkeypatch) -> None:
     calls: list[tuple[str, object]] = []
 

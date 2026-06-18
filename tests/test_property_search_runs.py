@@ -2002,6 +2002,80 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match
     assert diagnostics["location_hints"] == ["1010 Vienna"]
 
 
+def test_property_scout_hit_email_suppresses_source_scope_only_exact_area_match(monkeypatch) -> None:
+    principal_id = "cf-email:source-scope-email-gate@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Source Scope Email Gate")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: pytest.fail("source-scope-only mismatches must not send email"),
+    )
+
+    title = "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse"
+    summary = "Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben."
+    result = service._send_property_scout_hit_email(
+        principal_id=principal_id,
+        actor="test",
+        title=title,
+        summary=summary,
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+        source_ref="property-scout:willhaben-salzburg-dirty-scope-email",
+        assessment={"fit_score": 54.0, "recommendation": "review"},
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+                "listing_title": title,
+                "summary": summary,
+                "source_platform": "willhaben",
+                "source_family": "core_portal",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "€ 1.190",
+                },
+            },
+        ),
+        requested_location_hints=("1010 Vienna",),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+    assert diagnostics["location_hints"] == ["1010 Vienna"]
+
+
 def test_property_scout_hit_sender_suppresses_generic_pages_missing_concrete_facts(monkeypatch) -> None:
     principal_id = "exec-property-hit-generic-gate"
     client = build_property_client(principal_id=principal_id)

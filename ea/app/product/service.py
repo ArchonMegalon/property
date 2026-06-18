@@ -31364,7 +31364,11 @@ class ProductService:
                     assessment=assessment,
                     review_url=str(opened.get("editor_url") or "").strip(),
                     tour_result=tour_result,
+                    candidate_properties=candidate_properties,
                     render_dossier=False,
+                    requested_location_hints=location_hints,
+                    requested_country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                    requested_region_code=str(request_preferences.get("region_code") or "").strip(),
                 ) if is_good_fit else {"status": "suppressed", "reason": "not_good_fit"}
                 if str(email_notify_result.get("status") or "").strip() == "sent":
                     email_notified_for_source += 1
@@ -36149,8 +36153,169 @@ class ProductService:
         assessment: dict[str, object] | None,
         review_url: str = "",
         tour_result: dict[str, object] | None = None,
+        candidate_properties: tuple[dict[str, object], ...] = (),
         render_dossier: bool = True,
+        requested_location_hints: tuple[str, ...] = (),
+        requested_country_code: str = "",
+        requested_region_code: str = "",
     ) -> dict[str, object]:
+        current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        location_hints = tuple(
+            str(item or "").strip()
+            for item in list(requested_location_hints or ())
+            if str(item or "").strip()
+        ) or _property_search_location_hints(current_preferences)
+        search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
+        listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
+        first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        candidate_facts = (
+            dict(first_candidate.get("property_facts_json") or {})
+            if isinstance(first_candidate.get("property_facts_json"), dict)
+            else dict(first_candidate.get("property_facts") or {})
+            if isinstance(first_candidate.get("property_facts"), dict)
+            else {}
+        )
+        candidate_property_url = str(first_candidate.get("property_url") or property_url or "").strip()
+        candidate_title = str(first_candidate.get("listing_title") or first_candidate.get("title") or title or "").strip()
+        candidate_summary = str(first_candidate.get("summary") or first_candidate.get("fit_summary") or summary or "").strip()
+        candidate_facts = _property_facts_with_source_scope(
+            facts=candidate_facts,
+            source_url=candidate_property_url or property_url,
+            source_label=str(counterparty or source_ref or "").strip(),
+        )
+        candidate_facts = _property_enrich_facts_from_listing_text(
+            facts=candidate_facts,
+            title=candidate_title,
+            summary=candidate_summary,
+            listing_mode=listing_mode,
+        )
+        suppression_reason = ""
+        repair_filter_key = ""
+        candidate_listing_postal_codes = _property_listing_observed_postal_codes(
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        )
+        candidate_semantic_probe_available = any(
+            str(candidate_facts.get(key) or "").strip()
+            for key in (
+                "postal_name",
+                "district",
+                "location",
+                "street_address",
+                "exact_address",
+                "price_display",
+                "purchase_price_display",
+                "rent_display",
+                "total_rent_display",
+                "price_eur",
+                "purchase_price_eur",
+                "rent_eur",
+                "total_rent_eur",
+                "buy_price_eur",
+            )
+        )
+        candidate_price_probe_available = any(
+            key in candidate_facts
+            for key in (
+                "price_display",
+                "purchase_price_display",
+                "rent_display",
+                "total_rent_display",
+                "price_eur",
+                "purchase_price_eur",
+                "rent_eur",
+                "total_rent_eur",
+                "buy_price_eur",
+            )
+        )
+        candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
+        candidate_location_mismatch = bool(
+            (candidate_semantic_probe_available or candidate_listing_postal_codes)
+            and location_hints
+            and not _property_candidate_matches_requested_location(
+                location_hints=location_hints,
+                property_url=candidate_property_url,
+                title=candidate_title,
+                summary=candidate_summary,
+                property_facts=candidate_facts,
+                country_code=str(requested_country_code or current_preferences.get("country_code") or "").strip(),
+                region_code=str(requested_region_code or current_preferences.get("region_code") or "").strip(),
+            )
+        )
+        if candidate_location_mismatch and candidate_has_listing_location_probe:
+            suppression_reason = "property_location_conflicts_with_active_search"
+            repair_filter_key = "location_scope"
+        elif _property_candidate_is_generic_listing_page(
+            property_url=candidate_property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        ):
+            suppression_reason = "property_generic_listing_page"
+            repair_filter_key = "missing_price"
+        elif candidate_location_mismatch:
+            suppression_reason = "property_location_conflicts_with_active_search"
+            repair_filter_key = "location_scope"
+        elif candidate_semantic_probe_available and not _property_candidate_has_concrete_location(candidate_facts):
+            suppression_reason = "property_missing_concrete_location"
+            repair_filter_key = "missing_location"
+        elif candidate_semantic_probe_available and candidate_price_probe_available and not _property_candidate_notification_price_signal(
+            candidate_facts,
+            listing_mode=listing_mode,
+            title=candidate_title,
+        ):
+            suppression_reason = "property_missing_concrete_price"
+            repair_filter_key = "missing_price"
+        if suppression_reason:
+            repair_task = self._open_property_provider_repair_task(
+                principal_id=principal_id,
+                property_url=candidate_property_url or property_url,
+                title=candidate_title or title or property_url,
+                source_url=candidate_property_url or property_url,
+                source_label=source_ref or counterparty or "Property scout",
+                source_platform=str(first_candidate.get("source_platform") or "").strip(),
+                source_family=str(first_candidate.get("source_family") or "").strip(),
+                filter_key=repair_filter_key,
+                source_ref=source_ref,
+                diagnostics={
+                    "listing_id": str(first_candidate.get("listing_id") or "").strip(),
+                    "candidate_ref": str(first_candidate.get("source_ref") or source_ref or "").strip(),
+                    "expected_listing_mode": listing_mode,
+                    "location_hints": list(location_hints),
+                    "postal_name": str(candidate_facts.get("postal_name") or "").strip(),
+                    "district": str(candidate_facts.get("district") or "").strip(),
+                    "location": str(candidate_facts.get("location") or "").strip(),
+                    "street_address": str(candidate_facts.get("street_address") or "").strip(),
+                    "exact_address": str(candidate_facts.get("exact_address") or "").strip(),
+                    "price_display": str(candidate_facts.get("price_display") or candidate_facts.get("rent_display") or "").strip(),
+                    "summary": compact_text(candidate_summary, fallback="", limit=240),
+                    "title": compact_text(candidate_title, fallback="", limit=200),
+                },
+            )
+            payload = {
+                "status": "suppressed",
+                "reason": suppression_reason,
+                "property_url": candidate_property_url or property_url,
+                "source_ref": source_ref,
+                "repair_task": dict(repair_task),
+                "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_hit_email_suppressed_semantic_mismatch",
+                payload={
+                    **payload,
+                    "title": candidate_title,
+                    "summary": candidate_summary,
+                    "counterparty": str(counterparty or "").strip(),
+                    "location_hints": list(location_hints),
+                    "actor": str(actor or "").strip() or "property_scout",
+                },
+                source_id=str(source_ref or candidate_property_url or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or candidate_property_url or property_url}|{suppression_reason}|property-scout-hit-email-suppressed",
+            )
+            return payload
         recipient_email = _principal_email_hint(principal_id)
         if not recipient_email or not email_delivery_enabled():
             return {"status": "suppressed", "reason": "email_delivery_not_configured"}
