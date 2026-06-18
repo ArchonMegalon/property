@@ -91,6 +91,21 @@ def test_propertyquarry_app_surfaces_expose_account_navigation() -> None:
         assert ">Log out<" in body
 
 
+def test_propertyquarry_customer_surfaces_keep_accessibility_exit_gates() -> None:
+    public_shell = (ROOT / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
+    workbench = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    assert "a:focus-visible" in public_shell
+    assert "button:focus-visible" in public_shell
+    assert "@media (prefers-reduced-motion: reduce)" in public_shell
+    assert "@media (prefers-reduced-motion: reduce)" in workbench
+    assert 'aria-label="PropertyQuarry sections"' in workbench
+    assert 'aria-label="PropertyQuarry view mode"' in workbench
+    assert 'aria-label="Search setup"' in workbench
+    assert 'aria-label="Account navigation"' in workbench
+    assert 'aria-label="Close filtered rules"' in workbench
+
+
 def test_propertyquarry_console_shell_uses_new_property_surface_links() -> None:
     body = (ROOT / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
 

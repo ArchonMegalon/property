@@ -71,12 +71,39 @@ def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]
     normalized_payload = dict(payload or {})
     slug = str(normalized_payload.get("slug") or "").strip()
     bundle_dir = _public_tour_dir() / slug if slug else None
-    return redacted_public_tour_payload(
+    public_payload = redacted_public_tour_payload(
         normalized_payload,
         expose_asset_relpaths=True,
         url_allowed=lambda _url: False,
         bundle_dir_resolver=lambda requested_slug: bundle_dir if bundle_dir and str(requested_slug or "").strip() == slug else None,
     )
+    live_url = _safe_live_property_tour_url(
+        normalized_payload.get("source_virtual_tour_url")
+        or normalized_payload.get("source_virtual_tour_origin")
+    )
+    live_provider = _property_tour_provider_host_kind(live_url)
+    if live_provider:
+        public_payload["source_virtual_tour_url"] = live_url
+        public_payload["source_virtual_tour_origin"] = live_url
+        public_payload["panorama_source"] = str(
+            normalized_payload.get("panorama_source") or urllib.parse.urlparse(live_url).hostname or live_provider
+        ).strip()[:120]
+        if live_provider == "matterport":
+            public_payload["matterport_url"] = live_url
+            public_payload["control_mode"] = "matterport"
+        elif live_provider == "3dvista":
+            public_payload["three_d_vista_url"] = live_url
+            public_payload["control_mode"] = "3dvista"
+        if not public_payload.get("scenes"):
+            public_payload["scenes"] = [
+                {
+                    "name": "Matterport Tour" if live_provider == "matterport" else "3DVista Tour",
+                    "role": "live_360",
+                    "image_url": _matterport_thumb_url(live_url) if live_provider == "matterport" else "",
+                    "mime_type": "image/jpeg",
+                }
+            ]
+    return public_payload
 
 
 def _public_tour_private_receipt(payload: dict[str, object]) -> dict[str, object]:

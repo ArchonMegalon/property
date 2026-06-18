@@ -62,6 +62,46 @@ def test_public_tour_security_headers_allow_rybbit_assets() -> None:
     assert "https://js.clickrank.ai" in csp
 
 
+def test_propertyquarry_app_sets_default_browser_security_headers() -> None:
+    client = _client(principal_id="exec-browser-security")
+
+    response = client.get("/", headers={"host": "propertyquarry.com", "x-forwarded-proto": "https"})
+
+    assert response.status_code == 200
+    csp = response.headers["Content-Security-Policy"]
+    assert "default-src 'self'" in csp
+    assert "frame-ancestors 'self'" in csp
+    assert "https://app.rybbit.io" in csp
+    assert "https://js.clickrank.ai" in csp
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert "camera=()" in response.headers["Permissions-Policy"]
+    assert response.headers["Strict-Transport-Security"].startswith("max-age=31536000")
+
+
+def test_responses_dotenv_lookup_caches_missing_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from app.services import responses_upstream
+
+    missing_path = tmp_path / "missing.env"
+    stat_calls = {"count": 0}
+    original_stat = responses_upstream.Path.stat
+    responses_upstream._DOTENV_CACHE.clear()
+    monkeypatch.setattr(responses_upstream, "_DOTENV_STAT_TTL_SECONDS", 60.0)
+
+    def fake_stat(path: Path, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if path == missing_path:
+            stat_calls["count"] += 1
+            raise FileNotFoundError(str(path))
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(responses_upstream.Path, "stat", fake_stat)
+
+    assert responses_upstream._dotenv_values_from_path(missing_path) == {}
+    assert responses_upstream._dotenv_values_from_path(missing_path) == {}
+    assert stat_calls["count"] == 1
+
+
 def test_public_tour_surface_supports_initial_pane_query() -> None:
     import inspect
 
@@ -4187,7 +4227,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
     assert "Find the right properties. Compare them clearly. Decide with evidence." in landing.text
-    assert "Create account" in landing.text
+    assert "Signing you in" in landing.text
+    assert "Create account" not in landing.text
     assert "PropertyQuarry" in landing.text
     for href in _internal_links(landing.text):
         resolved = owner.get(href, follow_redirects=False)
@@ -4222,9 +4263,11 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
         assert page.status_code == 200
         _assert_no_product_drift(page.text)
 
-    legacy_privacy = owner.get("/privacy", follow_redirects=False)
-    assert legacy_privacy.status_code == 307
-    assert legacy_privacy.headers["location"] == "/security"
+    privacy = owner.get("/privacy", follow_redirects=False)
+    assert privacy.status_code == 200
+    _assert_no_product_drift(privacy.text)
+    assert "Data protection" in privacy.text
+    assert "Public tours should use a narrow public manifest" in privacy.text
 
     started = owner.post(
         "/google/connect",
@@ -4311,7 +4354,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     landing = owner.get("/", follow_redirects=False)
     assert landing.status_code == 307
-    assert landing.headers["location"] == "/app/properties"
+    assert landing.headers["location"] == "/app/search"
 
     started = owner.post(
         "/google/connect",

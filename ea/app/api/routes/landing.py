@@ -40,6 +40,7 @@ from app.api.routes.landing_content import (
     PRICING_TIERS,
     PRODUCT_MODULES,
     PUBLIC_NAV,
+    PUBLIC_TRUST_PAGES,
     SIGN_IN_NOTES,
     TRUST_CARDS,
 )
@@ -404,6 +405,14 @@ def sitemap_xml(request: Request) -> Response:
         "/",
         "/pricing",
         "/security",
+        "/privacy",
+        "/terms",
+        "/support",
+        "/imprint",
+        "/cookies",
+        "/subprocessors",
+        "/refunds",
+        "/disclaimers",
         "/integrations",
         "/docs",
         "/guides/wohnung-kaufen-wien-checkliste",
@@ -1681,6 +1690,165 @@ def docs_page(
                 "meta_description": "Read the public documentation for PropertyQuarry features, workflows, and product boundaries.",
             },
         ),
+    )
+
+
+def _render_public_trust_page(
+    *,
+    page_key: str,
+    request: Request,
+    container: AppContainer,
+    access_identity: CloudflareAccessIdentity | None,
+) -> HTMLResponse:
+    page = PUBLIC_TRUST_PAGES.get(page_key)
+    if page is None:
+        raise HTTPException(status_code=404, detail="public_trust_page_not_found")
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    return _render_public_template(
+        request,
+        "public_editorial_page.html",
+        **_public_context(
+            request=request,
+            current_nav=str(page.get("nav") or page_key),
+            page_title=f"PropertyQuarry {page['title']}",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "canonical_path": str(page["path"]),
+                "meta_description": str(page["summary"]),
+                "editorial_kicker": page["kicker"],
+                "editorial_title": page["title"],
+                "editorial_summary": page["summary"],
+                "editorial_cta_href": "",
+                "editorial_cta_label": "",
+                "editorial_cta_event": "",
+                "editorial_band": page["band"],
+                "editorial_sections": page["sections"],
+                "editorial_faqs": page["faqs"],
+                "structured_data_json": [
+                    {
+                        "@context": "https://schema.org",
+                        "@type": "WebPage",
+                        "name": f"PropertyQuarry {page['title']}",
+                        "description": str(page["summary"]),
+                        "publisher": {"@type": "Organization", "name": "PropertyQuarry"},
+                    },
+                ],
+            },
+        ),
+    )
+
+
+@router.get("/privacy", response_class=HTMLResponse)
+def privacy_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="privacy",
+        request=request,
+        container=container,
+        access_identity=access_identity,
+    )
+
+
+@router.get("/terms", response_class=HTMLResponse)
+def terms_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="terms",
+        request=request,
+        container=container,
+        access_identity=access_identity,
+    )
+
+
+@router.get("/imprint", response_class=HTMLResponse)
+def imprint_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="imprint",
+        request=request,
+        container=container,
+        access_identity=access_identity,
+    )
+
+
+@router.get("/support", response_class=HTMLResponse)
+def support_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="support",
+        request=request,
+        container=container,
+        access_identity=access_identity,
+    )
+
+
+@router.get("/cookies", response_class=HTMLResponse)
+def cookies_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="cookies",
+        request=request,
+        container=container,
+        access_identity=access_identity,
+    )
+
+
+@router.get("/subprocessors", response_class=HTMLResponse)
+def subprocessors_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="subprocessors",
+        request=request,
+        container=container,
+        access_identity=access_identity,
+    )
+
+
+@router.get("/refunds", response_class=HTMLResponse)
+def refunds_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="refunds",
+        request=request,
+        container=container,
+        access_identity=access_identity,
+    )
+
+
+@router.get("/disclaimers", response_class=HTMLResponse)
+def disclaimers_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _render_public_trust_page(
+        page_key="disclaimers",
+        request=request,
+        container=container,
+        access_identity=access_identity,
     )
 
 
@@ -3008,16 +3176,13 @@ def app_shell(
                         principal_id=context.principal_id,
                     )
             if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:
-                pack = product.channel_loop_pack(
+                fleet_digest = product.cached_fleet_digest_payload(
                     principal_id=context.principal_id,
-                    operator_id=str(context.operator_id or "").strip(),
+                    operator_key=str(context.operator_id or "").strip(),
                 )
-                digests = list(pack.get("digests") or [])
+                digests = [dict(fleet_digest)] if fleet_digest else []
                 property_context["channel_digests"] = digests
-                property_context["fleet_digest"] = next(
-                    (dict(item) for item in digests if str(item.get("digest_key") or "").strip() == "fleet"),
-                    {},
-                )
+                property_context["fleet_digest"] = dict(fleet_digest or {})
                 billing_truth = dict(property_context.get("billing_truth") or {})
                 if billing_truth:
                     billing_truth["fleet_digest"] = dict(property_context.get("fleet_digest") or {})
@@ -3141,11 +3306,6 @@ def admin_shell(
 @router.get("/setup")
 def legacy_setup_redirect() -> RedirectResponse:
     return RedirectResponse("/register", status_code=307)
-
-
-@router.get("/privacy")
-def legacy_privacy_redirect() -> RedirectResponse:
-    return RedirectResponse("/security", status_code=307)
 
 
 @router.get("/demo/brief")

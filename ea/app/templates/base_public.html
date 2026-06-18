@@ -135,6 +135,13 @@
     .btn:hover { border-color: var(--accent); }
     .btn.primary:hover { filter: brightness(1.03); }
     .btn.ghost:hover { color: var(--text); }
+    a:focus-visible,
+    button:focus-visible,
+    .btn:focus-visible {
+      outline: 3px solid rgba(214, 166, 63, 0.46);
+      outline-offset: 3px;
+      border-color: var(--accent);
+    }
     .info-tip {
       width: 18px;
       height: 18px;
@@ -157,7 +164,6 @@
     .info-tip:focus-visible {
       color: var(--text);
       border-color: var(--accent);
-      outline: none;
     }
     main { padding: 32px 0 64px; }
     .hero {
@@ -686,6 +692,16 @@
         grid-template-columns: 1fr;
       }
     }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
 </style>
 </head>
 <body>
@@ -738,8 +754,10 @@
         {% endfor %}
         <a href="/docs">Docs</a>
         <a href="/integrations">Integrations</a>
-        <a href="/openapi.json">API</a>
-        <a href="{{ brand.repo_url }}">{% if brand.key == 'propertyquarry' %}Repository{% else %}Architecture{% endif %}</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/support">Support</a>
+        <a href="/imprint">Imprint</a>
       </nav>
     </div>
   </footer>

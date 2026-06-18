@@ -44,6 +44,7 @@ Applies kernel migrations in order:
   - v0_33 task contract runtime-policy kernel
   - v0_34 assistant onboarding canonical schema
   - v0_35 execution ledger legacy compatibility
+  - v0_36 PropertyQuarry property passport
 EOF
   exit 0
 fi
@@ -93,6 +94,7 @@ SQL_FILES=(
   "ea/schema/20260305_v0_33_task_contract_runtime_policy.sql"
   "ea/schema/20260305_v0_34_assistant_onboarding_canonical_schema.sql"
   "ea/schema/20260305_v0_35_execution_ledger_legacy_compat.sql"
+  "ea/schema/20260305_v0_36_propertyquarry_property_passport.sql"
 )
 
 echo "== PropertyQuarry DB bootstrap =="

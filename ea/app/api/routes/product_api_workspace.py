@@ -20,6 +20,7 @@ from app.api.routes.product_api_contracts import (
     WorkspaceUsageDetailOut,
 )
 from app.container import AppContainer
+from app.product.property_canonical_graph import build_property_passport_snapshot
 from app.product.service import build_product_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
@@ -132,11 +133,16 @@ def export_property_account_data(
     )
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {}) if isinstance(status.get("workspace"), dict) else {}
-    recent_runs = [
-        _property_account_export_run(dict(row))
+    raw_recent_runs = [
+        dict(row)
         for row in service.list_property_search_runs(principal_id=context.principal_id, limit=100)
         if isinstance(row, dict)
     ]
+    recent_runs = [_property_account_export_run(row) for row in raw_recent_runs]
+    property_passport = build_property_passport_snapshot(
+        principal_id=context.principal_id,
+        runs=raw_recent_runs,
+    ).as_public_dict()
     access_sessions = [
         _property_account_export_session(dict(row))
         for row in service.list_workspace_access_sessions(principal_id=context.principal_id, status="", limit=100)
@@ -152,6 +158,7 @@ def export_property_account_data(
         "delivery_preferences": dict(status.get("delivery_preferences") or {}) if isinstance(status.get("delivery_preferences"), dict) else {},
         "property_search_preferences": dict(status.get("property_search_preferences") or {}) if isinstance(status.get("property_search_preferences"), dict) else {},
         "recent_property_search_runs": recent_runs,
+        "property_passport_summary": property_passport,
         "workspace_access_sessions": access_sessions,
     }
     headers = {

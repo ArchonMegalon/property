@@ -620,7 +620,13 @@ def redacted_public_tour_scenes(
                     rendered[key] = safe_url
                 continue
             rendered[str(key)] = redact_public_tour_value(value)
-        if rendered and ("image_url" in rendered or "asset_relpath" in rendered or "cube_faces" in rendered):
+        scene_role = str(rendered.get("role") or "").strip().lower().replace("-", "_")
+        if rendered and (
+            "image_url" in rendered
+            or "asset_relpath" in rendered
+            or "cube_faces" in rendered
+            or scene_role == "live_360"
+        ):
             rows.append(rendered)
     return rows
 

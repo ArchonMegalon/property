@@ -2407,6 +2407,93 @@ def test_property_search_sparse_auction_floorplan_area_scores_above_review_thres
     assert score >= 54.0
 
 
+def test_property_search_keeps_review_candidate_when_only_score_threshold_fails(monkeypatch) -> None:
+    principal_id = "exec-property-soft-score-fallback"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Soft Score Fallback Office")
+    service = ProductService(client.app.state.container)
+
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt",
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/review-but-low-score-1/"
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:soft-score"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: {
+            "listing_id": "soft-score-1",
+            "title": "Mietwohnung in 1020 Wien mit Balkon",
+            "summary": "78 m2, 3 Zimmer, Gesamtmiete EUR 1.650, Balkon.",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 78,
+                "rooms": 3,
+                "total_rent_eur": 1650,
+                "has_balcony": True,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 12.0,
+            "recommendation": "review",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": ["Soft preference mismatch"],
+            "unknowns_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "min_match_score": 95,
+            "require_floorplan": False,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    assert result["high_fit_total"] == 0
+    assert result["filtered_low_fit_total"] == 1
+    candidate = dict(result["sources"][0]["top_candidates"][0])
+    assert candidate["property_url"] == listing_url
+    assert 0 < float(candidate["fit_score"]) < 95
+    assert candidate["recommendation"] == "review"
+
+
 def test_property_search_type_filter_blocks_garage_for_residential_searches() -> None:
     garage_title = "Garagenplatz zu vermieten, 10 m2, EUR 190,-, (1030 Wien) - willhaben"
 
@@ -2934,6 +3021,69 @@ def test_hosted_property_tour_public_manifest_has_no_private_fields(monkeypatch,
         "preference_nodes",
     ):
         assert private_key not in serialized_public_manifest
+
+
+def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_listing_data(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+
+    live_url = "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
+        principal_id="exec-live-provider-private",
+        title="Matterport writer coverage",
+        listing_id="matterport-writer-1",
+        property_url="https://www.willhaben.at/iad/object?adId=matterport-writer-1",
+        variant_key="layout_first",
+        source_virtual_tour_url=live_url,
+        property_facts_json={
+            "has_360": True,
+            "exact_address": "Private Matterport Street 1, 1200 Wien",
+            "map_lat": 48.2,
+            "map_lng": 16.3,
+        },
+        source_host="willhaben.at",
+        source_ref="property-scout:matterport-writer-1",
+        external_id="ext-matterport-writer-1",
+        recipient_email="owner@example.com",
+    )
+
+    bundle_dir = tmp_path / str(payload["slug"])
+    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    private_manifest = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+
+    assert public_manifest["source_virtual_tour_url"] == live_url
+    assert public_manifest["source_virtual_tour_origin"] == live_url
+    assert public_manifest["matterport_url"] == live_url
+    assert public_manifest["control_mode"] == "matterport"
+    assert public_manifest["scenes"][0]["role"] == "live_360"
+    serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
+    for private_marker in (
+        "willhaben.at/iad/object",
+        "exec-live-provider-private",
+        "property-scout:matterport-writer-1",
+        "ext-matterport-writer-1",
+        "owner@example.com",
+        "Private Matterport Street",
+        "map_lat",
+        "map_lng",
+        "listing_url",
+        "property_url",
+        "source_ref",
+        "external_id",
+        "recipient_email",
+    ):
+        assert private_marker not in serialized_public_manifest
+    assert private_manifest["property_url"].endswith("adId=matterport-writer-1")
+
+    client = build_property_client(principal_id="exec-live-provider-page")
+    page = client.get(f"/tours/{payload['slug']}", headers={"host": "propertyquarry.com"})
+    assert page.status_code == 200, page.text
+    assert live_url in page.text
+    assert "Open Listing" not in page.text
+    assert "Private Matterport Street" not in page.text
 
 
 def test_hosted_property_tour_bundle_rejects_post_download_invalid_asset_suffix(monkeypatch, tmp_path) -> None:

@@ -19,6 +19,7 @@ def test_schema_readme_lists_latest_migrations() -> None:
     assert "20260305_v0_33_task_contract_runtime_policy.sql" in text
     assert "20260305_v0_34_assistant_onboarding_canonical_schema.sql" in text
     assert "20260305_v0_35_execution_ledger_legacy_compat.sql" in text
+    assert "20260305_v0_36_propertyquarry_property_passport.sql" in text
 
 
 def test_db_bootstrap_includes_latest_migrations() -> None:
@@ -34,6 +35,7 @@ def test_db_bootstrap_includes_latest_migrations() -> None:
     assert "20260305_v0_33_task_contract_runtime_policy.sql" in text
     assert "20260305_v0_34_assistant_onboarding_canonical_schema.sql" in text
     assert "20260305_v0_35_execution_ledger_legacy_compat.sql" in text
+    assert "20260305_v0_36_propertyquarry_property_passport.sql" in text
 
 
 def test_latest_kernel_migrations_define_provider_bindings_and_runtime_policy_column() -> None:
@@ -48,6 +50,20 @@ def test_latest_kernel_migrations_define_provider_bindings_and_runtime_policy_co
     assert "ALTER TABLE task_contracts" in runtime_policy
     assert "ADD COLUMN IF NOT EXISTS runtime_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb" in runtime_policy
     assert "WHERE a.session_id = es.session_id::text" in artifact_scope
+
+
+def test_propertyquarry_property_passport_migration_defines_canonical_graph_tables() -> None:
+    passport = (ROOT / "ea/schema/20260305_v0_36_propertyquarry_property_passport.sql").read_text()
+
+    assert "CREATE TABLE IF NOT EXISTS propertyquarry_property_entities" in passport
+    assert "CREATE TABLE IF NOT EXISTS propertyquarry_listing_instances" in passport
+    assert "CREATE TABLE IF NOT EXISTS propertyquarry_property_claims" in passport
+    assert "CREATE TABLE IF NOT EXISTS propertyquarry_property_events" in passport
+    assert "PRIMARY KEY (principal_id, property_id)" in passport
+    assert "UNIQUE (principal_id, identity_key)" in passport
+    assert "REFERENCES propertyquarry_property_entities(principal_id, property_id)" in passport
+    assert "idx_propertyquarry_property_claims_property_field_seen" in passport
+    assert "idx_propertyquarry_property_events_property_seen" in passport
 
 
 def test_legacy_migration_regression_smoke_contract_is_wired() -> None:

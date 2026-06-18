@@ -588,6 +588,9 @@ _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
+_PROPERTY_FLEET_DIGEST_CACHE_LOCK = threading.Lock()
+_PROPERTY_FLEET_DIGEST_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
+_PROPERTY_FLEET_DIGEST_TTL_SECONDS = 30.0
 _PROPERTY_SOURCE_LISTING_CACHE_LOCK = _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOCK
 _PROPERTY_SOURCE_LISTING_CACHE = _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE
 _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = _property_search_storage._PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
@@ -4294,6 +4297,37 @@ def _property_investment_price_eur(facts: dict[str, object]) -> float | None:
     return None
 
 
+_PROPERTY_UNTRUSTED_LISTING_BLOCK_RE = re.compile(
+    r"<!--[\s\S]*?-->"
+    r"|<\s*(script|style|template|noscript)\b[\s\S]*?<\s*/\s*\1\s*>"
+    r"|<(?P<hidden_tag>[a-zA-Z0-9:-]+)\b(?=[^>]*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|aria-hidden\s*=\s*['\"]?true|hidden\b|type\s*=\s*['\"]?hidden))[^>]*>[\s\S]*?<\s*/\s*(?P=hidden_tag)\s*>",
+    flags=re.IGNORECASE,
+)
+_PROPERTY_UNTRUSTED_LISTING_TAG_RE = re.compile(r"<[^>]+>")
+_PROPERTY_UNTRUSTED_INSTRUCTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("ignore_previous_instructions", re.compile(r"\b(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above)\s+instructions?\b", re.IGNORECASE)),
+    ("system_prompt_request", re.compile(r"\b(system|developer)\s+prompt\b|\breveal\s+(the\s+)?(prompt|instructions?)\b", re.IGNORECASE)),
+    ("secret_exfiltration_request", re.compile(r"\b(send|print|return|exfiltrate|reveal)\s+[^.\n]{0,80}\b(secret|token|api\s*key|credential|cookie)s?\b", re.IGNORECASE)),
+    ("fake_tool_call", re.compile(r"\b(tool|function)_?call\b|\"tool\"\s*:|\"function\"\s*:", re.IGNORECASE)),
+)
+
+
+def _property_untrusted_listing_text_for_extraction(*parts: object) -> tuple[str, tuple[str, ...]]:
+    raw_text = " | ".join(str(part or "").strip() for part in parts if str(part or "").strip())
+    if not raw_text:
+        return "", ()
+    flags = tuple(
+        key
+        for key, pattern in _PROPERTY_UNTRUSTED_INSTRUCTION_PATTERNS
+        if pattern.search(raw_text)
+    )
+    text = html.unescape(raw_text)
+    text = _PROPERTY_UNTRUSTED_LISTING_BLOCK_RE.sub(" ", text)
+    text = _PROPERTY_UNTRUSTED_LISTING_TAG_RE.sub(" ", text)
+    text = " ".join(text.split())
+    return text, flags
+
+
 def _property_investment_area_sqm(facts: dict[str, object]) -> float | None:
     for key in ("area_sqm", "area_m2", "living_area_m2"):
         value = _float_or_none(facts.get(key))
@@ -4318,9 +4352,13 @@ def _property_enrich_facts_from_listing_text(
     listing_mode: str,
 ) -> dict[str, object]:
     enriched = dict(facts or {})
-    text = " | ".join(part for part in (str(title or "").strip(), str(summary or "").strip()) if part)
+    text, instruction_flags = _property_untrusted_listing_text_for_extraction(title, summary)
     if not text:
         return enriched
+    if instruction_flags:
+        enriched["untrusted_listing_instruction_detected"] = True
+        enriched["untrusted_listing_instruction_flags"] = list(instruction_flags[:8])
+        enriched.setdefault("listing_text_trust_boundary", "external_content_data_only")
     price_match = re.search(r"(?:€|EUR)\s*([\d\.\s]+(?:,\d+)?)", text, flags=re.IGNORECASE)
     if price_match:
         raw_amount = str(price_match.group(1) or "").strip().replace(" ", "")
@@ -41721,6 +41759,12 @@ class ProductService:
         principal_id: str,
         operator_key: str = "",
     ) -> dict[str, object]:
+        cache_key = f"{str(operator_key or '').strip()}|{str(principal_id or '').strip()}"
+        now = time.monotonic()
+        with _PROPERTY_FLEET_DIGEST_CACHE_LOCK:
+            cached = _PROPERTY_FLEET_DIGEST_CACHE.get(cache_key)
+            if cached and now - float(cached[0]) <= _PROPERTY_FLEET_DIGEST_TTL_SECONDS:
+                return json.loads(json.dumps(cached[1], default=str))
         try:
             if operator_key:
                 report = responses_upstream.codex_status_report(window="24h")
@@ -41855,7 +41899,7 @@ class ProductService:
             f"{active_lanes} active lane{'s' if active_lanes != 1 else ''}" if active_lanes or queued_lanes or failed_lanes or stalled_lanes else "lane telemetry pending",
             "improvement loop enabled" if loop_allowed else "improvement loop held at reserve floor",
         ]
-        return {
+        payload = {
             "items": items,
             "stats": {
                 "visible_credits": credits_total,
@@ -41867,6 +41911,40 @@ class ProductService:
                 "improvement_loop_enabled": 1 if loop_allowed else 0,
             },
             "preview_text": ", ".join(bit for bit in preview_bits if bit),
+        }
+        with _PROPERTY_FLEET_DIGEST_CACHE_LOCK:
+            _PROPERTY_FLEET_DIGEST_CACHE[cache_key] = (
+                now,
+                json.loads(json.dumps(payload, default=str)),
+            )
+        return payload
+
+    def cached_fleet_digest_payload(
+        self,
+        *,
+        principal_id: str,
+        operator_key: str = "",
+    ) -> dict[str, object]:
+        cache_key = f"{str(operator_key or '').strip()}|{str(principal_id or '').strip()}"
+        with _PROPERTY_FLEET_DIGEST_CACHE_LOCK:
+            cached = _PROPERTY_FLEET_DIGEST_CACHE.get(cache_key)
+            if cached:
+                payload = json.loads(json.dumps(cached[1], default=str))
+                payload["cache_state"] = "warm"
+                return payload
+        return {
+            "items": [],
+            "stats": {
+                "visible_credits": 0,
+                "active_lanes": 0,
+                "failed_lanes": 0,
+                "stalled_lanes": 0,
+                "queued_lanes": 0,
+                "runway_hours": 0,
+                "improvement_loop_enabled": 0,
+            },
+            "preview_text": "Fleet status refreshes in the operations loop.",
+            "cache_state": "cold",
         }
 
     def channel_digest_text(

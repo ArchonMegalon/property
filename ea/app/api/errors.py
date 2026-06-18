@@ -20,6 +20,28 @@ except Exception:  # pragma: no cover - psycopg is optional in some test modes
 
 _LOG = logging.getLogger(__name__)
 
+_DEFAULT_BROWSER_SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'self'; "
+        "img-src 'self' data: blob: https:; "
+        "font-src 'self' data: https:; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://app.rybbit.io https://js.clickrank.ai; "
+        "connect-src 'self' https: wss:; "
+        "frame-src 'self' https:; "
+        "media-src 'self' blob: https:; "
+        "form-action 'self'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+    "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+}
+
 
 def _correlation_id(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "") or uuid.uuid4())
@@ -93,12 +115,31 @@ def _browser_auth_redirect(request: Request, *, code: str) -> RedirectResponse |
     return response
 
 
+def _request_is_https(request: Request) -> bool:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+    tokens = {token.strip() for token in forwarded_proto.split(",") if token.strip()}
+    if "https" in tokens or "wss" in tokens:
+        return True
+    if tokens:
+        return False
+    return str(getattr(request.url, "scheme", "") or "").strip().lower() in {"https", "wss"}
+
+
+def _apply_default_browser_security_headers(request: Request, response: Any) -> None:
+    for name, value in _DEFAULT_BROWSER_SECURITY_HEADERS.items():
+        if name not in response.headers:
+            response.headers[name] = value
+    if _request_is_https(request) and "Strict-Transport-Security" not in response.headers:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.middleware("http")
     async def correlation_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         request.state.correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
         response = await call_next(request)
         response.headers["x-correlation-id"] = _correlation_id(request)
+        _apply_default_browser_security_headers(request, response)
         return response
 
     @app.exception_handler(HTTPException)

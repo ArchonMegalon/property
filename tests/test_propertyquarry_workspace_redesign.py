@@ -1628,8 +1628,40 @@ def test_public_pages_are_indexable_but_sign_in_is_not(monkeypatch) -> None:
     assert sitemap.status_code == 200, sitemap.text
     assert "<loc>https://propertyquarry.com/</loc>" in sitemap.text
     assert "<loc>https://propertyquarry.com/pricing</loc>" in sitemap.text
+    assert "<loc>https://propertyquarry.com/privacy</loc>" in sitemap.text
+    assert "<loc>https://propertyquarry.com/terms</loc>" in sitemap.text
+    assert "<loc>https://propertyquarry.com/support</loc>" in sitemap.text
+    assert "<loc>https://propertyquarry.com/imprint</loc>" in sitemap.text
     assert "<loc>https://propertyquarry.com/guides/wohnung-kaufen-wien-checkliste</loc>" in sitemap.text
     assert "<loc>https://propertyquarry.com/markets/vienna</loc>" in sitemap.text
+
+
+def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> None:
+    client = build_property_client(principal_id="pq-public-trust")
+    home = client.get("/")
+    assert home.status_code == 200, home.text
+
+    for href in ("/privacy", "/terms", "/support", "/imprint"):
+        assert f'href="{href}"' in home.text
+    assert 'href="/openapi.json">API</a>' not in home.text
+    assert "Repository</a>" not in home.text
+
+    expected = {
+        "/privacy": ("Privacy", "Public tours should use a narrow public manifest"),
+        "/terms": ("Terms", "Generated or embedded tours help screening"),
+        "/support": ("Support", "wrong-area matches"),
+        "/imprint": ("Imprint", "Required production details"),
+        "/cookies": ("Cookies and Analytics", "essential cookies"),
+        "/subprocessors": ("Subprocessors", "Vendor control plane"),
+        "/refunds": ("Refunds and Cancellation", "failed payment recovery"),
+        "/disclaimers": ("Disclaimers", "Generated visualization"),
+    }
+    for path, snippets in expected.items():
+        page = client.get(path)
+        assert page.status_code == 200, page.text
+        assert page.headers.get("X-Robots-Tag") == "index, follow, max-image-preview:large"
+        for snippet in snippets:
+            assert snippet in page.text
 
 
 def test_public_guide_and_market_pages_render_editorial_seo_surface() -> None:
@@ -3196,21 +3228,50 @@ def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
     assert "agent-run-fast" in page.text
 
 
-def test_property_agents_and_account_skip_fleet_digest_on_first_paint(monkeypatch) -> None:
+def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypatch) -> None:
     principal_id = "pq-agent-account-fast-first-paint"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Static Surface Fast")
 
     def _fail_channel_loop_pack(self, *args, **kwargs):
-        raise AssertionError("agents/account first paint must not block on fleet digest generation")
+        raise AssertionError("static surface first paint must not block on full fleet digest generation")
 
     monkeypatch.setattr(ProductService, "channel_loop_pack", _fail_channel_loop_pack)
 
     agents = client.get("/app/agents", headers={"host": "propertyquarry.com"})
     account = client.get("/app/account#profile", headers={"host": "propertyquarry.com"})
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
 
     assert agents.status_code == 200
     assert account.status_code == 200
+    assert billing.status_code == 200
+    assert "Billing" in billing.text
+
+
+def test_property_fleet_digest_uses_short_cache_for_repeated_surface_loads(monkeypatch) -> None:
+    from app.product import service as product_service_module
+
+    principal_id = "pq-fleet-digest-cache"
+    client = build_property_client(principal_id=principal_id)
+    product = build_product_service(client.app.state.container)
+    calls = {"count": 0}
+    product_service_module._PROPERTY_FLEET_DIGEST_CACHE.clear()
+
+    def fake_status_report(**kwargs):
+        calls["count"] += 1
+        return {
+            "onemin_billing_aggregate": {"actual_remaining_credits_total": 250_000_000},
+            "lane_telemetry": {"active_lanes": 2},
+        }
+
+    monkeypatch.setattr(product_service_module.responses_upstream, "codex_status_report", fake_status_report)
+
+    first = product._fleet_digest_payload(principal_id=principal_id)
+    second = product._fleet_digest_payload(principal_id=principal_id)
+    first["stats"]["visible_credits"] = 1
+
+    assert calls["count"] == 1
+    assert second["stats"]["visible_credits"] == 250_000_000
 
 
 def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> None:
@@ -5207,6 +5268,8 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
     assert payload["principal_id"] == principal_id
     assert isinstance(payload["property_search_preferences"], dict)
     assert isinstance(payload["recent_property_search_runs"], list)
+    assert payload["property_passport_summary"]["property_count"] == 0
+    assert isinstance(payload["property_passport_summary"]["properties"], list)
     assert "access_token" not in json.dumps(payload)
 
     download = client.get("/app/api/property/account/export?download=1", headers=headers)

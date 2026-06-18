@@ -38,3 +38,4 @@ Current rewrite kernel migrations:
 - `20260305_v0_33_task_contract_runtime_policy.sql`
 - `20260305_v0_34_assistant_onboarding_canonical_schema.sql`
 - `20260305_v0_35_execution_ledger_legacy_compat.sql`
+- `20260305_v0_36_propertyquarry_property_passport.sql`

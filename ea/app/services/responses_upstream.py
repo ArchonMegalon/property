@@ -87,7 +87,8 @@ _MAGIX_HEALTH_STATE: dict[str, object] = {
 }
 _MAGIX_HEALTH_LOCK = threading.Lock()
 _DOTENV_CACHE_LOCK = threading.Lock()
-_DOTENV_CACHE: dict[str, tuple[float, dict[str, str]]] = {}
+_DOTENV_CACHE: dict[str, tuple[float, dict[str, str], float]] = {}
+_DOTENV_STAT_TTL_SECONDS = 2.0
 
 _LANE_HARD = "hard"
 _LANE_REVIEW = "review"
@@ -593,14 +594,22 @@ def _dotenv_candidate_paths() -> tuple[Path, ...]:
 
 def _dotenv_values_from_path(path: Path) -> dict[str, str]:
     key = str(path)
+    now = time.monotonic()
+    with _DOTENV_CACHE_LOCK:
+        cached = _DOTENV_CACHE.get(key)
+        if cached and now - float(cached[2]) <= _DOTENV_STAT_TTL_SECONDS:
+            return dict(cached[1])
     try:
         stat = path.stat()
     except OSError:
+        with _DOTENV_CACHE_LOCK:
+            _DOTENV_CACHE[key] = (-1.0, {}, now)
         return {}
     mtime = float(stat.st_mtime)
     with _DOTENV_CACHE_LOCK:
         cached = _DOTENV_CACHE.get(key)
         if cached and cached[0] == mtime:
+            _DOTENV_CACHE[key] = (mtime, dict(cached[1]), now)
             return dict(cached[1])
     values: dict[str, str] = {}
     try:
@@ -617,7 +626,7 @@ def _dotenv_values_from_path(path: Path) -> dict[str, str]:
             continue
         values[normalized_name] = str(value or "").strip().strip("'").strip('"')
     with _DOTENV_CACHE_LOCK:
-        _DOTENV_CACHE[key] = (mtime, dict(values))
+        _DOTENV_CACHE[key] = (mtime, dict(values), now)
     return values
 
 
