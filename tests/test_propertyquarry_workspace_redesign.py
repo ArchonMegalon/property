@@ -641,25 +641,41 @@ def test_propertyquarry_properties_route_redirects_to_search_without_a_run() -> 
     assert response.headers["location"] == "/app/search"
 
 
-def test_propertyquarry_root_renders_fast_landing_when_signed_in(monkeypatch) -> None:
-    principal_id = "pq-root-fast-landing"
+def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) -> None:
+    principal_id = "pq-root-search-redirect"
     client = build_property_client(principal_id=principal_id)
-    start_workspace(client, mode="personal", workspace_name="Root Fast Landing Office")
+    start_workspace(client, mode="personal", workspace_name="Root Search Redirect Office")
 
     monkeypatch.setattr(
         landing_routes,
         "build_product_service",
-        lambda container: (_ for _ in ()).throw(AssertionError("propertyquarry root should not build the product service when rendering the fast landing")),
+        lambda container: (_ for _ in ()).throw(AssertionError("propertyquarry root should not build the product service before redirecting")),
     )
     monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
     monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
 
-    response = client.get("/", headers={"host": "propertyquarry.com"})
+    response = client.get("/", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search"
+
+
+def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monkeypatch) -> None:
+    principal_id = "pq-root-public-home"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Root Public Home Office")
+
+    monkeypatch.setattr(
+        landing_routes,
+        "build_product_service",
+        lambda container: (_ for _ in ()).throw(AssertionError("propertyquarry public home should not build the product service")),
+    )
+    monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
+    monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
+
+    response = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     assert response.status_code == 200
-    assert "Open search" in response.text
-    assert "Open run" in response.text
-    assert "Signing you in" in response.text
-    assert 'data-target-endpoint="/app/api/property/landing-handoff"' in response.text
+    assert "Find the right properties. Compare them clearly. Decide with evidence." in response.text
+    assert 'href="/app/search"' in response.text
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
@@ -689,9 +705,9 @@ def test_propertyquarry_root_localhost_signed_in_does_not_redirect_to_public_hos
     monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
 
     response = client.get("/", headers={"host": "localhost:8097"}, follow_redirects=False)
-    assert response.status_code == 200
-    assert "https://propertyquarry.com/app/search" not in response.text
-    assert 'href="/app/search"' in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search"
+    assert "https://propertyquarry.com/app/search" not in response.headers["location"]
 
 
 def test_propertyquarry_landing_handoff_prefers_active_run(monkeypatch) -> None:

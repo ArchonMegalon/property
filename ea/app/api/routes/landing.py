@@ -593,6 +593,28 @@ def _load_status(
     return principal_id, container.onboarding.status(principal_id=principal_id)
 
 
+def _landing_public_home_requested(request: Request) -> bool:
+    for key in ("home", "show_home", "public_home"):
+        value = str(request.query_params.get(key) or "").strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+def _landing_authenticated_principal(
+    *,
+    container: AppContainer,
+    access_identity: CloudflareAccessIdentity | None,
+    request: Request,
+) -> str:
+    if access_identity is not None:
+        return str(access_identity.principal_id or "").strip()
+    workspace_session = _workspace_session_payload(request, container)
+    if workspace_session is not None:
+        return str(workspace_session.get("principal_id") or "").strip()
+    return ""
+
+
 def _public_app_base_url(request: Request) -> str:
     forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
     request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
@@ -1345,6 +1367,18 @@ def landing(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> Response:
+    brand = request_brand(request)
+    authenticated_principal = _landing_authenticated_principal(
+        container=container,
+        access_identity=access_identity,
+        request=request,
+    )
+    if (
+        str(brand.get("key") or "").strip() == "propertyquarry"
+        and authenticated_principal
+        and not _landing_public_home_requested(request)
+    ):
+        return RedirectResponse("/app/search", status_code=307)
     principal_id = _principal_for_page(container=container, access_identity=access_identity, request=request)
     status = _anonymous_onboarding_status()
     if principal_id:
@@ -1356,7 +1390,6 @@ def landing(
         }
     else:
         principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
-    brand = request_brand(request)
     commercial = property_commercial_snapshot(None)
     return _render_public_template(
         request,

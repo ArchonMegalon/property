@@ -78,7 +78,7 @@ def test_propertyquarry_brand_marks_route_to_public_or_dashboard_home() -> None:
     assert "{% set brand_home_href = brand.app_home or '/app/properties' %}" in console_shell
     assert '<a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">' in console_shell
     assert "run.get('run_id')" not in workbench.split('<a class="pqx-brand"', 1)[1].split(">", 1)[0]
-    assert '<a class="pqx-brand" href="/app/properties" aria-label="PropertyQuarry home">' in workbench
+    assert '<a class="pqx-brand" href="/?home=1" aria-label="PropertyQuarry public home">' in workbench
 
 
 def test_propertyquarry_app_surfaces_expose_account_navigation() -> None:
