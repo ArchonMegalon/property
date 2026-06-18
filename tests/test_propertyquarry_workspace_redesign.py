@@ -3251,6 +3251,9 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-table thead {\n        display: none;" in template
     assert ".pqx-automation-table td::before" in template
     assert "content: attr(data-label);" in template
+    assert '.pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch' in template
+    assert '.pqx-shell[data-pqx-surface="account"] .pqx-mobile-switch' in template
+    assert "position: static;" in template
 
 
 def test_property_agents_surface_uses_fast_scope_preview(monkeypatch) -> None:
