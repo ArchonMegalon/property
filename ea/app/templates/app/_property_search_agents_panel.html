@@ -34,6 +34,10 @@
       <button class="pqx-automation-thumbnail" type="button" data-search-agent-action="load" data-scope-preview-kind="{{ scope_preview.get('preview_kind') or 'empty' }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}">
         {% if scope_preview.get('image_url') %}
         <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy">
+        <span class="pqx-automation-scope-empty pqx-automation-scope-empty--fallback" hidden>
+          <strong>{{ agent.get('area_label') or agent.get('location_query') or 'Search area' }}</strong>
+          <small>Map preview unavailable. Open the saved search to see it.</small>
+        </span>
         {% else %}
         <span class="pqx-automation-scope-empty">
           <strong>{{ agent.get('area_label') or agent.get('location_query') or 'Search area' }}</strong>
@@ -96,18 +100,5 @@
   {% endif %}
 
   <div class="pqx-inline-status" data-search-agent-status></div>
-</section>
-{% else %}
-<section class="pqx-card">
-  <div class="pqx-section-head">
-    <div>
-      <h2>Automation</h2>
-      <div class="pqx-note">Recurring searches, delivery, reports, and repair policy live in the dedicated automation view.</div>
-    </div>
-    <span class="pqx-pill">{{ active_total }} active</span>
-  </div>
-  <div class="pqx-actions">
-    <a class="pqx-link-button" href="/app/agents">Open automation</a>
-  </div>
 </section>
 {% endif %}

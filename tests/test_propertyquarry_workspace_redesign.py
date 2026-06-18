@@ -1609,7 +1609,172 @@ def test_property_scope_preview_without_known_layout_uses_osm_point_fallback(mon
     assert preview["preview_kind"] == "osm_point_fallback"
     assert preview["has_district_overlay"] is False
     assert preview_render_calls[0]["pin"] == (320.0, 184.0)
-    assert preview_render_calls[0]["zoom"] == 13
+    assert preview_render_calls[0]["zoom"] == 16
+
+
+def test_property_scope_preview_fast_without_known_layout_uses_osm_point_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_property_location_options", lambda country_code, region_code: [])
+    monkeypatch.setattr(landing_view_models, "_scope_preview_layout", lambda country_code, region_code, options: [])
+    monkeypatch.setattr(landing_view_models, "_merge_option_catalog", lambda option_rows, selected_values: [])
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda query: (47.8095, 13.0550))
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/salzburgpoint-fast.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+
+    preview = landing_view_models._property_scope_preview_fast("AT", "salzburg", "Non-catalog hillside")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/salzburgpoint-fast.png"
+    assert preview["preview_kind"] == "osm_point_fallback"
+    assert preview["has_district_overlay"] is False
+    assert preview_render_calls[0]["pin"] == (320.0, 184.0)
+    assert preview_render_calls[0]["zoom"] == 16
+
+
+def test_property_scope_preview_empty_scope_uses_neutral_map_not_all_districts(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
+    monkeypatch.setattr(
+        landing_view_models,
+        "_property_location_options",
+        lambda country_code, region_code: [
+            {"value": "1010 Vienna", "label": "1010 Vienna"},
+            {"value": "1020 Vienna", "label": "1020 Vienna"},
+        ],
+    )
+    monkeypatch.setattr(
+        landing_view_models,
+        "_scope_preview_layout",
+        lambda country_code, region_code, options: [
+            {"value": str(row.get("value") or ""), "label": str(row.get("label") or "")}
+            for row in options
+        ],
+    )
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda query: (47.5162, 14.5501))
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/austria-neutral.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+
+    preview = landing_view_models._property_scope_preview("AT", "", "")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/austria-neutral.png"
+    assert preview["preview_kind"] == "osm_point_fallback"
+    assert preview["district_rows"] == []
+    assert preview_render_calls[0]["pin"] == (320.0, 184.0)
+
+
+def test_property_scope_preview_fast_empty_scope_uses_neutral_map_not_all_districts(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_property_location_options",
+        lambda country_code, region_code: [
+            {"value": "1010 Vienna", "label": "1010 Vienna"},
+            {"value": "1020 Vienna", "label": "1020 Vienna"},
+        ],
+    )
+    monkeypatch.setattr(
+        landing_view_models,
+        "_scope_preview_layout",
+        lambda country_code, region_code, options: [
+            {"value": str(row.get("value") or ""), "label": str(row.get("label") or "")}
+            for row in options
+        ],
+    )
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda query: (47.5162, 14.5501))
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/austria-neutral-fast.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+
+    preview = landing_view_models._property_scope_preview_fast("AT", "", "")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/austria-neutral-fast.png"
+    assert preview["preview_kind"] == "osm_point_fallback"
+    assert preview["district_rows"] == []
+    assert preview_render_calls[0]["pin"] == (320.0, 184.0)
+
+
+def test_property_scope_preview_fast_falls_back_to_layout_when_point_preview_fails(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_property_location_options", lambda country_code, region_code: [])
+    def fake_scope_preview_layout(country_code: str, region_code: str, options: list[dict[str, str]]) -> list[dict[str, object]]:
+        if any(str(row.get("value") == "scope") for row in options):
+            return [
+                {"value": "scope", "label": "Vienna", "detail": ""},
+            ]
+        return []
+    monkeypatch.setattr(landing_view_models, "_scope_preview_layout", fake_scope_preview_layout)
+    monkeypatch.setattr(landing_view_models, "_merge_option_catalog", lambda option_rows, selected_values: [])
+    monkeypatch.setattr(landing_view_models, "_property_scope_point_preview", lambda **kwargs: {})
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_scope_layout_preview_data_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/layout-fallback.png"
+
+    monkeypatch.setattr(landing_view_models, "_scope_layout_preview_data_url", fake_scope_layout_preview_data_url)
+
+    preview = landing_view_models._property_scope_preview_fast("AT", "vienna", "Non-catalog hillside")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/layout-fallback.png"
+    assert preview["preview_kind"] == "fallback_layout"
+    assert preview["has_district_overlay"] is False
+    assert preview_render_calls[0]["normalized_query"] == "Non-catalog hillside"
+    assert preview_render_calls[0]["layout_rows"][0]["value"] == "scope"
+
+
+def test_property_scope_preview_uses_region_fallback_when_geocode_fails(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
+    monkeypatch.setattr(landing_view_models, "_property_location_options", lambda country_code, region_code: [])
+    monkeypatch.setattr(landing_view_models, "_scope_preview_layout", lambda country_code, region_code, options: [])
+    monkeypatch.setattr(landing_view_models, "_merge_option_catalog", lambda option_rows, selected_values: [])
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda query: None)
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/fallback.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+
+    preview = landing_view_models._property_scope_preview_fast("AT", "austria", "Nonspecific query outside catalog")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/fallback.png"
+    assert preview["preview_kind"] == "osm_point_fallback"
+    assert preview_render_calls[0]["pin"] == (320.0, 184.0)
+    assert preview_render_calls[0]["zoom"] == 16
+    assert preview_render_calls[0]["cache_key"]["lat_key"] == int(47.5162 * 10000)
+    assert preview_render_calls[0]["cache_key"]["lon_key"] == int(14.5501 * 10000)
+
+
+def test_property_scope_preview_falls_back_to_country_center_with_unknown_region(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
+    monkeypatch.setattr(landing_view_models, "_property_location_options", lambda country_code, region_code: [])
+    monkeypatch.setattr(landing_view_models, "_scope_preview_layout", lambda country_code, region_code, options: [])
+    monkeypatch.setattr(landing_view_models, "_merge_option_catalog", lambda option_rows, selected_values: [])
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda query: None)
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/fallback-country.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+
+    preview = landing_view_models._property_scope_preview("DE", "nonnorm", "random unknown")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/fallback-country.png"
+    assert preview["preview_kind"] == "osm_point_fallback"
+    assert preview_render_calls[0]["cache_key"]["lat_key"] == int(51.1657 * 10000)
+    assert preview_render_calls[0]["cache_key"]["lon_key"] == int(10.4515 * 10000)
 
 
 def test_property_map_preview_route_serves_private_cached_png(tmp_path, monkeypatch) -> None:
@@ -1633,6 +1798,19 @@ def test_property_map_preview_route_serves_private_cached_png(tmp_path, monkeypa
 
     missing = client.get("/app/api/property/map-previews/not-a-preview.png", headers={"host": "propertyquarry.com"})
     assert missing.status_code == 404
+
+
+def test_property_map_preview_route_fallback_to_placeholder_for_missing_cached_png(monkeypatch) -> None:
+    preview_id = "b" * 40
+    client = build_property_client(principal_id="pq-map-preview-route-placeholder")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    response = client.get(f"/app/api/property/map-previews/{preview_id}.png", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.headers["cache-control"] == "private, max-age=86400"
+    assert response.headers["x-robots-tag"] == "noindex, nofollow"
+    assert response.content.startswith(b"\x89PNG")
 
 
 def test_property_lookup_candidate_falls_back_to_shortlist_candidates_from_context() -> None:

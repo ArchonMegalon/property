@@ -4508,6 +4508,167 @@ def test_property_scout_rejects_unselected_vienna_districts_before_review_packet
     assert assessed == []
 
 
+def test_property_scout_rejects_listing_postal_conflict_from_title_before_scoring(monkeypatch) -> None:
+    principal_id = "cf-email:title-postal-conflict.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Title Postal Gate Office")
+    candidate_url = "https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://immobilien.derstandard.at/immobiliensuche/miete?q=1010+Vienna",
+                "label": "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+                "platform": "derstandard_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "derstandard-1220",
+            "title": "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+            "summary": "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 60.0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("postal conflicts must not notify Telegram"),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: pytest.fail("postal conflicts must not open review packets"),
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: pytest.fail("postal conflicts must not be scored"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["review_created_total"] == 0
+    assert result["ranked_candidates"] == []
+    assert result["sources"][0]["location_mismatch_candidate_total"] == 1
+    assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+
+
+def test_property_scout_uses_exact_source_scope_as_hard_area_filter(monkeypatch) -> None:
+    principal_id = "cf-email:source-scope-postal-gate.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Source Scope Gate Office")
+    candidate_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/stadt-salzburg/w2-salzburg-terrasse"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/1010-wien",
+                "label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "salzburg-w2",
+            "title": "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse in Salzburg",
+            "summary": "Penthouse-Charakter in Stadt Salzburg.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 72.0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("source-scope area conflicts must not notify Telegram"),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: pytest.fail("source-scope area conflicts must not open review packets"),
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: pytest.fail("source-scope area conflicts must not be scored"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["review_created_total"] == 0
+    assert result["ranked_candidates"] == []
+    assert result["sources"][0]["location_mismatch_candidate_total"] == 1
+    assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+
+
 def test_property_scout_suppressed_review_gate_does_not_leak_into_ranked_candidates(monkeypatch) -> None:
     principal_id = "cf-email:suppressed-review-gate.search@example.com"
     client = build_product_client(principal_id=principal_id)
@@ -11279,12 +11440,15 @@ def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, 
     public_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.json").read_text(encoding="utf-8"))
     private_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.private.json").read_text(encoding="utf-8"))
     assert public_manifest["control_mode"] == "matterport"
-    assert public_manifest["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
-    assert public_manifest["source_virtual_tour_origin"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
-    assert public_manifest["matterport_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    serialized_public = json.dumps(public_manifest, sort_keys=True)
+    assert "source_virtual_tour_url" not in public_manifest
+    assert "source_virtual_tour_origin" not in public_manifest
+    assert "matterport_url" not in public_manifest
+    assert "my.matterport.com" not in serialized_public
     assert "crezlo_public_url" not in public_manifest
     assert "https://www.immobilienscout24.at/expose/matterport-preview-test" not in json.dumps(public_manifest)
     assert private_manifest["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    assert private_manifest["matterport_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
     loaded = product_service._existing_hosted_property_tour_payload(str(payload["slug"]))
     assert loaded["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
 
@@ -11312,11 +11476,12 @@ def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_
     public_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.json").read_text(encoding="utf-8"))
     private_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.private.json").read_text(encoding="utf-8"))
     assert public_manifest["control_mode"] == "3dvista"
-    assert public_manifest["source_virtual_tour_url"] == "https://example.3dvista.com/tours/top22/index.html"
-    assert public_manifest["source_virtual_tour_origin"] == "https://example.3dvista.com/tours/top22/index.html"
-    assert public_manifest["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
+    serialized_public = json.dumps(public_manifest, sort_keys=True)
+    assert "source_virtual_tour_url" not in public_manifest
+    assert "source_virtual_tour_origin" not in public_manifest
+    assert "three_d_vista_url" not in public_manifest
+    assert "example.3dvista.com" not in serialized_public
     assert "crezlo_public_url" not in public_manifest
-    assert public_manifest["panorama_source"] == "example.3dvista.com"
     assert "https://www.immobilienscout24.at/expose/3dvista-preview-test" not in json.dumps(public_manifest)
     assert private_manifest["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
     loaded = product_service._existing_hosted_property_tour_payload(str(payload["slug"]))

@@ -5300,8 +5300,6 @@ def _property_facts_with_source_scope(
     city = re.sub(r"\b[1-9]\d{3}\b", "", scope_location).strip()
     if city:
         enriched.setdefault("source_city", city)
-    if not any(str(enriched.get(key) or "").strip() for key in ("district", "location", "postal_name", "address", "street_address")):
-        enriched["postal_name"] = scope_location
     return enriched
 
 
@@ -29430,6 +29428,11 @@ class ProductService:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
             source_key = (str(source_spec.get("platform") or "").strip().lower(), source_url)
             source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
+            source_scope_location_hints = _property_exact_source_scope_location_hints(
+                source_url=source_url,
+                source_label=source_label,
+            )
+            source_location_hints = source_scope_location_hints or location_hints
             source_repair_memory = recent_source_fetch_repair_memory.get(
                 self._property_source_repair_memory_key(source_url=source_url, source_label=source_label)
             )
@@ -29525,8 +29528,8 @@ class ProductService:
                 if prefilter_score < max(float(min_match_score), 50.0):
                     return
                 near_miss_facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
-                if location_hints and not _property_candidate_matches_search_area(
-                    location_hints=location_hints,
+                if source_location_hints and not _property_candidate_matches_search_area(
+                    location_hints=source_location_hints,
                     request_preferences=request_preferences,
                     source_spec=source_spec,
                     property_url=property_url,
@@ -29846,7 +29849,7 @@ class ProductService:
                             candidate_total=max(1, len(listing_urls)),
                             exact_scope=_property_search_has_exact_scope(
                                 request_preferences=request_preferences,
-                                location_hints=location_hints,
+                                location_hints=source_location_hints,
                             ),
                             focused_scope=len(specs) == 1,
                         )
@@ -30210,7 +30213,7 @@ class ProductService:
                                 "candidate_stage": "provider_preview",
                                 "ordinal": ordinal,
                                 "location_match": _property_candidate_matches_search_area(
-                                    location_hints=location_hints,
+                                    location_hints=source_location_hints,
                                     request_preferences=request_preferences,
                                     source_spec=source_spec,
                                     property_url=property_url,
@@ -30301,7 +30304,7 @@ class ProductService:
                         "fit_score": 0.0,
                         "ordinal": ordinal,
                         "location_match": _property_candidate_matches_search_area(
-                            location_hints=location_hints,
+                            location_hints=source_location_hints,
                             request_preferences=request_preferences,
                             source_spec=source_spec,
                             property_url=property_url,
@@ -30318,7 +30321,7 @@ class ProductService:
                         assessment=None,
                         preview=preview,
                         ordinal=ordinal,
-                    ) - (25.0 if location_hints and not bool(preliminary_rows[-1].get("location_match")) else 0.0)
+                    ) - (25.0 if source_location_hints and not bool(preliminary_rows[-1].get("location_match")) else 0.0)
                 )
                 if ordinal == 1 or ordinal == len(listing_urls) or ordinal % 3 == 0:
                     _report(
@@ -30410,7 +30413,7 @@ class ProductService:
                                     assessment=None,
                                     preview=preview,
                                     ordinal=int(recovered_candidate.get("ordinal") or 0),
-                                ) - (25.0 if location_hints and not location_match else 0.0)
+                                ) - (25.0 if source_location_hints and not location_match else 0.0)
                             )
                             preliminary_rows.append(preliminary_row)
                         floorplan_recovered_for_source += len(recovered_floorplan_previews)
@@ -30437,7 +30440,7 @@ class ProductService:
             preliminary_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
             preliminary_before_location_count = len(preliminary_rows)
             preliminary_location_miss_count = 0
-            if location_hints:
+            if source_location_hints:
                 preliminary_matching_rows = [row for row in preliminary_rows if bool(row.get("location_match"))]
                 preliminary_location_miss_count = max(0, preliminary_before_location_count - len(preliminary_matching_rows))
                 preliminary_rows = preliminary_matching_rows
@@ -30447,7 +30450,7 @@ class ProductService:
                 candidate_total=analysis_limit,
                 exact_scope=_property_search_has_exact_scope(
                     request_preferences=request_preferences,
-                    location_hints=location_hints,
+                    location_hints=source_location_hints,
                 ),
                 focused_scope=len(specs) == 1,
             )
@@ -30544,8 +30547,8 @@ class ProductService:
                     analysis_limit=analysis_limit,
                 ):
                     continue
-                if location_hints and not _property_candidate_matches_search_area(
-                    location_hints=location_hints,
+                if source_location_hints and not _property_candidate_matches_search_area(
+                    location_hints=source_location_hints,
                     request_preferences=request_preferences,
                     source_spec=source_spec,
                     property_url=property_url,
@@ -31001,7 +31004,7 @@ class ProductService:
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "fit_score": 0.0,
                         "location_match": _property_candidate_matches_search_area(
-                            location_hints=location_hints,
+                            location_hints=source_location_hints,
                             request_preferences=request_preferences,
                             source_spec=source_spec,
                             property_url=property_url,
@@ -31022,7 +31025,7 @@ class ProductService:
                         assessment=assessment,
                         preview=preview,
                         ordinal=int(row.get("ordinal") or ordinal),
-                    ) - (30.0 if location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
+                    ) - (30.0 if source_location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
                 )
                 if apply_unknowns_penalty:
                     ranked_rows[-1]["fit_score"] = max(
@@ -31175,7 +31178,7 @@ class ProductService:
                     )
 
             ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
-            if location_hints:
+            if source_location_hints:
                 matching_rows = [row for row in ranked_rows if bool(row.get("location_match"))]
                 ranked_rows = matching_rows
             preliminary_location_miss_count += detailed_location_miss_count
@@ -31386,7 +31389,7 @@ class ProductService:
                                 "tour_result": tour_result,
                                 "candidate_properties": candidate_properties,
                                 "render_dossier": False,
-                                "requested_location_hints": location_hints,
+                                "requested_location_hints": source_location_hints,
                                 "requested_country_code": str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
                                 "requested_region_code": str(request_preferences.get("region_code") or "").strip(),
                             },
@@ -31405,7 +31408,7 @@ class ProductService:
                     tour_result=tour_result,
                     candidate_properties=candidate_properties,
                     render_dossier=False,
-                    requested_location_hints=location_hints,
+                    requested_location_hints=source_location_hints,
                     requested_country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
                     requested_region_code=str(request_preferences.get("region_code") or "").strip(),
                 ) if is_good_fit else {"status": "suppressed", "reason": "not_good_fit"}
@@ -31578,7 +31581,7 @@ class ProductService:
                                 "failed_filter_key": str(near_miss.get("failed_filter_key") or "").strip(),
                                 "failed_filter_label": str(near_miss.get("failed_filter_label") or "").strip(),
                                 "prefilter_score": float(near_miss.get("prefilter_score") or 0.0),
-                                "requested_location_hints": tuple(location_hints),
+                                "requested_location_hints": tuple(source_location_hints),
                                 "requested_country_code": str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
                                 "requested_region_code": str(request_preferences.get("region_code") or "").strip(),
                             },
@@ -31694,7 +31697,7 @@ class ProductService:
                     "location_mismatch_candidate_total": preliminary_location_miss_count,
                     "location_mismatch_reason": (
                         "provider_returned_candidates_outside_selected_location"
-                        if location_hints and preliminary_before_location_count > 0 and preliminary_location_miss_count == preliminary_before_location_count
+                        if source_location_hints and preliminary_before_location_count > 0 and preliminary_location_miss_count == preliminary_before_location_count
                         else ""
                     ),
                     "scan_truncated": scan_truncated,

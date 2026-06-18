@@ -2993,10 +2993,22 @@
       object-fit: cover;
       object-position: center;
       transition: transform 180ms ease;
+      transform-origin: center center;
+      transform: scale(1.32);
     }
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img,
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_point_fallback"] img {
-      transform: scale(1.07);
+      transform: scale(1.42);
+    }
+    .pqx-automation-thumbnail.is-preview-error img {
+      display: none;
+    }
+    .pqx-automation-thumbnail.is-preview-error .pqx-automation-scope-empty {
+      display: grid;
+    }
+    .pqx-automation-thumbnail.is-preview-error .pqx-automation-scope-empty--fallback {
+      display: grid;
+      justify-items: start;
     }
     .pqx-automation-thumbnail-action {
       position: absolute;
@@ -3059,6 +3071,18 @@
       min-height: 132px;
       padding: 12px;
       background: #fffdf7;
+    }
+    .pqx-automation-scope-empty--fallback {
+      display: none;
+      color: var(--pq-ink);
+      background: linear-gradient(153deg, #fffcf0 0%, #f3eee3 100%);
+    }
+    .pqx-automation-scope-empty--fallback small {
+      color: var(--pq-ink);
+    }
+    .pqx-automation-thumbnail.is-preview-error {
+      border-color: rgba(184, 72, 58, 0.36);
+      background: #fff8f3;
     }
     .pqx-automation-scope-empty small {
       color: var(--pq-muted);

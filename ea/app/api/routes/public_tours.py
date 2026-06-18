@@ -341,6 +341,7 @@ def _redacted_public_tour_payload(
     payload: dict[str, object],
     *,
     expose_asset_relpaths: bool = False,
+    include_external_tour_urls: bool = True,
 ) -> dict[str, object]:
     rendered = _payload_redacted_public_tour_payload(
         payload,
@@ -348,17 +349,18 @@ def _redacted_public_tour_payload(
         url_allowed=_public_tour_static_media_url_allowed,
         bundle_dir_resolver=_tour_bundle_dir,
     )
-    for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
-        safe_url = _safe_live_360_url(payload.get(key))
-        if safe_url:
-            rendered[key] = safe_url
-    for key in ("matterport_url", "three_d_vista_url", "threedvista_url", "3dvista_url", "crezlo_public_url"):
-        raw_url = payload.get(key)
-        safe_url = _safe_matterport_external_url(raw_url) or _safe_3dvista_external_url(raw_url) or _safe_live_360_url(raw_url)
-        if safe_url:
-            rendered[key] = safe_url
-    if (rendered.get("source_virtual_tour_url") or rendered.get("source_virtual_tour_origin")) and payload.get("panorama_source"):
-        rendered["panorama_source"] = str(payload.get("panorama_source") or "").strip()[:120]
+    if include_external_tour_urls:
+        for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
+            safe_url = _safe_live_360_url(payload.get(key))
+            if safe_url:
+                rendered[key] = safe_url
+        for key in ("matterport_url", "three_d_vista_url", "threedvista_url", "3dvista_url", "crezlo_public_url"):
+            raw_url = payload.get(key)
+            safe_url = _safe_matterport_external_url(raw_url) or _safe_3dvista_external_url(raw_url) or _safe_live_360_url(raw_url)
+            if safe_url:
+                rendered[key] = safe_url
+        if (rendered.get("source_virtual_tour_url") or rendered.get("source_virtual_tour_origin")) and payload.get("panorama_source"):
+            rendered["panorama_source"] = str(payload.get("panorama_source") or "").strip()[:120]
     return rendered
 
 
@@ -4452,7 +4454,11 @@ def public_tour_payload(slug: str) -> JSONResponse:
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     return JSONResponse(
-        _redacted_public_tour_payload(payload, expose_asset_relpaths=False),
+        _redacted_public_tour_payload(
+            payload,
+            expose_asset_relpaths=False,
+            include_external_tour_urls=False,
+        ),
         headers=_public_tour_security_headers(),
     )
 
@@ -4761,7 +4767,7 @@ def _tour_control_walkable_html(payload: dict[str, object], *, provider_label: s
 @router.get("/tours/{slug}/control", response_class=HTMLResponse)
 @router.head("/tours/{slug}/control", response_class=HTMLResponse)
 def public_tour_control(slug: str) -> HTMLResponse:
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
@@ -4772,7 +4778,7 @@ def public_tour_control(slug: str) -> HTMLResponse:
 @router.get("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
 @router.head("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
 def public_tour_control_viewer(slug: str, viewer_mode: str) -> HTMLResponse:
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")

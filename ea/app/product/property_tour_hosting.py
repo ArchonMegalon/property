@@ -83,16 +83,9 @@ def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]
     )
     live_provider = _property_tour_provider_host_kind(live_url)
     if live_provider:
-        public_payload["source_virtual_tour_url"] = live_url
-        public_payload["source_virtual_tour_origin"] = live_url
-        public_payload["panorama_source"] = str(
-            normalized_payload.get("panorama_source") or urllib.parse.urlparse(live_url).hostname or live_provider
-        ).strip()[:120]
         if live_provider == "matterport":
-            public_payload["matterport_url"] = live_url
             public_payload["control_mode"] = "matterport"
         elif live_provider == "3dvista":
-            public_payload["three_d_vista_url"] = live_url
             public_payload["control_mode"] = "3dvista"
         if not public_payload.get("scenes"):
             public_payload["scenes"] = [
@@ -606,6 +599,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             }
         )
         is_3dvista = live_provider == "3dvista"
+        is_matterport = live_provider == "matterport"
         display_title = compact_text(title, fallback="Live 360 Property Tour", limit=180)
         payload = {
             "slug": slug,
@@ -624,9 +618,9 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "tour_title": f"{display_title} - live 360",
             "tour_id": None,
             "variant_key": variant_key,
-            "variant_label": "3DVista" if is_3dvista else "live 360",
+            "variant_label": "3DVista" if is_3dvista else ("Matterport" if is_matterport else "live 360"),
             "scene_strategy": "live_360_embed",
-            "control_mode": "3dvista" if is_3dvista else "external_live_360",
+            "control_mode": "3dvista" if is_3dvista else ("matterport" if is_matterport else "external_live_360"),
             "scene_count": 1,
             "facts": facts,
             "brief": {
@@ -638,6 +632,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             },
             "editor_url": "",
             "crezlo_public_url": live_url,
+            "matterport_url": live_url if is_matterport else "",
             "three_d_vista_url": live_url if is_3dvista else "",
             "scenes": [
                 {

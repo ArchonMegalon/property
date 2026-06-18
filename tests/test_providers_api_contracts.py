@@ -7338,6 +7338,90 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
+def test_public_tour_json_never_exposes_listing_or_source_urls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "public-json-url-redaction"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"public-scene")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Public JSON redaction",
+                "listing_url": "https://portal.example/private-listing",
+                "property_url": "https://broker.example/private-property",
+                "source_url": "https://source.example/private-source",
+                "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/private-live-360",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/private-live-360",
+                "matterport_url": "https://my.matterport.com/show/?m=PrivateMatterport",
+                "three_d_vista_url": "https://example.3dvista.com/private/index.html",
+                "panorama_source": "private-source-host",
+                "principal_id": "principal-private",
+                "source_ref": "source-ref-private",
+                "recipient_email": "recipient@example.test",
+                "facts": {
+                    "rooms": 3,
+                    "area_sqm": 84,
+                    "postal_name": "1020 Wien",
+                    "exact_address": "Private Street 9",
+                    "map_lat": 48.22,
+                    "map_lng": 16.39,
+                    "source_url": "https://facts.example/private",
+                },
+                "scenes": [
+                    {
+                        "name": "Public scene",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.jpg",
+                        "source_url": "https://cdn.example/private-original.jpg",
+                        "property_url": "https://broker.example/private-property",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    client = _client(principal_id="public-tour-json-redaction")
+
+    response = client.get(f"/tours/{slug}.json")
+
+    assert response.status_code == 200
+    body = response.json()
+    serialized = json.dumps(body, sort_keys=True)
+    assert body["facts"] == {"rooms": 3, "area_sqm": 84, "postal_name": "1020 Wien"}
+    assert body["scenes"][0]["image_url"] == f"/tours/files/{slug}/scene-01.jpg"
+    for private_marker in (
+        "listing_url",
+        "property_url",
+        "source_url",
+        "source_virtual_tour_url",
+        "source_virtual_tour_origin",
+        "matterport_url",
+        "three_d_vista_url",
+        "panorama_source",
+        "portal.example",
+        "broker.example",
+        "source.example",
+        "360.kalandra.at",
+        "matterport.com",
+        "3dvista",
+        "principal-private",
+        "source-ref-private",
+        "recipient@example.test",
+        "Private Street",
+        "map_lat",
+        "map_lng",
+        "private-original",
+    ):
+        assert private_marker not in serialized
+
+
 def test_authenticated_public_tour_revocation_removes_served_manifest_and_assets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

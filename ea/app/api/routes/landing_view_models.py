@@ -445,7 +445,7 @@ def _preview_zoom_for_bounds(
     mercator_south = _mercator_fraction_y(south)
     y_span = max(abs(mercator_south - mercator_north), 0.000001)
     zoom_y = math.log2(height / (y_span * world_width))
-    zoom = int(max(min_zoom, min(max_zoom, math.floor(min(zoom_x, zoom_y) - 0.25))))
+    zoom = int(max(min_zoom, min(max_zoom, math.floor(min(zoom_x, zoom_y) - 0.05))))
     return zoom
 
 
@@ -657,6 +657,138 @@ _VIENNA_DISTRICT_PREVIEW_BOUNDS: dict[str, tuple[str, tuple[float, float, float,
     "1220": ("Donaustadt", (16.420, 48.180, 16.580, 48.320)),
     "1230": ("Liesing", (16.240, 48.120, 16.340, 48.180)),
 }
+
+_PROPERTY_SCOPE_REGION_PREVIEW_CENTERS: dict[str, dict[str, tuple[float, float]]] = {
+    "AT": {
+        "country": (47.5162, 14.5501),
+        "austria": (47.5162, 14.5501),
+        "vienna": (48.2082, 16.3738),
+        "wien": (48.2082, 16.3738),
+        "lower_austria": (48.2042, 16.3266),
+        "niederosterreich": (48.2042, 16.3266),
+        "upper_austria": (48.3000, 14.2837),
+        "upperaustria": (48.3000, 14.2837),
+        "tyrol": (47.2538, 11.6015),
+        "tyroler_alpen": (47.2538, 11.6015),
+        "salzburg": (47.8095, 13.0550),
+        "vorarlberg": (47.2331, 9.6000),
+        "carinthia": (46.6242, 14.3037),
+        "carinthia_region": (46.6242, 14.3037),
+        "burgenland": (47.8436, 16.5484),
+    },
+    "DE": {
+        "country": (51.1657, 10.4515),
+    },
+    "BE": {
+        "country": (50.5039, 4.4699),
+    },
+    "CA": {
+        "country": (56.1304, -106.3468),
+    },
+    "CH": {
+        "country": (46.8182, 8.2275),
+    },
+    "CR": {
+        "country": (9.7489, -83.7534),
+    },
+    "IE": {
+        "country": (53.1424, -7.6921),
+    },
+    "AU": {
+        "country": (-25.2744, 133.7751),
+    },
+    "ES": {
+        "country": (40.4637, -3.7492),
+    },
+    "IT": {
+        "country": (41.8719, 12.5674),
+    },
+    "FR": {
+        "country": (46.2276, 2.2137),
+    },
+    "PT": {
+        "country": (39.3999, -8.2245),
+    },
+    "PL": {
+        "country": (51.9194, 19.1451),
+    },
+    "SE": {
+        "country": (60.1282, 18.6435),
+    },
+    "NL": {
+        "country": (52.1326, 5.2913),
+    },
+    "UK": {
+        "country": (55.3781, -3.4360),
+    },
+    "US": {
+        "country": (39.8283, -98.5795),
+    },
+}
+
+
+def _property_scope_fallback_point(
+    country_code: str,
+    region_code: str,
+    normalized_query: str,
+) -> tuple[float, float] | None:
+    from app.services.property_market_catalog import normalize_country_code
+
+    normalized_country = normalize_country_code(country_code, default="")
+    if not normalized_country:
+        normalized_country = str(country_code or "").strip().upper()
+    else:
+        normalized_country = normalized_country.upper()
+
+    normalized_region = str(region_code or "").strip().lower()
+    normalized_region_compact = re.sub(r"[^a-z0-9]+", "", normalized_region)
+    region_alias_map = {
+        "upperaustria": "upper_austria",
+        "loweraustria": "lower_austria",
+        "oberosterreich": "upper_austria",
+        "niederosterreich": "lower_austria",
+        "carinthiaregion": "carinthia_region",
+    }
+    normalized_region_alias = region_alias_map.get(normalized_region_compact, normalized_region_compact)
+    region_candidates = {
+        normalized_region,
+        normalized_region_compact,
+        normalized_region_alias,
+    }
+    if "_" in normalized_region_alias:
+        region_candidates.add(normalized_region_alias.replace("_", "-"))
+    if normalized_region_alias and " " not in normalized_region_alias:
+        region_candidates.add(normalized_region_alias.replace("_", " "))
+
+    if normalized_country == "AT":
+        match = re.search(r"\b(1[0-2]\d0)\b", str(normalized_query or ""))
+        if match:
+            postal_code = match.group(1)
+            district = _VIENNA_DISTRICT_PREVIEW_BOUNDS.get(postal_code)
+            if district is not None:
+                _, bounds = district
+                west, south, east, north = bounds
+                return ((south + north) / 2.0), ((west + east) / 2.0)
+
+    row_centers = _PROPERTY_SCOPE_REGION_PREVIEW_CENTERS.get(normalized_country)
+    if row_centers:
+        normalized_row_centers = {re.sub(r"[^a-z0-9]+", "", str(key or "").lower()): value for key, value in row_centers.items()}
+        for candidate in region_candidates:
+            if not candidate:
+                continue
+            if candidate in row_centers:
+                return row_centers[candidate]
+            mapped = normalized_row_centers.get(candidate)
+            if mapped is not None:
+                return mapped
+        for key in ("country", "all"):
+            if key in row_centers:
+                return row_centers[key]
+
+    fallback = _PROPERTY_SCOPE_REGION_PREVIEW_CENTERS.get(normalized_country, {}).get("country")
+    if fallback is not None:
+        return fallback
+    return (48.8566, 2.3522)
 
 
 def _local_scope_boundary_record(query: str, *, country_code: str, region_code: str) -> dict[str, object]:
@@ -877,7 +1009,25 @@ def _property_scope_point_preview(
     market_label: str,
 ) -> dict[str, object]:
     query = _context_preview_query(country_code, region_code, normalized_query, [normalized_query] if normalized_query else [])
-    point = _forward_geocode_preview_point(query)
+    zoom = 16
+    point: tuple[float, float] | None = None
+    point_queries = [
+        query,
+        _preview_query_with_context(region_code, country_code, ""),
+        _preview_query_with_context(country_code, "", ""),
+    ]
+    preview_kind = "osm_point_fallback"
+    for point_query in point_queries:
+        if not str(point_query or "").strip():
+            continue
+        point = _forward_geocode_preview_point(point_query)
+        if point is not None:
+            break
+    else:
+        fallback_point = _property_scope_fallback_point(country_code, region_code, normalized_query)
+        if fallback_point is None:
+            return {}
+        point = fallback_point
     if point is None:
         return {}
     lat, lon = point
@@ -892,12 +1042,12 @@ def _property_scope_point_preview(
                 "query": normalized_query or market_label,
                 "lat_key": lat_key,
                 "lon_key": lon_key,
-                "zoom": 13,
+                "zoom": zoom,
                 "overlay_mode": "pin_v1",
             },
             center_lat=lat,
             center_lon=lon,
-            zoom=13,
+            zoom=zoom,
             pin=(320.0, 184.0),
             draw_overlay=False,
         ),
@@ -907,7 +1057,7 @@ def _property_scope_point_preview(
         "market_label": market_label,
         "district_rows": [],
         "district_overlay_svg": "",
-        "preview_kind": "osm_point_fallback",
+        "preview_kind": preview_kind,
         "has_district_overlay": False,
     }
 
@@ -959,6 +1109,16 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     if preview:
         return preview
 
+    if not selected_values and not normalized_query:
+        point_preview = _property_scope_point_preview(
+            country_code=normalized_country,
+            region_code=normalized_region,
+            normalized_query=normalized_query,
+            market_label=market_label,
+        )
+        if point_preview:
+            return point_preview
+
     fallback_rows = _merge_option_catalog(option_rows, selected_values)
     fallback_layout = _scope_preview_layout(normalized_country, normalized_region, fallback_rows)
     if fallback_layout:
@@ -992,15 +1152,45 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
     if point_preview:
         return point_preview
 
+    return _property_scope_fallback_layout_preview(
+        country_code=normalized_country,
+        region_code=normalized_region,
+        normalized_query=normalized_query,
+        selected_labels=selected_labels,
+        market_label=market_label,
+    )
+
+
+def _property_scope_fallback_layout_preview(
+    *,
+    country_code: str,
+    region_code: str,
+    normalized_query: str,
+    selected_labels: list[str],
+    market_label: str,
+) -> dict[str, object]:
+    fallback_label = normalized_query or market_label or "Search area"
+    fallback_layout = _scope_preview_layout(
+        country_code,
+        region_code,
+        [{"value": "scope", "label": fallback_label, "detail": ""}],
+    )
     return {
-        "image_url": "",
-        "alt": f"Search area preview for {normalized_query or market_label}",
-        "summary": ", ".join(selected_labels[:2]) if selected_labels else (normalized_query or market_label),
+        "image_url": _scope_layout_preview_data_url(
+            country_code=country_code,
+            region_code=region_code,
+            normalized_query=fallback_label,
+            market_label=market_label,
+            layout_rows=fallback_layout,
+            selected_lookup={"scope"},
+        ),
+        "alt": f"Search area preview for {fallback_label}",
+        "summary": ", ".join(selected_labels[:2]) if selected_labels else fallback_label,
         "count_label": "",
         "market_label": market_label,
         "district_rows": [],
         "district_overlay_svg": "",
-        "preview_kind": "empty",
+        "preview_kind": "fallback_layout",
         "has_district_overlay": False,
     }
 
@@ -1028,6 +1218,16 @@ def _property_scope_preview_fast(country_code: str, region_code: str, location_q
     market_label_parts = [part for part in (normalized_region.replace("_", " ").title(), normalized_country) if part]
     market_label = " | ".join(market_label_parts) or "Search area"
     selected_labels = [option_lookup.get(value.lower(), value) for value in selected_values if str(value or "").strip()]
+    if not selected_values and not normalized_query:
+        point_preview = _property_scope_point_preview(
+            country_code=normalized_country,
+            region_code=normalized_region,
+            normalized_query=normalized_query,
+            market_label=market_label,
+        )
+        if point_preview:
+            return point_preview
+
     if fallback_layout:
         return {
             "image_url": _scope_layout_preview_data_url(
@@ -1054,17 +1254,21 @@ def _property_scope_preview_fast(country_code: str, region_code: str, location_q
             "preview_kind": "fast_district_layout",
             "has_district_overlay": False,
         }
-    return {
-        "image_url": "",
-        "alt": f"Search area preview for {normalized_query or market_label}",
-        "summary": normalized_query or market_label,
-        "count_label": "",
-        "market_label": market_label,
-        "district_rows": [],
-        "district_overlay_svg": "",
-        "preview_kind": "empty",
-        "has_district_overlay": False,
-    }
+    point_preview = _property_scope_point_preview(
+        country_code=normalized_country,
+        region_code=normalized_region,
+        normalized_query=normalized_query,
+        market_label=market_label,
+    )
+    if point_preview:
+        return point_preview
+    return _property_scope_fallback_layout_preview(
+        country_code=normalized_country,
+        region_code=normalized_region,
+        normalized_query=normalized_query,
+        selected_labels=selected_labels,
+        market_label=market_label,
+    )
 
 
 def _property_preference_schema() -> dict[str, object]:

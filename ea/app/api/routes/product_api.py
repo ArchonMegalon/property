@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
+from PIL import Image, ImageDraw
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
@@ -150,6 +151,22 @@ def _magic_fit_reference_root(container: AppContainer, *, principal_id: str) -> 
 def _property_map_preview_root(container: AppContainer) -> Path:
     root = Path(str(os.environ.get("EA_ARTIFACTS_DIR") or container.settings.storage.artifacts_dir or "/tmp/ea_artifacts")).resolve()
     return root / "map_previews"
+
+
+def _property_map_preview_missing_png() -> bytes:
+    image = Image.new("RGB", (640, 368), color=(244, 237, 226))
+    draw = ImageDraw.Draw(image)
+    fill = (74, 64, 55)
+    message = "Map preview unavailable"
+    note = "The saved area map has not finished generating yet."
+    draw.rectangle((30, 30, 610, 338), outline=(211, 196, 176), width=2)
+    draw.text((48, 150), message, fill=fill)
+    draw.text((48, 178), note, fill=(120, 108, 93))
+    draw.rectangle((48, 224, 256, 256), fill=(255, 255, 255), outline=(188, 174, 156), width=1)
+    draw.text((74, 236), "Loading preview", fill=(94, 81, 67))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
 
 
 class StructuredPropertyFeedbackIn(BaseModel):
@@ -1619,7 +1636,11 @@ def get_property_map_preview_file(
         raise HTTPException(status_code=404, detail="property_map_preview_not_found")
     file_path = _property_map_preview_root(container) / f"{safe_preview_id}.png"
     if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="property_map_preview_not_found")
+        return Response(
+            _property_map_preview_missing_png(),
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=86400", "X-Robots-Tag": "noindex, nofollow"},
+        )
     return FileResponse(
         file_path,
         media_type="image/png",
