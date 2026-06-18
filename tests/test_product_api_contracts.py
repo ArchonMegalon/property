@@ -19776,6 +19776,10 @@ def test_signed_in_propertyquarry_root_and_landing_handoff_skip_full_onboarding_
     assert root.status_code == 307
     assert root.headers["location"] == "/app/search"
 
+    public_home = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert public_home.status_code == 200
+    assert "Search once. Rank the right homes. Decide with evidence." in public_home.text
+
     handoff = client.get("/app/api/property/landing-handoff", headers={"host": "propertyquarry.com"})
     assert handoff.status_code == 200
     assert handoff.json()["signed_in"] is True
