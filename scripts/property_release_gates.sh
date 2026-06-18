@@ -72,6 +72,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_dadan_video_request_workflow.py \
   tests/test_property_media_factory.py \
   tests/test_property_artifact_contracts.py \
+  tests/test_property_integration_governance.py \
   tests/test_subscribr_client_contracts.py \
   tests/test_property_content_source_packets.py \
   tests/test_property_content_validation.py \
