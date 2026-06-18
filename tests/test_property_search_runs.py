@@ -2227,6 +2227,108 @@ def test_property_search_run_terminal_receives_repair_receipt_without_task_scan(
     assert receipts[0]["resolution"] == "suppressed_source_fetch_forbidden"
 
 
+def test_property_search_run_final_event_applies_early_source_fetch_repair_receipt(monkeypatch) -> None:
+    principal_id = "exec-property-run-early-repair-receipt"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Early Repair Receipt Office")
+    service = ProductService(client.app.state.container)
+    run_id = f"early-repair-receipt-{uuid.uuid4().hex}"
+    now = product_service._now_iso()
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": now,
+            "updated_at": now,
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["wohnberatung_wien", "willhaben"],
+            "progress": 18,
+            "message": "Fetching source page for Wohnberatung Wien.",
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 2,
+                "sources": [],
+            },
+        }
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fetch blocked")))
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://wohnberatung.example.invalid/search",
+        title="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_url="https://wohnberatung.example.invalid/search",
+        source_label="Wohnberatung Wien | Austria | Rent | Vienna",
+        source_platform="wohnberatung_wien",
+        source_family="public_housing",
+        filter_key="source_fetch",
+        diagnostics={"provider_host": "wohnberatung.example.invalid", "error": "HTTP Error 403: Forbidden"},
+        source_ref="property-source:test",
+        run_id=run_id,
+    )
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+
+    service._record_property_search_run_event(
+        run_id=run_id,
+        principal_id=principal_id,
+        step="completed",
+        message="Search run completed with partial coverage.",
+        status="completed_partial",
+        steps_delta=0,
+        force_status="completed_partial",
+        summary_updates={
+            "status": "completed_partial",
+            "sources_total": 2,
+            "failed_total": 1,
+            "ranked_candidates": [{"candidate_ref": "cand-1", "title": "Usable hit"}],
+            "sources": [
+                {
+                    "source_url": "https://wohnberatung.example.invalid/search",
+                    "source_label": "Wohnberatung Wien | Austria | Rent | Vienna",
+                    "status": "failed",
+                    "error": "HTTP Error 403: Forbidden",
+                    "provider_repair_task_opened_total": 1,
+                    "provider_repair_tasks": [
+                        {
+                            "status": "opened",
+                            "filter_key": "source_fetch",
+                            "human_task_id": opened["human_task_id"],
+                            "queue_item_ref": opened["queue_item_ref"],
+                        }
+                    ],
+                },
+                {
+                    "source_url": "https://www.willhaben.at/iad/immobilien/",
+                    "source_label": "Willhaben | Austria | Rent | Vienna",
+                    "status": "completed",
+                    "listing_total": 1,
+                },
+            ],
+        },
+    )
+
+    monkeypatch.setattr(
+        client.app.state.container.orchestrator,
+        "list_human_tasks",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("terminal status should use repair receipts")),
+    )
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    source = dict((summary.get("sources") or [])[0])
+    assert source["status"] == "repaired"
+    assert source["repair_status"] == "returned"
+    assert source["repair_resolution"] == "suppressed_source_fetch_forbidden"
+    assert source["error"] == ""
+    assert source["original_error"] == "HTTP Error 403: Forbidden"
+    assert source["provider_repair_tasks"][0]["status"] == "returned"
+    receipts = [dict(row) for row in list(summary.get("repair_receipts") or []) if isinstance(row, dict)]
+    assert len(receipts) == 1
+    assert receipts[0]["run_id"] == run_id
+
+
 def test_recent_property_source_fetch_repair_memory_returns_latest_returned_source_fetch_resolution(monkeypatch) -> None:
     principal_id = "exec-property-repair-memory"
     client = build_property_client(principal_id=principal_id)

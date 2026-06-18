@@ -23292,8 +23292,9 @@ class ProductService:
             actor="ea_one_manager",
             operator_id=repair_operator_id,
         )
+        auto_resolution_result: dict[str, object] = {}
         if normalized_filter_key in {"source_fetch", "location_scope", "missing_location", "missing_price"}:
-            self._auto_resolve_property_provider_repair_task(
+            auto_resolution_result = self._auto_resolve_property_provider_repair_task(
                 principal_id=principal_id,
                 task=task,
                 actor="ea_one_manager",
@@ -23313,6 +23314,14 @@ class ProductService:
             "source_platform": str(source_platform or "").strip().lower(),
             "filter_key": normalized_filter_key,
         }
+        if str(auto_resolution_result.get("status") or "").strip() == "resolved":
+            payload.update(
+                {
+                    "repair_status": "returned",
+                    "resolution": str(auto_resolution_result.get("resolution") or "").strip(),
+                    "reason": str(auto_resolution_result.get("reason") or "").strip(),
+                }
+            )
         self._record_product_event(
             principal_id=principal_id,
             event_type="property_provider_repair_task_created",
@@ -23576,6 +23585,75 @@ class ProductService:
             _store_property_search_run_record(persisted_state)
         except Exception:
             pass
+
+    def _apply_property_search_run_repair_receipts(
+        self,
+        *,
+        summary: dict[str, object],
+    ) -> dict[str, object]:
+        normalized_summary = dict(summary or {})
+        receipts = [dict(row) for row in list(normalized_summary.get("repair_receipts") or []) if isinstance(row, dict)]
+        sources = [dict(row) for row in list(normalized_summary.get("sources") or []) if isinstance(row, dict)]
+        if not receipts or not sources:
+            return normalized_summary
+        latest_source_fetch_receipt_by_key: dict[str, dict[str, object]] = {}
+        for receipt in receipts:
+            if str(receipt.get("filter_key") or "").strip().lower() != "source_fetch":
+                continue
+            source_key = self._property_source_repair_memory_key(
+                source_url=receipt.get("source_url"),
+                source_label=receipt.get("source_label"),
+            )
+            if not source_key:
+                continue
+            current = latest_source_fetch_receipt_by_key.get(source_key)
+            current_at = str((current or {}).get("at") or "")
+            receipt_at = str(receipt.get("at") or "")
+            if current is None or receipt_at >= current_at:
+                latest_source_fetch_receipt_by_key[source_key] = receipt
+        if not latest_source_fetch_receipt_by_key:
+            return normalized_summary
+        changed = False
+        for source in sources:
+            source_key = self._property_source_repair_memory_key(
+                source_url=source.get("source_url"),
+                source_label=source.get("source_label"),
+            )
+            receipt = latest_source_fetch_receipt_by_key.get(source_key)
+            if not receipt:
+                continue
+            resolution = str(receipt.get("resolution") or "").strip()
+            reason = str(receipt.get("reason") or "").strip()
+            human_task_id = str(receipt.get("human_task_id") or "").strip()
+            source["provider_repair_task_opened_total"] = max(1, int(source.get("provider_repair_task_opened_total") or 0))
+            source["provider_repair_tasks"] = [
+                {
+                    "status": "returned",
+                    "filter_key": "source_fetch",
+                    "human_task_id": human_task_id,
+                    "queue_item_ref": human_task_id,
+                    "resolution": resolution,
+                    "reason": reason,
+                    "repair_owner": str(receipt.get("actor") or "ea_one_manager").strip() or "ea_one_manager",
+                    "repair_workflow": str(receipt.get("repair_workflow") or "ea_provider_ooda").strip() or "ea_provider_ooda",
+                }
+            ]
+            source["repair_status"] = "returned"
+            source["repair_resolution"] = resolution
+            source["repair_reason"] = reason
+            source["status"] = "repaired"
+            if str(source.get("error") or "").strip():
+                source["original_error"] = str(source.get("error") or "").strip()
+                source["error"] = ""
+            changed = True
+        if changed:
+            normalized_summary["sources"] = sources
+            normalized_summary["repair_resolved_total"] = max(
+                int(normalized_summary.get("repair_resolved_total") or 0),
+                len(receipts),
+            )
+            normalized_summary["repair_last_updated_at"] = str(receipts[-1].get("at") or normalized_summary.get("repair_last_updated_at") or "")
+        return normalized_summary
 
     def _auto_resolve_property_provider_repair_task(
         self,
@@ -26622,6 +26700,7 @@ class ProductService:
             summary=summary,
             terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
         )
+        summary = self._apply_property_search_run_repair_receipts(summary=summary)
         state = {**dict(state), "summary": summary}
         snapshot = {
             **dict(state),
@@ -26689,6 +26768,9 @@ class ProductService:
                 compact_text=compact_text,
                 progress_projection=_property_search_run_progress_projection,
                 sync_summary=_state_property_search_run_sync_summary,
+            )
+            state["summary"] = self._apply_property_search_run_repair_receipts(
+                summary=dict(state.get("summary") or {}),
             )
             _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(state)
             persisted_state = dict(state)
@@ -28111,6 +28193,8 @@ class ProductService:
                 summary["ranked_candidates"] = ranked_candidates
         if sources:
             summary["sources"] = sources
+        summary = self._apply_property_search_run_repair_receipts(summary=summary)
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
         held_back_total = int(
             summary.get("held_back_total")
             or summary.get("filtered_total")
