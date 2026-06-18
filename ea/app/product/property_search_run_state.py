@@ -80,6 +80,8 @@ def property_search_run_default_summary(
         "filtered_property_type_total": 0,
         "filtered_availability_total": 0,
         "filtered_floorplan_total": 0,
+        "filtered_generic_page_total": 0,
+        "filtered_listing_mode_total": 0,
         "filtered_low_fit_total": 0,
         "provider_cache_hit_total": 0,
         "provider_cache_refresh_total": 0,

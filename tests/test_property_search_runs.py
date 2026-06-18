@@ -897,6 +897,31 @@ def test_property_investment_price_eur_parses_localized_thousand_separators() ->
     assert product_service._property_investment_price_eur({"price_display": "€ 1.250.000"}) == 1250000.0
 
 
+def test_property_listing_mode_mismatch_uses_transaction_text_not_parser_price_field() -> None:
+    enriched_rent_mode = product_service._property_enrich_facts_from_listing_text(
+        facts={"property_type": "apartment", "postal_name": "1010 Wien"},
+        title="Eigentumswohnung in 1010 Wien | 77 m² | € 669.000",
+        summary="Kaufpreis laut Expose.",
+        listing_mode="rent",
+    )
+
+    assert enriched_rent_mode.get("total_rent_eur") == 669000.0
+    assert product_service._property_candidate_listing_mode_mismatch(
+        listing_mode="rent",
+        property_url="https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/wien/wien-1010-innere-stadt/example/",
+        title="Eigentumswohnung in 1010 Wien | 77 m² | € 669.000",
+        summary="Kaufpreis laut Expose.",
+        property_facts=enriched_rent_mode,
+    ) is True
+    assert product_service._property_candidate_listing_mode_mismatch(
+        listing_mode="buy",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/example/",
+        title="Mietwohnung in 1010 Wien | 77 m² | € 1.598",
+        summary="Gesamtmiete laut Expose.",
+        property_facts={"property_type": "apartment", "price_eur": 1598.0, "postal_name": "1010 Wien"},
+    ) is True
+
+
 def test_property_search_location_matching_accepts_source_scope_location() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
     facts = product_service._property_facts_with_source_scope(

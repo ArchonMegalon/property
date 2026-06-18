@@ -777,8 +777,14 @@ def _public_context(
 ) -> dict[str, object]:
     brand = request_brand(request)
     query = request.query_params
+    explicit_public_home = (
+        str(brand.get("key") or "").strip() == "propertyquarry"
+        and _landing_public_home_requested(request)
+    )
     signing_in_progress = False
-    if access_identity is not None or principal_id:
+    if explicit_public_home:
+        signing_in_progress = False
+    elif access_identity is not None or principal_id:
         signing_in_progress = True
     elif str(query.get("signing_in") or query.get("signing") or "").strip().lower() in {"1", "true", "yes"}:
         signing_in_progress = True

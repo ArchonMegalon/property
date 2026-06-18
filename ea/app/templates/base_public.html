@@ -714,21 +714,27 @@
       </a>
       <nav class="nav">
         {% for item in public_nav %}
-        {% if not (signing_in_progress and (item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string))) %}
+        {% set is_sign_in_item = item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string) %}
+        {% if not ((signing_in_progress or public_signed_in) and is_sign_in_item) %}
         <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
         {% endif %}
         {% endfor %}
       </nav>
       <div class="actions">
         {% if not signing_in_progress %}
-        <a class="btn ghost" href="{% if public_signed_in %}{{ brand.app_home or '/app/properties' }}{% else %}/sign-in?signing_in=1{% endif %}">{% if public_signed_in %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
+        {% if public_signed_in %}
+        <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
+        {% else %}
+        <a class="btn ghost" href="/sign-in?signing_in=1">{{ brand.sign_in_label }}</a>
         <a class="btn primary" href="/register">{{ brand.create_label }}</a>
+        {% endif %}
         {% endif %}
       </div>
     </div>
     <div class="wrap mobile-nav" aria-label="Mobile navigation">
       {% for item in public_nav %}
-      {% if not (signing_in_progress and (item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string))) %}
+      {% set is_sign_in_item = item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string) %}
+      {% if not ((signing_in_progress or public_signed_in) and is_sign_in_item) %}
       <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
       {% endif %}
       {% endfor %}
@@ -748,7 +754,8 @@
       <div>{{ brand.name }}</div>
       <nav>
         {% for item in public_nav %}
-        {% if not (signing_in_progress and (item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string))) %}
+        {% set is_sign_in_item = item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string) %}
+        {% if not ((signing_in_progress or public_signed_in) and is_sign_in_item) %}
         <a href="{{ item.href }}">{{ item.label }}</a>
         {% endif %}
         {% endfor %}

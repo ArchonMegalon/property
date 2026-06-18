@@ -280,6 +280,8 @@ def _property_search_run_status_payload(
                 + int(summary.get("filtered_property_type_total") or 0)
                 + int(summary.get("filtered_floorplan_total") or 0)
                 + int(summary.get("filtered_availability_total") or 0)
+                + int(summary.get("filtered_generic_page_total") or 0)
+                + int(summary.get("filtered_listing_mode_total") or 0)
             )
             or 0
         )

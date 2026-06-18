@@ -141,7 +141,7 @@ def _clean_property_candidate_copy(value: object) -> str:
 def _property_type_selection_allows_land(property_types: list[str]) -> bool:
     normalized = {str(item or "").strip().lower() for item in list(property_types or []) if str(item or "").strip()}
     if not normalized or "any" in normalized:
-        return True
+        return False
     return bool(normalized.intersection({"land", "baugrund", "grundstück", "grundstueck"}))
 
 
@@ -1130,9 +1130,9 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "barrier-free", "label": "Barrier-free", "detail": "Wheelchair accessible or step-free"},
         {"value": "balcony", "label": "Balcony", "detail": "Outdoor private space"},
         {"value": "terrace", "label": "Terrace", "detail": "Large outdoor space"},
-        {"value": "baugrund", "label": "Baugrund", "detail": "Building plot / land"},
-        {"value": "seezugang", "label": "Seezugang", "detail": "Lake access or lakeside potential"},
-        {"value": "wasserzugang", "label": "Wasserzugang", "detail": "Access to water"},
+        {"value": "baugrund", "label": "Building plot", "detail": "Land / building plot"},
+        {"value": "seezugang", "label": "Lake access", "detail": "Lake access or lakeside potential"},
+        {"value": "wasserzugang", "label": "Water access", "detail": "Access to water"},
         {"value": "family", "label": "Family-friendly", "detail": "Good fit for children"},
         {"value": "playground nearby", "label": "Playground", "detail": "Walkable play options"},
         {"value": "library nearby", "label": "Library", "detail": "Books, study, and rainy-day backup"},
@@ -1141,7 +1141,7 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "medical care nearby", "label": "Medical care", "detail": "Doctors, clinics, and hospitals"},
         {"value": "supermarket nearby", "label": "Supermarket", "detail": "Daily errands close by"},
         {"value": "market nearby", "label": "Market", "detail": "Produce markets and district-life errands"},
-        {"value": "Baumarkt nearby", "label": "Baumarkt", "detail": "DIY and practical errands"},
+        {"value": "Baumarkt nearby", "label": "Hardware store", "detail": "DIY and practical errands"},
         {"value": "shopping center nearby", "label": "Shopping center", "detail": "Bad-weather fallback for errands"},
         {"value": "flaniermeile nearby", "label": "Promenade", "detail": "Walkable city-life access"},
         {"value": "theatre nearby", "label": "Theatre", "detail": "Culture and evening-life access"},
@@ -3476,14 +3476,14 @@ def app_section_payload(
                 "empty_label": "Any distance",
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
-                "tooltip": "Optional district-life filter. Covers produce markets and flanier markets like Naschmarkt.",
+                "tooltip": "Optional district-life filter. Covers produce markets and walkable market streets like Naschmarkt.",
                 "step": "children",
                 "hidden": True,
             },
             {
                 "type": "range",
                 "name": "max_distance_to_hardware_store_m",
-                "label": "Max distance to Baumarkt",
+                "label": "Max distance to hardware store",
                 "value": str(property_preferences.get("max_distance_to_hardware_store_m") or 0),
                 "min": "0",
                 "max": "7000",
@@ -3515,7 +3515,7 @@ def app_section_payload(
             {
                 "type": "range",
                 "name": "max_distance_to_shopping_street_m",
-                "label": "Max distance to flaniermeile",
+                "label": "Max distance to promenade",
                 "value": str(property_preferences.get("max_distance_to_shopping_street_m") or 0),
                 "min": "0",
                 "max": "7000",

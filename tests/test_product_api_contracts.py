@@ -4602,6 +4602,200 @@ def test_property_scout_suppressed_review_gate_does_not_leak_into_ranked_candida
     assert result["sources"][0]["research_candidates"] == []
 
 
+def test_property_scout_generic_provider_pages_never_enter_ranked_candidates(monkeypatch) -> None:
+    principal_id = "cf-email:generic-page-ranked-gate.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Generic Page Gate Office")
+    candidate_url = "https://heimat-oesterreich.example/ausschreibungen/architekturwettbewerbe"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://heimat-oesterreich.example/search?q=1010+Vienna",
+                "label": "Genossenschaften | Austria | Rent | 1010 Vienna | Heimat Österreich",
+                "platform": "derstandard_at",
+                "provider_family": "housing_coop",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "architecture-competition",
+            "title": "Ausschreibungen Architekturwettbewerbe",
+            "summary": "Erhalten Sie alle Informationen zu den neuesten Architekturwettbewerben der Heimat Österreich!",
+            "property_facts_json": {
+                "source_scope_location": "1010 Vienna",
+                "source_platform": "genossenschaften",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("generic provider pages must not notify Telegram"),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: pytest.fail("generic provider pages must not open review packets"),
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: pytest.fail("generic provider pages must not be scored"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["ranked_candidates"] == []
+    assert result["filtered_generic_page_total"] == 1
+    assert result["provider_repair_task_opened_total"] == 1
+    assert result["sources"][0]["filtered_generic_page_total"] == 1
+    assert result["sources"][0]["top_candidates"] == []
+    assert result["sources"][0]["research_candidates"] == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "generic_listing_page"
+
+
+def test_property_scout_listing_mode_mismatch_never_enters_ranked_candidates(monkeypatch) -> None:
+    principal_id = "cf-email:listing-mode-ranked-gate.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Listing Mode Gate Office")
+    candidate_url = "https://generic-provider.example/detail/eigentumswohnung-1010-kauf-flat-123"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://generic-provider.example/search/mietwohnungen/1010-vienna",
+                "label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "platform": "derstandard_at",
+                "provider_family": "marketplace",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "buy-flat-123",
+            "title": "Eigentumswohnung in 1010 Wien | 77 m² | € 669.000",
+            "summary": "Kaufpreis laut Expose.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 77.0,
+                "postal_name": "1010 Wien",
+                "price_eur": 669000.0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("listing-mode mismatches must not notify Telegram"),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: pytest.fail("listing-mode mismatches must not open review packets"),
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: pytest.fail("listing-mode mismatches must not be scored"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_area_m2": 60,
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["ranked_candidates"] == []
+    assert result["filtered_listing_mode_total"] == 1
+    assert result["held_back_total"] == 1
+    assert result["provider_repair_task_opened_total"] == 1
+    assert result["sources"][0]["filtered_listing_mode_total"] == 1
+    assert result["sources"][0]["top_candidates"] == []
+    assert result["sources"][0]["research_candidates"] == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "listing_mode"
+
+
 def test_property_scout_min_area_keeps_unknown_area_for_scoring(monkeypatch) -> None:
     principal_id = "cf-email:min-area-unknown.search@example.com"
     client = build_product_client(principal_id=principal_id)

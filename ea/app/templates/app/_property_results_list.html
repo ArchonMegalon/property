@@ -3,7 +3,7 @@
   {% set run_sources = run_summary.get('sources') or [] %}
   {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or run_summary.get('filtered_out_total') or 0 %}
   {% if not filtered_total %}
-    {% set filtered_total = (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) %}
+    {% set filtered_total = (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
   {% endif %}
   {% if not filtered_total and suppression_rows %}
     {% set filtered_total = suppression_rows|sum(attribute='affected_total') %}
@@ -172,6 +172,27 @@
       </span>
     </article>
     {% endfor %}
+    {% if not results %}
+    <div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state>
+      {% if surface_mode == 'shortlist' %}
+      <strong>No saved shortlist yet.</strong>
+      <span class="pqx-note">Shortlisted homes stay here across searches until you remove them.</span>
+      <span class="pqx-actions">
+        <a class="pqx-button primary" href="/app/search">Start search</a>
+        <a class="pqx-button subtle" href="/app/agents">Open automation</a>
+      </span>
+      {% else %}
+      <strong>No ranked homes are ready yet.</strong>
+      <span class="pqx-note">Start a search or inspect what hard rules held back before widening the brief.</span>
+      <span class="pqx-actions">
+        <a class="pqx-button primary" href="/app/search">Adjust search</a>
+        {% if filtered_total %}
+        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Open filtered breakdown</button>
+        {% endif %}
+      </span>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
   {% if filtered_total %}
   <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
@@ -184,7 +205,7 @@
         <div class="pqx-source-metrics">
           <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
           <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
-          <span>Filtered <b>{{ (source.get('filtered_area_total') or 0) + (source.get('filtered_property_type_total') or 0) + (source.get('filtered_availability_total') or 0) + (source.get('filtered_floorplan_total') or 0) }}</b></span>
+          <span>Filtered <b>{{ (source.get('filtered_area_total') or 0) + (source.get('filtered_property_type_total') or 0) + (source.get('filtered_availability_total') or 0) + (source.get('filtered_floorplan_total') or 0) + (source.get('filtered_generic_page_total') or 0) + (source.get('filtered_listing_mode_total') or 0) }}</b></span>
           <span>Score-demoted <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
           <span>Awaiting floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
         </div>

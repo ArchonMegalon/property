@@ -5723,6 +5723,8 @@ def _property_search_hard_filtered_total(payload: dict[str, object] | None) -> i
         + int(summary.get("filtered_property_type_total") or 0)
         + int(summary.get("filtered_floorplan_total") or 0)
         + int(summary.get("filtered_availability_total") or 0)
+        + int(summary.get("filtered_generic_page_total") or 0)
+        + int(summary.get("filtered_listing_mode_total") or 0)
     )
 
 
@@ -6174,6 +6176,146 @@ def _property_candidate_notification_price_signal(
         if match:
             return " ".join(str(match.group(1) or "").split()).strip(" ,")
     return ""
+
+
+_PROPERTY_RENT_LISTING_MARKERS = (
+    "/mietwohnungen/",
+    "/mietwohnung/",
+    "/miete/",
+    "mietwohnung",
+    "mietwohnungen",
+    "wohnung mieten",
+    "haus mieten",
+    "zur miete",
+    "zu mieten",
+    "miete ",
+    "gesamtmiete",
+    "warmmiete",
+    "nettomiete",
+    "rent ",
+    "rental",
+    "for rent",
+)
+_PROPERTY_BUY_LISTING_MARKERS = (
+    "/eigentumswohnung/",
+    "/eigentumswohnungen/",
+    "/haeuser-kaufen/",
+    "/häuser-kaufen/",
+    "/kaufimmobilien/",
+    "/kaufen/",
+    "/kauf/",
+    "eigentumswohnung",
+    "eigentumswohnungen",
+    "kaufpreis",
+    "wohnung kaufen",
+    "haus kaufen",
+    "immobilie kaufen",
+    "zu verkaufen",
+    "verkauf",
+    "kaufen",
+    "purchase price",
+    "for sale",
+    "buy ",
+)
+
+
+def _property_candidate_listing_mode_evidence(
+    *,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> dict[str, object]:
+    facts = dict(property_facts or {})
+    mode_values = " ".join(
+        str(facts.get(key) or "").strip().casefold()
+        for key in ("listing_mode", "transaction_type", "marketing_type", "offer_type", "deal_type")
+        if str(facts.get(key) or "").strip()
+    )
+    text = html.unescape(
+        " ".join(
+            part
+            for part in (
+                urllib.parse.unquote(str(property_url or "")),
+                str(title or ""),
+                str(summary or ""),
+                mode_values,
+            )
+            if str(part or "").strip()
+        )
+    ).casefold()
+    rent_text_markers = tuple(marker for marker in _PROPERTY_RENT_LISTING_MARKERS if marker in text)
+    buy_text_markers = tuple(marker for marker in _PROPERTY_BUY_LISTING_MARKERS if marker in text)
+    rent_fact_keys = (
+        "rent_display",
+        "monthly_rent_display",
+        "warm_rent_display",
+        "cold_rent_display",
+        "total_rent_display",
+        "gesamtmiete_display",
+        "rent_eur",
+        "total_rent_eur",
+        "warm_rent_eur",
+        "cold_rent_eur",
+        "monthly_rent_eur",
+    )
+    buy_fact_keys = (
+        "purchase_price_display",
+        "buy_price_display",
+        "kaufpreis_display",
+        "purchase_price_eur",
+        "buy_price_eur",
+        "kaufpreis_eur",
+        "valuation_eur",
+        "reserve_price_eur",
+    )
+    rent_fact_signal = any(str(facts.get(key) or "").strip() for key in rent_fact_keys)
+    buy_fact_signal = any(str(facts.get(key) or "").strip() for key in buy_fact_keys)
+    generic_price_signal = any(str(facts.get(key) or "").strip() for key in ("price_eur", "price_display", "price"))
+    mode_rent_signal = any(marker in mode_values for marker in ("rent", "rental", "miete", "mieten", "lease"))
+    mode_buy_signal = any(marker in mode_values for marker in ("buy", "sale", "kauf", "kaufen", "verkauf"))
+    rent_text_signal = bool(rent_text_markers or mode_rent_signal)
+    buy_text_signal = bool(buy_text_markers or mode_buy_signal)
+    if generic_price_signal and (buy_text_signal or (not rent_text_signal and not rent_fact_signal)):
+        buy_fact_signal = True
+    return {
+        "rent_text_signal": rent_text_signal,
+        "buy_text_signal": buy_text_signal,
+        "rent_fact_signal": rent_fact_signal,
+        "buy_fact_signal": buy_fact_signal,
+        "rent_text_markers": list(rent_text_markers[:8]),
+        "buy_text_markers": list(buy_text_markers[:8]),
+    }
+
+
+def _property_candidate_listing_mode_mismatch(
+    *,
+    listing_mode: str,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    normalized_mode = normalize_listing_mode(listing_mode)
+    evidence = _property_candidate_listing_mode_evidence(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=property_facts,
+    )
+    rent_signal = bool(evidence.get("rent_text_signal") or evidence.get("rent_fact_signal"))
+    buy_signal = bool(evidence.get("buy_text_signal") or evidence.get("buy_fact_signal"))
+    if normalized_mode == "rent":
+        return bool(
+            (evidence.get("buy_text_signal") and not evidence.get("rent_text_signal"))
+            or (buy_signal and not rent_signal)
+        )
+    if normalized_mode == "buy":
+        return bool(
+            (evidence.get("rent_text_signal") and not evidence.get("buy_text_signal"))
+            or (rent_signal and not buy_signal)
+        )
+    return False
 
 
 def _property_candidate_is_generic_listing_page(
@@ -28854,6 +28996,8 @@ class ProductService:
                 "filtered_area_total": 0,
                 "filtered_availability_total": 0,
                 "filtered_floorplan_total": 0,
+                "filtered_generic_page_total": 0,
+                "filtered_listing_mode_total": 0,
                 "filtered_low_fit_total": 0,
                 "provider_repair_task_opened_total": 0,
                 "provider_repair_task_existing_total": 0,
@@ -28925,6 +29069,8 @@ class ProductService:
         filtered_area_total = 0
         filtered_availability_total = 0
         filtered_floorplan_total = 0
+        filtered_generic_page_total = 0
+        filtered_listing_mode_total = 0
         filtered_low_fit_total = 0
         provider_repair_task_opened_total = 0
         provider_repair_task_existing_total = 0
@@ -29043,6 +29189,8 @@ class ProductService:
             filtered_area_for_source = 0
             filtered_availability_for_source = 0
             filtered_floorplan_for_source = 0
+            filtered_generic_page_for_source = 0
+            filtered_listing_mode_for_source = 0
             filtered_low_fit_for_source = 0
             floorplan_recovered_for_source = 0
             source_timing_ms = {
@@ -29140,6 +29288,104 @@ class ProductService:
                         "prefilter_score": prefilter_score,
                     }
                 )
+
+            def _suppress_generic_listing_candidate(
+                *,
+                property_url: str,
+                title: str,
+                summary: str,
+                property_facts: dict[str, object],
+                stage: str,
+                ordinal: int,
+                analysis_limit: int,
+            ) -> bool:
+                nonlocal filtered_generic_page_total
+                nonlocal filtered_generic_page_for_source
+                nonlocal provider_repair_task_opened_for_source
+                nonlocal provider_repair_task_existing_for_source
+                nonlocal provider_repair_task_opened_total
+                nonlocal provider_repair_task_existing_total
+                if not _property_candidate_is_generic_listing_page(
+                    property_url=property_url,
+                    title=title,
+                    summary=summary,
+                    property_facts=property_facts,
+                ):
+                    return False
+                filtered_generic_page_total += 1
+                filtered_generic_page_for_source += 1
+                diagnostics = {
+                    "provider_host": urllib.parse.urlparse(str(source_url or property_url)).netloc,
+                    "candidate_stage": stage,
+                    "expected_listing_mode": listing_mode,
+                    "postal_name": str(property_facts.get("postal_name") or "").strip(),
+                    "district": str(property_facts.get("district") or "").strip(),
+                    "source_scope_location": str(property_facts.get("source_scope_location") or "").strip(),
+                    "title": compact_text(title, fallback=property_url, limit=160),
+                }
+                repair_task = self._open_property_provider_repair_task(
+                    principal_id=principal_id,
+                    property_url=property_url,
+                    title=title or property_url,
+                    source_url=source_url,
+                    source_label=source_label,
+                    source_platform=str(source_spec.get("platform") or "").strip().lower(),
+                    source_family=str(source_spec.get("provider_family") or "").strip().lower(),
+                    filter_key="generic_listing_page",
+                    diagnostics=diagnostics,
+                    run_id=property_search_run_id,
+                )
+                repair_task_status = str(repair_task.get("status") or "").strip().lower()
+                if repair_task_status == "opened":
+                    provider_repair_task_opened_for_source += 1
+                    provider_repair_task_opened_total += 1
+                elif repair_task_status == "existing":
+                    provider_repair_task_existing_for_source += 1
+                    provider_repair_task_existing_total += 1
+                if str(repair_task.get("queue_item_ref") or "").strip():
+                    provider_repair_tasks_for_source.append(
+                        {
+                            "status": repair_task_status or "queued",
+                            "property_url": property_url,
+                            "title": title or property_url,
+                            "filter_key": "generic_listing_page",
+                            "diagnostics": diagnostics,
+                            "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
+                            "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
+                            "repair_owner": "ea_one_manager",
+                            "repair_workflow": "ea_provider_ooda",
+                        }
+                    )
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_provider_generic_listing_page_suppressed",
+                    payload={
+                        "property_url": property_url,
+                        "title": title,
+                        "source_url": source_url,
+                        "source_label": source_label,
+                        "source_platform": str(source_spec.get("platform") or "").strip().lower(),
+                        "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                        "filter_key": "generic_listing_page",
+                        "diagnostics": diagnostics,
+                        "repair_owner": "ea_one_manager",
+                        "repair_workflow": "ea_provider_ooda",
+                        "repair_task": dict(repair_task),
+                    },
+                    source_id=f"property-provider-generic-page:{property_url}",
+                    dedupe_key=f"{principal_id}|{property_url}|property-provider-generic-listing-page",
+                )
+                _report(
+                    step="source_generic_page_filter",
+                    message=(
+                        f"Suppressed non-listing candidate {ordinal} of {analysis_limit} "
+                        f"for {source_label}."
+                    ),
+                    status="in_progress",
+                    steps_delta=0,
+                    summary_updates={"filtered_generic_page_total": filtered_generic_page_total},
+                )
+                return True
 
             def _record_discovery_distance_soft_miss(
                 *,
@@ -29412,6 +29658,16 @@ class ProductService:
                     listing_mode=listing_mode,
                 )
                 preview["property_facts_json"] = preview_facts
+                if _suppress_generic_listing_candidate(
+                    property_url=property_url,
+                    title=preview_title,
+                    summary=preview_summary,
+                    property_facts=preview_facts,
+                    stage="provider_preview",
+                    ordinal=ordinal,
+                    analysis_limit=len(listing_urls),
+                ):
+                    continue
                 if not _property_candidate_matches_requested_property_type(
                     property_type=requested_property_type,
                     property_url=property_url,
@@ -29863,6 +30119,16 @@ class ProductService:
                             preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or recovered_candidate.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or recovered_candidate.get("summary") or "").strip(), fallback="", limit=240)
+                            if _suppress_generic_listing_candidate(
+                                property_url=property_url,
+                                title=preview_title,
+                                summary=preview_summary,
+                                property_facts=preview_facts,
+                                stage="floorplan_recovery",
+                                ordinal=int(recovered_candidate.get("ordinal") or 0),
+                                analysis_limit=len(provider_preview_floorplan_candidates),
+                            ):
+                                continue
                             location_match = bool(recovered_candidate.get("location_match"))
                             preliminary_row = {
                                 "property_url": property_url,
@@ -30006,6 +30272,16 @@ class ProductService:
                     listing_mode=listing_mode,
                 )
                 preview["property_facts_json"] = detailed_facts
+                if _suppress_generic_listing_candidate(
+                    property_url=property_url,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    property_facts=detailed_facts,
+                    stage="shortlist_detail",
+                    ordinal=ordinal,
+                    analysis_limit=analysis_limit,
+                ):
+                    continue
                 if location_hints and not _property_candidate_matches_search_area(
                     location_hints=location_hints,
                     request_preferences=request_preferences,
@@ -30358,44 +30634,26 @@ class ProductService:
                         },
                     )
                     continue
-                assessment = _property_alert_personal_fit_from_facts(
-                    preference_profiles=self._preference_profiles,
-                    principal_id=principal_id,
-                    person_id=source_preference_person_id,
+                listing_mode_evidence = _property_candidate_listing_mode_evidence(
                     property_url=property_url,
-                    property_facts_json=detailed_facts,
-                    listing_id=str(preview.get("listing_id") or property_url).strip(),
-                    use_profile_preferences=use_stored_feedback_preferences,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    property_facts=detailed_facts,
                 )
-                obvious_listing_mode_mismatch = False
-                if listing_mode == "buy":
-                    has_buy_price = isinstance(_property_investment_price_eur(detailed_facts), float)
-                    has_rent_signal = any(
-                        detailed_facts.get(key)
-                        for key in (
-                            "rent_display",
-                            "warm_rent_display",
-                            "cold_rent_display",
-                            "total_rent_display",
-                            "warm_rent_eur",
-                            "cold_rent_eur",
-                            "total_rent_eur",
-                            "rent_eur",
-                            "gesamtmiete_display",
-                        )
-                    )
-                    obvious_listing_mode_mismatch = bool(has_rent_signal and not has_buy_price)
-                elif listing_mode == "rent":
-                    has_buy_signal = isinstance(_property_investment_price_eur(detailed_facts), float)
-                    has_rent_price = any(
-                        detailed_facts.get(key)
-                        for key in ("rent_display", "warm_rent_display", "cold_rent_display", "total_rent_display", "rent_eur", "total_rent_eur")
-                    )
-                    obvious_listing_mode_mismatch = bool(has_buy_signal and not has_rent_price)
+                obvious_listing_mode_mismatch = _property_candidate_listing_mode_mismatch(
+                    listing_mode=listing_mode,
+                    property_url=property_url,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    property_facts=detailed_facts,
+                )
                 if obvious_listing_mode_mismatch:
+                    filtered_listing_mode_total += 1
+                    filtered_listing_mode_for_source += 1
                     diagnostics = {
                         "provider_host": urllib.parse.urlparse(str(source_url or property_url)).netloc,
                         "expected_listing_mode": listing_mode,
+                        "listing_mode_evidence": listing_mode_evidence,
                         "observed_price_display": str(detailed_facts.get("price_display") or "").strip(),
                         "observed_rent_display": str(detailed_facts.get("rent_display") or "").strip(),
                         "observed_total_rent_display": str(detailed_facts.get("total_rent_display") or "").strip(),
@@ -30459,8 +30717,18 @@ class ProductService:
                         message=f"Suppressed listing-mode mismatch candidate for {source_label}.",
                         status="in_progress",
                         steps_delta=0,
+                        summary_updates={"filtered_listing_mode_total": filtered_listing_mode_total},
                     )
                     continue
+                assessment = _property_alert_personal_fit_from_facts(
+                    preference_profiles=self._preference_profiles,
+                    principal_id=principal_id,
+                    person_id=source_preference_person_id,
+                    property_url=property_url,
+                    property_facts_json=detailed_facts,
+                    listing_id=str(preview.get("listing_id") or property_url).strip(),
+                    use_profile_preferences=use_stored_feedback_preferences,
+                )
                 ranked_rows.append(
                     {
                         "property_url": property_url,
@@ -30597,6 +30865,21 @@ class ProductService:
                         if isinstance(fallback_row.get("property_facts"), dict)
                         else {}
                     )
+                    if _property_candidate_is_generic_listing_page(
+                        property_url=property_url,
+                        title=str(fallback_row.get("title") or property_url),
+                        summary=str(fallback_row.get("summary") or ""),
+                        property_facts=fallback_facts,
+                    ):
+                        continue
+                    if _property_candidate_listing_mode_mismatch(
+                        listing_mode=listing_mode,
+                        property_url=property_url,
+                        title=str(fallback_row.get("title") or property_url),
+                        summary=str(fallback_row.get("summary") or ""),
+                        property_facts=fallback_facts,
+                    ):
+                        continue
                     fallback_assessment = {
                         "fit_score": max(1.0, min(float(fallback_row.get("fit_score") or 1.0), float(match_score_cap))),
                         "confidence": 0.25,
@@ -31101,6 +31384,8 @@ class ProductService:
                     "filtered_area_total": filtered_area_for_source,
                     "filtered_availability_total": filtered_availability_for_source,
                     "filtered_floorplan_total": filtered_floorplan_for_source,
+                    "filtered_generic_page_total": filtered_generic_page_for_source,
+                    "filtered_listing_mode_total": filtered_listing_mode_for_source,
                     "floorplan_recovered_total": floorplan_recovered_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
                     "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
@@ -31410,6 +31695,8 @@ class ProductService:
             + int(filtered_property_type_total or 0)
             + int(filtered_floorplan_total or 0)
             + int(filtered_availability_total or 0)
+            + int(filtered_generic_page_total or 0)
+            + int(filtered_listing_mode_total or 0)
         )
         payload = {
             "generated_at": _now_iso(),
@@ -31422,6 +31709,8 @@ class ProductService:
             "filtered_area_total": filtered_area_total,
             "filtered_availability_total": filtered_availability_total,
             "filtered_floorplan_total": filtered_floorplan_total,
+            "filtered_generic_page_total": filtered_generic_page_total,
+            "filtered_listing_mode_total": filtered_listing_mode_total,
             "filtered_low_fit_total": filtered_low_fit_total,
             "held_back_total": held_back_total,
             "filtered_total": held_back_total,

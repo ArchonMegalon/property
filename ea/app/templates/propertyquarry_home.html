@@ -267,7 +267,7 @@
       </div>
       <div>
         <div class="cta-row">
-          {% if signing_in_progress %}
+          {% if public_signed_in or signing_in_progress %}
           <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
           <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open run</a>
           {% else %}
@@ -374,7 +374,7 @@
       <p>PropertyQuarry is strongest when the first session ends with fewer tabs and clearer reasons.</p>
     </div>
     <div class="cta-row">
-      {% if signing_in_progress %}
+      {% if public_signed_in or signing_in_progress %}
       <a class="btn primary" href="/app/search" data-analytics-event="home_open_search_footer" data-rybbit-event="home_open_search" data-rybbit-prop-surface="footer">Open search</a>
       <a class="btn ghost" href="/app/properties" data-analytics-event="home_open_run_footer" data-rybbit-event="home_open_run" data-rybbit-prop-surface="footer">Open run</a>
       {% else %}

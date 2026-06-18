@@ -1017,6 +1017,8 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
     mobile_shot = tmp_path / "propertyquarry-what-matters-mobile.png"
     try:
         desktop_page = desktop.new_page()
+        console_errors: list[str] = []
+        desktop_page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
         response = desktop_page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
         assert response is not None and response.ok
         desktop_page.locator('[data-property-step-trigger="children"]').click()
@@ -1035,6 +1037,35 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
             "require_high_speed_internet",
         ):
             expect(desktop_page.locator(f'[data-property-field-name="{field_name}"]')).to_be_hidden()
+        baugrund_row = section.locator('[data-keyword-priority-row][data-keyword-value="baugrund"]')
+        expect(baugrund_row).to_be_hidden()
+        desktop_page.locator('[data-property-step-trigger="what"]').click()
+        desktop_page.locator('input[name="property_type"][value="land"]').check()
+        desktop_page.locator('[data-property-step-trigger="children"]').click()
+        expect(baugrund_row).to_be_visible()
+        distance_row = section.locator('[data-keyword-priority-row]:has([data-keyword-distance-select])').first
+        distance_preference = distance_row.locator('[data-keyword-preference-select]')
+        distance_select = distance_row.locator('[data-keyword-distance-select]')
+        distance_preference.select_option("nice_to_have")
+        expect(distance_select).to_be_enabled()
+        assert distance_row.evaluate("node => node.dataset.keywordDistanceEnabled") == "true"
+        assert distance_row.evaluate("node => node.closest('[data-what-matters-group]')?.dataset.activeDistanceRows") == "true"
+        preference_box = distance_preference.bounding_box()
+        distance_box = distance_select.bounding_box()
+        assert preference_box and preference_box["width"] >= 128
+        assert distance_box and distance_box["width"] >= 108
+        school_parent = section.locator('[data-school-priority-row][data-school-value="volksschule"] [data-school-preference-select]')
+        school_detail = section.locator('[data-school-priority-row][data-school-parent-value="volksschule"]').first
+        expect(school_detail).to_be_hidden()
+        school_parent.select_option("nice_to_have")
+        expect(school_detail).to_be_visible()
+        assert school_parent.evaluate("node => node.closest('[data-school-priority-row]')?.dataset.schoolFamilyActive") == "true"
+        assert school_detail.evaluate("node => node.dataset.schoolParentActive") == "true"
+        actionable_console_errors = [
+            message for message in console_errors
+            if "Cross-Origin-Opener-Policy header has been ignored" not in message
+        ]
+        assert actionable_console_errors == []
         section.screenshot(path=str(desktop_shot))
         assert desktop_shot.exists()
 

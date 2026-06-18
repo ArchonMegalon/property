@@ -112,6 +112,8 @@ def _property_summary_held_back_total(summary: dict[str, object]) -> int:
             + _positive_int(summary.get("filtered_area_total"))
             + _positive_int(summary.get("filtered_property_type_total"))
             + _positive_int(summary.get("filtered_availability_total"))
+            + _positive_int(summary.get("filtered_generic_page_total"))
+            + _positive_int(summary.get("filtered_listing_mode_total"))
         ),
     )
 
@@ -180,6 +182,8 @@ def build_property_run_health_snapshot(
             + _positive_int(summary.get("filtered_area_total"))
             + _positive_int(summary.get("filtered_property_type_total"))
             + _positive_int(summary.get("filtered_availability_total"))
+            + _positive_int(summary.get("filtered_generic_page_total"))
+            + _positive_int(summary.get("filtered_listing_mode_total"))
         )
     filtered_total = _positive_int(summary.get("filtered_total"), default=held_back_total or 0)
     return PropertyRunHealthSnapshot(
@@ -903,6 +907,8 @@ def build_property_previous_run_summary(
         + _previous_run_int(summary.get("filtered_area_total"))
         + _previous_run_int(summary.get("filtered_property_type_total"))
         + _previous_run_int(summary.get("filtered_availability_total"))
+        + _previous_run_int(summary.get("filtered_generic_page_total"))
+        + _previous_run_int(summary.get("filtered_listing_mode_total"))
     )
     status_label, status_note = property_run_status_copy(
         raw_run.get("status") or summary.get("status"),

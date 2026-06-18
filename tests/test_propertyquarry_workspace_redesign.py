@@ -353,6 +353,20 @@ def test_propertyquarry_shortlist_without_run_id_prefers_latest_terminal_run_wit
     assert "Praterstrasse flat" in response.text
 
 
+def test_propertyquarry_shortlist_without_runs_renders_actionable_empty_state() -> None:
+    client = build_property_client(principal_id="pq-shortlist-empty-state")
+    start_workspace(client, mode="personal", workspace_name="Shortlist Empty State Office")
+
+    response = client.get("/app/shortlist", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "No saved shortlist yet." in response.text
+    assert "Shortlisted homes stay here across searches until you remove them." in response.text
+    assert 'href="/app/search"' in response.text
+    assert 'href="/app/agents"' in response.text
+    assert 'data-pqx-results-empty-state' in response.text
+
+
 def test_property_suppression_rows_synthesizes_generic_breakdown_from_aggregate_filtered_total() -> None:
     rows = landing_property_workspace_helpers._property_suppression_rows(
         run_summary={"filtered_total": 58, "held_back_total": 58},
@@ -717,6 +731,14 @@ def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_
     assert public_home.status_code == 200
     assert "Find the right properties. Compare them clearly. Decide with evidence." in public_home.text
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
+    assert 'href="/app/search"' in public_home.text
+    assert 'href="/app/properties"' in public_home.text
+    assert 'href="/sign-in?signing_in=1"' not in public_home.text
+    assert ">Sign in<" not in public_home.text
+    assert "home_create_account" not in public_home.text
+    assert "home_sign_in" not in public_home.text
+    assert "Signing you in" not in public_home.text
+    assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in public_home.text
 
 
 def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monkeypatch) -> None:
@@ -736,6 +758,13 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
     assert response.status_code == 200
     assert "Find the right properties. Compare them clearly. Decide with evidence." in response.text
     assert 'href="/app/search"' in response.text
+    assert 'href="/app/properties"' in response.text
+    assert 'href="/sign-in?signing_in=1"' not in response.text
+    assert ">Sign in<" not in response.text
+    assert "home_create_account" not in response.text
+    assert "home_sign_in" not in response.text
+    assert "Signing you in" not in response.text
+    assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in response.text
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
@@ -907,13 +936,15 @@ def test_property_surface_state_builds_filtered_total_from_summary_components() 
             "summary": {
                 "filtered_area_total": 18,
                 "filtered_floorplan_total": 4,
+                "filtered_listing_mode_total": 2,
+                "filtered_generic_page_total": 1,
                 "filtered_low_fit_total": 7,
                 "notification_budget_suppressed_total": 3,
             },
         }
     )
-    assert snapshot["held_back_total"] == 22
-    assert snapshot["filtered_total"] == 22
+    assert snapshot["held_back_total"] == 25
+    assert snapshot["filtered_total"] == 25
 
 
 def test_property_saved_shortlist_candidates_persist_across_runs() -> None:
@@ -3473,6 +3504,7 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "const openFilteredDialog = () => {" in body
     assert "[data-pqx-source-breakdown]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
+    assert "No ranked homes are ready yet. Open the filtered breakdown" in body
     assert "Best homes first" not in body
 
 
@@ -3803,6 +3835,8 @@ def test_propertyquarry_suppression_rows_includes_property_type_and_availability
         run_summary={
             "filtered_property_type_total": 3,
             "filtered_availability_total": 1,
+            "filtered_listing_mode_total": 2,
+            "filtered_generic_page_total": 1,
             "filtered_area_total": 0,
             "filtered_floorplan_total": 0,
             "filtered_low_fit_total": 0,
@@ -3811,6 +3845,8 @@ def test_propertyquarry_suppression_rows_includes_property_type_and_availability
         source_rows=[
             {"source_label": "Willhaben Vienna", "filtered_property_type_total": 3},
             {"source_label": "Willhaben Vienna", "filtered_availability_total": 1},
+            {"source_label": "DER STANDARD Vienna", "filtered_listing_mode_total": 2},
+            {"source_label": "Genossenschaften Austria", "filtered_generic_page_total": 1},
         ],
         preferences={
             "available_within_years": 1,
@@ -3820,9 +3856,13 @@ def test_propertyquarry_suppression_rows_includes_property_type_and_availability
 
     property_type_row = next(row for row in rows if row.get("rule_key") == "Property type mismatch")
     availability_row = next(row for row in rows if row.get("rule_key") == "Availability mismatch")
+    listing_mode_row = next(row for row in rows if row.get("rule_key") == "Wrong transaction type")
+    overview_row = next(row for row in rows if row.get("rule_key") == "Provider overview page")
 
     assert property_type_row["affected_total"] == 3
     assert availability_row["affected_total"] == 1
+    assert listing_mode_row["affected_total"] == 2
+    assert overview_row["affected_total"] == 1
     assert property_type_row["action_label"] == "Relax property type"
     assert availability_row["action_label"] == "Edit move-in timing"
 

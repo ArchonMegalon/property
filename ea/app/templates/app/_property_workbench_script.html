@@ -788,7 +788,13 @@
           ? `<span class="pqx-note">No selected-area matches: provider returned ${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the chosen target area.</span>`
           : '';
         const message = source?.message || source?.error ? `<span class="pqx-note">${escapeHtml(source.message || source.error)}</span>` : '';
-        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Scanned')}</span><div class="pqx-source-metrics"><span>Reviewed <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>High fit <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Filtered <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>Awaiting floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+        const filtered = Number(source?.filtered_area_total || 0)
+          + Number(source?.filtered_property_type_total || 0)
+          + Number(source?.filtered_availability_total || 0)
+          + Number(source?.filtered_floorplan_total || 0)
+          + Number(source?.filtered_generic_page_total || 0)
+          + Number(source?.filtered_listing_mode_total || 0);
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Scanned')}</span><div class="pqx-source-metrics"><span>Reviewed <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>High fit <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Filtered <b>${escapeHtml(filtered)}</b></span><span>Score-demoted <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>Awaiting floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
       }).join('');
     };
     const renderRouteEvidence = (routes) => {
@@ -1218,8 +1224,13 @@
     const renderRankedCandidates = (candidates, runPayload = null) => {
       const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
       const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
-      if (!rows.length) return '<div class="pqx-empty" data-pqx-ranked-candidates>No matches are ready yet. Open search diagnostics if the results look wrong or too narrow.</div>';
       const summary = runPayload?.summary && typeof runPayload.summary === 'object' ? runPayload.summary : {};
+      const componentFilteredTotal = Number(summary.filtered_area_total || 0)
+        + Number(summary.filtered_property_type_total || 0)
+        + Number(summary.filtered_availability_total || 0)
+        + Number(summary.filtered_floorplan_total || 0)
+        + Number(summary.filtered_generic_page_total || 0)
+        + Number(summary.filtered_listing_mode_total || 0);
       const filteredTotal = Number(
         runPayload?.filtered_total
         || runPayload?.held_back_total
@@ -1230,8 +1241,37 @@
         || summary.filtered_property_type_total
         || summary.filtered_availability_total
         || summary.filtered_floorplan_total
+        || summary.filtered_generic_page_total
+        || summary.filtered_listing_mode_total
+        || componentFilteredTotal
         || 0
       );
+      const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
+      const filteredLabel = filteredTotal > 0 ? `<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</button>` : '';
+      const filteredBreakdown = filteredTotal > 0 ? `
+          <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
+            <summary><strong>Filtered by rules: How this search was filtered</strong></summary>
+            <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
+          </details>
+      ` : '';
+      if (!rows.length) {
+        return `
+          <section class="pqx-result-panel active" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
+            <div class="pqx-result-panel-head">
+              <div class="pqx-results-headline">
+                <div class="pqx-note pqx-results-summary-row">
+                  <a class="pqx-results-summary-link" href="#results-list"><b>0</b> ${summaryLabel}</a>
+                  ${filteredLabel}
+                </div>
+              </div>
+            </div>
+            <div class="pqx-results-list" id="results-list" data-workbench-results-table>
+              <div class="pqx-empty">No ranked homes are ready yet. Open the filtered breakdown to see what the hard rules held back.</div>
+            </div>
+            ${filteredBreakdown}
+          </section>
+        `;
+      }
       const body = rows.map((candidate, index) => {
         const title = candidate?.title || 'Property candidate';
         const location = String(candidate?.location_label || '').trim();
@@ -1299,14 +1339,6 @@
           </article>
         `;
       }).join('');
-      const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
-      const filteredLabel = filteredTotal > 0 ? `<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</button>` : '';
-      const filteredBreakdown = filteredTotal > 0 ? `
-          <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>Filtered by rules: How this search was filtered</strong></summary>
-            <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
-          </details>
-      ` : '';
       return `
         <section class="pqx-result-panel active" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
           <div class="pqx-result-panel-head">
@@ -1755,6 +1787,27 @@
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const whatMattersFieldSelector = '[data-property-field-step="children"]';
+      const syncKeywordDistanceSelects = (form) => {
+        const activeGroups = new Map();
+        form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
+          const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
+          const distanceSelect = row.querySelector('[data-keyword-distance-select]');
+          if (!(preferenceSelect instanceof HTMLSelectElement)) return;
+          const state = String(preferenceSelect.value || 'any').trim().toLowerCase() || 'any';
+          const enabled = state !== 'any' && distanceSelect instanceof HTMLSelectElement;
+          row.dataset.preferenceState = state;
+          row.dataset.keywordDistanceEnabled = enabled ? 'true' : 'false';
+          row.classList.toggle('is-active', enabled);
+          row.classList.toggle('is-avoid', state === 'avoid');
+          row.classList.toggle('is-hard', state === 'must_have');
+          if (distanceSelect instanceof HTMLSelectElement) distanceSelect.disabled = !enabled;
+          const group = row.closest('[data-what-matters-group]');
+          if (group) activeGroups.set(group, Boolean(activeGroups.get(group) || enabled));
+        });
+        form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
+          group.dataset.activeDistanceRows = activeGroups.get(group) ? 'true' : 'false';
+        });
+      };
       const syncSchoolPreferenceFields = () => {
         const selectedStages = [];
         let strongest = 'any';
@@ -1801,6 +1854,41 @@
         });
         syncSchoolPreferenceFields();
       };
+      const normalizePropertyTypeValue = (value) => String(value || '').trim().toLowerCase();
+      const selectedPropertyTypeValues = () => {
+        const values = [];
+        form.querySelectorAll('[name="property_type"]').forEach((node) => {
+          if (node instanceof HTMLInputElement && (node.type === 'checkbox' || node.type === 'radio')) {
+            if (node.checked) values.push(normalizePropertyTypeValue(node.value));
+          } else if (node instanceof HTMLSelectElement) {
+            Array.from(node.selectedOptions || []).forEach((option) => values.push(normalizePropertyTypeValue(option.value)));
+          } else if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
+            values.push(normalizePropertyTypeValue(node.value));
+          }
+        });
+        return values.filter(Boolean);
+      };
+      const syncPropertyTypeDependentFilters = (form) => {
+        const selectedTypes = selectedPropertyTypeValues();
+        const landTypes = new Set(['land', 'baugrund', 'grundstück', 'grundstueck']);
+        const dwellingOnlyKeywords = new Set(['lift', 'barrier-free', 'balcony', 'terrace', 'no gas', 'district heating', 'bright']);
+        const allowsLand = selectedTypes.some((value) => landTypes.has(value));
+        const landOnly = selectedTypes.length > 0 && selectedTypes.every((value) => landTypes.has(value));
+        form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
+          const keywordValue = normalizePropertyTypeValue(row.getAttribute('data-keyword-value'));
+          const hiddenForType = keywordValue === 'baugrund' ? !allowsLand : dwellingOnlyKeywords.has(keywordValue) && landOnly;
+          row.hidden = hiddenForType;
+          row.toggleAttribute('aria-hidden', hiddenForType);
+          row.dataset.propertyTypeCompatible = hiddenForType ? 'false' : 'true';
+          if (hiddenForType) {
+            const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
+            const distanceSelect = row.querySelector('[data-keyword-distance-select]');
+            if (preferenceSelect instanceof HTMLSelectElement) preferenceSelect.value = 'any';
+            if (distanceSelect instanceof HTMLSelectElement) distanceSelect.disabled = true;
+          }
+        });
+        syncKeywordDistanceSelects(form);
+      };
       const captureWhatMattersSnapshot = () => {
         const snapshot = {};
         form.querySelectorAll(`${whatMattersFieldSelector} input, ${whatMattersFieldSelector} select, ${whatMattersFieldSelector} textarea`).forEach((field) => {
@@ -1842,7 +1930,7 @@
             }
           });
         });
-        syncKeywordDistanceSelects(form);
+        syncPropertyTypeDependentFilters(form);
         syncSchoolPreferenceDetailRows();
         syncFamilyModeControls();
         syncSearchGoalControls();
@@ -2202,7 +2290,7 @@
         syncProviderOptionsForMarket();
         syncListingModeControls();
       });
-      form.querySelectorAll('input[name="property_type"]').forEach((node) => node.addEventListener('change', () => {
+      form.querySelectorAll('[name="property_type"]').forEach((node) => node.addEventListener('change', () => {
         syncPropertyTypeDependentFilters(form);
       }));
       commuteResearchField?.addEventListener('change', syncCommuteControls);
@@ -2274,7 +2362,7 @@
           syncKeywordDistanceSelects(form);
         }
         if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-preference-select')) {
-          syncSchoolPreferenceFields();
+          syncSchoolPreferenceDetailRows();
         }
       });
       form.addEventListener('propertyquarry:stepchange', () => {

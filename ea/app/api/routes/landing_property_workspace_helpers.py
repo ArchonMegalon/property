@@ -856,6 +856,8 @@ def _property_suppression_rows(
     counters = {
         "Outside selected area": 0,
         "Property type mismatch": 0,
+        "Wrong transaction type": 0,
+        "Provider overview page": 0,
         "Missing floorplan evidence": 0,
         "Below fit threshold": 0,
         "Outside area/size rule": 0,
@@ -866,6 +868,8 @@ def _property_suppression_rows(
     field_map = (
         ("Outside selected area", "location_mismatch_candidate_total"),
         ("Property type mismatch", "filtered_property_type_total"),
+        ("Wrong transaction type", "filtered_listing_mode_total"),
+        ("Provider overview page", "filtered_generic_page_total"),
         ("Missing floorplan evidence", "filtered_floorplan_total"),
         ("Below fit threshold", "filtered_low_fit_total"),
         ("Outside area/size rule", "filtered_area_total"),
@@ -891,6 +895,8 @@ def _property_suppression_rows(
     summary_field_map = (
         ("Outside selected area", "filtered_location_total"),
         ("Property type mismatch", "filtered_property_type_total"),
+        ("Wrong transaction type", "filtered_listing_mode_total"),
+        ("Provider overview page", "filtered_generic_page_total"),
         ("Missing floorplan evidence", "filtered_floorplan_total"),
         ("Below fit threshold", "filtered_low_fit_total"),
         ("Outside area/size rule", "filtered_area_total"),
@@ -906,6 +912,8 @@ def _property_suppression_rows(
     action_map = {
         "Outside selected area": "Add nearby districts first instead of opening the full market.",
         "Property type mismatch": "Allow this property type temporarily if you want mixed options in this round.",
+        "Wrong transaction type": "Keep this strict. Rent and buy are hard rules, so mismatched listings are sent for provider repair.",
+        "Provider overview page": "Keep this strict. Provider overview, news, or competition pages are sent for extractor repair.",
         "Missing floorplan evidence": "These homes are still being checked for a floorplan in photos, PDFs, downloads, and 360 media.",
         "Below fit threshold": "Lower the match bar a little if you want to see more borderline homes.",
         "Outside area/size rule": "Stretch the size or area rule only if the shortlist feels too thin.",
