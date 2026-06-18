@@ -26,6 +26,19 @@ from app.services.public_branding import request_brand
 router = APIRouter(tags=["landing"])
 
 
+def _is_propertyquarry_request(request: Request) -> bool:
+    return str(request_brand(request).get("key") or "").strip() == "propertyquarry"
+
+
+def _raise_propertyquarry_object_detail_disabled(request: Request) -> None:
+    if _is_propertyquarry_request(request):
+        raise HTTPException(status_code=404, detail="propertyquarry_object_detail_not_available")
+
+
+def _propertyquarry_handoff_task_allowed(task_type: str) -> bool:
+    return str(task_type or "").strip() in {"property_alert_review", "property_tour_followup"}
+
+
 def _google_delivery_action(reason: str, *, return_to: str) -> dict[str, str]:
     normalized = str(reason or "").strip()
     label = "Connect Google" if normalized in {"google_oauth_binding_not_found", "google_account_missing"} else "Reconnect Google"
@@ -93,6 +106,7 @@ def person_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    _raise_propertyquarry_object_detail_disabled(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -143,6 +157,7 @@ def commitment_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    _raise_propertyquarry_object_detail_disabled(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -256,6 +271,7 @@ def decision_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    _raise_propertyquarry_object_detail_disabled(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -389,6 +405,7 @@ def deadline_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    _raise_propertyquarry_object_detail_disabled(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -510,6 +527,8 @@ def handoff_detail(
     handoff = product.get_handoff(principal_id=context.principal_id, handoff_ref=handoff_ref)
     if handoff is None:
         raise HTTPException(status_code=404, detail="handoff_not_found")
+    if _is_propertyquarry_request(request) and not _propertyquarry_handoff_task_allowed(str(handoff.task_type or "")):
+        raise HTTPException(status_code=404, detail="propertyquarry_object_detail_not_available")
     task_id = handoff.id.split(":", 1)[1] if handoff.id.startswith("human_task:") else handoff.id
     history_rows = container.orchestrator.list_human_task_assignment_history(task_id, principal_id=context.principal_id, limit=8)
     send_error = str(request.query_params.get("send_error") or "").strip()
@@ -1041,6 +1060,10 @@ def thread_detail(
         if linked_handoff_ref
         else None
     )
+    if _is_propertyquarry_request(request) and not (
+        linked_handoff is not None and _propertyquarry_handoff_task_allowed(str(linked_handoff.task_type or ""))
+    ):
+        raise HTTPException(status_code=404, detail="propertyquarry_object_detail_not_available")
     delivery_followup_open = (
         linked_handoff is not None
         and str(linked_handoff.task_type or "").strip() == "delivery_followup"
@@ -1240,6 +1263,7 @@ def evidence_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    _raise_propertyquarry_object_detail_disabled(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1307,6 +1331,7 @@ def rule_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    _raise_propertyquarry_object_detail_disabled(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)

@@ -18,7 +18,7 @@ from app.services import property_market_catalog
 from app.product import property_surface_state
 from app.product.models import HandoffNote
 from app.product.service import ProductService, _property_search_analysis_cap_per_source, build_product_service
-from tests.product_test_helpers import build_property_client, start_workspace
+from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
 
 def _read_workbench_bundle() -> str:
@@ -71,6 +71,25 @@ def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tool
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the packet PDF dossier" in body
+
+
+def test_propertyquarry_blocks_legacy_object_detail_routes_for_generic_office_objects() -> None:
+    principal_id = "pq-legacy-object-detail-guard"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    legacy_paths = [
+        f"/app/people/{seeded['stakeholder_id']}",
+        f"/app/commitment-items/commitment:{seeded['commitment_id']}",
+        f"/app/decisions/{seeded['decision_window_id']}",
+        f"/app/deadlines/{seeded['deadline_window_id']}",
+        f"/app/handoffs/human_task:{seeded['human_task_id']}",
+    ]
+    for path in legacy_paths:
+        response = client.get(path, headers={"host": "propertyquarry.com"})
+        assert response.status_code == 404, path
+        assert "propertyquarry_object_detail_not_available" in response.text
 
 
 def test_propertyquarry_results_prefer_real_media_over_generated_diorama_previews() -> None:
