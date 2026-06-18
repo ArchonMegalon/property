@@ -9261,6 +9261,29 @@ def _property_scout_brief_text(
     return "\n".join(line for line in lines if str(line or "").strip())
 
 
+def _property_source_display_label(value: object) -> str:
+    raw = compact_text(str(value or "").strip(), fallback="", limit=160)
+    if not raw:
+        return ""
+    parts = [part.strip() for part in raw.split("|") if part.strip()]
+    if len(parts) <= 1:
+        return raw
+    metadata_re = re.compile(
+        r"^(?:"
+        r"austria|germany|switzerland|costa rica|united kingdom|united states|"
+        r"rent|buy|auction|rent to own|"
+        r"wien|vienna|all austria|österreich|osterreich|"
+        r"\d{4,5}(?:\s+[A-Za-zÄÖÜäöüß .'-]+)?"
+        r")$",
+        flags=re.IGNORECASE,
+    )
+    visible = [part for part in parts if not metadata_re.match(part)]
+    if not visible:
+        visible = parts[:1]
+    # Keep a provider qualifier such as "GESIBA Wohnungen" but never the search scope.
+    return compact_text(" · ".join(visible[:2]), fallback=parts[0], limit=100)
+
+
 def _property_telegram_url_button_rows(
     *,
     property_url: str = "",
@@ -10612,7 +10635,7 @@ def _property_alert_review_telegram_text(
         property_link_label=visible_property_label,
         fit_summary=fit_summary,
         next_action=next_action,
-        source_text=counterparty,
+        source_text=_property_source_display_label(counterparty),
         mailbox=account_email,
         extra_lines=tuple(extra_lines),
     )

@@ -171,6 +171,32 @@ def test_ranked_candidates_exclude_false_positive_and_repair_only_rows() -> None
     assert [row["source_ref"] for row in ranked] == ["good"]
 
 
+def test_property_scout_notification_source_hides_search_scope_metadata() -> None:
+    text = product_service._property_alert_review_telegram_text(
+        title="Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+        summary="2-Zimmer Wohnung mit Traumblick in 1220 Wien.",
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien",
+        personal_fit_assessment={"fit_score": 54.0, "recommendation": "ask_for_clarification"},
+    )
+
+    assert "Source: DER STANDARD Immobilien" in text
+    assert "Source: DER STANDARD Immobilien | Austria | Rent | 1010 Vienna" not in text
+
+    cooperative = product_service._property_alert_review_telegram_text(
+        title="Geförderte Wohnung",
+        summary="Review candidate.",
+        counterparty="Genossenschaften | Austria | Rent | 1010 Vienna | GESIBA Wohnungen",
+        account_email="",
+        property_url="https://example.test/listing",
+        personal_fit_assessment={"fit_score": 64.0, "recommendation": "mention"},
+    )
+
+    assert "Source: Genossenschaften · GESIBA Wohnungen" in cooperative
+    assert "1010 Vienna" not in cooperative
+
+
 def test_property_requested_location_match_keeps_title_postal_match_even_when_scope_shares_same_postal() -> None:
     assert _property_candidate_matches_requested_location(
         location_hints=("8055 Graz",),
