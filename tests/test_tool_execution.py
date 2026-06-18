@@ -5294,11 +5294,17 @@ def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(
     assert (bundle_dir / "scene-02.jpg").read_bytes() == b"asset:https://assets.example/living-room.jpg"
     payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert payload["hosted_url"] == "https://ea.example/tours/kahlenberg-variant-b"
-    assert payload["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
-    assert payload["listing_url"] == "https://www.willhaben.at/listing/kahlenberg"
     assert payload["scene_count"] == 2
-    assert payload["brief"]["creative_brief"] == "Lead with the view and floorplan clarity."
     assert payload["scenes"][0]["asset_relpath"] == "scene-01.jpg"
+    serialized_payload = json.dumps(payload, sort_keys=True)
+    assert "listing_url" not in payload
+    assert "crezlo_public_url" not in payload
+    assert "brief" not in payload
+    assert "willhaben.at/listing/kahlenberg" not in serialized_payload
+    private_payload = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+    assert private_payload["listing_url"] == "https://www.willhaben.at/listing/kahlenberg"
+    assert private_payload["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
+    assert private_payload["brief"]["creative_brief"] == "Lead with the view and floorplan clarity."
 
 
 def test_crezlo_public_tour_bundle_writer_supports_ui_worker_scene_payload(
@@ -5374,10 +5380,13 @@ def test_crezlo_public_tour_bundle_writer_supports_ui_worker_scene_payload(
     assert (bundle_dir / "scene-01.jpg").read_bytes() == b"asset:https://media.crezlo.com/tours/2026-05-03/scene-1.jpg"
     payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert payload["hosted_url"] == "https://ea.example/tours/wahring-ui-worker"
-    assert payload["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker"
-    assert payload["listing_url"] == "https://www.willhaben.at/listing/wahring-ui-worker"
     assert payload["scene_count"] == 2
     assert payload["brand_name"] == "Pioche Lecombe"
+    assert "listing_url" not in payload
+    assert "crezlo_public_url" not in payload
+    private_payload = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+    assert private_payload["listing_url"] == "https://www.willhaben.at/listing/wahring-ui-worker"
+    assert private_payload["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker"
 
 
 def test_crezlo_public_tour_bundle_writer_falls_back_to_requested_media_urls(
@@ -5434,14 +5443,21 @@ def test_crezlo_public_tour_bundle_writer_falls_back_to_requested_media_urls(
     assert (bundle_dir / "scene-01.jpg").read_bytes() == b"asset:https://assets.example/fallback-floorplan-1.jpg"
     assert (bundle_dir / "scene-02.jpg").read_bytes() == b"asset:https://assets.example/fallback-photo-1.jpg"
     payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
-    assert payload["listing_url"] == "https://www.willhaben.at/listing/fallback-media-tour"
     assert payload["scene_count"] == 3
     assert payload["scenes"][0]["role"] == "floorplan"
     assert payload["scenes"][1]["role"] == "photo"
     assert payload["hosted_url"] == "https://ea.example/tours/fallback-media-tour#live-360"
-    assert payload["source_virtual_tour_url"] == "https://360.example.test/view/portal/id/demo-tour"
-    assert payload["panorama_source"] == "feelestate_kalandra"
     assert payload["brand_name"] == "Pioche Lecombe"
+    serialized_payload = json.dumps(payload, sort_keys=True)
+    assert "listing_url" not in payload
+    assert "source_virtual_tour_url" not in payload
+    assert "panorama_source" not in payload
+    assert "willhaben.at/listing/fallback-media-tour" not in serialized_payload
+    assert "360.example.test" not in serialized_payload
+    private_payload = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+    assert private_payload["listing_url"] == "https://www.willhaben.at/listing/fallback-media-tour"
+    assert private_payload["source_virtual_tour_url"] == "https://360.example.test/view/portal/id/demo-tour"
+    assert private_payload["panorama_source"] == "feelestate_kalandra"
 
 
 def test_crezlo_public_tour_bundle_writer_replaces_stale_bundle_atomically(

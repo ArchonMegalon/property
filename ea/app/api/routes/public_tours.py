@@ -172,7 +172,22 @@ def _load_private_tour_receipt(slug: str) -> dict[str, object]:
 def _load_tour_with_private_receipt(slug: str) -> dict[str, object]:
     payload = _load_tour(slug)
     private_payload = _load_private_tour_receipt(slug)
-    return {**payload, **private_payload} if private_payload else payload
+    if not private_payload:
+        return payload
+    safe_private_payload = {
+        key: value
+        for key, value in private_payload.items()
+        if key
+        not in {
+            "facts",
+            "scenes",
+            "public_assets",
+            "video_relpath",
+            "video_url",
+            "cube_faces",
+        }
+    }
+    return {**payload, **safe_private_payload}
 
 
 

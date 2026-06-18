@@ -3095,6 +3095,8 @@ class BrowserActToolAdapter:
 
     @classmethod
     def _publish_crezlo_public_tour_bundle(cls, normalized: dict[str, object]) -> str:
+        from app.api.routes.public_tour_payloads import redacted_public_tour_payload
+
         rows = cls._crezlo_public_asset_rows(normalized)
         if not rows:
             return ""
@@ -3225,8 +3227,30 @@ class BrowserActToolAdapter:
                 ).strip(),
                 "scenes": published_rows,
             }
+            private_receipt = {
+                "contract_name": "propertyquarry.public_tour_private_receipt.v1",
+                "slug": slug,
+                "listing_url": str(payload.get("listing_url") or "").strip(),
+                "property_url": property_url,
+                "source_virtual_tour_url": source_virtual_tour_url,
+                "panorama_source": str(requested_inputs.get("panorama_source") or "").strip(),
+                "editor_url": str(normalized.get("editor_url") or "").strip(),
+                "crezlo_public_url": str(normalized.get("public_url") or "").strip(),
+                "brief": dict(payload.get("brief") or {}) if isinstance(payload.get("brief"), dict) else {},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            public_payload = redacted_public_tour_payload(
+                payload,
+                expose_asset_relpaths=True,
+                url_allowed=lambda _url: False,
+                bundle_dir_resolver=lambda requested_slug: staging_dir if str(requested_slug or "").strip() == slug else None,
+            )
             (staging_dir / "tour.json").write_text(
-                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                json.dumps(public_payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            (staging_dir / "tour.private.json").write_text(
+                json.dumps(private_receipt, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
             backup_dir = output_dir / f".{slug}.bak-{uuid.uuid4().hex}"
