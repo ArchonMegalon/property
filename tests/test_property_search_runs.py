@@ -899,6 +899,18 @@ def test_property_search_location_hints_prefer_selected_districts_over_broad_loc
     ) == ("1010 Vienna",)
 
 
+def test_property_exact_source_scope_location_hints_only_use_postal_scopes() -> None:
+    assert product_service._property_exact_source_scope_location_hints(
+        source_label="Willhaben | Austria | Rent | 1010 Vienna",
+    ) == ("1010 Vienna",)
+    assert product_service._property_exact_source_scope_location_hints(
+        source_label="Provider | Austria | Rent | 8055 Graz",
+    ) == ("8055 Graz",)
+    assert product_service._property_exact_source_scope_location_hints(
+        source_label="Willhaben Vienna",
+    ) == ()
+
+
 def test_property_search_location_matching_rejects_explicit_non_vienna_marker() -> None:
     hints = _property_search_location_hints({"location_query": "Vienna"})
 
@@ -3848,6 +3860,102 @@ def test_property_alert_review_suppresses_candidate_outside_selected_district_ev
 
     assert result["status"] == "suppressed"
     assert result["reason"] == "property_location_conflicts_with_active_search"
+
+
+def test_property_alert_review_uses_exact_source_scope_when_saved_location_is_missing(monkeypatch) -> None:
+    principal_id = "exec-property-alert-source-scope-fallback"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review Source Scope Fallback Office")
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("outside-source-scope alert must not notify")),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung mit großem Ess- & Wohnbereich",
+        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        source_ref="gmail-thread:willhaben:salzburg-returned-from-1010",
+        external_id="gmail-message:willhaben:salzburg-returned-from-1010",
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+        actor="test",
+        notify_telegram=True,
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+                "listing_title": "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit großem Ess- & Wohnbereich",
+                "summary": "Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "EUR 1.190",
+                },
+            },
+        ),
+        personal_fit_assessment={"fit_score": 92.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert result["location_hints"] == ["1010 Vienna"]
+    assert result["source_scope_location_hints"] == ["1010 Vienna"]
+    assert not [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_alert_review"
+    ]
+
+
+def test_property_alert_review_exact_source_scope_fallback_applies_to_non_vienna_postcodes() -> None:
+    principal_id = "exec-property-alert-source-scope-all-postals"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review Source Scope All Postals")
+    seed_product_state(client, principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Moderne Wohnung mit Loggia",
+        summary="Provider result was queried from a selected Graz source scope.",
+        source_ref="gmail-thread:willhaben:linz-returned-from-8055",
+        external_id="gmail-message:willhaben:linz-returned-from-8055",
+        counterparty="Willhaben | Austria | Rent | 8055 Graz",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/linz/demo-dirty-scope/",
+        actor="test",
+        notify_telegram=False,
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/linz/demo-dirty-scope/",
+                "listing_title": "Moderne Wohnung mit Loggia",
+                "summary": "Moderne Wohnung mit Loggia und heller Küche.",
+                "property_facts_json": {
+                    "postal_name": "8055 Graz",
+                    "source_scope_location": "8055 Graz",
+                    "source_postal_code": "8055",
+                    "source_city": "Graz",
+                },
+            },
+        ),
+        personal_fit_assessment={"fit_score": 88.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert result["location_hints"] == ["8055 Graz"]
 
 
 def test_property_search_run_status_reconstructs_missing_status_url() -> None:

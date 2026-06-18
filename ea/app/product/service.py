@@ -5305,6 +5305,20 @@ def _property_facts_with_source_scope(
     return enriched
 
 
+def _property_exact_source_scope_location_hints(*, source_url: str = "", source_label: str = "") -> tuple[str, ...]:
+    """Return exact postal source-scope hints; broad provider labels are not listing evidence."""
+    scope_location = _property_search_source_scope_location(source_url=source_url, source_label=source_label)
+    hints: list[str] = []
+    if scope_location and _property_postal_code_core(scope_location):
+        hints.append(scope_location)
+    for part in (source_label, source_url):
+        for row in _property_postal_location_evidence(str(part or "")):
+            postal_name = str(row.get("postal_name") or "").strip()
+            if postal_name:
+                hints.append(postal_name)
+    return tuple(dict.fromkeys(hints))
+
+
 _PROPERTY_POSTAL_LOCATION_RE = re.compile(
     r"\b(?P<code>(?:[A-Z]{1,3}[-\s]?)?\d{4,5}(?:-\d{3})?|\d{2}-\d{3}|\d{3}\s?\d{2}|\d{4}\s?[A-Z]{2})\s+"
     r"(?P<locality>[A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-/]{1,60})",
@@ -22149,7 +22163,18 @@ class ProductService:
         tour_url: str = "",
     ) -> dict[str, object]:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
-        location_hints = _property_search_location_hints(current_preferences)
+        current_location_hints = _property_search_location_hints(current_preferences)
+        source_scope_location_hints = _property_exact_source_scope_location_hints(
+            source_url=str(property_url or external_id or source_ref or "").strip(),
+            source_label=str(counterparty or "").strip(),
+        )
+        current_hint_postal_codes = set(re.findall(r"\b\d{4,5}\b", " ".join(current_location_hints)))
+        if current_hint_postal_codes:
+            location_hints = current_location_hints
+        elif current_location_hints:
+            location_hints = tuple(dict.fromkeys((*current_location_hints, *source_scope_location_hints)))
+        else:
+            location_hints = source_scope_location_hints
         first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
         candidate_property_url = str(first_candidate.get("property_url") or property_url or "").strip()
         candidate_title = str(first_candidate.get("listing_title") or first_candidate.get("title") or title or "").strip()
@@ -22160,6 +22185,19 @@ class ProductService:
             else dict(first_candidate.get("property_facts") or {})
             if isinstance(first_candidate.get("property_facts"), dict)
             else {}
+        )
+        candidate_facts = _property_facts_with_source_scope(
+            facts=candidate_facts,
+            source_url=str(candidate_property_url or property_url or external_id or source_ref or "").strip(),
+            source_label=str(counterparty or "").strip(),
+        )
+        search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
+        listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
+        candidate_facts = _property_enrich_facts_from_listing_text(
+            facts=candidate_facts,
+            title=candidate_title,
+            summary=candidate_summary,
+            listing_mode=listing_mode,
         )
         if location_hints and not _property_candidate_matches_requested_location(
             location_hints=location_hints,
@@ -22178,6 +22216,7 @@ class ProductService:
                 "external_id": str(external_id or "").strip(),
                 "reason": "property_location_conflicts_with_active_search",
                 "location_hints": list(location_hints),
+                "source_scope_location_hints": list(source_scope_location_hints),
             }
             self._record_product_event(
                 principal_id=principal_id,
