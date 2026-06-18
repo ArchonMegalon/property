@@ -16,6 +16,7 @@ from app.services.property_market_catalog import (
     property_type_label,
     property_type_options,
     provider_options,
+    provider_governance,
     property_provider_for_platform,
     provider_quality_labels,
     provider_listing_markers_for_host,
@@ -66,6 +67,38 @@ def test_provider_options_are_filtered_by_country() -> None:
     assert all("Germany" in str(row.get("description") or "") for row in germany)
     assert all(str(row.get("floorplan_reliability") or "") for row in austria)
     assert all(str(row.get("filter_pushdown_strength") or "") for row in costa_rica)
+
+
+def test_provider_options_expose_market_readiness_and_rights_governance() -> None:
+    austria = provider_options(country_code="AT")
+    willhaben = next(row for row in austria if row["value"] == "willhaben")
+    community = next(row for row in austria if row["value"] == "community_signals_at")
+
+    assert willhaben["market_readiness"] in {"experimental", "private_beta", "verified", "public"}
+    assert willhaben["rights_review_status"] == "needs_review"
+    rights = dict(willhaben["provider_rights"])
+    assert rights["access_mode"] == "public_web"
+    assert rights["public_packet_allowed"] is False
+    assert rights["photo_republication_allowed"] is False
+    assert rights["floorplan_republication_allowed"] is False
+    assert rights["customer_packet_allowed"] is True
+    assert rights["maximum_concurrency"] >= 1
+    assert rights["requests_per_hour"] >= 1
+
+    assert community["search_ready"] is False
+    assert community["coming_soon"] is True
+    assert community["market_readiness"] == "catalog_only"
+    assert dict(community["provider_rights"])["public_packet_allowed"] is False
+
+
+def test_provider_governance_fails_closed_for_unknown_provider() -> None:
+    governance = provider_governance("not-a-provider")
+
+    assert governance["market_readiness"] == "catalog_only"
+    assert governance["access_mode"] == "unknown"
+    assert governance["customer_packet_allowed"] is False
+    assert governance["public_packet_allowed"] is False
+    assert governance["maximum_concurrency"] == 0
 
 
 def test_normalize_property_search_preferences_defaults_country_and_language() -> None:
@@ -1169,6 +1202,30 @@ def test_generated_source_specs_skip_unimplemented_provider_lanes() -> None:
     )
 
     assert specs == ()
+
+
+def test_generated_source_specs_carry_provider_governance() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-provider-governance",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert specs
+    spec = dict(specs[0])
+    governance = dict(spec["provider_governance"])
+    assert spec["provider_market_readiness"] == governance["market_readiness"]
+    assert spec["provider_rights_review_status"] == governance["terms_review_status"]
+    assert governance["public_packet_allowed"] is False
+    assert governance["listing_cache_allowed"] is False
+    assert governance["attribution_required"] is True
 
 
 def test_generated_source_specs_build_justiz_edikte_result_search_url() -> None:

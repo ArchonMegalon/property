@@ -43,6 +43,23 @@ class PropertyProviderSpec:
     last_verified: str = "2026-06-13"
     search_ready: bool = True
     availability_note: str = ""
+    market_readiness: str = "private_beta"
+    access_mode: str = "public_web"
+    official_api_available: bool = False
+    browser_access_allowed: bool = False
+    terms_review_status: str = "needs_review"
+    robots_review_status: str = "needs_review"
+    listing_cache_allowed: bool = False
+    cache_ttl_seconds: int = 0
+    photo_republication_allowed: bool = False
+    floorplan_republication_allowed: bool = False
+    public_packet_allowed: bool = False
+    customer_packet_allowed: bool = True
+    attribution_required: bool = True
+    maximum_concurrency: int = 1
+    requests_per_hour: int = 60
+    operator_owner: str = "property-market-codex"
+    last_rights_reviewed_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -3060,6 +3077,58 @@ def _provider_homepage_url(provider: PropertyProviderSpec) -> str:
     return ""
 
 
+def _provider_market_readiness(provider: PropertyProviderSpec) -> str:
+    if not bool(provider.search_ready):
+        return "catalog_only"
+    normalized = str(provider.market_readiness or "").strip().lower()
+    if normalized in {"catalog_only", "experimental", "private_beta", "verified", "public"}:
+        return normalized
+    return "private_beta"
+
+
+def provider_governance(provider_key: object) -> dict[str, object]:
+    provider = _PROVIDER_INDEX.get(normalize_property_platform(provider_key))
+    if provider is None:
+        return {
+            "market_readiness": "catalog_only",
+            "access_mode": "unknown",
+            "official_api_available": False,
+            "browser_access_allowed": False,
+            "terms_review_status": "unknown",
+            "robots_review_status": "unknown",
+            "listing_cache_allowed": False,
+            "cache_ttl_seconds": 0,
+            "photo_republication_allowed": False,
+            "floorplan_republication_allowed": False,
+            "public_packet_allowed": False,
+            "customer_packet_allowed": False,
+            "attribution_required": True,
+            "maximum_concurrency": 0,
+            "requests_per_hour": 0,
+            "operator_owner": "property-market-codex",
+            "last_rights_reviewed_at": "",
+        }
+    return {
+        "market_readiness": _provider_market_readiness(provider),
+        "access_mode": str(provider.access_mode or "").strip().lower() or "public_web",
+        "official_api_available": bool(provider.official_api_available),
+        "browser_access_allowed": bool(provider.browser_access_allowed),
+        "terms_review_status": str(provider.terms_review_status or "").strip().lower() or "needs_review",
+        "robots_review_status": str(provider.robots_review_status or "").strip().lower() or "needs_review",
+        "listing_cache_allowed": bool(provider.listing_cache_allowed),
+        "cache_ttl_seconds": max(0, int(provider.cache_ttl_seconds or 0)),
+        "photo_republication_allowed": bool(provider.photo_republication_allowed),
+        "floorplan_republication_allowed": bool(provider.floorplan_republication_allowed),
+        "public_packet_allowed": bool(provider.public_packet_allowed),
+        "customer_packet_allowed": bool(provider.customer_packet_allowed),
+        "attribution_required": bool(provider.attribution_required),
+        "maximum_concurrency": max(0, int(provider.maximum_concurrency or 0)),
+        "requests_per_hour": max(0, int(provider.requests_per_hour or 0)),
+        "operator_owner": str(provider.operator_owner or "").strip() or "property-market-codex",
+        "last_rights_reviewed_at": str(provider.last_rights_reviewed_at or "").strip(),
+    }
+
+
 def provider_options(*, country_code: str | None = None) -> list[dict[str, object]]:
     normalized_country = normalize_country_code(country_code, default="AT") if country_code else ""
     rows: list[dict[str, object]] = []
@@ -3069,6 +3138,7 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, objec
         country_label = _COUNTRY_INDEX.get(provider.country_code).label if provider.country_code in _COUNTRY_INDEX else provider.country_code
         family_label = provider.family.replace("_", " ").title()
         trust_label = provider.trust_tier.title()
+        governance = provider_governance(provider.key)
         rows.append(
             {
                 "value": provider.key,
@@ -3096,6 +3166,9 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, objec
                 "search_ready": bool(provider.search_ready),
                 "coming_soon": not bool(provider.search_ready),
                 "availability_note": str(provider.availability_note or "").strip(),
+                "market_readiness": str(governance.get("market_readiness") or ""),
+                "rights_review_status": str(governance.get("terms_review_status") or ""),
+                "provider_rights": governance,
             }
         )
     return rows
@@ -4648,6 +4721,7 @@ def generated_source_specs(
             if not bool(normalized_preferences.get("include_distressed_sale_signals")):
                 continue
         provider_mode = listing_mode if listing_mode in provider.supported_listing_modes else provider.supported_listing_modes[0]
+        governance = provider_governance(provider.key)
         grouped_sources = GROUPED_PROVIDER_SOURCE_MAP.get(provider.key)
         if grouped_sources:
             for location_variant in location_queries:
@@ -4699,6 +4773,9 @@ def generated_source_specs(
                             "provider_family": provider.family,
                             "provider_trust_tier": provider.trust_tier,
                             "provider_quality": provider_quality_labels(provider.key),
+                            "provider_governance": governance,
+                            "provider_market_readiness": str(governance.get("market_readiness") or ""),
+                            "provider_rights_review_status": str(governance.get("terms_review_status") or ""),
                             "source_access_level": property_provider_access_level(provider.key),
                             "verification_required": provider.trust_tier in {"watch", "restricted"} or provider.family in {"community_signals", "community_meta"},
                             "provider_source_key": f"{provider.key}:{source_index}",
@@ -4754,6 +4831,9 @@ def generated_source_specs(
                 "provider_family": provider.family,
                 "provider_trust_tier": provider.trust_tier,
                 "provider_quality": provider_quality_labels(provider.key),
+                "provider_governance": governance,
+                "provider_market_readiness": str(governance.get("market_readiness") or ""),
+                "provider_rights_review_status": str(governance.get("terms_review_status") or ""),
                 "source_access_level": property_provider_access_level(provider.key),
                 "verification_required": provider.trust_tier in {"watch", "restricted"} or provider.family in {"community_signals", "community_meta"},
                 "max_results": max(1, min(int(max_results or 5), 10)),
