@@ -34,6 +34,7 @@ LEGACY_APP_ROUTE_REDIRECTS = {
     "/app/memory": "/app/people",
     "/app/contacts": "/app/evidence",
     "/app/channels": "/app/account#delivery",
+    "/app/automation": "/app/agents",
     "/app/automations": "/app/agents",
 }
 

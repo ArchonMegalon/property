@@ -3137,9 +3137,11 @@ def app_shell(
         "contacts": "/app/evidence",
         "activity": "/admin/office",
         "channels": "/app/settings",
+        "automation": "/app/settings",
         "automations": "/app/settings",
     }
     property_legacy_redirects = {
+        "automation": "/app/agents",
         "automations": "/app/agents",
         "channels": "/app/account#delivery",
         "research": "/app/properties",
