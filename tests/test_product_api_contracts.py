@@ -3808,7 +3808,7 @@ def test_property_scout_telegram_budget_sends_best_global_ranked_hits(monkeypatc
     assert result["notification_budget_suppressed_total"] >= 1
 
 
-def test_property_scout_fit_over_50_creates_tour_even_when_policy_disabled(monkeypatch) -> None:
+def test_property_scout_fit_over_50_does_not_auto_create_tour_by_default(monkeypatch) -> None:
     principal_id = "cf-email:fit-over-50-tour@example.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Threshold Tour Office")
@@ -3897,7 +3897,7 @@ def test_property_scout_fit_over_50_creates_tour_even_when_policy_disabled(monke
     assert result["sources"][0]["top_candidates"][0]["tour_url"] == ""
 
 
-def test_property_scout_fit_over_60_renders_magicfit_flythrough(monkeypatch) -> None:
+def test_property_scout_fit_over_60_does_not_auto_render_magicfit_flythrough_by_default(monkeypatch) -> None:
     principal_id = "cf-email:fit-over-60-flythrough@example.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Threshold Flythrough Office")
