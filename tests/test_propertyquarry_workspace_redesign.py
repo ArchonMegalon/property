@@ -3641,6 +3641,13 @@ def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate(
     retention_body = retention.read_text(encoding="utf-8")
     assert "private PDFs and signed packet links must be revocable" in retention_body
     assert "raw household feedback is owner-private by default" in retention_body
+    assert "Data-Class Matrix" in retention_body
+    assert "Search runs" in retention_body
+    assert "Source listing cache" in retention_body
+    assert "Canonical property passport" in retention_body
+    assert "Public packets and tours" in retention_body
+    assert "External investment data" in retention_body
+    assert "Revocation must remove customer access and make stale artifacts undiscoverable" in retention_body
 
     analytics_body = analytics.read_text(encoding="utf-8")
     assert "pq.search.started" in analytics_body

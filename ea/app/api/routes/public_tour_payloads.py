@@ -671,7 +671,6 @@ def redacted_public_tour_payload(
     rendered["slug"] = slug
     rendered["tour_privacy_mode"] = privacy_mode
     rendered.setdefault("facts", {})
-    rendered.setdefault("brief", {})
     rendered.setdefault("scenes", [])
     if not expose_asset_relpaths:
         rendered["public_assets"] = list(

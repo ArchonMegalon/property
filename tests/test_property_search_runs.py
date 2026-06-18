@@ -3105,6 +3105,7 @@ def test_hosted_property_tour_public_manifest_has_no_private_fields(monkeypatch,
     bundle_dir = tmp_path / str(payload["slug"])
     public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
+    assert "brief" not in public_manifest
     for private_key in (
         "map_lat",
         "map_lng",

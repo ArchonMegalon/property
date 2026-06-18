@@ -7298,7 +7298,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
         }
     ]
     serialized_payload = json.dumps(payload_body, sort_keys=True)
-    assert payload_body["brief"] == {}
+    assert "brief" not in payload_body
     for private_marker in (
         "principal_id",
         "recipient@example.test",
