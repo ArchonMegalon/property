@@ -5,6 +5,7 @@ import importlib
 import json
 import logging
 import sys
+import threading
 import time
 from types import SimpleNamespace
 
@@ -38,6 +39,65 @@ def test_scheduler_heartbeat_file_is_healthchecked(monkeypatch: pytest.MonkeyPat
 
     heartbeat_path.write_text(json.dumps({"epoch": time.time() - 120, "role": "scheduler"}), encoding="utf-8")
     assert scheduler_healthcheck.main() == 1
+
+
+def test_scheduler_step_watchdog_keeps_heartbeat_and_avoids_duplicate_launches(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    heartbeat_path = tmp_path / "scheduler-heartbeat.json"
+    release = threading.Event()
+    calls = {"count": 0}
+    runner._SCHEDULER_STEP_THREADS.clear()
+    monkeypatch.setenv("EA_ROLE", "scheduler")
+    monkeypatch.setenv("PROPERTYQUARRY_SCHEDULER_PROFILE", "property_only")
+    monkeypatch.setenv("EA_SCHEDULER_HEARTBEAT_PATH", str(heartbeat_path))
+
+    def slow_step() -> dict[str, object]:
+        calls["count"] += 1
+        release.wait(timeout=2.0)
+        return {"ran": True, "attempted": 1, "errors": 0}
+
+    timeout_result = {"ran": True, "attempted": 0, "errors": 1}
+    first = runner._run_scheduler_step_with_heartbeat(
+        role="scheduler",
+        step_name="property_results_finalize",
+        timeout_seconds=0.05,
+        heartbeat_interval_seconds=0.01,
+        timeout_result=timeout_result,
+        log=logging.getLogger("test.runner"),
+        fn=slow_step,
+    )
+    second = runner._run_scheduler_step_with_heartbeat(
+        role="scheduler",
+        step_name="property_results_finalize",
+        timeout_seconds=0.05,
+        heartbeat_interval_seconds=0.01,
+        timeout_result=timeout_result,
+        log=logging.getLogger("test.runner"),
+        fn=slow_step,
+    )
+
+    payload = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+    assert first["timeout"] is True
+    assert second["timeout"] is True
+    assert calls["count"] == 1
+    assert payload["status"] == "property_results_finalize_running"
+
+    release.set()
+    completed = runner._run_scheduler_step_with_heartbeat(
+        role="scheduler",
+        step_name="property_results_finalize",
+        timeout_seconds=1.0,
+        heartbeat_interval_seconds=0.01,
+        timeout_result=timeout_result,
+        log=logging.getLogger("test.runner"),
+        fn=slow_step,
+    )
+    assert completed == {"ran": True, "attempted": 1, "errors": 0}
+    assert calls["count"] == 1
+    runner._SCHEDULER_STEP_THREADS.clear()
 
 
 def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep(

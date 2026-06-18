@@ -5,8 +5,10 @@ import json
 import logging
 import os
 from pathlib import Path
+import queue
 import re
 import signal
+import threading
 import time
 import urllib.error
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -34,6 +36,8 @@ _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
+_SCHEDULER_STEP_LOCK = threading.Lock()
+_SCHEDULER_STEP_THREADS: dict[str, dict[str, object]] = {}
 
 
 def _scheduler_heartbeat_path() -> Path:
@@ -67,6 +71,114 @@ def _write_scheduler_heartbeat(*, role: str, status: str) -> None:
         tmp_path.replace(path)
     except Exception:
         logging.getLogger("ea.runner").debug("scheduler heartbeat write failed", exc_info=True)
+
+
+def _run_scheduler_step_with_heartbeat(
+    *,
+    role: str,
+    step_name: str,
+    timeout_seconds: float,
+    timeout_result: dict[str, object],
+    log: logging.Logger,
+    fn,  # type: ignore[no-untyped-def]
+    heartbeat_interval_seconds: float = 15.0,
+) -> dict[str, object]:
+    normalized_step = re.sub(r"[^a-zA-Z0-9_]+", "_", str(step_name or "scheduler_step").strip().lower()).strip("_")
+    if not normalized_step:
+        normalized_step = "scheduler_step"
+    timeout = max(0.01, float(timeout_seconds or 0.0))
+    heartbeat_interval = max(0.01, float(heartbeat_interval_seconds or 0.0))
+
+    def timeout_payload(*, running: bool = True) -> dict[str, object]:
+        payload = dict(timeout_result)
+        payload["timeout"] = True
+        payload["running"] = running
+        payload["step"] = normalized_step
+        return payload
+
+    def finish_state(state: dict[str, object]) -> dict[str, object]:
+        result_queue = state.get("queue")
+        if not isinstance(result_queue, queue.Queue):
+            return timeout_payload(running=False)
+        try:
+            kind, payload = result_queue.get_nowait()
+        except queue.Empty:
+            return timeout_payload(running=False)
+        if kind == "error":
+            raise payload
+        return dict(payload or {})
+
+    now = time.monotonic()
+    with _SCHEDULER_STEP_LOCK:
+        state = _SCHEDULER_STEP_THREADS.get(normalized_step)
+        if state:
+            thread = state.get("thread")
+            if isinstance(thread, threading.Thread) and thread.is_alive():
+                _write_scheduler_heartbeat(role=role, status=f"{normalized_step}_running")
+                started_at = float(state.get("started_at") or now)
+                if now - started_at >= timeout:
+                    if not bool(state.get("timeout_logged")):
+                        state["timeout_logged"] = True
+                        log.error(
+                            "role=%s scheduler step timed out step=%s timeout=%.1fs",
+                            role,
+                            normalized_step,
+                            timeout,
+                        )
+                    return timeout_payload(running=True)
+                wait_seconds = min(heartbeat_interval, max(0.01, timeout - (now - started_at)))
+            else:
+                _SCHEDULER_STEP_THREADS.pop(normalized_step, None)
+                if state:
+                    return finish_state(state)
+        else:
+            result_queue: queue.Queue = queue.Queue(maxsize=1)
+
+            def _target() -> None:
+                try:
+                    result_queue.put(("ok", fn()))
+                except BaseException as exc:  # pragma: no cover - re-raised on scheduler thread
+                    result_queue.put(("error", exc))
+
+            thread = threading.Thread(
+                target=_target,
+                name=f"propertyquarry-scheduler-{normalized_step}",
+                daemon=True,
+            )
+            state = {
+                "thread": thread,
+                "queue": result_queue,
+                "started_at": now,
+                "timeout_logged": False,
+            }
+            _SCHEDULER_STEP_THREADS[normalized_step] = state
+            thread.start()
+            wait_seconds = min(heartbeat_interval, timeout)
+
+    deadline = time.monotonic() + timeout
+    while True:
+        _write_scheduler_heartbeat(role=role, status=f"{normalized_step}_running")
+        thread = state.get("thread") if isinstance(state, dict) else None
+        if not isinstance(thread, threading.Thread):
+            return timeout_payload(running=False)
+        remaining = deadline - time.monotonic()
+        thread.join(max(0.01, min(heartbeat_interval, remaining if remaining > 0 else heartbeat_interval)))
+        if not thread.is_alive():
+            with _SCHEDULER_STEP_LOCK:
+                _SCHEDULER_STEP_THREADS.pop(normalized_step, None)
+            return finish_state(state)
+        if time.monotonic() >= deadline:
+            with _SCHEDULER_STEP_LOCK:
+                current = _SCHEDULER_STEP_THREADS.get(normalized_step)
+                if current is state and not bool(current.get("timeout_logged")):
+                    current["timeout_logged"] = True
+                    log.error(
+                        "role=%s scheduler step timed out step=%s timeout=%.1fs",
+                        role,
+                        normalized_step,
+                        timeout,
+                    )
+            return timeout_payload(running=True)
 
 
 def _env_float(name: str, default: float) -> float:
@@ -866,11 +978,19 @@ def _scheduler_property_scout_interval_seconds() -> float:
         return 1800.0
 
 
+def _scheduler_property_scout_timeout_seconds() -> float:
+    return max(30.0, _env_float("EA_SCHEDULER_PROPERTY_SCOUT_TIMEOUT_SECONDS", 600.0))
+
+
 def _scheduler_property_results_finalize_interval_seconds() -> float:
     try:
         return max(15.0, float(os.environ.get("EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_INTERVAL_SECONDS") or 60.0))
     except Exception:
         return 60.0
+
+
+def _scheduler_property_results_finalize_timeout_seconds() -> float:
+    return max(30.0, _env_float("EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_TIMEOUT_SECONDS", 240.0))
 
 
 def _scheduler_property_scout_principal_ids(container) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
@@ -1525,36 +1645,68 @@ def _run_execution_worker(role: str) -> None:
                 now - last_property_scout_at >= _scheduler_property_scout_interval_seconds()
             ):
                 try:
-                    scout_summary = _run_scheduler_property_scout(container, log)
+                    scout_summary = _run_scheduler_step_with_heartbeat(
+                        role=role,
+                        step_name="property_scout",
+                        timeout_seconds=_scheduler_property_scout_timeout_seconds(),
+                        timeout_result={
+                            "ran": True,
+                            "attempted": 0,
+                            "synced": 0,
+                            "errors": 1,
+                            "principals": [],
+                        },
+                        log=log,
+                        fn=lambda: _run_scheduler_property_scout(container, log),
+                    )
                     last_property_scout_at = now
                     log.info(
-                        "role=%s scheduler property scout attempted=%s synced=%s errors=%s principals=%s",
+                        "role=%s scheduler property scout attempted=%s synced=%s errors=%s principals=%s timeout=%s",
                         role,
                         scout_summary.get("attempted"),
                         scout_summary.get("synced"),
                         scout_summary.get("errors"),
                         ",".join(list(scout_summary.get("principals") or [])),
+                        scout_summary.get("timeout"),
                     )
                 except Exception:
                     log.exception("role=%s scheduler property scout failed", role)
                     last_property_scout_at = now
             if now - last_property_results_finalize_at >= _scheduler_property_results_finalize_interval_seconds():
                 try:
-                    finalize_summary = _run_scheduler_property_results_finalize(container, log)
+                    finalize_summary = _run_scheduler_step_with_heartbeat(
+                        role=role,
+                        step_name="property_results_finalize",
+                        timeout_seconds=_scheduler_property_results_finalize_timeout_seconds(),
+                        timeout_result={
+                            "ran": True,
+                            "attempted": 0,
+                            "finalized": 0,
+                            "emailed": 0,
+                            "pending": 0,
+                            "repair_resolved_total": 0,
+                            "repair_deferred_total": 0,
+                            "errors": 1,
+                        },
+                        log=log,
+                        fn=lambda: _run_scheduler_property_results_finalize(container, log),
+                    )
                     last_property_results_finalize_at = now
                     if (
                         int(finalize_summary.get("attempted") or 0) > 0
                         or int(finalize_summary.get("emailed") or 0) > 0
                         or int(finalize_summary.get("pending") or 0) > 0
+                        or bool(finalize_summary.get("timeout"))
                     ):
                         log.info(
-                            "role=%s scheduler property results finalize attempted=%s finalized=%s emailed=%s pending=%s errors=%s",
+                            "role=%s scheduler property results finalize attempted=%s finalized=%s emailed=%s pending=%s errors=%s timeout=%s",
                             role,
                             finalize_summary.get("attempted"),
                             finalize_summary.get("finalized"),
                             finalize_summary.get("emailed"),
                             finalize_summary.get("pending"),
                             finalize_summary.get("errors"),
+                            finalize_summary.get("timeout"),
                         )
                 except Exception:
                     log.exception("role=%s scheduler property results finalize failed", role)
