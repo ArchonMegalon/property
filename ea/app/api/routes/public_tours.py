@@ -4771,6 +4771,7 @@ def public_tour_payload(slug: str) -> JSONResponse:
 @router.head("/tours/files/{slug}/{asset_path:path}")
 def public_tour_file(slug: str, asset_path: str):
     payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     safe_name = PurePosixPath(safe_relpath).name
     if safe_name == "CUBE_FALLBACK_REMOVED.txt" and bool(payload.get("cube_fallback_removed")):

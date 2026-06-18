@@ -7338,6 +7338,59 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
+def test_public_tour_removed_cube_file_gate_respects_privacy_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    private_slug = "owner-private-removed-cube"
+    private_bundle_dir = tmp_path / private_slug
+    private_bundle_dir.mkdir(parents=True)
+    (private_bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": private_slug,
+                "tour_privacy_mode": "owner_private",
+                "cube_fallback_removed": True,
+                "cube_fallback_policy": "private policy must not be exposed",
+                "removed_cube_assets": ["pq-3d-top22.html"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    public_slug = "anonymous-public-removed-cube"
+    public_bundle_dir = tmp_path / public_slug
+    public_bundle_dir.mkdir(parents=True)
+    (public_bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": public_slug,
+                "tour_privacy_mode": "anonymous_public",
+                "cube_fallback_removed": True,
+                "cube_fallback_policy": "public cube fallback removal notice",
+                "removed_cube_assets": ["pq-3d-top22.html"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour")
+
+    private_marker = client.get(f"/tours/files/{private_slug}/CUBE_FALLBACK_REMOVED.txt")
+    assert private_marker.status_code == 404
+    assert "private policy" not in private_marker.text
+    private_removed_asset = client.get(f"/tours/files/{private_slug}/pq-3d-top22.html")
+    assert private_removed_asset.status_code == 404
+    assert "private policy" not in private_removed_asset.text
+
+    public_marker = client.get(f"/tours/files/{public_slug}/CUBE_FALLBACK_REMOVED.txt")
+    assert public_marker.status_code == 200
+    assert "public cube fallback removal notice" in public_marker.text
+    public_removed_asset = client.get(f"/tours/files/{public_slug}/pq-3d-top22.html")
+    assert public_removed_asset.status_code == 410
+
+
 def test_public_tour_routes_drop_untrusted_external_scene_media(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
