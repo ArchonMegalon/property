@@ -33,6 +33,31 @@ AUDIT_AXES: tuple[str, ...] = (
 )
 
 
+ACCEPTANCE_GATES: tuple[str, ...] = (
+    "route_ownership",
+    "clickable_controls_do_real_work",
+    "premium_visual_density_and_responsive_layout",
+    "loading_empty_degraded_failed_and_repairing_states",
+    "privacy_and_tenancy_boundary",
+    "performance_budget",
+    "seo_and_optimizer_boundary",
+    "analytics_without_private_payloads",
+    "accessibility_and_keyboard_flow",
+    "regression_proof",
+)
+
+
+PROOF_TYPES: tuple[str, ...] = (
+    "unit_contract",
+    "browser_smoke",
+    "screenshot",
+    "link_crawl",
+    "privacy_fixture",
+    "performance_probe",
+    "live_smoke_when_route_is_public",
+)
+
+
 @dataclass(frozen=True)
 class PropertySurface:
     key: str
@@ -44,6 +69,8 @@ class PropertySurface:
     clickrank_allowed: bool = False
     neuronwriter_allowed: bool = False
     customer_visible: bool = True
+    required_gates: tuple[str, ...] = ACCEPTANCE_GATES
+    proof_types: tuple[str, ...] = ("unit_contract",)
 
 
 PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
@@ -78,7 +105,13 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="public_docs_guides",
         group="public_acquisition",
         label="Docs, integrations, guides, and market pages",
-        routes=("/docs", "/integrations", "/guides", "/markets", "/blog", "/compare"),
+        routes=(
+            "/docs",
+            "/integrations",
+            "/integrations/:channel_name",
+            "/guides/wohnung-kaufen-wien-checkliste",
+            "/markets/vienna",
+        ),
         templates=("docs_page.html", "integrations_page.html", "public_editorial_page.html", "base_public.html"),
         clickrank_allowed=True,
         neuronwriter_allowed=True,
@@ -141,14 +174,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         neuronwriter_allowed=True,
     ),
     PropertySurface(
-        key="legacy_object_detail",
-        group="results_research",
-        label="Legacy object detail compatibility",
-        routes=("/app/objects/:object_ref",),
-        templates=("app/object_detail.html",),
-        customer_visible=False,
-    ),
-    PropertySurface(
         key="agents",
         group="authenticated_app",
         label="Saved searches and automation",
@@ -173,7 +198,7 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="public_results",
         group="shared_public_artifacts",
         label="Public redacted result pages",
-        routes=("/results/:slug",),
+        routes=("/results/:slug", "/results/:slug.json", "/results/files/:slug/:asset"),
         clickrank_allowed=False,
         neuronwriter_allowed=True,
     ),
@@ -181,7 +206,7 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="public_packet",
         group="shared_public_artifacts",
         label="Public packet share",
-        routes=("/p/:slug", "/app/properties/packets"),
+        routes=("/v1/integrations/fliplink/documents/property-packets/:token", "/app/properties/packets"),
         templates=("app/property_packets.html",),
         artifacts=("redacted packet manifest", "packet PDF"),
         neuronwriter_allowed=True,
@@ -190,14 +215,14 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="public_tour",
         group="shared_public_artifacts",
         label="Public 3D tour share",
-        routes=("/tours/:slug", "/tours/:slug/tour.json", "/tours/:slug/assets/:asset"),
+        routes=("/tours/:slug", "/tours/:slug.json", "/tours/files/:slug/:asset"),
         artifacts=("public tour manifest", "tour assets"),
     ),
     PropertySurface(
         key="premium_dossier",
         group="generated_artifacts",
         label="Premium dossier PDF",
-        routes=("/app/api/property/packets/:publication_id/pdf",),
+        routes=("/app/api/properties/packets/:publication_id/pdf",),
         artifacts=("premium dossier HTML", "premium dossier PDF", "appendix PDF"),
         neuronwriter_allowed=True,
     ),
@@ -205,21 +230,30 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="floorplan_and_tour_control",
         group="generated_artifacts",
         label="Floorplan, Matterport, 3DVista, and local tour controls",
-        routes=("/app/research/:candidate_ref#tour", "/app/api/property/tour-control"),
+        routes=(
+            "/app/research/:candidate_ref#tour",
+            "/app/api/signals/willhaben/property-tour",
+            "/tours/:slug/control",
+            "/tours/:slug/control/:viewer_mode",
+        ),
         artifacts=("floorplan asset", "tour receipt", "walkthrough receipt"),
     ),
     PropertySurface(
         key="video_walkthrough",
         group="generated_artifacts",
         label="Video walkthrough request and status",
-        routes=("/app/research/:candidate_ref#walkthrough", "/webhooks/dadan", "/app/api/property/video-request"),
+        routes=(
+            "/app/research/:candidate_ref#walkthrough",
+            "/app/api/property-video/requests/dadan",
+            "/v1/integrations/dadan/webhooks/recording-submitted",
+        ),
         artifacts=("Dadan request", "video receipt"),
     ),
     PropertySurface(
         key="email_delivery",
         group="delivery",
         label="Email alerts and digests",
-        routes=("/app/account#delivery", "/webhooks/emailit"),
+        routes=("/app/account#delivery", "/app/api/channel-loop"),
         artifacts=("email digest", "delivery receipt"),
         neuronwriter_allowed=True,
     ),
@@ -227,7 +261,7 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="telegram_delivery",
         group="delivery",
         label="Telegram review messages",
-        routes=("/app/account#delivery", "/webhooks/telegram"),
+        routes=("/app/account#delivery", "/v1/channels/telegram/ingest", "/v1/channels/telegram/ingest/:bot_key"),
         artifacts=("Telegram alert", "appendix link"),
         neuronwriter_allowed=True,
     ),
@@ -235,7 +269,12 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="whatsapp_delivery",
         group="delivery",
         label="WhatsApp alerts and template messages",
-        routes=("/app/account#delivery", "/webhooks/heyy"),
+        routes=(
+            "/app/account#delivery",
+            "/v1/integrations/heyy/whatsapp/webhook",
+            "/app/api/integrations/heyy/notifications/property-match",
+            "/app/api/integrations/heyy/notifications/search-agent-digest",
+        ),
         artifacts=("WhatsApp template", "delivery receipt"),
         neuronwriter_allowed=True,
     ),
@@ -298,3 +337,21 @@ def clickrank_property_surface_keys() -> tuple[str, ...]:
 
 def neuronwriter_property_surface_keys() -> tuple[str, ...]:
     return tuple(surface.key for surface in PROPERTY_SURFACES if surface.neuronwriter_allowed)
+
+
+def property_surface_acceptance_matrix() -> dict[str, dict[str, object]]:
+    return {
+        surface.key: {
+            "group": surface.group,
+            "label": surface.label,
+            "routes": surface.routes,
+            "templates": surface.templates,
+            "artifacts": surface.artifacts,
+            "customer_visible": surface.customer_visible,
+            "clickrank_allowed": surface.clickrank_allowed,
+            "neuronwriter_allowed": surface.neuronwriter_allowed,
+            "required_gates": surface.required_gates,
+            "proof_types": surface.proof_types,
+        }
+        for surface in PROPERTY_SURFACES
+    }

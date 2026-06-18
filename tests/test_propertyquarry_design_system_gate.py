@@ -52,9 +52,12 @@ def test_propertyquarry_layout_guide_is_the_design_contract() -> None:
 
 def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
     from app.product.property_surface_registry import (
+        ACCEPTANCE_GATES,
         AUDIT_AXES,
+        PROOF_TYPES,
         clickrank_property_surface_keys,
         neuronwriter_property_surface_keys,
+        property_surface_acceptance_matrix,
         property_surface_keys,
         property_surfaces_by_group,
     )
@@ -106,6 +109,7 @@ def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
         "loading_empty_error_states",
     }
     assert required_keys.issubset(keys)
+    assert "legacy_object_detail" not in keys
 
     assert {"navigation", "clickability", "accessibility", "performance", "privacy"}.issubset(set(AUDIT_AXES))
     assert set(clickrank_property_surface_keys()) == {
@@ -118,6 +122,52 @@ def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
     assert "public_tour" not in clickrank_property_surface_keys()
     assert "property_research_detail" in neuronwriter_property_surface_keys()
     assert "app_shell" not in neuronwriter_property_surface_keys()
+
+    expected_gates = {
+        "route_ownership",
+        "clickable_controls_do_real_work",
+        "premium_visual_density_and_responsive_layout",
+        "loading_empty_degraded_failed_and_repairing_states",
+        "privacy_and_tenancy_boundary",
+        "performance_budget",
+        "seo_and_optimizer_boundary",
+        "analytics_without_private_payloads",
+        "accessibility_and_keyboard_flow",
+        "regression_proof",
+    }
+    assert expected_gates == set(ACCEPTANCE_GATES)
+    assert {"unit_contract", "screenshot", "privacy_fixture", "performance_probe"}.issubset(set(PROOF_TYPES))
+
+    matrix = property_surface_acceptance_matrix()
+    assert set(matrix) == keys
+    for key, row in matrix.items():
+        assert expected_gates.issubset(set(row["required_gates"])), key
+        assert row["proof_types"], key
+    assert matrix["public_home"]["clickrank_allowed"] is True
+    assert matrix["public_home"]["neuronwriter_allowed"] is True
+    assert "/guides/wohnung-kaufen-wien-checkliste" in matrix["public_docs_guides"]["routes"]
+    assert "/markets/vienna" in matrix["public_docs_guides"]["routes"]
+    assert "/blog" not in matrix["public_docs_guides"]["routes"]
+    assert "/compare" not in matrix["public_docs_guides"]["routes"]
+    assert matrix["app_shell"]["clickrank_allowed"] is False
+    assert matrix["app_shell"]["neuronwriter_allowed"] is False
+    assert matrix["public_results"]["routes"] == (
+        "/results/:slug",
+        "/results/:slug.json",
+        "/results/files/:slug/:asset",
+    )
+    assert matrix["public_packet"]["routes"] == (
+        "/v1/integrations/fliplink/documents/property-packets/:token",
+        "/app/properties/packets",
+    )
+    assert matrix["public_tour"]["clickrank_allowed"] is False
+    assert matrix["public_tour"]["routes"] == ("/tours/:slug", "/tours/:slug.json", "/tours/files/:slug/:asset")
+    assert matrix["premium_dossier"]["routes"] == ("/app/api/properties/packets/:publication_id/pdf",)
+    assert "/app/api/signals/willhaben/property-tour" in matrix["floorplan_and_tour_control"]["routes"]
+    assert "/app/api/property-video/requests/dadan" in matrix["video_walkthrough"]["routes"]
+    assert "/v1/integrations/dadan/webhooks/recording-submitted" in matrix["video_walkthrough"]["routes"]
+    assert "/v1/channels/telegram/ingest" in matrix["telegram_delivery"]["routes"]
+    assert "/v1/integrations/heyy/whatsapp/webhook" in matrix["whatsapp_delivery"]["routes"]
 
 
 def test_propertyquarry_clickable_looking_recent_reviews_are_real_links_or_plain_rows() -> None:
