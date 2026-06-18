@@ -430,8 +430,14 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     section_html = section_match.group("section")
     assert "What matters" in section_html
     assert "Neutral by default" in section_html
-    assert "Home and daily life" in section_html
+    assert "Home basics" in section_html
+    assert "Daily life" in section_html
+    assert "Risk and evidence" in section_html
     assert "Schools and childcare" in section_html
+    assert 'data-what-matters-group="home_basics"' in section_html
+    assert 'data-what-matters-group="daily_life"' in section_html
+    assert 'data-what-matters-group="risk_evidence"' in section_html
+    assert 'data-what-matters-group="schools"' in section_html
     assert '<select name="keyword_preference__lift"' in section_html
     assert '<select name="keyword_preference__barrier-free"' in section_html
     assert '<select name="keyword_distance__playground nearby"' in section_html
@@ -443,6 +449,8 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '<select name="school_preference__gymnasium"' in section_html
     assert 'data-school-parent-value="kindergarten"' in section_html
     assert 'data-school-parent-value="volksschule"' in section_html
+    assert 'data-school-dependent-row' in section_html
+    assert 'data-preference-state="any"' in section_html
     assert 'name="school_preference__public_kindergarten"' in section_html
     assert 'name="school_preference__private_kindergarten"' in section_html
     assert 'name="school_preference__ganztags_volksschule"' in section_html
@@ -451,8 +459,8 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'data-keyword-distance-enabled="false"' in section_html
     assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
     assert ">Neutral</option>" in section_html
-    assert '.pqx-what-matters-panel .pqx-choice-groupbox {\n      grid-column: 1 / -1;' in html
-    assert 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));' in html
+    assert '.pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="home_basics"]' in html
+    assert 'grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));' in html
     assert "overflow-wrap: break-word;" in html
     assert ".pqx-what-matters-panel .pqx-school-priority-row {" in html
     template_source = (
@@ -2213,7 +2221,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'name="max_distance_to_playground_importance"' in setup.text
     assert 'name="max_distance_to_supermarket_m"' in setup.text
     assert 'name="max_distance_to_supermarket_importance"' in setup.text
-    assert "Supermarket nearby means" in setup.text
+    assert "Supermarket nearby means" not in setup.text
+    assert "Playground nearby means" not in setup.text
+    assert "Library nearby means" not in setup.text
+    assert "Supermarket radius" in setup.text
     assert "If good matches are scarce" in setup.text
     assert 'name="max_distance_to_zoo_m"' in setup.text
     assert 'name="max_distance_to_market_m"' in setup.text

@@ -19,6 +19,12 @@
 {% set has_results = results|length > 0 %}
 {% set static_surface = surface_mode in ['agents', 'account', 'billing'] %}
 {% set setup_mode = static_surface or surface_mode == 'search' or (surface_mode == 'properties' and not run_visible and not run_terminal_no_results and not has_results) %}
+{% set setup_mobile_primary = 'brief' if surface_mode in ['search', 'agents', 'account', 'billing'] else 'results' %}
+{% set has_mobile_results_panel = setup_mode or has_results or run_terminal_no_results %}
+{% set has_mobile_property_panel = has_results or run_visible or run_terminal_no_results %}
+{% set has_mobile_brief_panel = setup_mode %}
+{% set mobile_panel_count = (1 if has_mobile_results_panel else 0) + (1 if has_mobile_property_panel else 0) + (1 if has_mobile_brief_panel else 0) %}
+{% set mobile_primary = setup_mobile_primary if setup_mode else ('property' if run_visible or run_terminal_no_results else 'results') %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
@@ -626,6 +632,16 @@
       background: var(--pq-charcoal);
       color: #fff9ed;
     }
+    .pqx-mode-button,
+    .pqx-workflow-step,
+    .pqx-button,
+    .pqx-link-button,
+    .pqx-check,
+    .pqx-result,
+    .pqx-card,
+    .pqx-pref-row {
+      transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, color 160ms ease, transform 160ms ease, opacity 160ms ease;
+    }
     .pqx-button:focus-visible,
     .pqx-link-button:focus-visible,
     .pqx-mode-button:focus-visible,
@@ -649,9 +665,16 @@
       .pqx-results-list > *:nth-child(3) { animation-delay: 40ms; }
       .pqx-results-list > *:nth-child(4) { animation-delay: 60ms; }
       .pqx-results-list > *:nth-child(5) { animation-delay: 80ms; }
+      .pqx-pref-row[aria-hidden="false"] {
+        animation: pqxRevealRow 180ms ease both;
+      }
     }
     @keyframes pqxFadeUp {
       from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pqxRevealRow {
+      from { opacity: 0; transform: translateY(-4px); }
       to { opacity: 1; transform: translateY(0); }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -2382,10 +2405,11 @@
       padding: 0;
       margin-top: 2px;
       grid-column: 1 / -1;
-      border: 1px solid var(--pq-line);
+      border: 1px solid rgba(162, 143, 111, 0.46);
       border-radius: 8px;
       background: #fffefa;
-      box-shadow: none;
+      box-shadow: 0 10px 28px rgba(65, 49, 26, 0.06);
+      overflow: clip;
     }
     .pqx-what-matters-head {
       display: grid;
@@ -2394,6 +2418,7 @@
       align-items: center;
       padding: 8px 10px;
       border-bottom: 1px solid var(--pq-line);
+      background: linear-gradient(180deg, rgba(255, 252, 246, 0.96), rgba(250, 246, 237, 0.78));
     }
     .pqx-what-matters-head .pqx-disclosure-label {
       display: block;
@@ -2425,37 +2450,52 @@
       padding: 8px 10px 10px;
       border-top: 0;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 12px;
+      gap: 8px 10px;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox {
-      gap: 6px;
-      padding: 0;
-      border: 0;
-      border-radius: 0;
-      background: transparent;
+      gap: 7px;
+      padding: 8px;
+      border: 1px solid rgba(185, 173, 154, 0.32);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.72);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
     }
     .pqx-what-matters-panel .pqx-choice-groupbox {
       grid-column: 1 / -1;
     }
+    .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="home_basics"],
+    .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="schools"] {
+      grid-column: 1 / 2;
+    }
+    .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="daily_life"],
+    .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group="risk_evidence"] {
+      grid-column: 2 / 3;
+    }
     .pqx-what-matters-panel .pqx-choice-groupbox-legend {
       display: block;
-      padding: 0;
+      padding: 0 2px;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 820;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .pqx-what-matters-group-note {
+      margin: -2px 0 1px;
       color: var(--pq-faint);
       font-size: 11px;
-      font-weight: 760;
-      text-transform: uppercase;
-      letter-spacing: 0.02em;
+      line-height: 1.3;
     }
     .pqx-what-matters-panel .pqx-pref-list {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
       gap: 5px;
       max-height: none;
       overflow: visible;
       align-items: start;
     }
     .pqx-what-matters-panel .pqx-pref-row {
-      grid-template-columns: minmax(96px, 1fr) minmax(96px, 112px) minmax(72px, 88px);
+      grid-template-columns: minmax(108px, 1fr) minmax(112px, 128px);
       padding: 5px 6px;
       gap: 6px;
       align-items: center;
@@ -2463,6 +2503,27 @@
       border-radius: 8px;
       background: rgba(255, 253, 249, 0.58);
       min-height: 0;
+      position: relative;
+    }
+    .pqx-what-matters-panel .pqx-pref-row:hover {
+      border-color: rgba(151, 124, 70, 0.38);
+      background: rgba(255, 251, 241, 0.86);
+    }
+    .pqx-what-matters-panel .pqx-pref-row[data-preference-state="nice_to_have"],
+    .pqx-what-matters-panel .pqx-pref-row[data-preference-state="important"],
+    .pqx-what-matters-panel .pqx-pref-row[data-preference-state="must_have"] {
+      border-color: rgba(189, 139, 47, 0.42);
+      background: linear-gradient(180deg, rgba(255, 250, 236, 0.98), rgba(255, 246, 221, 0.78));
+      box-shadow: inset 3px 0 0 rgba(189, 139, 47, 0.58);
+    }
+    .pqx-what-matters-panel .pqx-pref-row[data-preference-state="avoid"] {
+      border-color: rgba(171, 77, 51, 0.42);
+      background: linear-gradient(180deg, rgba(255, 248, 242, 0.98), rgba(252, 232, 218, 0.7));
+      box-shadow: inset 3px 0 0 rgba(171, 77, 51, 0.56);
+    }
+    .pqx-what-matters-panel .pqx-pref-row[data-preference-state="must_have"] strong,
+    .pqx-what-matters-panel .pqx-pref-row[data-preference-state="avoid"] strong {
+      color: var(--pq-ink);
     }
     .pqx-what-matters-panel .pqx-pref-row > div {
       grid-column: auto;
@@ -2488,14 +2549,34 @@
       align-self: center;
       width: 100%;
     }
+    .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
+      grid-template-columns: minmax(92px, 1fr) minmax(104px, 0.72fr) minmax(96px, 0.58fr);
+    }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="false"] {
-      grid-template-columns: minmax(96px, 1fr) minmax(96px, 112px);
+      grid-template-columns: minmax(108px, 1fr) minmax(112px, 128px);
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="false"] [data-keyword-distance-select] {
       display: none;
     }
     .pqx-what-matters-panel .pqx-school-priority-row {
       grid-template-columns: minmax(110px, 1fr) minmax(110px, 128px);
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row] {
+      margin-left: 10px;
+      box-shadow: inset 3px 0 0 rgba(189, 139, 47, 0.28);
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-parent-active="true"] {
+      border-color: rgba(189, 139, 47, 0.38);
+      background: rgba(255, 250, 236, 0.78);
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row]::before {
+      content: "";
+      position: absolute;
+      left: -11px;
+      top: 50%;
+      width: 10px;
+      height: 1px;
+      background: rgba(189, 139, 47, 0.42);
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
     .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
@@ -2522,7 +2603,14 @@
       .pqx-what-matters-panel .pqx-advanced-panel-grid {
         grid-template-columns: 1fr;
       }
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group] {
+        grid-column: 1 / -1;
+      }
       .pqx-what-matters-panel .pqx-pref-row {
+        grid-template-columns: 1fr;
+      }
+      .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
+        grid-column: auto;
         grid-template-columns: 1fr;
       }
       .pqx-what-matters-panel .pqx-pref-row > div {
@@ -2532,6 +2620,12 @@
       .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
         grid-column: auto;
         max-width: none;
+      }
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row] {
+        margin-left: 0;
+      }
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row]::before {
+        display: none;
       }
     }
     .pqx-automation-board {
@@ -3913,6 +4007,9 @@
     .pqx-results > .pqx-result-panel {
       order: -1;
     }
+    .pqx-mobile-property-panel {
+      display: none;
+    }
     .pqx-review {
       position: sticky;
       top: 88px;
@@ -4592,9 +4689,39 @@
         margin-left: auto;
       }
       .pqx-main {
-        width: min(100vw - 20px, 760px);
+        width: min(calc(100vw - 20px), 760px);
         padding-top: 8px;
         padding-bottom: 96px;
+      }
+      .pqx-workflow,
+      .pqx-surface-search .pqx-workflow {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 5px;
+        overflow: visible;
+        padding: 0 0 8px;
+      }
+      .pqx-workflow-step,
+      .pqx-surface-search .pqx-workflow-step {
+        width: 100%;
+        min-height: 34px;
+        padding: 4px 5px;
+      }
+      .pqx-workflow-step strong,
+      .pqx-surface-search .pqx-workflow-step strong {
+        font-size: 11px;
+        line-height: 1.15;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .pqx-setup,
+      .pqx-setup.pqx-surface-search {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+      }
+      .pqx-setup.pqx-surface-search .pqx-command {
+        order: initial;
+        width: 100%;
       }
       .pqx-result-panel,
       .pqx-review,
@@ -4615,6 +4742,13 @@
       .pqx-command[data-pqx-mobile-panel]:not(.active),
       .pqx-setup-intro[data-pqx-mobile-panel]:not(.active),
       .pqx-run-hero[data-pqx-mobile-panel]:not(.active) {
+        display: none;
+      }
+      .pqx-mobile-property-panel {
+        display: grid;
+        position: static;
+      }
+      .pqx-mobile-property-panel[data-pqx-mobile-panel]:not(.active) {
         display: none;
       }
       .pqx-bottom-nav {
@@ -4903,15 +5037,17 @@
     </header>
 
     <main class="pqx-main">
+      {% if mobile_panel_count > 1 %}
       <div class="pqx-mobile-switch" aria-label="PropertyQuarry view mode" data-property-mobile-dock>
-        <button class="pqx-mode-button active" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">Results</button>
-        <button class="pqx-mode-button" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">Property</button>
-        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Search</button>{% endif %}
+        {% if has_mobile_results_panel %}<button class="pqx-mode-button{% if mobile_primary == 'results' %} active{% endif %}" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">{% if setup_mode and surface_mode in ['agents', 'account', 'billing'] %}Overview{% else %}Results{% endif %}</button>{% endif %}
+        {% if has_mobile_property_panel %}<button class="pqx-mode-button{% if mobile_primary == 'property' %} active{% endif %}" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">{% if run_visible %}Run{% elif run_terminal_no_results %}Details{% else %}Property{% endif %}</button>{% endif %}
+        {% if has_mobile_brief_panel %}<button class="pqx-mode-button{% if mobile_primary == 'brief' %} active{% endif %}" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">{% if surface_mode == 'agents' %}Automation{% elif surface_mode == 'account' %}Account{% elif surface_mode == 'billing' %}Billing{% else %}Search{% endif %}</button>{% endif %}
       </div>
+      {% endif %}
 
       {% if setup_mode %}
       <section class="pqx-stage pqx-setup{% if surface_mode == 'search' %} pqx-surface-search{% else %} pqx-surface-home{% endif %}">
-        <aside class="pqx-setup-intro active" data-pqx-mobile-panel="results">
+        <aside class="pqx-setup-intro{% if setup_mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results">
           {% set dashboard_agents = property_meta.get('search_agents') or [] %}
           {% set active_dashboard_agents = dashboard_agents|selectattr('enabled')|list %}
           {% set selected_dashboard_agent = property_meta.get('search_agent') or (dashboard_agents[0] if dashboard_agents else {}) %}
@@ -5213,7 +5349,7 @@
           {% endif %}
         </aside>
 
-        <section class="pqx-command pqx-brief-drawer-panel active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
+        <section class="pqx-command pqx-brief-drawer-panel{% if setup_mobile_primary == 'brief' %} active{% endif %}" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
           <div class="pqx-section-head">
             <div>
               <h2>
@@ -5424,11 +5560,20 @@
                     </div>
                   </div>
                   <div class="pqx-advanced-panel-grid">
-                    <fieldset class="pqx-choice-groupbox">
-                      <legend class="pqx-choice-groupbox-legend">Home and daily life</legend>
+                    {% set keyword_groups = [
+                      {'key': 'home_basics', 'label': 'Home basics', 'note': 'Shape, comfort, access, and building signals.'},
+                      {'key': 'daily_life', 'label': 'Daily life', 'note': 'Errands, transit, culture, and family backup.'},
+                      {'key': 'risk_evidence', 'label': 'Risk and evidence', 'note': 'Checks that should affect confidence before deciding.'}
+                    ] %}
+                    {% for group in keyword_groups %}
+                    {% set group_options = field.options|selectattr('group', 'equalto', group.get('key'))|list %}
+                    {% if group_options %}
+                    <fieldset class="pqx-choice-groupbox" data-what-matters-group="{{ group.get('key') }}">
+                      <legend class="pqx-choice-groupbox-legend">{{ group.get('label') }}</legend>
+                      <p class="pqx-what-matters-group-note">{{ group.get('note') }}</p>
                       <div class="pqx-pref-list">
-                        {% for option in field.options or [] %}
-                        <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
+                        {% for option in group_options %}
+                        <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-preference-state="{{ option.get('state') or 'any' }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
                           <div>
                             <strong>{{ option.get('label') }}</strong>
                             {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
@@ -5457,15 +5602,20 @@
                         {% endfor %}
                       </div>
                     </fieldset>
+                    {% endif %}
+                    {% endfor %}
                     {% if field.get('school_preference_options') %}
-                    <fieldset class="pqx-choice-groupbox">
+                    <fieldset class="pqx-choice-groupbox" data-what-matters-group="schools">
                       <legend class="pqx-choice-groupbox-legend">Schools and childcare</legend>
+                      <p class="pqx-what-matters-group-note">Pick the broad need first; related detail choices appear underneath.</p>
                       <div class="pqx-pref-list">
                         {% for option in field.get('school_preference_options') or [] %}
                         <label
                           class="pqx-pref-row pqx-school-priority-row"
                           data-school-priority-row
                           data-school-value="{{ option.get('value') }}"
+                          data-preference-state="{{ option.get('state') or 'any' }}"
+                          {% if option.get('value') in ('public_kindergarten', 'private_kindergarten', 'ganztags_volksschule', 'halbtags_volksschule') %}data-school-dependent-row{% endif %}
                           {% if option.get('value') in ('public_kindergarten', 'private_kindergarten') %}data-school-parent-value="kindergarten"{% endif %}
                           {% if option.get('value') in ('ganztags_volksschule', 'halbtags_volksschule') %}data-school-parent-value="volksschule"{% endif %}
                           {% if option.get('value') in ('public_kindergarten', 'private_kindergarten', 'ganztags_volksschule', 'halbtags_volksschule') and (option.get('state') or 'any') == 'any' %} hidden aria-hidden="true"{% endif %}
@@ -5764,7 +5914,7 @@
       {% elif run_terminal_no_results %}
       {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}" data-pqx-empty-results>
-        <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
+        <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}Run failed{% else %}Run complete{% endif %}</span>
             <h1>{% if run_status == 'failed' %}The search could not finish.{% else %}No strong matches found yet.{% endif %}</h1>
@@ -5794,7 +5944,7 @@
             {% endif %}
           </div>
         </aside>
-        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
+        <section class="pqx-panel pqx-command{% if mobile_primary == 'property' %} active{% endif %}" data-pqx-mobile-panel="property">
           <div>
           {% if not ranked_candidates %}
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
@@ -5980,6 +6130,58 @@
       {% else %}
       <section class="pqx-stage pqx-results">
         {% include "app/_property_results_list.html" %}
+        {% if has_results %}
+        {% set selected_facts = selected.get('property_facts') or {} %}
+        {% set selected_preview = selected.get('preview_image_url') or (selected.get('orientation_preview') or {}).get('image_url') or (selected.get('orientation_preview') or {}).get('thumb_image_url') or '' %}
+        <section class="pqx-review pqx-mobile-property-panel" data-pqx-mobile-panel="property" aria-label="Selected property">
+          <div class="pqx-theater no-media" data-pq-theater>
+            <div class="pqx-theater-frame is-unavailable is-compact" data-pw-tour hidden></div>
+            <div class="pqx-dossier">
+              {% if selected_preview %}
+              <div class="pqx-dossier-cover" data-pw-cover>
+                <img src="{{ selected_preview }}" alt="{{ selected.get('title') or 'Property preview' }}" loading="lazy" decoding="async" data-pw-cover-image>
+              </div>
+              {% else %}
+              <div class="pqx-dossier-cover" data-pw-cover hidden>
+                <img src="" alt="" loading="lazy" decoding="async" data-pw-cover-image>
+              </div>
+              {% endif %}
+              <div class="pqx-dossier-head">
+                <div class="pqx-dossier-title">
+                  <span data-pw-source>{{ [selected.get('source_label'), selected.get('location_label')]|select|join(' · ') or 'PropertyQuarry candidate' }}</span>
+                  <h1 data-pw-title>{{ selected.get('title') or 'Selected property' }}</h1>
+                </div>
+                <div class="pqx-dossier-summary" data-pw-summary-facts>
+                  {% if selected.get('price_display') %}<span class="pqx-result-fact">{{ selected.get('price_display') }}</span>{% endif %}
+                  {% if selected.get('costs_display') %}<span class="pqx-result-fact">{{ selected.get('costs_display') }}</span>{% endif %}
+                  {% if selected.get('layout_display') %}<span class="pqx-result-fact">{{ selected.get('layout_display') }}</span>{% endif %}
+                  {% if selected.get('location_label') or selected_facts.get('postal_name') %}<span class="pqx-result-fact">{{ selected.get('location_label') or selected_facts.get('postal_name') }}</span>{% endif %}
+                </div>
+                <p class="pqx-note" data-pw-ooda-summary>{{ selected.get('fit_summary') or selected.get('compare_reason') or 'Open the listing or property page to review the selected home.' }}</p>
+                <div class="pqx-actions">
+                  {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}">Open property</a>{% endif %}
+                  {% if selected.get('source_url') or selected.get('property_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') or selected.get('property_url') }}" target="_blank" rel="noreferrer">Open listing</a>{% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pqx-card">
+            <div class="pqx-section-head">
+              <div>
+                <h2>Why it is ranked</h2>
+                <div class="pqx-note">Fast mobile review for the selected result.</div>
+              </div>
+            </div>
+            <div class="pqx-event-list" data-pw-match>
+              {% for reason in (selected.get('match_reasons') or [])[:3] %}
+              <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
+              {% else %}
+              <div class="pqx-note">{{ selected.get('fit_summary') or 'No explicit match reason captured yet.' }}</div>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+        {% endif %}
       </section>
       {% endif %}
     </main>

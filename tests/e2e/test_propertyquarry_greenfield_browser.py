@@ -1020,10 +1020,11 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         response = desktop_page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
         assert response is not None and response.ok
         desktop_page.locator('[data-property-step-trigger="children"]').click()
-        section = desktop_page.locator('[data-property-field-name="keywords"] .pqx-choice-groupbox').first
+        section = desktop_page.locator('[data-property-what-matters-panel]')
         section.wait_for(state="visible")
         assert section.locator("select").count() >= 8
         assert section.locator('input[type="checkbox"]').count() == 0
+        assert " nearby" not in section.inner_text().lower()
         section.screenshot(path=str(desktop_shot))
         assert desktop_shot.exists()
 
@@ -1031,12 +1032,85 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         response = mobile_page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
         assert response is not None and response.ok
         mobile_page.locator('[data-property-step-trigger="children"]').click()
-        mobile_section = mobile_page.locator('[data-property-field-name="keywords"] .pqx-choice-groupbox').first
+        mobile_section = mobile_page.locator('[data-property-what-matters-panel]')
         mobile_section.wait_for(state="visible")
         assert mobile_section.locator("select").count() >= 8
         assert mobile_section.locator('input[type="checkbox"]').count() == 0
+        assert " nearby" not in mobile_section.inner_text().lower()
         mobile_section.screenshot(path=str(mobile_shot))
         assert mobile_shot.exists()
+    finally:
+        desktop.close()
+        mobile.close()
+
+
+def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    desktop = _new_context(browser, mobile=False, width=1120, height=1200)
+    mobile = _new_context(browser, mobile=True, width=430, height=1200)
+    desktop_shot = tmp_path / "propertyquarry-what-matters-distance-desktop.png"
+    mobile_shot = tmp_path / "propertyquarry-what-matters-distance-mobile.png"
+
+    def _assert_distance_rows_fit(page: Page, screenshot_path: Path) -> None:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+        for keyword in ("Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby"):
+            row = page.locator(f'[data-keyword-priority-row][data-keyword-value="{keyword}"]')
+            row.locator("[data-keyword-preference-select]").select_option("important")
+            expect(row.locator("[data-keyword-distance-select]")).to_be_enabled()
+            expect(row).to_have_attribute("data-preference-state", "important")
+        school_parent = page.locator('[data-school-priority-row][data-school-value="volksschule"]')
+        school_parent.locator("[data-school-preference-select]").select_option("important")
+        expect(school_parent).to_have_attribute("data-preference-state", "important")
+        school_child = page.locator('[data-school-priority-row][data-school-value="ganztags_volksschule"]')
+        expect(school_child).to_be_visible()
+        expect(school_child).to_have_attribute("data-school-parent-active", "true")
+        section = page.locator('[data-what-matters-group="daily_life"]')
+        section.scroll_into_view_if_needed()
+        section.screenshot(path=str(screenshot_path))
+        assert screenshot_path.exists()
+        rows = page.evaluate(
+            """
+            () => Array.from(document.querySelectorAll('[data-keyword-priority-row][data-keyword-distance-enabled="true"]'))
+              .filter((row) => row.offsetParent !== null)
+              .map((row) => {
+                const rowRect = row.getBoundingClientRect();
+                return {
+                  value: row.getAttribute('data-keyword-value') || '',
+                  rowWidth: rowRect.width,
+                  rowScrollWidth: row.scrollWidth,
+                  controls: Array.from(row.querySelectorAll('select')).map((select) => {
+                    const rect = select.getBoundingClientRect();
+                    return {
+                      name: select.getAttribute('name') || '',
+                      width: rect.width,
+                      left: rect.left - rowRect.left,
+                      right: rowRect.right - rect.right,
+                    };
+                  }),
+                };
+              })
+            """
+        )
+        assert len(rows) >= 4
+        for row in rows:
+            assert float(row["rowScrollWidth"]) <= float(row["rowWidth"]) + 1.0, row
+            for control in row["controls"]:
+                assert float(control["width"]) >= 96.0, row
+                assert float(control["left"]) >= -1.0, row
+                assert float(control["right"]) >= -1.0, row
+
+    try:
+        _assert_distance_rows_fit(desktop.new_page(), desktop_shot)
+        _assert_distance_rows_fit(mobile.new_page(), mobile_shot)
     finally:
         desktop.close()
         mobile.close()

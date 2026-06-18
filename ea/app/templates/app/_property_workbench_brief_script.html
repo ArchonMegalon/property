@@ -111,10 +111,17 @@
       form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
         const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
         const distanceSelect = row.querySelector('[data-keyword-distance-select]');
-        if (!(preferenceSelect instanceof HTMLSelectElement) || !(distanceSelect instanceof HTMLSelectElement)) return;
-        const enabled = String(preferenceSelect.value || 'any').trim().toLowerCase() !== 'any';
-        distanceSelect.disabled = !enabled;
+        if (!(preferenceSelect instanceof HTMLSelectElement)) return;
+        const state = String(preferenceSelect.value || 'any').trim().toLowerCase() || 'any';
+        const enabled = state !== 'any';
+        row.dataset.preferenceState = state;
         row.dataset.keywordDistanceEnabled = enabled ? 'true' : 'false';
+        row.classList.toggle('is-active', enabled);
+        row.classList.toggle('is-avoid', state === 'avoid');
+        row.classList.toggle('is-hard', state === 'must_have');
+        if (distanceSelect instanceof HTMLSelectElement) {
+          distanceSelect.disabled = !enabled;
+        }
       });
     };
     const syncSchoolPreferenceFields = (form) => {
@@ -124,6 +131,12 @@
         if (!(node instanceof HTMLSelectElement)) return;
         const schoolValue = String(node.getAttribute('data-school-value') || '').trim();
         const state = String(node.value || 'any').trim().toLowerCase();
+        const row = node.closest('[data-school-priority-row]');
+        if (row) {
+          row.dataset.preferenceState = state || 'any';
+          row.classList.toggle('is-active', state !== 'any');
+          row.classList.toggle('is-hard', state === 'must_have');
+        }
         if (!schoolValue || state === 'any') return;
         selectedStages.push(schoolValue);
         if (state === 'must_have') strongest = 'very_important';
@@ -145,6 +158,7 @@
           && String(parentSelect.value || 'any').trim().toLowerCase() !== 'any';
         row.hidden = !parentEnabled;
         row.toggleAttribute('aria-hidden', !parentEnabled);
+        row.dataset.schoolParentActive = parentEnabled ? 'true' : 'false';
         if (!parentEnabled && detailSelect instanceof HTMLSelectElement) detailSelect.value = 'any';
       });
       syncSchoolPreferenceFields(form);

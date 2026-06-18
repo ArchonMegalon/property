@@ -1762,6 +1762,12 @@
           if (!(node instanceof HTMLSelectElement)) return;
           const schoolValue = String(node.getAttribute('data-school-value') || '').trim();
           const state = String(node.value || 'any').trim().toLowerCase();
+          const row = node.closest('[data-school-priority-row]');
+          if (row) {
+            row.dataset.preferenceState = state || 'any';
+            row.classList.toggle('is-active', state !== 'any');
+            row.classList.toggle('is-hard', state === 'must_have');
+          }
           if (!schoolValue || state === 'any') return;
           selectedStages.push(schoolValue);
           if (state === 'must_have') strongest = 'very_important';
@@ -1783,6 +1789,7 @@
             && String(parentSelect.value || 'any').trim().toLowerCase() !== 'any';
           row.hidden = !parentEnabled;
           row.toggleAttribute('aria-hidden', !parentEnabled);
+          row.dataset.schoolParentActive = parentEnabled ? 'true' : 'false';
           if (!parentEnabled && detailSelect instanceof HTMLSelectElement) detailSelect.value = 'any';
         });
         syncSchoolPreferenceFields();
@@ -2283,7 +2290,7 @@
       investmentField?.addEventListener('change', refreshGoalDrivenState);
       form.querySelector('input[name="include_community_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_developer_project_signals"]')?.addEventListener('change', syncSearchGoalControls);
-      syncSchoolPreferenceFields();
+      syncSchoolPreferenceDetailRows();
       form.querySelector('input[name="include_public_housing_signals"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelector('input[name="include_distressed_sale_signals"]')?.addEventListener('change', syncSearchGoalControls);
       searchAgentEnabledField?.addEventListener('change', syncSearchGoalControls);
@@ -2309,6 +2316,7 @@
       });
       resyncSearchFormState();
       syncKeywordDistanceSelects(form);
+      syncSchoolPreferenceDetailRows();
       syncSelectAllButtons(form, planPlatformCap);
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
     }
