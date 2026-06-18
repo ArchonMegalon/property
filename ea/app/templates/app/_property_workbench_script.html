@@ -2768,7 +2768,7 @@
       root.querySelectorAll('.pqx-automation-thumbnail img').forEach((img) => {
         if (img.dataset.pqxAutomationPreviewFallback === '1') return;
         img.dataset.pqxAutomationPreviewFallback = '1';
-        img.addEventListener('error', () => {
+        const showPreviewFallback = () => {
           if (img.dataset.pqxAutomationPreviewLoaded === '1') return;
           const thumb = img.closest('.pqx-automation-thumbnail');
           const fallback = thumb?.querySelector('.pqx-automation-scope-empty--fallback');
@@ -2781,7 +2781,11 @@
           if (!thumb.title) {
             thumb.title = 'Map preview unavailable';
           }
-        });
+        };
+        img.addEventListener('error', showPreviewFallback);
+        if (img.complete && img.naturalWidth === 0) {
+          showPreviewFallback();
+        }
       });
     };
     initializeAutomationThumbnailFallbacks();

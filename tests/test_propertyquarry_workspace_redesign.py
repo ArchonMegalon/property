@@ -3652,7 +3652,10 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' in template
-    assert 'transform: scale(1.56);' in template
+    assert 'transform: scale(1.72);' in template
+    script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    assert "const showPreviewFallback = () => {" in script
+    assert "img.complete && img.naturalWidth === 0" in script
     assert "grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);" in template
     assert ".pqx-automation-table" not in template
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch' in template
