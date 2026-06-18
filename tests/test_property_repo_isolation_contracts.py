@@ -85,3 +85,18 @@ def test_property_release_workflow_runs_the_gold_gate_bundle() -> None:
         "PROPERTYQUARRY_VISUAL_WATCH_MOBILE_VIEWPORT",
     ):
         assert required in release_gate
+
+
+def test_property_security_posture_blocks_public_tour_render_time_research() -> None:
+    script = _read("scripts/check_property_security_posture.py")
+
+    for forbidden_fetcher in (
+        "_fetch_listing_research",
+        "_reverse_geocode",
+        "_fetch_nearby_poi_research",
+        "nominatim.openstreetmap.org",
+        "overpass-api.de",
+    ):
+        assert forbidden_fetcher in script
+    assert "stored research snapshots" in script
+    assert "PROPERTYQUARRY_PUBLIC_MEDIA_ALLOWED_HOSTS" in script

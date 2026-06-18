@@ -124,8 +124,19 @@ def main() -> int:
         failures.append("public tour JSON must use the redacted public payload builder")
     if "_PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS" not in public_tours or "_public_tour_manifest(payload)" not in public_tours or "safe_relpath not in manifest" not in public_tours:
         failures.append("public tour file serving must use a manifest-backed asset allowlist with denied sidecar extensions")
-    if "_public_tour_listing_research_url_allowed(normalized)" not in public_tours:
-        failures.append("public render-time listing research must pass through the provider-host URL guard")
+    forbidden_public_render_fetchers = (
+        "_fetch_listing_research",
+        "_reverse_geocode",
+        "_fetch_nearby_poi_research",
+        "nominatim.openstreetmap.org",
+        "overpass-api.de",
+    )
+    for token in forbidden_public_render_fetchers:
+        if token in public_tours:
+            failures.append("public tour render routes must use stored research snapshots, not live listing/geospatial fetches")
+            break
+    if "PROPERTYQUARRY_PUBLIC_MEDIA_ALLOWED_HOSTS" not in public_tours or "_public_tour_static_media_url_allowed" not in public_tours:
+        failures.append("public tour scene media must use a static external-media host allowlist")
     if "_PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS" not in public_tours or "_redacted_public_tour_facts" not in public_tours:
         failures.append("public tour facts must use mode-aware exact-location redaction")
     if "_public_tour_external_media_url_allowed" not in public_tours:
