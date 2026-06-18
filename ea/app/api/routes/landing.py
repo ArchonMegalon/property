@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
@@ -542,11 +542,45 @@ def _property_lookup_candidate_in_saved_shortlist(
     return None
 
 
-def _property_missing_packet_redirect(run_id: str = "") -> RedirectResponse:
+def _property_missing_packet_target(*, run_id: str = "", candidate_ref: str = "") -> str:
     normalized_run_id = str(run_id or "").strip()
-    target = "/app/shortlist"
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    query: dict[str, str] = {"packet_missing": "1"}
     if normalized_run_id:
-        target = f"{target}?run_id={urllib.parse.quote(normalized_run_id, safe='')}"
+        query["run_id"] = normalized_run_id
+    if normalized_candidate_ref:
+        query["missing_candidate_ref"] = normalized_candidate_ref
+    return f"/app/shortlist?{urllib.parse.urlencode(query)}#results-list"
+
+
+def _property_missing_packet_response(
+    request: Request,
+    *,
+    run_id: str = "",
+    candidate_ref: str = "",
+) -> JSONResponse | RedirectResponse:
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    target = _property_missing_packet_target(
+        run_id=normalized_run_id,
+        candidate_ref=normalized_candidate_ref,
+    )
+    accept_header = str(request.headers.get("accept") or "").lower()
+    requested_with = str(request.headers.get("x-requested-with") or "").lower()
+    if "application/json" in accept_header or requested_with == "xmlhttprequest":
+        return JSONResponse(
+            {
+                "status": "recovery_available",
+                "code": "property_research_packet_recovery",
+                "message": "That property page is not available in this packet. The shortlist is still available.",
+                "run_id": normalized_run_id,
+                "candidate_ref": normalized_candidate_ref,
+                "redirect_url": target,
+                "repair_status": "needs_rebuild",
+                "action_label": "Open shortlist",
+            },
+            status_code=202,
+        )
     return RedirectResponse(url=target, status_code=307)
 
 
@@ -2375,7 +2409,11 @@ def property_research_packet(
     if candidate is not None and not resolved_run_id:
         resolved_run_id = str(candidate.get("saved_from_run_id") or "").strip()
     if candidate is None:
-        return _property_missing_packet_redirect(resolved_run_id)
+        return _property_missing_packet_response(
+            request,
+            run_id=resolved_run_id,
+            candidate_ref=normalized_candidate_ref,
+        )
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
     facts = _property_enriched_candidate_facts(candidate=candidate)
@@ -2987,6 +3025,8 @@ def app_shell(
     run_id: str = Query(default=""),
     candidate: str = Query(default=""),
     agent_id: str = Query(default=""),
+    packet_missing: str = Query(default=""),
+    missing_candidate_ref: str = Query(default=""),
 ) -> HTMLResponse:
     brand = request_brand(request)
     property_brand = brand["key"] == "propertyquarry"
@@ -3196,6 +3236,22 @@ def app_shell(
                 return RedirectResponse(target, status_code=307)
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
+            if str(packet_missing or "").strip().lower() in {"1", "true", "yes"}:
+                missing_ref = str(missing_candidate_ref or "").strip()
+                recovery_query = {"packet_missing": "1"}
+                if normalized_run_id:
+                    recovery_query["run_id"] = normalized_run_id
+                if missing_ref:
+                    recovery_query["missing_candidate_ref"] = missing_ref
+                property_context["packet_recovery"] = {
+                    "title": "Property page is being rebuilt",
+                    "detail": "That property page is not available from the current packet. The shortlist below remains usable while the run can be refreshed.",
+                    "candidate_ref": missing_ref,
+                    "run_id": normalized_run_id,
+                    "action_href": f"/app/shortlist?{urllib.parse.urlencode(recovery_query)}#results-list",
+                    "action_label": "Stay on shortlist",
+                    "tone": "warn",
+                }
             if PropertySurfaceScope.for_section(resolved_section).section == "shortlist":
                 with contextlib.suppress(Exception):
                     property_context["saved_shortlist_candidates"] = product.list_property_saved_shortlist_candidates(

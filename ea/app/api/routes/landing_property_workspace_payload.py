@@ -179,6 +179,7 @@ def property_workspace_payload(
             if key in static_brief_keys
         }
     run_health = dict(property_state.get("run_health") or {})
+    packet_recovery = dict(property_state.get("packet_recovery") or {})
     run_events = list(run_payload.get("events") or [])
     raw_run_summary = dict(run_payload.get("summary") or {})
     run_summary = _property_customer_run_summary(raw_run_summary)
@@ -434,6 +435,7 @@ def property_workspace_payload(
             selected_candidate_ref="",
             selected={},
             empty_outcome={},
+            packet_recovery=packet_recovery,
             show_brief_default=True,
         )
         return PropertySurfacePayloadContract(
@@ -2659,6 +2661,7 @@ def property_workspace_payload(
             counterfactual_rows=counterfactual_rows,
             suppression_rows=suppression_rows,
         ),
+        packet_recovery=packet_recovery,
         show_brief_default=not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(shortlist_snapshot.get("has_results")))),
     )
     contract = PropertySurfacePayloadContract(

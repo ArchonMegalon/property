@@ -632,6 +632,57 @@ def _nominatim_boundary_record(query: str) -> dict[str, object]:
     return dict(_property_research_boundary_record(query) or {})
 
 
+_VIENNA_DISTRICT_PREVIEW_BOUNDS: dict[str, tuple[str, tuple[float, float, float, float]]] = {
+    "1010": ("Innere Stadt", (16.356, 48.202, 16.379, 48.216)),
+    "1020": ("Leopoldstadt", (16.365, 48.197, 16.456, 48.235)),
+    "1030": ("Landstrasse", (16.366, 48.176, 16.423, 48.212)),
+    "1040": ("Wieden", (16.360, 48.185, 16.381, 48.199)),
+    "1050": ("Margareten", (16.342, 48.179, 16.368, 48.194)),
+    "1060": ("Mariahilf", (16.340, 48.190, 16.361, 48.203)),
+    "1070": ("Neubau", (16.335, 48.196, 16.356, 48.211)),
+    "1080": ("Josefstadt", (16.340, 48.207, 16.358, 48.218)),
+    "1090": ("Alsergrund", (16.342, 48.216, 16.371, 48.236)),
+    "1100": ("Favoriten", (16.340, 48.135, 16.420, 48.185)),
+    "1110": ("Simmering", (16.405, 48.140, 16.500, 48.185)),
+    "1120": ("Meidling", (16.295, 48.160, 16.350, 48.190)),
+    "1130": ("Hietzing", (16.215, 48.150, 16.325, 48.225)),
+    "1140": ("Penzing", (16.210, 48.185, 16.330, 48.250)),
+    "1150": ("Rudolfsheim-Fuenfhaus", (16.315, 48.188, 16.345, 48.210)),
+    "1160": ("Ottakring", (16.285, 48.205, 16.335, 48.230)),
+    "1170": ("Hernals", (16.285, 48.220, 16.335, 48.245)),
+    "1180": ("Waehring", (16.300, 48.225, 16.360, 48.250)),
+    "1190": ("Doebling", (16.300, 48.240, 16.380, 48.310)),
+    "1200": ("Brigittenau", (16.350, 48.220, 16.410, 48.260)),
+    "1210": ("Floridsdorf", (16.360, 48.250, 16.500, 48.330)),
+    "1220": ("Donaustadt", (16.420, 48.180, 16.580, 48.320)),
+    "1230": ("Liesing", (16.240, 48.120, 16.340, 48.180)),
+}
+
+
+def _local_scope_boundary_record(query: str, *, country_code: str, region_code: str) -> dict[str, object]:
+    if str(country_code or "").strip().upper() != "AT":
+        return {}
+    if str(region_code or "").strip().lower() not in {"vienna", "wien"}:
+        return {}
+    match = re.search(r"\b(1[0-2]\d0)\b", str(query or ""))
+    if not match:
+        return {}
+    postal_code = match.group(1)
+    district = _VIENNA_DISTRICT_PREVIEW_BOUNDS.get(postal_code)
+    if not district:
+        return {}
+    district_name, bounds = district
+    west, south, east, north = bounds
+    ring = [[west, south], [east, south], [east, north], [west, north], [west, south]]
+    return {
+        "display_name": f"{district_name}, {postal_code} Vienna",
+        "bounds": bounds,
+        "geojson": {"type": "Polygon", "coordinates": [ring]},
+        "lat": (south + north) / 2.0,
+        "lon": (west + east) / 2.0,
+    }
+
+
 def _geojson_outer_rings(geojson: dict[str, object]) -> list[list[tuple[float, float]]]:
     return list(_property_research_geojson_outer_rings(geojson))
 
@@ -680,11 +731,11 @@ def _project_lonlat_to_preview_path(
 def _expand_geo_bounds(
     bounds: tuple[float, float, float, float],
     *,
-    padding_ratio: float = 0.2,
+    padding_ratio: float = 0.08,
 ) -> tuple[float, float, float, float]:
     west, south, east, north = bounds
-    lon_pad = max((east - west) * padding_ratio, 0.01)
-    lat_pad = max((north - south) * padding_ratio, 0.01)
+    lon_pad = max((east - west) * padding_ratio, 0.004)
+    lat_pad = max((north - south) * padding_ratio, 0.004)
     return west - lon_pad, south - lat_pad, east + lon_pad, north + lat_pad
 
 
@@ -736,6 +787,8 @@ def _build_scope_boundary_preview(
     for query in queries[:12]:
         record = _nominatim_boundary_record(query)
         if not record:
+            record = _local_scope_boundary_record(query, country_code=country_code, region_code=region_code)
+        if not record:
             continue
         bounds = record.get("bounds")
         if isinstance(bounds, tuple) and len(bounds) == 4:
@@ -752,7 +805,7 @@ def _build_scope_boundary_preview(
     union_bounds = _union_geo_bounds(bounds_rows)
     if not union_bounds:
         return {}
-    render_bounds = _expand_geo_bounds(context_bounds or union_bounds)
+    render_bounds = _expand_geo_bounds(union_bounds)
 
     center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
     center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
@@ -793,7 +846,8 @@ def _build_scope_boundary_preview(
             "query": normalized_query,
             "areas": [row["label"] for row in district_rows],
             "zoom": zoom,
-            "overlay_mode": "svg_tile_crop_v3",
+            "overlay_mode": "svg_tile_crop_v4",
+            "render_bounds_source": "selected_areas",
         },
         center_lat=center_lat,
         center_lon=center_lon,
@@ -812,6 +866,49 @@ def _build_scope_boundary_preview(
         "district_overlay_svg": "",
         "preview_kind": "osm_district_overlay",
         "has_district_overlay": True,
+    }
+
+
+def _property_scope_point_preview(
+    *,
+    country_code: str,
+    region_code: str,
+    normalized_query: str,
+    market_label: str,
+) -> dict[str, object]:
+    query = _context_preview_query(country_code, region_code, normalized_query, [normalized_query] if normalized_query else [])
+    point = _forward_geocode_preview_point(query)
+    if point is None:
+        return {}
+    lat, lon = point
+    lat_key = int(round(lat * 10000))
+    lon_key = int(round(lon * 10000))
+    return {
+        "image_url": _cached_preview_image_url(
+            cache_key={
+                "kind": "scope-point",
+                "country": country_code,
+                "region": region_code,
+                "query": normalized_query or market_label,
+                "lat_key": lat_key,
+                "lon_key": lon_key,
+                "zoom": 13,
+                "overlay_mode": "pin_v1",
+            },
+            center_lat=lat,
+            center_lon=lon,
+            zoom=13,
+            pin=(320.0, 184.0),
+            draw_overlay=False,
+        ),
+        "alt": f"Search area preview for {normalized_query or market_label}",
+        "summary": normalized_query or market_label,
+        "count_label": "",
+        "market_label": market_label,
+        "district_rows": [],
+        "district_overlay_svg": "",
+        "preview_kind": "osm_point_fallback",
+        "has_district_overlay": False,
     }
 
 
@@ -885,6 +982,15 @@ def _property_scope_preview(country_code: str, region_code: str, location_query:
             "preview_kind": "local_district_layout",
             "has_district_overlay": False,
         }
+
+    point_preview = _property_scope_point_preview(
+        country_code=normalized_country,
+        region_code=normalized_region,
+        normalized_query=normalized_query,
+        market_label=market_label,
+    )
+    if point_preview:
+        return point_preview
 
     return {
         "image_url": "",

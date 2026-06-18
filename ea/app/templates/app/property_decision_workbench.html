@@ -3,6 +3,7 @@
 {% set surface_mode = workbench.get('surface_mode') or current_nav or 'properties' %}
 {% set results = workbench.get('results') or [] %}
 {% set selected = workbench.get('selected') or (results[0] if results else {}) %}
+{% set packet_recovery = workbench.get('packet_recovery') or {} %}
 {% set run = workbench.get('run') or {} %}
 {% set brief = workbench.get('brief') or {} %}
 {% set recent_packets = workbench.get('recent_packets') or [] %}
@@ -790,6 +791,40 @@
       width: min(1280px, calc(100vw - 32px));
       margin: 0 auto;
       padding: 16px 0 28px;
+    }
+    .pqx-recovery-banner {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(189, 139, 47, 0.24);
+      border-radius: 10px;
+      background:
+        linear-gradient(135deg, rgba(253, 246, 232, 0.94), rgba(255, 253, 248, 0.96)),
+        var(--pq-paper);
+      box-shadow: 0 12px 24px rgba(41, 37, 30, 0.06);
+    }
+    .pqx-recovery-banner strong {
+      display: block;
+      color: var(--pq-ink);
+      font-size: 0.95rem;
+      letter-spacing: 0;
+    }
+    .pqx-recovery-banner span {
+      display: block;
+      margin-top: 2px;
+      color: var(--pq-muted);
+      font-size: 0.82rem;
+      line-height: 1.35;
+    }
+    .pqx-recovery-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
     .pqx-shell[data-pqx-surface="search"] .pqx-main {
       padding: 12px 0 20px;
@@ -2957,6 +2992,11 @@
       min-height: 132px;
       object-fit: cover;
       object-position: center;
+      transition: transform 180ms ease;
+    }
+    .pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img,
+    .pqx-automation-thumbnail[data-scope-preview-kind="osm_point_fallback"] img {
+      transform: scale(1.07);
     }
     .pqx-automation-thumbnail-action {
       position: absolute;
@@ -5234,6 +5274,20 @@
     </header>
 
     <main class="pqx-main">
+      {% if packet_recovery %}
+      <aside class="pqx-recovery-banner" data-pqx-packet-recovery role="status">
+        <div>
+          <strong>{{ packet_recovery.get('title') or 'Property page is being rebuilt' }}</strong>
+          <span>{{ packet_recovery.get('detail') or 'The shortlist remains available while this packet is refreshed.' }}</span>
+        </div>
+        <div class="pqx-recovery-meta">
+          {% if packet_recovery.get('candidate_ref') %}
+          <span class="pqx-pill warn">{{ packet_recovery.get('candidate_ref') }}</span>
+          {% endif %}
+          <a class="pqx-link-button subtle" href="{{ packet_recovery.get('action_href') or '/app/shortlist' }}">{{ packet_recovery.get('action_label') or 'Open shortlist' }}</a>
+        </div>
+      </aside>
+      {% endif %}
       {% if mobile_panel_count > 1 %}
       <div class="pqx-mobile-switch" aria-label="PropertyQuarry view mode" data-property-mobile-dock>
         {% if has_mobile_results_panel %}<button class="pqx-mode-button{% if mobile_primary == 'results' %} active{% endif %}" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">{% if setup_mode and surface_mode in ['agents', 'account', 'billing'] %}Overview{% else %}Results{% endif %}</button>{% endif %}

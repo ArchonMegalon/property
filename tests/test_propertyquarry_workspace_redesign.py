@@ -1556,16 +1556,60 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
     assert preview["has_district_overlay"] is True
     assert len(preview_render_calls) == 1
     assert len(preview_render_calls[0]["overlay_rows"]) == 2
+    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v4"
+    assert preview_render_calls[0]["cache_key"]["render_bounds_source"] == "selected_areas"
+    assert preview_render_calls[0]["zoom"] >= 10
 
 
-def test_property_scope_preview_without_boundary_data_uses_local_layout_fallback(monkeypatch) -> None:
+def test_property_scope_preview_without_boundary_data_uses_local_vienna_overlay_fallback(monkeypatch) -> None:
     monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/localdistrict.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+
     preview = landing_view_models._property_scope_preview("AT", "vienna", "1020 Vienna")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/localdistrict.png"
+    assert preview["preview_kind"] == "osm_district_overlay"
+    assert preview["has_district_overlay"] is True
+    assert preview["district_rows"][0]["label"] == "Leopoldstadt"
+    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v4"
+
+
+def test_property_scope_preview_without_boundary_or_local_overlay_uses_local_layout_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
+    preview = landing_view_models._property_scope_preview("AT", "vienna", "Mödling")
     image_url = str(preview["image_url"])
     assert image_url.startswith("data:image/svg+xml")
     assert "#" not in image_url
     assert "%23" in image_url
     assert preview["district_rows"] == []
+
+
+def test_property_scope_preview_without_known_layout_uses_osm_point_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
+    monkeypatch.setattr(landing_view_models, "_property_location_options", lambda country_code, region_code: [])
+    monkeypatch.setattr(landing_view_models, "_scope_preview_layout", lambda country_code, region_code, options: [])
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda query: (47.8095, 13.0550))
+    preview_render_calls: list[dict[str, object]] = []
+
+    def fake_cached_preview_image_url(**kwargs) -> str:
+        preview_render_calls.append(dict(kwargs))
+        return "/app/api/property/map-previews/salzburgpoint.png"
+
+    monkeypatch.setattr(landing_view_models, "_cached_preview_image_url", fake_cached_preview_image_url)
+
+    preview = landing_view_models._property_scope_preview("AT", "salzburg", "Non-catalog hillside")
+
+    assert preview["image_url"] == "/app/api/property/map-previews/salzburgpoint.png"
+    assert preview["preview_kind"] == "osm_point_fallback"
+    assert preview["has_district_overlay"] is False
+    assert preview_render_calls[0]["pin"] == (320.0, 184.0)
+    assert preview_render_calls[0]["zoom"] == 13
 
 
 def test_property_map_preview_route_serves_private_cached_png(tmp_path, monkeypatch) -> None:
@@ -5445,7 +5489,55 @@ def test_property_research_packet_missing_candidate_redirects_to_shortlist(monke
     )
 
     assert packet.status_code == 307
-    assert packet.headers["location"] == "/app/shortlist?run_id=run-missing"
+    assert packet.headers["location"] == (
+        "/app/shortlist?packet_missing=1&run_id=run-missing&missing_candidate_ref=missing-packet-ref#results-list"
+    )
+
+    shortlist = client.get(packet.headers["location"], headers={"host": "propertyquarry.com"})
+    assert shortlist.status_code == 200
+    assert "Property page is being rebuilt" in shortlist.text
+    assert "missing-packet-ref" in shortlist.text
+
+
+def test_property_research_packet_missing_candidate_returns_recovery_json(monkeypatch) -> None:
+    principal_id = "pq-research-packet-missing-json"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_runs(self, *, principal_id: str, limit: int = 8):
+        return [{"run_id": "run-json", "status": "completed", "principal_id": principal_id, "summary": {"ranked_candidates": []}}]
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "completed",
+            "progress": 100,
+            "message": "done",
+            "summary": {"ranked_candidates": []},
+        }
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "list_property_saved_shortlist_candidates", lambda self, *, principal_id: [])
+
+    packet = client.get(
+        "/app/research/missing-json-ref",
+        params={"run_id": "run-json"},
+        headers={"host": "propertyquarry.com", "accept": "application/json"},
+        follow_redirects=False,
+    )
+
+    assert packet.status_code == 202
+    payload = packet.json()
+    assert payload["code"] == "property_research_packet_recovery"
+    assert payload["status"] == "recovery_available"
+    assert payload["repair_status"] == "needs_rebuild"
+    assert payload["candidate_ref"] == "missing-json-ref"
+    assert payload["redirect_url"] == (
+        "/app/shortlist?packet_missing=1&run_id=run-json&missing_candidate_ref=missing-json-ref#results-list"
+    )
+    assert "property_research_packet_not_found" not in packet.text
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     client = build_property_client(principal_id="pq-redesign-settings")
