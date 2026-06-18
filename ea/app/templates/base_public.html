@@ -705,7 +705,7 @@
 </style>
 </head>
 <body>
-  {% set brand_home_href = '/?home=1' if (brand.key == 'propertyquarry' and access_identity) else ((brand.app_home or '/app/properties') if access_identity else (brand.public_base_url or '/')) %}
+  {% set brand_home_href = '/?home=1' if (brand.key == 'propertyquarry' and public_signed_in) else ((brand.app_home or '/app/properties') if public_signed_in else (brand.public_base_url or '/')) %}
   <header class="topbar">
     <div class="wrap topbar-inner">
       <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">
@@ -721,7 +721,7 @@
       </nav>
       <div class="actions">
         {% if not signing_in_progress %}
-        <a class="btn ghost" href="{% if access_identity %}{{ brand.app_home or '/app/properties' }}{% else %}/sign-in?signing_in=1{% endif %}">{% if access_identity %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
+        <a class="btn ghost" href="{% if public_signed_in %}{{ brand.app_home or '/app/properties' }}{% else %}/sign-in?signing_in=1{% endif %}">{% if public_signed_in %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
         <a class="btn primary" href="/register">{{ brand.create_label }}</a>
         {% endif %}
       </div>

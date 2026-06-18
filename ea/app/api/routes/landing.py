@@ -20,6 +20,7 @@ from markupsafe import Markup
 
 from app.api.dependencies import (
     RequestContext,
+    _extract_token,
     _resolved_principal_id,
     _workspace_session_payload,
     browser_principal_override_allowed,
@@ -561,6 +562,14 @@ def _principal_for_page(
         workspace_session = _workspace_session_payload(request, container)
         if workspace_session is not None:
             return str(workspace_session.get("principal_id") or "").strip()
+        expected = _expected_api_token(container)
+        if expected and hmac.compare_digest(_extract_token(request), expected):
+            return _resolved_principal_id(
+                request,
+                container=container,
+                authenticated=True,
+                access_identity=None,
+            )
         if str(request.headers.get("x-ea-principal-id") or "").strip():
             return _resolved_principal_id(
                 request,
@@ -621,6 +630,14 @@ def _landing_authenticated_principal(
     workspace_session = _workspace_session_payload(request, container)
     if workspace_session is not None:
         return str(workspace_session.get("principal_id") or "").strip()
+    expected = _expected_api_token(container)
+    if expected and hmac.compare_digest(_extract_token(request), expected):
+        return _resolved_principal_id(
+            request,
+            container=container,
+            authenticated=True,
+            access_identity=None,
+        )
     return ""
 
 
@@ -801,6 +818,7 @@ def _public_context(
         "current_nav": current_nav,
         "access_identity": access_identity,
         "principal_id": principal_id,
+        "public_signed_in": bool(access_identity is not None or principal_id),
         "status": status,
         "workspace": workspace,
         "privacy": dict(status.get("privacy") or {}),

@@ -684,6 +684,40 @@ def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) ->
     assert response.headers["location"] == "/app/search"
 
 
+def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_escape(monkeypatch) -> None:
+    principal_id = "pq-root-token-search-redirect"
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.setenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", "1")
+
+    from fastapi.testclient import TestClient
+    from app.api.app import create_app
+
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
+    headers = {
+        "host": "propertyquarry.com",
+        "Authorization": "Bearer test-token",
+        "X-EA-Principal-ID": principal_id,
+    }
+    monkeypatch.setattr(
+        landing_routes,
+        "build_product_service",
+        lambda container: (_ for _ in ()).throw(AssertionError("root redirect should not build the product service")),
+    )
+
+    response = client.get("/", headers=headers, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/app/search"
+
+    public_home = client.get("/?home=1", headers=headers, follow_redirects=False)
+    assert public_home.status_code == 200
+    assert "Find the right properties. Compare them clearly. Decide with evidence." in public_home.text
+    assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
+
+
 def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monkeypatch) -> None:
     principal_id = "pq-root-public-home"
     client = build_property_client(principal_id=principal_id)
