@@ -35425,11 +35425,15 @@ class ProductService:
         requested_region_code: str = "",
     ) -> dict[str, object]:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        source_scope_location_hints = _property_exact_source_scope_location_hints(
+            source_url=property_url,
+            source_label=str(counterparty or source_ref or "").strip(),
+        )
         location_hints = tuple(
             str(item or "").strip()
             for item in list(requested_location_hints or ())
             if str(item or "").strip()
-        ) or _property_search_location_hints(current_preferences)
+        ) or _property_search_location_hints(current_preferences) or source_scope_location_hints
         search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
         listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
         first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
@@ -36307,11 +36311,15 @@ class ProductService:
         requested_region_code: str = "",
     ) -> dict[str, object]:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        source_scope_location_hints = _property_exact_source_scope_location_hints(
+            source_url=property_url,
+            source_label=str(counterparty or source_ref or "").strip(),
+        )
         location_hints = tuple(
             str(item or "").strip()
             for item in list(requested_location_hints or ())
             if str(item or "").strip()
-        ) or _property_search_location_hints(current_preferences)
+        ) or _property_search_location_hints(current_preferences) or source_scope_location_hints
         search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
         listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
         first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}

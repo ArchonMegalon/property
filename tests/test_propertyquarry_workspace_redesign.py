@@ -3299,6 +3299,41 @@ def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
     assert signed_out_workspace.status_code == 200
 
 
+def test_propertyquarry_workspace_session_root_home_override_stays_public() -> None:
+    principal_id = "pq-root-cookie-home"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Root Cookie Home Office")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_session.json()["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert client.cookies.get("ea_workspace_session")
+
+    root = client.get("/", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert root.status_code == 307
+    assert root.headers["location"] == "/app/search"
+
+    public_home = client.get("/?home=1", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    assert public_home.status_code == 200
+    assert "Search once. Rank the right homes. Decide with evidence." in public_home.text
+    assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
+    assert 'href="/app/search"' in public_home.text
+    assert ">Sign in<" not in public_home.text
+    assert "Signing you in" not in public_home.text
+    assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in public_home.text
+
+
 def test_property_workspace_browser_forms_accept_same_origin_mutations() -> None:
     principal_id = "pq-account-same-origin-post"
     client = build_property_client(principal_id=principal_id)

@@ -2147,6 +2147,72 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match
     assert diagnostics["location_hints"] == ["1010 Vienna"]
 
 
+def test_property_scout_hit_sender_uses_source_scope_as_notification_location_fallback(monkeypatch) -> None:
+    principal_id = "exec-property-hit-source-scope-fallback"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Source Scope Fallback Gate")
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("9",)),
+    )
+
+    title = "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit großem Ess- & Wohnbereich"
+    summary = "Moderne Zwei-Zimmer Wohnung mit Terrasse in Salzburg."
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title=title,
+        summary=summary,
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+        source_ref="property-scout:willhaben-salzburg-dirty-scope",
+        assessment={"fit_score": 54.0, "recommendation": "review"},
+        fit_score=54.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+                "listing_title": title,
+                "summary": summary,
+                "source_platform": "willhaben",
+                "source_family": "core_portal",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "€ 1.190",
+                },
+            },
+        ),
+        requested_location_hints=(),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert sent == []
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+    assert diagnostics["location_hints"] == ["1010 Vienna"]
+
+
 def test_property_scout_hit_email_suppresses_source_scope_only_exact_area_match(monkeypatch) -> None:
     principal_id = "cf-email:source-scope-email-gate@example.com"
     client = build_property_client(principal_id=principal_id)
@@ -2219,6 +2285,49 @@ def test_property_scout_hit_email_suppresses_source_scope_only_exact_area_match(
     diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
     assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
     assert diagnostics["location_hints"] == ["1010 Vienna"]
+
+
+def test_property_scout_hit_email_uses_source_scope_as_notification_location_fallback(monkeypatch) -> None:
+    principal_id = "exec-property-hit-email-source-scope-fallback"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Email Source Scope Fallback Gate")
+    service = ProductService(client.app.state.container)
+
+    title = "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD"
+    summary = "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien."
+    result = service._send_property_scout_hit_email(
+        principal_id=principal_id,
+        actor="test",
+        title=title,
+        summary=summary,
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        property_url="https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien",
+        source_ref="property-scout:derstandard-1220-dirty-scope",
+        assessment={"fit_score": 50.0, "recommendation": "review"},
+        candidate_properties=(
+            {
+                "property_url": "https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien",
+                "listing_title": title,
+                "summary": summary,
+                "source_platform": "derstandard_at",
+                "source_family": "broker_portal",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "€ 1.090",
+                },
+            },
+        ),
+        requested_location_hints=(),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
 
 
 def test_property_scout_hit_sender_suppresses_generic_pages_missing_concrete_facts(monkeypatch) -> None:
