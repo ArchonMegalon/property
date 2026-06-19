@@ -1230,7 +1230,7 @@ def build_property_empty_outcome_summary(
     elif source_total:
         eta_feedback = f"{source_completed}/{source_total} source variants completed."
     elif status_value == "failed":
-        eta_feedback = "Repair has the run queued; refresh this page or open the rerun when it appears."
+        eta_feedback = "Repair has the run queued; this page checks quietly every 10s and will switch when a usable rerun is ready."
     else:
         eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
     return {
