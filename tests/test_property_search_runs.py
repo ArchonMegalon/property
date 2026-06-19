@@ -5863,6 +5863,13 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     )
     state["status"] = "in_progress"
     state["progress"] = 1
+    state["events"] = [
+        {
+            "step": "source_previewing",
+            "status": "in_progress",
+            "message": "Reviewing candidate 25 of 60 for Willhaben | Austria | Rent | 1010 Vienna.",
+        }
+    ]
     state["updated_at"] = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
     product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
 
@@ -5892,6 +5899,7 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     repair_input = dict(tasks[0].input_json or {})
     assert repair_input["filter_key"] == "run_interrupted_stale"
     assert repair_input["run_id"] == run_id
+    assert repair_input["source_label"] == "Willhaben | Austria | Rent | 1010 Vienna"
     assert repair_input["diagnostics"]["failure_class"] == "run_interrupted_stale"
 
     status_again = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)

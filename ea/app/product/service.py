@@ -27593,10 +27593,11 @@ class ProductService:
         source_family = str(summary.get("current_source_family") or "").strip().lower()
         last_event: dict[str, object] = {}
         for event in reversed(events):
+            step = str(event.get("step") or "").strip()
             message = str(event.get("message") or "").strip()
             if not last_event and message:
                 last_event = event
-            if not source_label and " for " in message:
+            if not source_label and step.startswith("source_") and " for " in message:
                 match = re.search(r"\bfor\s+(.+?)(?:\.\s*)?$", message)
                 if match:
                     source_label = str(match.group(1) or "").strip()
