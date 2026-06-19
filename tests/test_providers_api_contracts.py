@@ -4281,7 +4281,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Choose a sign-in path." in sign_in.text
+    assert "Choose the narrowest sign-in path that works." in sign_in.text
     assert "Create account" in sign_in.text
     assert "Email me a fresh access link" not in sign_in.text
     assert "Email link" in sign_in.text
@@ -4554,9 +4554,9 @@ def test_browser_shell_routes_and_nav_links_resolve() -> None:
         ("/app/follow-ups", "/app/commitments"),
         ("/app/memory", "/app/people"),
         ("/app/contacts", "/app/evidence"),
-        ("/app/activity", "/admin/office"),
-        ("/app/channels", "/app/settings"),
-        ("/app/automations", "/app/settings"),
+        ("/app/activity", "/app/account"),
+        ("/app/channels", "/app/account#delivery"),
+        ("/app/automations", "/app/agents"),
     ):
         page = user.get(path, follow_redirects=False)
         assert page.status_code == 307
@@ -4587,10 +4587,16 @@ def test_provider_bindings_reject_cross_principal_query_scope() -> None:
 
 
 def test_onemin_probe_all_endpoint_returns_slot_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    owner = _client(principal_id="exec-1", operator=True)
-    from app.services import responses_upstream as upstream
-
-    upstream._test_reset_onemin_states()
+    for key in list(os.environ):
+        if key.startswith("ONEMIN_AI_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(key, raising=False)
+    for key in (
+        "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS",
+        "EA_RESPONSES_ONEMIN_RESERVE_SLOTS",
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        "ONEMIN_DIRECT_API_KEYS_JSON_FILE",
+    ):
+        monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "probe-primary")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "probe-deleted")
     monkeypatch.setenv(
@@ -4606,6 +4612,10 @@ def test_onemin_probe_all_endpoint_returns_slot_results(monkeypatch: pytest.Monk
             }
         ),
     )
+    owner = _client(principal_id="exec-1", operator=True)
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
 
     def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
         if headers["API-KEY"] == "probe-primary":
@@ -4622,7 +4632,13 @@ def test_onemin_probe_all_endpoint_returns_slot_results(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(upstream, "_post_json", fake_post_json)
 
-    response = owner.post("/v1/providers/onemin/probe-all", json={"include_reserve": True})
+    response = owner.post(
+        "/v1/providers/onemin/probe-all",
+        json={
+            "include_reserve": True,
+            "account_labels": ["ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"],
+        },
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["provider_key"] == "onemin"
