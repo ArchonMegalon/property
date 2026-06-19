@@ -57,6 +57,7 @@ class PropertyDecisionWorkbenchRunContract:
     status_url: str
     summary: dict[str, object]
     filtered_total: int = 0
+    score_demoted_total: int = 0
     held_back_total: int = 0
     events: list[object] = field(default_factory=list)
     worker_state: list[object] = field(default_factory=list)
@@ -65,6 +66,9 @@ class PropertyDecisionWorkbenchRunContract:
     open_research_task_total: int = 0
     filled_research_task_total: int = 0
     dismissed_research_task_total: int = 0
+    provider_display_total: int = 0
+    source_variant_display_total: int = 0
+    selected_platform_count: int = 0
     route_previews: list[object] = field(default_factory=list)
 
 

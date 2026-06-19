@@ -264,10 +264,36 @@ def property_workspace_payload(
         if property_is_investment_search
         else ""
     )
-    selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    available_platform_values = {
+        str(option.get("value") or "").strip().lower()
+        for option in provider_options
+        if str(option.get("value") or "").strip()
+    }
+    has_platform_catalog = len(available_platform_values) > 0
+    normalized_platforms: list[str] = []
+    for value in list(property_preferences.get("selected_platforms") or property_state.get("selected_platforms") or []):
+        normalized = str(value or "").strip()
+        normalized_lower = normalized.lower()
+        if not normalized:
+            continue
+        if has_platform_catalog and normalized_lower not in available_platform_values:
+            continue
+        if normalized_lower in normalized_platforms:
+            continue
+        normalized_platforms.append(normalized_lower)
+    selected_platforms = normalized_platforms
+    provider_option_total = max(0, len(available_platform_values))
     run_provider_total = int(run_summary.get("provider_total") or 0)
     run_source_variant_total = int(run_summary.get("source_variant_total") or run_summary.get("sources_total") or 0)
-    run_provider_display_total = max(run_provider_total, len(selected_platforms))
+    run_provider_display_total = run_provider_total if run_provider_total > 0 else len(selected_platforms)
+    if run_provider_total > 0 and selected_platforms:
+        run_provider_display_total = max(run_provider_total, min(len(selected_platforms), provider_option_total or len(selected_platforms)))
+    run_payload_for_surface = {
+        **run_payload_for_surface,
+        "provider_display_total": run_provider_display_total,
+        "source_variant_display_total": run_source_variant_total,
+        "selected_platform_count": len(selected_platforms),
+    }
     selected_country_code = str(property_preferences.get("country_code") or property_state.get("country_code") or "AT").strip().upper() or "AT"
     workspace_currency_code = currency_code_for_country(selected_country_code) or "EUR"
     workspace_timezone = str(workspace.get("timezone") or default_timezone_for_country(selected_country_code) or "UTC").strip() or "UTC"
@@ -289,6 +315,7 @@ def property_workspace_payload(
         run_summary=run_summary,
         source_rows=run_sources,
         preferences=property_preferences,
+        include_soft=False,
     )
     counterfactual_rows = _property_counterfactual_rows(
         preferences=property_preferences,
@@ -438,6 +465,9 @@ def property_workspace_payload(
                 open_research_task_total=0,
                 filled_research_task_total=0,
                 dismissed_research_task_total=0,
+                provider_display_total=run_provider_display_total,
+                source_variant_display_total=run_source_variant_total,
+                selected_platform_count=len(selected_platforms),
                 route_previews=[],
             ),
             brief=PropertyDecisionWorkbenchBriefContract(
@@ -2630,9 +2660,10 @@ def property_workspace_payload(
     )
     workbench_results = [dict(row) for row in list(shortlist_snapshot.get("results") or []) if isinstance(row, dict)]
     selected_result = dict(shortlist_snapshot.get("selected") or {})
+    run_health_summary = dict(run_health or {})
     workbench_filtered_total = int(
-        run_health.get("filtered_total")
-        or run_health.get("held_back_total")
+        run_health_summary.get("filtered_total")
+        or run_health_summary.get("held_back_total")
         or run_summary.get("filtered_total")
         or run_summary.get("held_back_total")
         or 0
@@ -2641,10 +2672,17 @@ def property_workspace_payload(
         workbench_filtered_total = sum(
             max(int(float((row or {}).get("affected_total") or 0)), 0)
             for row in suppression_rows
-            if isinstance(row, dict)
+            if isinstance(row, dict) and (row.get("rule_key") or "").strip() != "Below fit threshold"
         )
+    workbench_score_demoted_total = int(
+        run_health_summary.get("score_demoted_total")
+        or run_health_summary.get("filtered_low_fit_total")
+        or run_summary.get("score_demoted_total")
+        or run_summary.get("filtered_low_fit_total")
+        or 0
+    )
     workbench_held_back_total = int(
-        run_health.get("held_back_total")
+        run_health_summary.get("held_back_total")
         or run_summary.get("held_back_total")
         or workbench_filtered_total
         or 0
@@ -2658,6 +2696,7 @@ def property_workspace_payload(
             message=run_status_note or run_message,
             status_url=str(run_health.get("status_url") or run_payload.get("status_url") or "").strip(),
             filtered_total=workbench_filtered_total,
+            score_demoted_total=workbench_score_demoted_total,
             held_back_total=workbench_held_back_total,
             summary=run_summary_for_surface,
             events=run_events[-8:],
@@ -2676,6 +2715,9 @@ def property_workspace_payload(
             open_research_task_total=open_research_task_total,
             filled_research_task_total=filled_research_task_total,
             dismissed_research_task_total=dismissed_research_task_total,
+            provider_display_total=run_provider_display_total,
+            source_variant_display_total=run_source_variant_total,
+            selected_platform_count=len(selected_platforms),
             route_previews=progress_route_previews,
         ),
         brief=PropertyDecisionWorkbenchBriefContract(
