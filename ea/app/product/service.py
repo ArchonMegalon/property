@@ -259,6 +259,7 @@ from app.services.heyy_whatsapp_service import (
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.property_market_catalog import (
     country_label,
+    currency_code_for_country,
     default_platforms_for_country,
     default_platforms_for_country_listing_mode,
     filter_selectable_property_platforms,
@@ -2772,6 +2773,21 @@ def _property_extract_currency_value(text: object) -> float | None:
         return None
 
 
+def _property_currency_code_from_facts(facts: dict[str, object] | None, *, default_country: object = "AT") -> str:
+    supported = {code.upper() for code in supported_currency_codes()}
+    source = dict(facts or {})
+    for key in ("price_currency", "currency_code", "currency"):
+        value = str(source.get(key) or "").strip().upper()
+        if value in supported:
+            return value
+    country_code = normalize_country_code(source.get("country_code"), default=normalize_country_code(default_country, default="AT"))
+    return currency_code_for_country(country_code)
+
+
+def _property_money_amount_label(amount: float, *, currency_code: str) -> str:
+    return f"{currency_code} {amount:,.0f}".replace(",", " ")
+
+
 def _property_extract_area_value(text: object) -> float | None:
     match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:m²|qm|m2)\b", str(text or ""), flags=re.IGNORECASE)
     if not match:
@@ -5083,6 +5099,7 @@ def _property_investment_underwriting_payload(
         if evidence_score >= 72.0 and not blockers[:1]
         else ("Partial evidence" if evidence_score >= 48.0 else "Needs manual verification")
     )
+    currency_code = _property_currency_code_from_facts(facts)
     overall_bucket = _property_investment_score_bucket(score)
     overall_bucket_label = _property_investment_score_bucket_label(score)
     headline = reasons[0] if reasons else "This opportunity still needs more evidence before it can rank as a strong investment."
@@ -5128,7 +5145,7 @@ def _property_investment_underwriting_payload(
             if isinstance(market_delta_pct, float) and market_delta_pct < 0
             else (f"{market_delta_pct:.1f}% above local buy median" if isinstance(market_delta_pct, float) else "")
         ),
-        "expected_rent_display": f"Rent model about EUR {expected_monthly_rent_eur:,.0f}/mo".replace(",", " ") if isinstance(expected_monthly_rent_eur, float) and expected_monthly_rent_eur > 0 else "",
+        "expected_rent_display": f"Rent model about {_property_money_amount_label(expected_monthly_rent_eur, currency_code=currency_code)}/mo" if isinstance(expected_monthly_rent_eur, float) and expected_monthly_rent_eur > 0 else "",
         "payback_display": f"Gross payback about {payback_years:.1f} years" if isinstance(payback_years, float) and payback_years > 0 else "",
         "net_yield_pct": round(net_yield_pct, 2) if isinstance(net_yield_pct, float) else None,
         "net_yield_display": f"{net_yield_pct:.1f}% net yield" if isinstance(net_yield_pct, float) else "",
@@ -5138,9 +5155,9 @@ def _property_investment_underwriting_payload(
         "cash_on_cash_display": f"{cash_on_cash_yield_pct:.1f}% cash-on-cash" if isinstance(cash_on_cash_yield_pct, float) else "",
         "dscr": round(dscr, 2) if isinstance(dscr, float) else None,
         "dscr_display": f"{dscr:.2f}x DSCR" if isinstance(dscr, float) else "",
-        "price_per_sqm": f"Buy side about EUR {current_price_per_sqm:,.0f}/m2".replace(",", " ") if isinstance(current_price_per_sqm, float) and current_price_per_sqm > 0 else "",
-        "market_buy_per_sqm_display": f"Local buy median about EUR {market_buy_per_sqm:,.0f}/m2".replace(",", " ") if isinstance(market_buy_per_sqm, float) and market_buy_per_sqm > 0 else "",
-        "market_rent_per_sqm_display": f"Local rent median about EUR {market_rent_per_sqm:,.2f}/m2".replace(",", " ") if isinstance(market_rent_per_sqm, float) and market_rent_per_sqm > 0 else "",
+        "price_per_sqm": f"Buy side about {_property_money_amount_label(current_price_per_sqm, currency_code=currency_code)}/m2" if isinstance(current_price_per_sqm, float) and current_price_per_sqm > 0 else "",
+        "market_buy_per_sqm_display": f"Local buy median about {_property_money_amount_label(market_buy_per_sqm, currency_code=currency_code)}/m2" if isinstance(market_buy_per_sqm, float) and market_buy_per_sqm > 0 else "",
+        "market_rent_per_sqm_display": f"Local rent median about {currency_code} {market_rent_per_sqm:,.2f}/m2".replace(",", " ") if isinstance(market_rent_per_sqm, float) and market_rent_per_sqm > 0 else "",
         "feed_status_label": feed_status_label,
         "feed_status_detail": feed_status_detail,
         "external_model": external_model,

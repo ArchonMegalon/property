@@ -1009,6 +1009,36 @@ def test_property_investment_price_eur_parses_localized_thousand_separators() ->
     assert product_service._property_investment_price_eur({"price_display": "€ 1.250.000"}) == 1250000.0
 
 
+def test_property_investment_underwriting_display_uses_listing_currency() -> None:
+    payload = product_service._property_investment_underwriting_payload(
+        title="Two bedroom flat",
+        summary="Investment candidate.",
+        facts={"country_code": "GB", "currency_code": "GBP", "area_sqm": 80, "price_display": "GBP 420000"},
+        preferences={},
+        snapshot={
+            "gross_yield_pct": 4.8,
+            "expected_monthly_rent_eur": 1650,
+            "current_price_per_sqm_eur": 5250,
+            "market_buy_per_sqm_eur": 5400,
+            "market_rent_per_sqm_eur": 22.25,
+        },
+    )
+
+    assert payload["expected_rent_display"] == "Rent model about GBP 1 650/mo"
+    assert payload["price_per_sqm"] == "Buy side about GBP 5 250/m2"
+    assert payload["market_buy_per_sqm_display"] == "Local buy median about GBP 5 400/m2"
+    assert payload["market_rent_per_sqm_display"] == "Local rent median about GBP 22.25/m2"
+    assert "EUR" not in " ".join(
+        str(payload.get(key) or "")
+        for key in (
+            "expected_rent_display",
+            "price_per_sqm",
+            "market_buy_per_sqm_display",
+            "market_rent_per_sqm_display",
+        )
+    )
+
+
 def test_property_listing_mode_mismatch_uses_transaction_text_not_parser_price_field() -> None:
     enriched_rent_mode = product_service._property_enrich_facts_from_listing_text(
         facts={"property_type": "apartment", "postal_name": "1010 Wien"},

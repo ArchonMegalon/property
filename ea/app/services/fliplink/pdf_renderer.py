@@ -1442,7 +1442,7 @@ def _visual_pdf(
     if cover_image is None:
         _draw_text(
             ops,
-            district_value or "Vienna property page",
+            district_value or "Property page",
             x=MARGIN_X,
             y=86,
             size=10.0,

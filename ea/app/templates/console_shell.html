@@ -1886,7 +1886,7 @@
       ].filter(Boolean).join(' | ');
       const notes = [
         pushdown.filter_strength === 'weak_search_then_post_filter'
-          ? `Provider filter weak: EA post-filtered ${(Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters'}.`
+          ? `Provider filter weak: PropertyQuarry applied ${(Array.isArray(pushdown.post_filter_only) ? pushdown.post_filter_only : []).join(', ') || 'selected filters'} after fetching.`
           : '',
         source.location_mismatch_reason
           ? `No selected-area matches: provider returned ${Number(source.location_mismatch_candidate_total || 0)} outside the chosen target area.`

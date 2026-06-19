@@ -84,7 +84,7 @@ def _viewer_kind(payload: dict[str, object]) -> str:
 
 
 def _result_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
-    title = html.escape(_maybe_text(payload.get("title")) or _maybe_text(payload.get("result_title")) or "EA Result")
+    title = html.escape(_maybe_text(payload.get("title")) or _maybe_text(payload.get("result_title")) or "PropertyQuarry Result")
     service = html.escape(_maybe_text(payload.get("service_key")) or _maybe_text(payload.get("service_name")) or "browseract")
     summary = html.escape(_maybe_text(payload.get("summary")) or _maybe_text(payload.get("normalized_text")))
     notes = html.escape(_maybe_text(payload.get("notes")))
@@ -201,7 +201,7 @@ def _result_html(payload: dict[str, object], *, hostname: str = "", path: str = 
       <section class="hero">
         <div class="eyebrow">{service}</div>
         <h1>{title}</h1>
-        <p class="summary">{summary or "EA public result viewer"}</p>
+        <p class="summary">{summary or "PropertyQuarry public result viewer"}</p>
         <div class="actions">
           {f'<a class="chip" href="{asset_href}" target="_blank" rel="noreferrer">Open Proxied Asset</a>' if asset_href else ''}
           {link_html}

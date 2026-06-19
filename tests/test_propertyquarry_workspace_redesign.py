@@ -13,6 +13,7 @@ from app.api.routes import landing_property_shortlist_panel
 from app.api.routes import landing_property_workspace_payload
 from app.api.routes import public_tours
 from app.api.routes import landing_view_models
+from app.api.routes import public_results
 from app.services import public_branding
 from app.services import property_market_catalog
 from app.product import property_surface_state
@@ -271,6 +272,21 @@ def test_propertyquarry_account_surfaces_do_not_use_ea_channel_copy() -> None:
     assert "EA will continue using this lane" not in combined
     assert "Executive Workspace" not in combined
     assert "PropertyQuarry will return" in combined
+
+
+def test_propertyquarry_public_and_progress_surfaces_do_not_use_generic_ea_copy() -> None:
+    root = Path(__file__).resolve().parents[1]
+    console_shell = (root / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+    pdf_renderer = (root / "ea/app/services/fliplink/pdf_renderer.py").read_text(encoding="utf-8")
+    rendered_result = public_results._result_html({})
+
+    assert "EA post-filtered" not in console_shell
+    assert "PropertyQuarry applied" in console_shell
+    assert "Vienna property page" not in pdf_renderer
+    assert "PropertyQuarry Result" in rendered_result
+    assert "PropertyQuarry public result viewer" in rendered_result
+    assert "EA Result" not in rendered_result
+    assert "EA public result viewer" not in rendered_result
 
 
 def test_propertyquarry_search_surface_prewarm_touches_templates_and_catalogs(monkeypatch) -> None:
