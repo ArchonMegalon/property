@@ -10189,6 +10189,32 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert partial.json()["high_stakes_domains_enabled"] is True
 
 
+def test_workspace_email_fallback_helpers_use_propertyquarry_branding() -> None:
+    access_text = product_service._workspace_access_email_text(
+        workspace_name="",
+        access_url="https://propertyquarry.com/workspace-access/test",
+        role="principal",
+        display_name="Tibor",
+        expires_at="2026-05-05T16:57:54+00:00",
+    )
+    invite_text = product_service._workspace_invitation_email_text(
+        invite_url="https://propertyquarry.com/workspace-invites/test",
+        role="advisor",
+        invited_by="Mara",
+        note="Review the shortlist.",
+        expires_at="2026-05-05T16:57:54+00:00",
+    )
+
+    assert product_service._workspace_access_email_subject(workspace_name="") == "Your access link for PropertyQuarry account"
+    assert product_service._workspace_invitation_email_subject(invited_by="") == "PropertyQuarry invited you to PropertyQuarry"
+    assert "PropertyQuarry account" in access_text
+    assert "optional account data source" in access_text
+    assert "Executive Assistant" not in access_text
+    assert "Executive Assistant" not in invite_text
+    assert "join a PropertyQuarry account as Advisor" in invite_text
+    assert "You will get account access" in invite_text
+
+
 def test_preference_profile_mailbox_import_applies_property_history_without_review(monkeypatch) -> None:
     principal_id = "pref-mailbox-import"
     client = build_product_client(principal_id=principal_id)

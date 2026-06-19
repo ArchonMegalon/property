@@ -8332,7 +8332,7 @@ def _workspace_access_email_text(
 ) -> str:
     minutes = _minutes_until(expires_at_iso=expires_at)
     role_label = str(role or "principal").strip().replace("_", " ").title() or "Principal"
-    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    workspace_label = str(workspace_name or "PropertyQuarry account").strip() or "PropertyQuarry account"
     display = str(display_name or "").strip()
     body = [
         "Hello,",
@@ -8346,18 +8346,18 @@ def _workspace_access_email_text(
     if display:
         body.extend(["", f"This link opens your {role_label.lower()} access as {display}."])
     else:
-        body.extend(["", f"This link opens your {role_label.lower()} access to the workspace."])
+        body.extend(["", f"This link opens your {role_label.lower()} access to PropertyQuarry."])
     body.extend(
         [
             "",
-            "Google is connected later as a workspace data source. It is not your app login.",
+            "Google is connected later as an optional account data source. It is not your app login.",
         ]
     )
     return "\n".join(body).strip() + "\n"
 
 
 def _workspace_access_email_subject(*, workspace_name: str) -> str:
-    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    workspace_label = str(workspace_name or "PropertyQuarry account").strip() or "PropertyQuarry account"
     return f"Your access link for {workspace_label}"
 
 
@@ -8371,12 +8371,12 @@ def _workspace_invitation_email_text(
 ) -> str:
     minutes = _minutes_until(expires_at_iso=expires_at)
     role_label = str(role or "operator").strip().replace("_", " ").title() or "Operator"
-    inviter = str(invited_by or "Executive Assistant").strip() or "Executive Assistant"
+    inviter = str(invited_by or "PropertyQuarry").strip() or "PropertyQuarry"
     note_text = str(note or "").strip()
     body = [
         "Hello,",
         "",
-        f"{inviter} invited you to join an Executive Assistant workspace as {role_label}.",
+        f"{inviter} invited you to join a PropertyQuarry account as {role_label}.",
         "",
         "Open this secure link to accept the invite:",
         "",
@@ -8389,16 +8389,16 @@ def _workspace_invitation_email_text(
     body.extend(
         [
             "",
-            "You will get workspace access after accepting the invite.",
-            "Google is connected later as a workspace data source. It is not your app login.",
+            "You will get account access after accepting the invite.",
+            "Google is connected later as an optional account data source. It is not your app login.",
         ]
     )
     return "\n".join(body).strip() + "\n"
 
 
 def _workspace_invitation_email_subject(*, invited_by: str) -> str:
-    inviter = str(invited_by or "Executive Assistant").strip() or "Executive Assistant"
-    return f"{inviter} invited you to Executive Assistant"
+    inviter = str(invited_by or "PropertyQuarry").strip() or "PropertyQuarry"
+    return f"{inviter} invited you to PropertyQuarry"
 
 
 def _is_assistant_originated_delivery_email(*, title: str, summary: str, payload: dict[str, object] | None) -> bool:
