@@ -4727,8 +4727,8 @@ def test_property_agents_surface_uses_map_only_preview_for_saved_search_cards(mo
     assert map_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
-def test_property_agents_surface_bounds_first_paint_map_preview_work(monkeypatch) -> None:
-    principal_id = "pq-agent-preview-cap"
+def test_property_agents_surface_renders_map_preview_for_each_saved_search(monkeypatch) -> None:
+    principal_id = "pq-agent-preview-all"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Search Agent Preview Cap")
 
@@ -4781,8 +4781,8 @@ def test_property_agents_surface_bounds_first_paint_map_preview_work(monkeypatch
 
     assert page.status_code == 200
     assert "Vienna watch 6" in page.text
-    assert len(map_preview_calls) == 4
-    assert 'data-scope-preview-kind="deferred_map"' in page.text
+    assert len(map_preview_calls) == 7
+    assert 'data-scope-preview-kind="deferred_map"' not in page.text
 
 
 def test_property_agents_surface_strips_candidate_media_from_management_payload(monkeypatch) -> None:
