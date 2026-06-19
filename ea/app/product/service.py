@@ -12929,9 +12929,8 @@ def _property_float_text(facts: dict[str, object], *keys: str) -> str:
     return ""
 
 
-def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | None) -> str:
-    facts = dict(property_facts or {})
-    country_code = str(facts.get("country_code") or "").strip().upper()
+def _magicfit_property_market_context(facts: dict[str, object]) -> tuple[str, str]:
+    country_code = normalize_country_code(facts.get("country_code"), default="")
     location_hint = " ".join(
         str(facts.get(key) or "").strip()
         for key in (
@@ -12945,7 +12944,42 @@ def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | N
         )
         if str(facts.get(key) or "").strip()
     ).lower()
-    is_costa_rica = country_code == "CR" or "costa rica" in location_hint
+    if country_code == "CR" or "costa rica" in location_hint:
+        return "Costa Rica", "Costa Rica time"
+    if "wien" in location_hint or "vienna" in location_hint:
+        return "Vienna urban", "Vienna time"
+    if country_code:
+        return country_label(country_code), "property time"
+    return "the listing area", "property time"
+
+
+def _magicfit_property_location_label(facts: dict[str, object]) -> str:
+    explicit = _first_non_empty_text(
+        facts.get("district"),
+        facts.get("city"),
+        facts.get("location_label"),
+        facts.get("street_name"),
+        facts.get("postal_name"),
+        facts.get("location_query"),
+    )
+    if explicit:
+        return compact_text(explicit, fallback="", limit=60)
+    market_context, _time_label = _magicfit_property_market_context(facts)
+    return compact_text(market_context, fallback="the listing area", limit=60)
+
+
+def _magicfit_property_exterior_fallback_sentence(market_context: str) -> str:
+    context = compact_text(str(market_context or "").strip(), fallback="the listing area", limit=80)
+    if context.lower().startswith("the "):
+        exterior_view = f"plausible exterior view for {context}"
+    else:
+        exterior_view = f"plausible {context} exterior view"
+    return f"For windows and balcony doors, show a {exterior_view} consistent with the listing location; do not leave windows blank or glowing."
+
+
+def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | None) -> str:
+    facts = dict(property_facts or {})
+    market_context, local_time_label = _magicfit_property_market_context(facts)
     address_text = _property_first_text(
         facts,
         "street_address",
@@ -13002,13 +13036,8 @@ def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | N
     exterior_sentence = (
         f"Use the known exterior context ({exterior_clause}) for the window and balcony-door views."
         if exterior_clause
-        else (
-            "For windows and balcony doors, show a plausible Costa Rica exterior view consistent with the listing location; do not leave windows blank or glowing."
-            if is_costa_rica
-            else "For windows and balcony doors, show a plausible Vienna urban exterior view consistent with the listing location; do not leave windows blank or glowing."
-        )
+        else _magicfit_property_exterior_fallback_sentence(market_context)
     )
-    local_time_label = "Costa Rica time" if is_costa_rica else "Vienna time"
     return (
         f"Daylight and exterior simulation is mandatory: render the flat at 13:00 local {local_time_label} on a sunny day. "
         "Use physically plausible solar direction, bright but not overexposed daylight, natural contrast, and room-by-room changes in light. "
@@ -13073,16 +13102,7 @@ def _default_magicfit_property_flythrough_prompt(
         resolved_room_count = 1
     room_text = compact_text(str(resolved_room_count).strip(), fallback="", limit=32)
     area_text = compact_text(str(facts.get("area_sqm") or facts.get("living_area_sqm") or "").strip(), fallback="", limit=32)
-    location_text = compact_text(
-        _first_non_empty_text(
-            facts.get("district"),
-            facts.get("city"),
-            facts.get("location_label"),
-            facts.get("street_name"),
-        ),
-        fallback="Vienna",
-        limit=60,
-    )
+    location_text = _magicfit_property_location_label(facts)
     room_visit_plan_text = compact_text(", ".join(str(item or "").strip() for item in room_visit_plan if str(item or "").strip()), fallback="", limit=160)
     final_turn_text = (
         (
@@ -13097,7 +13117,7 @@ def _default_magicfit_property_flythrough_prompt(
     descriptor_parts = [part for part in (room_text and f"{room_text}-room", area_text and f"{area_text} m2") if part]
     descriptor = ", ".join(descriptor_parts)
     descriptor_clause = f" of a {descriptor}" if descriptor else ""
-    title_text = compact_text(str(title or "modern Vienna apartment").strip(), fallback="modern Vienna apartment", limit=140)
+    title_text = compact_text(str(title or "modern apartment").strip(), fallback="modern apartment", limit=140)
     motion_hint_text = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
     daylight_context = _magicfit_property_daylight_context(property_facts=property_facts)
     location_easter_egg = _magicfit_property_location_easter_egg(title=title, property_facts=property_facts)

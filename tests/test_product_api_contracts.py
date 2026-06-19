@@ -21283,6 +21283,34 @@ def test_magicfit_flythrough_prompt_includes_midday_sun_and_exterior_context() -
     assert "balcony doors and windows" in prompt
 
 
+def test_magicfit_flythrough_prompt_does_not_invent_vienna_for_unknown_market() -> None:
+    prompt = product_service._default_magicfit_property_flythrough_prompt(
+        title="",
+        property_facts={},
+        room_count=2,
+        room_visit_plan=["entry", "living room"],
+    )
+
+    assert "modern apartment" in prompt
+    assert "in the listing area" in prompt
+    assert "13:00 local property time" in prompt
+    assert "plausible exterior view for the listing area" in prompt
+    assert "Vienna" not in prompt
+
+
+def test_magicfit_flythrough_prompt_uses_country_context_when_location_is_missing() -> None:
+    prompt = product_service._default_magicfit_property_flythrough_prompt(
+        title="Two bedroom flat",
+        property_facts={"country_code": "GB"},
+        room_count=2,
+        room_visit_plan=["entry", "living room"],
+    )
+
+    assert "in United Kingdom" in prompt
+    assert "plausible United Kingdom exterior view" in prompt
+    assert "Vienna" not in prompt
+
+
 def test_magicfit_flythrough_prompt_adds_monteverde_window_easter_egg() -> None:
     prompt = product_service._default_magicfit_property_flythrough_prompt(
         title="Monteverde family house with forest view",
