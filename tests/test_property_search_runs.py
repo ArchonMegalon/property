@@ -18,7 +18,7 @@ import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
 from app.product.service import ProductService
-from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_matches_requested_location, _property_search_location_hints
+from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
 from app.services.property_billing import property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
@@ -2144,7 +2144,7 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match
     )
 
     assert result["status"] == "suppressed"
-    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert result["reason"] == "property_generic_listing_page"
     assert sent == []
     repair_tasks = [
         task
@@ -2157,8 +2157,37 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match
     ]
     assert repair_tasks
     diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
-    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
-    assert diagnostics["location_hints"] == ["1010 Vienna"]
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "generic_listing_page"
+    assert diagnostics["provider_host"] == "www.willhaben.at"
+
+
+def test_property_generic_listing_page_detector_overrides_detail_shaped_url_for_search_count_snippets() -> None:
+    assert _property_candidate_is_generic_listing_page(
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse",
+        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        property_facts={
+            "postal_name": "1010 Vienna",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+            "price_display": "€ 1.190",
+        },
+    )
+
+    assert not _property_candidate_is_generic_listing_page(
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/demo-1631373932/",
+        title="Moderne Zwei-Zimmer Wohnung mit Terrasse",
+        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        property_facts={
+            "postal_name": "1010 Vienna",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+            "price_display": "€ 1.190",
+            "listing_id": "1631373932",
+        },
+    )
 
 
 def test_property_scout_hit_sender_uses_source_scope_as_notification_location_fallback(monkeypatch) -> None:
@@ -2285,7 +2314,7 @@ def test_property_scout_hit_email_suppresses_source_scope_only_exact_area_match(
     )
 
     assert result["status"] == "suppressed"
-    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert result["reason"] == "property_generic_listing_page"
     repair_tasks = [
         task
         for task in client.app.state.container.orchestrator.list_human_tasks(
@@ -2297,8 +2326,8 @@ def test_property_scout_hit_email_suppresses_source_scope_only_exact_area_match(
     ]
     assert repair_tasks
     diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
-    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
-    assert diagnostics["location_hints"] == ["1010 Vienna"]
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "generic_listing_page"
+    assert diagnostics["provider_host"] == "www.willhaben.at"
 
 
 def test_property_scout_hit_email_uses_source_scope_as_notification_location_fallback(monkeypatch) -> None:

@@ -6511,12 +6511,6 @@ def _property_candidate_is_generic_listing_page(
     parsed_url = urllib.parse.urlparse(url)
     path = parsed_url.path.rstrip("/")
     query = str(parsed_url.query or "").lower()
-    if (
-        any(marker in path for marker in ("/d/", "/expose/", "/detail/", "/objekt/", "/object/"))
-        or path.endswith(("/detail", "/objekt", "/object"))
-        or any(marker in query for marker in ("objektnummer=", "objectid=", "object_id=", "adid=", "ad_id="))
-    ):
-        return False
     concrete_signals = any(
         str(facts.get(key) or "").strip()
         for key in (
@@ -6538,6 +6532,30 @@ def _property_candidate_is_generic_listing_page(
             "listing_uuid",
         )
     )
+    has_identity_or_address_signal = any(
+        str(facts.get(key) or "").strip()
+        for key in (
+            "exact_address",
+            "street_address",
+            "listing_id",
+            "listing_uuid",
+        )
+    )
+    search_result_count_marker = bool(
+        re.search(
+            r"\b(?:wählen\s+sie\s+aus|waehlen\s+sie\s+aus|choose\s+from|browse)\s+[\d.,\s]{2,}\s+(?:angeboten|offers|properties|listings)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+    if search_result_count_marker and not has_identity_or_address_signal:
+        return True
+    if (
+        any(marker in path for marker in ("/d/", "/expose/", "/detail/", "/objekt/", "/object/"))
+        or path.endswith(("/detail", "/objekt", "/object"))
+        or any(marker in query for marker in ("objektnummer=", "objectid=", "object_id=", "adid=", "ad_id="))
+    ):
+        return False
     if concrete_signals:
         return False
     generic_title_markers = (
@@ -35539,7 +35557,7 @@ class ProductService:
             property_facts=candidate_facts,
         ):
             suppression_reason = "property_generic_listing_page"
-            repair_filter_key = "missing_price"
+            repair_filter_key = "generic_listing_page"
         elif candidate_location_mismatch:
             suppression_reason = "property_location_conflicts_with_active_search"
             repair_filter_key = "location_scope"
@@ -35565,6 +35583,7 @@ class ProductService:
                 filter_key=repair_filter_key,
                 source_ref=source_ref,
                 diagnostics={
+                    "provider_host": urllib.parse.urlparse(candidate_property_url or property_url).netloc,
                     "listing_id": str(first_candidate.get("listing_id") or "").strip(),
                     "candidate_ref": str(first_candidate.get("source_ref") or source_ref or "").strip(),
                     "expected_listing_mode": listing_mode,
@@ -36429,7 +36448,7 @@ class ProductService:
             property_facts=candidate_facts,
         ):
             suppression_reason = "property_generic_listing_page"
-            repair_filter_key = "missing_price"
+            repair_filter_key = "generic_listing_page"
         elif candidate_location_mismatch:
             suppression_reason = "property_location_conflicts_with_active_search"
             repair_filter_key = "location_scope"
@@ -36455,6 +36474,7 @@ class ProductService:
                 filter_key=repair_filter_key,
                 source_ref=source_ref,
                 diagnostics={
+                    "provider_host": urllib.parse.urlparse(candidate_property_url or property_url).netloc,
                     "listing_id": str(first_candidate.get("listing_id") or "").strip(),
                     "candidate_ref": str(first_candidate.get("source_ref") or source_ref or "").strip(),
                     "expected_listing_mode": listing_mode,
