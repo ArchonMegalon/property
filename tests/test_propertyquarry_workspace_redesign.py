@@ -333,6 +333,28 @@ def test_propertyquarry_research_investment_rows_use_listing_currency(monkeypatc
     assert " EUR" not in detail_text
 
 
+def test_propertyquarry_research_packet_extracts_non_eur_price_display() -> None:
+    facts = landing_property_research._property_enriched_candidate_facts(
+        candidate={
+            "title": "Two bedroom flat | GBP 420000 | 80 m2",
+            "summary": "London SW1.",
+            "property_facts": {"country_code": "GB", "postal_name": "London SW1"},
+        }
+    )
+    rows = landing_property_research._property_fact_rows(facts)
+    row_text = "\n".join(f"{row.get('title')} {row.get('detail')}" for row in rows)
+
+    assert facts["currency_code"] == "GBP"
+    assert facts["price_display"] == "GBP 420000"
+    assert "Price GBP 420 000" in row_text
+    assert "Price 420000.0 EUR" not in row_text
+
+
+def test_propertyquarry_research_money_display_accepts_market_currency() -> None:
+    assert landing_property_research._property_research_money_display(420000, currency_code="GBP") == "GBP 420,000"
+    assert landing_property_research._property_research_money_display("£420,000", currency_code="GBP") == "GBP 420,000"
+
+
 def test_propertyquarry_search_surface_prewarm_touches_templates_and_catalogs(monkeypatch) -> None:
     landing_routes.prewarm_property_search_surface_cache.cache_clear()
     landing_routes._property_country_catalog_snapshot_json.cache_clear()

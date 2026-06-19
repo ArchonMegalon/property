@@ -25,6 +25,7 @@ from app.product.service import (
     _property_tour_control_link,
     _property_money_amount_label,
 )
+from app.services.property_market_catalog import supported_currency_codes
 
 
 def _object_detail_row(
@@ -293,13 +294,26 @@ def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[
     text = " | ".join(part for part in (title, summary) if part)
     if text:
         if "price_eur" not in facts:
-            price_match = re.search(r"(?:€|EUR)\s*([\d\.\s]+(?:,\d+)?)", text, flags=re.IGNORECASE)
+            currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
+            price_match = re.search(
+                rf"(?:(?P<symbol>€|£|CHF|USD|CAD|AUD)|(?P<code>{currency_pattern}))\s*([\d\.\s]+(?:,\d+)?)",
+                text,
+                flags=re.IGNORECASE,
+            )
             if price_match:
-                raw_amount = str(price_match.group(1) or "").strip().replace(" ", "")
+                raw_amount = str(price_match.group(3) or "").strip().replace(" ", "")
                 normalized_amount = raw_amount.replace(".", "").replace(",", ".")
                 try:
                     facts["price_eur"] = float(normalized_amount)
-                    facts.setdefault("price_display", compact_text(price_match.group(0), fallback=f"EUR {facts['price_eur']:.0f}", limit=120))
+                    raw_currency = str(price_match.group("code") or price_match.group("symbol") or "").strip().upper()
+                    symbol_currency = {"€": "EUR", "£": "GBP"}.get(raw_currency, raw_currency)
+                    if symbol_currency in set(supported_currency_codes()):
+                        facts.setdefault("currency_code", symbol_currency)
+                    currency_code = _property_currency_code_from_facts(facts)
+                    facts.setdefault(
+                        "price_display",
+                        compact_text(price_match.group(0), fallback=_property_money_amount_label(float(facts["price_eur"]), currency_code=currency_code), limit=120),
+                    )
                 except Exception:
                     pass
         if "area_m2" not in facts and "living_area_m2" not in facts:
@@ -364,6 +378,7 @@ def _property_rooms_display(facts: dict[str, object]) -> str:
 
 
 def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    currency_code = _property_currency_code_from_facts(facts)
     labels = {
         "price_eur": "Price",
         "warm_rent_eur": "Warm rent",
@@ -403,7 +418,10 @@ def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
             continue
         text = str(value).strip()
         if key.endswith("_eur"):
-            text = f"{text} EUR"
+            try:
+                text = _property_money_amount_label(float(str(value).replace(",", "").strip()), currency_code=currency_code)
+            except Exception:
+                text = f"{currency_code} {text}"
         elif key.endswith("_m"):
             text = f"{text} m"
         elif key == "area_m2":
@@ -588,14 +606,17 @@ def _property_tour_detail_line(candidate: dict[str, object]) -> str:
     return _property_tour_source_gap_detail(candidate)
 
 
-def _property_research_money_display(value: object) -> str:
+def _property_research_money_display(value: object, *, currency_code: str = "EUR") -> str:
+    resolved_currency_code = str(currency_code or "EUR").strip().upper() or "EUR"
     if value in (None, "", []):
         return ""
     if isinstance(value, str):
         text = " ".join(value.split()).strip()
         if not text:
             return ""
-        currency = "EUR" if ("eur" in text.lower() or "€" in text) else ""
+        supported_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
+        code_match = re.search(rf"\b({supported_pattern})\b", text, flags=re.IGNORECASE)
+        currency = str(code_match.group(1) or "").upper() if code_match else ("EUR" if "€" in text else ("GBP" if "£" in text else ""))
         money_match = re.search(r"[0-9][0-9\.\,\s]*(?:[,.][0-9]{1,2})?", text)
         if currency and money_match:
             number_text = money_match.group(0).replace(" ", "").strip(".,")
@@ -622,7 +643,7 @@ def _property_research_money_display(value: object) -> str:
         amount = float(value)
         if amount <= 0:
             return ""
-        return f"EUR {amount:,.0f}".replace(",", ",")
+        return f"{resolved_currency_code} {amount:,.0f}".replace(",", ",")
     return ""
 
 
