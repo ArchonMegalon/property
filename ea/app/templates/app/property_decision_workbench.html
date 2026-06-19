@@ -6327,14 +6327,10 @@
             <div class="pqx-note" data-pqx-run-summary>
               {{ empty_outcome.get('eta_feedback') or empty_outcome.get('happened') or ('Repair is checking the run.' if run_status == 'failed' else 'No strong matches cleared the current brief.') }}
             </div>
-            {% if run_status == 'failed' and (run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label')) %}
+            {% if run_status == 'failed' and not run_failed_no_results and (run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label')) %}
             <div class="pqx-note">
-              {% if run_failed_no_results %}
-              <span>{{ run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label') }}</span>
-              {% else %}
               {% if run_reliability.get('repair_step_label') %}<strong>{{ run_reliability.get('repair_step_label') }}</strong>{% endif %}
               {% if run_reliability.get('customer_status_message') %}<span>{{ run_reliability.get('customer_status_message') }}</span>{% endif %}
-              {% endif %}
             </div>
             {% endif %}
           </div>
@@ -6363,7 +6359,7 @@
               {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
               {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
               <div class="pqx-pref-list">
-                <div class="pqx-pref-row"><div><strong>Status</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}{% if empty_eta_feedback %} {{ empty_eta_feedback }}{% endif %}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Status</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}{% if empty_eta_feedback and not run_failed_no_results %} {{ empty_eta_feedback }}{% endif %}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed provider checks.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
               </div>
             </div>

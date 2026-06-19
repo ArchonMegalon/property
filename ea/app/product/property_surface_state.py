@@ -1177,7 +1177,7 @@ def build_property_empty_outcome_summary(
             if repair_task_open:
                 happened = "Repair is retrying the interrupted provider checks."
             elif repair_step_label or repair_status_label:
-                happened = "Repair is queued for the interrupted provider checks."
+                happened = "Repairing the interrupted run."
             else:
                 happened = "The search stopped before a stable shortlist was ready."
             stopped_context = f"The interrupted pass stopped after {completed_label.lower()} and {listing_label} inspected."
@@ -1220,7 +1220,10 @@ def build_property_empty_outcome_summary(
     if status_value == "failed" and replacement_run_id:
         eta_feedback = stopped_context
     elif status_value == "failed" and repair_step_label:
-        eta_feedback = stopped_context
+        if repair_step_label.lower().startswith("queued a generic"):
+            eta_feedback = stopped_context
+        else:
+            eta_feedback = f"{repair_step_label}. {stopped_context}".strip()
     elif status_value == "failed" and repair_status_label:
         eta_feedback = f"Repair status: {repair_status_label}. {stopped_context}".strip()
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
