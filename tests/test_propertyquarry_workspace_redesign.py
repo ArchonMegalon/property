@@ -289,6 +289,50 @@ def test_propertyquarry_public_and_progress_surfaces_do_not_use_generic_ea_copy(
     assert "EA public result viewer" not in rendered_result
 
 
+def test_propertyquarry_research_investment_rows_use_listing_currency(monkeypatch) -> None:
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_access_level", lambda *args, **kwargs: "full")
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_investment_research_snapshot",
+        lambda **kwargs: {
+            "current_price_eur": 420000.0,
+            "current_area_sqm": 80.0,
+            "current_price_per_sqm_eur": 5250.0,
+            "market_buy_per_sqm_eur": 5400.0,
+            "market_buy_delta_pct": -2.8,
+            "market_rent_per_sqm_eur": 22.25,
+            "expected_monthly_rent_eur": 1650.0,
+            "gross_yield_pct": 4.7,
+            "payback_years": 21.2,
+            "buy_sample_count": 2,
+            "rent_sample_count": 2,
+            "buy_samples": [{"title": "London comp", "per_sqm_eur": 5400.0, "source_label": "Rightmove"}],
+            "rent_samples": [{"title": "London rent comp", "per_sqm_eur": 22.25, "source_label": "Rightmove"}],
+        },
+    )
+
+    rows, _risk_rows = landing_property_research._property_investment_research_rows(
+        property_url="https://example.test/london-flat",
+        facts={
+            "country_code": "GB",
+            "currency_code": "GBP",
+            "price_display": "GBP 420000",
+            "area_sqm": 80,
+            "postal_name": "London SW1",
+        },
+        preferences={"country_code": "GB"},
+        commercial={},
+        requested=True,
+    )
+    detail_text = "\n".join(f"{row.get('title')} {row.get('detail')}" for row in rows)
+
+    assert "GBP 420 000 over 80.0 m2" in detail_text
+    assert "Market buy benchmark is about GBP 5 400/m2." in detail_text
+    assert "About GBP 1 650 (GBP 22.25/m2)" in detail_text
+    assert "London comp | 5400.0 GBP/m2" in detail_text
+    assert " EUR" not in detail_text
+
+
 def test_propertyquarry_search_surface_prewarm_touches_templates_and_catalogs(monkeypatch) -> None:
     landing_routes.prewarm_property_search_surface_cache.cache_clear()
     landing_routes._property_country_catalog_snapshot_json.cache_clear()

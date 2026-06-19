@@ -15,6 +15,7 @@ from app.api.routes.landing_property_workspace_helpers import (
 from app.product.property_location_research import property_school_context_summary
 from app.product.projections.common import compact_text
 from app.product.service import (
+    _property_currency_code_from_facts,
     _property_enrich_missing_fact_research,
     _property_investment_area_sqm,
     _property_investment_underwriting_payload,
@@ -22,6 +23,7 @@ from app.product.service import (
     _property_investment_price_eur,
     _property_investment_research_snapshot,
     _property_tour_control_link,
+    _property_money_amount_label,
 )
 
 
@@ -1198,6 +1200,7 @@ def _property_investment_research_rows(
     context_rows, context_risk_rows = _property_investment_context_rows(facts, preferences)
     current_price_eur = _property_investment_price_eur(facts)
     current_area_sqm = _property_investment_area_sqm(facts)
+    currency_code = _property_currency_code_from_facts(facts)
     location_seed = _property_investment_location_seed(facts, preferences)
     if not isinstance(current_price_eur, float) or not isinstance(current_area_sqm, float) or not location_seed:
         return context_rows + [
@@ -1226,7 +1229,14 @@ def _property_investment_research_rows(
             )
         ], context_risk_rows
     rows: list[dict[str, str]] = context_rows + [
-        _object_detail_row("Current underwriting base", f"EUR {current_price_eur:,.0f} over {current_area_sqm:.1f} m2 ({float(snapshot.get('current_price_per_sqm_eur') or 0.0):.2f} EUR/m2)", "Base"),
+        _object_detail_row(
+            "Current underwriting base",
+            (
+                f"{_property_money_amount_label(current_price_eur, currency_code=currency_code)} over {current_area_sqm:.1f} m2 "
+                f"({_property_money_amount_label(float(snapshot.get('current_price_per_sqm_eur') or 0.0), currency_code=currency_code)}/m2)"
+            ),
+            "Base",
+        ),
         _object_detail_row("Comparable buy samples", f"{int(snapshot.get('buy_sample_count') or 0)} listings", "Comps"),
         _object_detail_row("Comparable rent samples", f"{int(snapshot.get('rent_sample_count') or 0)} listings", "Comps"),
     ]
@@ -1264,7 +1274,7 @@ def _property_investment_research_rows(
     market_buy = snapshot.get("market_buy_per_sqm_eur")
     delta_pct = snapshot.get("market_buy_delta_pct")
     if isinstance(market_buy, (int, float)):
-        detail = f"Market buy benchmark is about {float(market_buy):.2f} EUR/m2."
+        detail = f"Market buy benchmark is about {_property_money_amount_label(float(market_buy), currency_code=currency_code)}/m2."
         if isinstance(delta_pct, (int, float)):
             direction = "below" if float(delta_pct) < 0 else "above"
             detail = f"{detail} This listing sits {abs(float(delta_pct)):.1f}% {direction} that benchmark."
@@ -1273,7 +1283,13 @@ def _property_investment_research_rows(
     gross_yield = snapshot.get("gross_yield_pct")
     payback_years = snapshot.get("payback_years")
     if isinstance(expected_rent, (int, float)):
-        rows.append(_object_detail_row("Expected monthly rent", f"About EUR {float(expected_rent):,.0f} ({float(snapshot.get('market_rent_per_sqm_eur') or 0.0):.2f} EUR/m2)", "Yield"))
+        rows.append(
+            _object_detail_row(
+                "Expected monthly rent",
+                f"About {_property_money_amount_label(float(expected_rent), currency_code=currency_code)} ({currency_code} {float(snapshot.get('market_rent_per_sqm_eur') or 0.0):.2f}/m2)",
+                "Yield",
+            )
+        )
     if isinstance(gross_yield, (int, float)):
         rows.append(_object_detail_row("Gross yield", f"About {float(gross_yield):.2f}% before vacancy, tax, and capex.", "Yield"))
     net_yield = underwriting.get("net_yield_pct")
@@ -1306,20 +1322,20 @@ def _property_investment_research_rows(
         taxes = dict(external_model.get("taxes") or {}) if isinstance(external_model.get("taxes"), dict) else {}
         operating = dict(external_model.get("operating_costs") or {}) if isinstance(external_model.get("operating_costs"), dict) else {}
         if isinstance(external_model.get("acquisition_costs_eur"), (int, float)):
-            rows.append(_object_detail_row("Acquisition cost base", f"About EUR {float(external_model.get('acquisition_costs_eur')):,.0f} including transfer tax and registry fees.", "Base"))
+            rows.append(_object_detail_row("Acquisition cost base", f"About {_property_money_amount_label(float(external_model.get('acquisition_costs_eur')), currency_code=currency_code)} including transfer tax and registry fees.", "Base"))
         if isinstance(taxes.get("property_transfer_tax_pct"), (int, float)):
             rows.append(_object_detail_row("Transfer tax model", f"{float(taxes.get('property_transfer_tax_pct')):.2f}% transfer tax and {float(taxes.get('land_registry_fee_pct') or 0.0):.2f}% registry fee.", str(taxes.get("source_label") or "Tax model")))
         if isinstance(operating.get("annual_operating_costs_eur"), (int, float)):
-            rows.append(_object_detail_row("Operating cost model", f"About EUR {float(operating.get('annual_operating_costs_eur')):,.0f} per year ({float(operating.get('operating_cost_ratio_pct') or 0.0):.1f}% of rent when rent is known).", str(operating.get("source_label") or "Operating cost model")))
+            rows.append(_object_detail_row("Operating cost model", f"About {_property_money_amount_label(float(operating.get('annual_operating_costs_eur')), currency_code=currency_code)} per year ({float(operating.get('operating_cost_ratio_pct') or 0.0):.1f}% of rent when rent is known).", str(operating.get("source_label") or "Operating cost model")))
         if isinstance(financing.get("interest_rate_pct"), (int, float)):
-            rows.append(_object_detail_row("Financing model", f"{float(financing.get('interest_rate_pct')):.2f}% over {int(float(financing.get('loan_term_years') or 0))} years with about EUR {float(financing.get('annual_debt_service_eur') or 0.0):,.0f} annual debt service.", str(financing.get("source_label") or "Financing model")))
+            rows.append(_object_detail_row("Financing model", f"{float(financing.get('interest_rate_pct')):.2f}% over {int(float(financing.get('loan_term_years') or 0))} years with about {_property_money_amount_label(float(financing.get('annual_debt_service_eur') or 0.0), currency_code=currency_code)} annual debt service.", str(financing.get("source_label") or "Financing model")))
     risk_rows = context_risk_rows + _property_investment_risk_rows(facts, snapshot)
     if isinstance(snapshot.get("buy_samples"), list) and snapshot["buy_samples"]:
         top_buy = snapshot["buy_samples"][0]
-        rows.append(_object_detail_row("Closest buy comp", f"{top_buy.get('title')} | {top_buy.get('per_sqm_eur')} EUR/m2 via {top_buy.get('source_label')}", "Comp"))
+        rows.append(_object_detail_row("Closest buy comp", f"{top_buy.get('title')} | {top_buy.get('per_sqm_eur')} {currency_code}/m2 via {top_buy.get('source_label')}", "Comp"))
     if isinstance(snapshot.get("rent_samples"), list) and snapshot["rent_samples"]:
         top_rent = snapshot["rent_samples"][0]
-        rows.append(_object_detail_row("Closest rent comp", f"{top_rent.get('title')} | {top_rent.get('per_sqm_eur')} EUR/m2 via {top_rent.get('source_label')}", "Comp"))
+        rows.append(_object_detail_row("Closest rent comp", f"{top_rent.get('title')} | {top_rent.get('per_sqm_eur')} {currency_code}/m2 via {top_rent.get('source_label')}", "Comp"))
     return rows, risk_rows
 
 
