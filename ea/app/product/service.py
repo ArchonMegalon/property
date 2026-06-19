@@ -23974,7 +23974,7 @@ class ProductService:
             operator_id=repair_operator_id,
         )
         auto_resolution_result: dict[str, object] = {}
-        if normalized_filter_key in {"source_fetch", "location_scope", "missing_location", "missing_price"}:
+        if normalized_filter_key in {"generic_listing_page", "source_fetch", "location_scope", "missing_location", "missing_price"}:
             auto_resolution_result = self._auto_resolve_property_provider_repair_task(
                 principal_id=principal_id,
                 task=task,

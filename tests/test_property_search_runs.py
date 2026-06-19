@@ -2747,6 +2747,67 @@ def test_property_provider_repair_auto_resolves_generic_listing_pages(monkeypatc
     assert tasks[0].resolution == "suppressed_generic_listing_page"
 
 
+def test_property_provider_repair_auto_resolves_generic_listing_page_key_and_records_receipt(monkeypatch) -> None:
+    principal_id = "exec-property-provider-generic-key-receipt"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Generic Repair Receipt Office")
+    service = ProductService(client.app.state.container)
+    property_url = "https://example.invalid/immobilien/angebote"
+    run_id = f"generic-repair-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "summary": {
+                "sources": [
+                    {
+                        "source_url": property_url,
+                        "source_label": "Familienwohnbau | Austria | Rent | 1010 Vienna",
+                        "provider_repair_task_opened_total": 1,
+                    }
+                ]
+            },
+        }
+
+    class _Resp:
+        ok = True
+        text = """
+        <html><head><title>Familienwohnbau Angebote</title></head>
+        <body>
+        Familienwohnbau Angebote
+        Ihr Immobilienmakler für Wien. Verkauf, Vermietung, Preis-Check.
+        </body></html>
+        """
+
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: _Resp())
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url=property_url,
+        title="Familienwohnbau Angebote",
+        source_url=property_url,
+        source_label="Familienwohnbau | Austria | Rent | 1010 Vienna",
+        source_platform="familienwohnbau",
+        source_family="housing_coop",
+        filter_key="generic_listing_page",
+        diagnostics={"provider_host": "example.invalid"},
+        source_ref="property-scout:generic-offer-page",
+        run_id=run_id,
+    )
+
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+    assert opened["resolution"] == "suppressed_generic_listing_page"
+    snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    summary = dict(dict(snapshot or {}).get("summary") or {})
+    assert summary["repair_resolved_total"] == 1
+    assert summary["repair_receipts"][0]["filter_key"] == "generic_listing_page"
+    assert summary["repair_receipts"][0]["resolution"] == "suppressed_generic_listing_page"
+    assert summary["sources"][0]["repair_status"] == "returned"
+    assert summary["sources"][0]["repair_resolution"] == "suppressed_generic_listing_page"
+
+
 def test_property_provider_repair_does_not_cross_resolve_floorplan_into_location_scope(monkeypatch) -> None:
     principal_id = "exec-property-provider-floorplan-semantic-fence"
     client = build_property_client(principal_id=principal_id)
