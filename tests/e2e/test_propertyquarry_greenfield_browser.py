@@ -2177,6 +2177,71 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         context.close()
 
 
+def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+
+    def _capture_visual_request(route) -> None:
+        request = route.request
+        payload = request.post_data_json
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-06-19T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "flythrough",
+                    "tour_url": "/tours/family-tiergarten",
+                    "flythrough_url": "",
+                    "flythrough_status": "pending",
+                    "status_label": "Flythrough queued",
+                    "status_detail": "Flythrough is queued after your request and will appear here when it is ready.",
+                    "delivery_status": "skipped",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.locator("[data-workbench-row]").first.wait_for(timeout=5000)
+        assert visual_requests == []
+
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        family_row.click()
+        request_button = family_row.get_by_role("button", name="Request walkthrough")
+        expect(request_button).to_be_visible()
+        request_button.click()
+        page.wait_for_timeout(750)
+        assert visual_requests, page.locator("body").inner_text()[:1000]
+        body_after_request = page.locator("body").inner_text()
+        assert "Walkthrough queued" in body_after_request, body_after_request[:2000]
+
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "flythrough"
+        assert payload["auto_deliver"] is False
+        assert payload["allow_floorplan_only"] is True
+        assert payload["run_id"] == "run-42"
+        assert str(payload["property_url"]).endswith("/family-tiergarten")
+    finally:
+        context.close()
+
+
 def test_propertyquarry_austria_region_selection_keeps_region_specific_area_choices(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

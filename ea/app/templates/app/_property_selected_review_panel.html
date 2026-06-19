@@ -33,10 +33,11 @@
         <summary><strong>More actions</strong></summary>
         <div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div>
         <div class="pqx-actions" style="margin-top:14px;">
+          {% set selected_visual_property_url = selected.get('property_url') or selected.get('source_url') or selected.get('listing_url') %}
           {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
-          {% if not selected.get('tour', {}).get('url') and selected.get('property_url') %}
-          <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected.get('property_url') }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request 3D tour</button>
-          <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected.get('property_url') }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request walkthrough</button>
+          {% if not selected.get('tour', {}).get('url') and selected_visual_property_url %}
+          <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request 3D tour</button>
+          <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request walkthrough</button>
           {% endif %}
           <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>
         </div>

@@ -28254,10 +28254,10 @@ class ProductService:
                     status_detail = "Flythrough is ready on this page."
                 elif flythrough_status in {"queued", "pending"}:
                     status_label = "Flythrough queued"
-                    status_detail = "Flythrough is queued and will appear here as soon as rendering starts."
+                    status_detail = "Flythrough is queued after your request and will appear here when it is ready."
                 elif flythrough_status in {"processing", "running", "in_progress", "started"}:
                     status_label = "Flythrough rendering"
-                    status_detail = "Flythrough is rendering now and will appear here when it is ready."
+                    status_detail = "Flythrough rendering started from your request and will appear here when it is ready."
                 else:
                     payload["flythrough_status"] = "pending"
                     status_label = "Flythrough queued"

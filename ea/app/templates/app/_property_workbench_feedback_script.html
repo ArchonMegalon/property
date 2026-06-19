@@ -232,12 +232,13 @@
           },
         });
       }
-      if (!tour.url && candidate.property_url) {
+      const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
+      if (!tour.url && visualPropertyUrl) {
         appendActionControl(actions, {
           label: 'Request 3D tour',
           attributes: {
             'data-pw-visual-request': 'tour',
-            'data-property-url': String(candidate.property_url || ''),
+            'data-property-url': visualPropertyUrl,
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
             'data-run-id': runId,
@@ -249,7 +250,7 @@
           label: 'Request walkthrough',
           attributes: {
             'data-pw-visual-request': 'flythrough',
-            'data-property-url': String(candidate.property_url || ''),
+            'data-property-url': visualPropertyUrl,
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
             'data-run-id': runId,

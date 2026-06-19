@@ -201,13 +201,14 @@
       const tour = candidate.tour || {};
       const candidateRef = escapeHtml(candidate.candidate_ref || '');
       const runId = escapeHtml(String(data.run?.run_id || meta.run_id || ''));
+      const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
       return [
         candidate.packet_url ? `<a class="pqx-link-button primary" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="${candidateRef}">Open property page</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="${candidateRef}">Share this home</button>`,
         `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
           candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="${candidateRef}">Open listing</a>` : '',
-          !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(candidate.property_url)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${candidateRef}">Request 3D tour</button>` : '',
-          !tour.url && candidate.property_url ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(candidate.property_url)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${candidateRef}">Request walkthrough</button>` : '',
+          !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${candidateRef}">Request 3D tour</button>` : '',
+          !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${candidateRef}">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>`,
         ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Need a remote view? Request a 3D tour or walkthrough from the available source material.' : ''}</div></details>`,
       ].filter(Boolean).join('');
@@ -578,6 +579,7 @@
           ? 'Requesting a walkthrough from the available source material...'
           : 'Requesting a 3D tour from the available source material...';
       }
+      let requestSucceeded = false;
       try {
         const response = await fetch('/app/api/signals/willhaben/property-tour', {
           method: 'POST',
@@ -619,7 +621,7 @@
           ? 'Walkthrough ready'
           : (String(payload.status_detail || '').trim()
             || (nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending'
-              ? 'Queued. Processing will start automatically.'
+              ? 'Queued after your request.'
               : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
                 ? 'Rendering from the top-ranked home.'
                 : '')));
@@ -646,6 +648,14 @@
         if (visualRequestStatusNode) {
           visualRequestStatusNode.textContent = String(payload.status_detail || 'Visual request recorded.').trim();
         }
+        requestSucceeded = true;
+        if (button) {
+          if (requestKind === 'flythrough') {
+            button.textContent = candidate.flythrough?.label || (nextFlythroughUrl ? 'Open walkthrough' : 'Walkthrough queued');
+          } else {
+            button.textContent = candidate.tour?.label || (nextTourUrl ? 'Open 3D tour' : '3D tour queued');
+          }
+        }
         if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
           const selectedNode = root.querySelector(`[data-candidate-ref="${CSS.escape(String(candidate.candidate_ref || '').trim())}"]`);
           if (selectedNode) selectCandidate(String(candidate.candidate_ref || '').trim());
@@ -655,7 +665,7 @@
       } finally {
         if (button) {
           button.disabled = false;
-          button.textContent = original;
+          if (!requestSucceeded) button.textContent = original;
         }
       }
     };
@@ -1307,12 +1317,27 @@
             : `<span class="pqx-thumb"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></span>`)
           : '';
         const tourUrl = String(candidate?.tour?.url || candidate?.tour_url || '').trim();
+        const flythrough = (candidate?.flythrough && typeof candidate.flythrough === 'object') ? candidate.flythrough : {};
+        const flythroughUrl = String(candidate?.flythrough_url || flythrough.url || '').trim();
+        const flythroughStatus = String(candidate?.flythrough_status || flythrough.status || '').trim().toLowerCase();
+        const flythroughLabel = String(
+          flythroughUrl
+            ? 'Open walkthrough'
+            : (flythrough.label || (['queued', 'pending'].includes(flythroughStatus)
+              ? 'Walkthrough queued'
+              : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(flythroughStatus)
+                ? 'Walkthrough processing'
+                : '')))
+        ).trim();
         const facts = [
           layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
           tourUrl ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}">360 ready</a>` : '',
+          flythroughLabel && !flythroughUrl ? `<span class="pqx-result-fact">${escapeHtml(flythroughLabel)}</span>` : '',
         ].filter(Boolean).join('');
         const actions = [
           propertyUrl ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
+          flythroughUrl ? `<a class="pqx-result-open" href="${escapeHtml(flythroughUrl)}">Open walkthrough</a>` : '',
+          propertyUrl && !tourUrl && !flythroughLabel ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Request walkthrough</button>` : '',
           packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
         ].filter(Boolean).join('');
         return `
