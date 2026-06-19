@@ -3875,8 +3875,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' in template
     assert "object-position: center 44%;" in template
-    assert 'transform: scale(1.95);' in template
-    assert 'transform: scale(2.68);' in template
+    assert 'transform: scale(2.18);' in template
+    assert 'transform: scale(3.05);' in template
     assert ".pqx-automation-scope-empty::after" in template
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")

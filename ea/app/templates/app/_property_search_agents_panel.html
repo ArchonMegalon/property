@@ -41,7 +41,7 @@
         {% else %}
         <span class="pqx-automation-scope-empty">
           <strong>{{ agent.get('area_label') or agent.get('location_query') or 'Search area' }}</strong>
-          <small>{{ scope_preview.get('summary') or agent.get('scope_label') or 'No map preview yet' }}</small>
+          <small>{{ scope_preview.get('summary') or agent.get('scope_label') or 'Map fallback' }}</small>
         </span>
         {% endif %}
         <span class="pqx-automation-thumbnail-action">Edit</span>
