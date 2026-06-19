@@ -106,7 +106,7 @@ def build_property_search_agents(
     def _deferred_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
         label = str(location_query or region_code or country_code or "Search area").strip() or "Search area"
         return {
-            "image_url": "",
+            "image_url": "/app/api/property/map-previews/0000000000000000000000000000000000000000.png",
             "alt": f"Search area preview for {label}",
             "summary": label,
             "count_label": "",
