@@ -4722,6 +4722,64 @@ def test_property_agents_surface_uses_map_only_preview_for_saved_search_cards(mo
     assert map_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
+def test_property_agents_surface_bounds_first_paint_map_preview_work(monkeypatch) -> None:
+    principal_id = "pq-agent-preview-cap"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Agent Preview Cap")
+
+    agents = [
+        {
+            "agent_id": f"agent-{index}",
+            "name": f"Vienna watch {index}",
+            "enabled": True,
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": f"10{index + 10} Vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "preferences_json": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": f"10{index + 10} Vienna",
+                "listing_mode": "rent",
+            },
+        }
+        for index in range(7)
+    ]
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1010 Vienna",
+            "search_agents": agents,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    map_preview_calls: list[tuple[str, str, str]] = []
+
+    def _map_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        map_preview_calls.append((country_code, region_code, location_query))
+        return {
+            "image_url": f"/app/api/property/map-previews/{len(map_preview_calls):040d}.png",
+            "summary": location_query,
+            "preview_kind": "osm_district_overlay",
+            "has_district_overlay": True,
+        }
+
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview_map_only", _map_scope_preview)
+
+    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Vienna watch 6" in page.text
+    assert len(map_preview_calls) == 4
+    assert 'data-scope-preview-kind="deferred_map"' in page.text
+
+
 def test_property_agents_surface_strips_candidate_media_from_management_payload(monkeypatch) -> None:
     principal_id = "pq-agent-strip-result-media"
     client = build_property_client(principal_id=principal_id)

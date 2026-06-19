@@ -3033,6 +3033,7 @@ def app_section_payload(
             default_notification_period=property_search_agent_notification_period,
             normalize_property_type_values=_normalize_property_type_values,
             scope_preview_builder=search_agent_scope_preview_builder,
+            scope_preview_limit=4 if surface_scope.section == "agents" else None,
         )
     else:
         property_search_agents, property_search_agent = [], {}

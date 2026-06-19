@@ -97,25 +97,45 @@ def build_property_search_agents(
     default_notification_period: str,
     normalize_property_type_values: Callable[[object], list[str]],
     scope_preview_builder: Callable[[str, str, str], dict[str, object]],
+    scope_preview_limit: int | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     explicit_agent_list = isinstance(property_preferences.get("search_agents"), list)
     raw_property_search_agents = property_preferences.get("search_agents") if explicit_agent_list else []
-    property_search_agents = [
-        format_property_search_agent(
-            agent,
-            property_preferences=property_preferences,
-            selected_platforms=selected_platforms,
-            selected_listing_mode=selected_listing_mode,
-            search_mode_requested=search_mode_requested,
-            default_duration_days=default_duration_days,
-            default_notification_limit=default_notification_limit,
-            default_notification_period=default_notification_period,
-            normalize_property_type_values=normalize_property_type_values,
-            scope_preview_builder=scope_preview_builder,
+    preview_limit = max(0, int(scope_preview_limit)) if scope_preview_limit is not None else None
+
+    def _deferred_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        label = str(location_query or region_code or country_code or "Search area").strip() or "Search area"
+        return {
+            "image_url": "",
+            "alt": f"Search area preview for {label}",
+            "summary": label,
+            "count_label": "",
+            "market_label": " · ".join(part for part in (str(region_code or "").replace("_", " ").title(), str(country_code or "").upper()) if part),
+            "district_rows": [],
+            "district_overlay_svg": "",
+            "preview_kind": "deferred_map",
+            "has_district_overlay": False,
+        }
+
+    property_search_agents: list[dict[str, object]] = []
+    for index, agent in enumerate(raw_property_search_agents):
+        if not isinstance(agent, dict):
+            continue
+        builder = scope_preview_builder if preview_limit is None or index < preview_limit else _deferred_scope_preview
+        property_search_agents.append(
+            format_property_search_agent(
+                agent,
+                property_preferences=property_preferences,
+                selected_platforms=selected_platforms,
+                selected_listing_mode=selected_listing_mode,
+                search_mode_requested=search_mode_requested,
+                default_duration_days=default_duration_days,
+                default_notification_limit=default_notification_limit,
+                default_notification_period=default_notification_period,
+                normalize_property_type_values=normalize_property_type_values,
+                scope_preview_builder=builder,
+            )
         )
-        for agent in raw_property_search_agents
-        if isinstance(agent, dict)
-    ]
     if not property_search_agents and not explicit_agent_list:
         property_search_agents = [
             format_property_search_agent(
