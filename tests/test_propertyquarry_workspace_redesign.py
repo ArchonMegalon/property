@@ -6591,7 +6591,9 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Open to relax one rule and rerun the search." not in page.text
     assert "New search" in page.text
-    assert "Refresh delivery" in page.text
+    assert "Checking repair status automatically every 10s." in page.text
+    assert "Check repair status" not in page.text
+    assert "Refresh delivery" not in page.text
     assert "Search progress" not in page.text
     assert 'data-workbench-brief-drawer' not in page.text
     assert "Tell us what to find." not in page.text

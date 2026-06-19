@@ -1810,6 +1810,54 @@
         runPollActive = false;
       }
     };
+    const startQuietFailedRepairPolling = (statusUrl) => {
+      const normalizedUrl = String(statusUrl || '').trim();
+      if (!normalizedUrl) return;
+      const statusNode = root.querySelector('[data-pqx-auto-refresh-status]');
+      let lastSignature = [
+        String(data.run?.status || '').trim(),
+        String(data.run?.current_step || '').trim(),
+        String(data.run?.message || '').trim(),
+        String(data.run?.summary?.repair_last_updated_at || '').trim(),
+      ].join('|');
+      let inFlight = false;
+      const check = async () => {
+        if (inFlight || document.hidden) return;
+        inFlight = true;
+        try {
+          const response = await fetch(normalizedUrl, { credentials: 'same-origin', cache: 'no-store' });
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || !payload || typeof payload !== 'object') return;
+          const status = String(payload.status || payload.summary?.status || '').trim().toLowerCase();
+          const runId = encodeURIComponent(String(payload.run_id || data.run?.run_id || '').trim());
+          const rankedTotal = Array.isArray(payload.summary?.ranked_candidates) ? payload.summary.ranked_candidates.length : Number(payload.summary?.high_fit_total || 0);
+          const signature = [
+            status,
+            String(payload.current_step || '').trim(),
+            String(payload.message || '').trim(),
+            String(payload.summary?.repair_last_updated_at || '').trim(),
+          ].join('|');
+          if (status && status !== 'failed') {
+            const target = rankedTotal > 0 ? '/app/shortlist' : '/app/properties';
+            window.location.href = `${target}${runId ? `?run_id=${runId}` : ''}`;
+            return;
+          }
+          if (signature !== lastSignature) {
+            lastSignature = signature;
+            if (statusNode) {
+              const checkedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              statusNode.textContent = `Repair status checked at ${checkedAt}; still waiting for a usable retry.`;
+            }
+          }
+        } catch (_error) {
+          // Keep the repair card stable; the next interval can try again.
+        } finally {
+          inFlight = false;
+        }
+      };
+      window.setTimeout(check, 1200);
+      window.setInterval(check, 10000);
+    };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
     const wizardStepPresentation = (step, isInvestment) => {
       const key = String(step?.key || '').trim();
@@ -3459,12 +3507,16 @@
       const statusUrl = String(data.run.status_url || '').trim();
       if (statusUrl && status) {
         if (terminalStates.has(status)) {
-          fetch(statusUrl, { credentials: 'same-origin' })
-            .then((response) => response.ok ? response.json() : null)
-            .then((payload) => {
-              if (payload && typeof payload === 'object') renderRun(payload);
-            })
-            .catch(() => {});
+          if (status === 'failed') {
+            startQuietFailedRepairPolling(statusUrl);
+          } else {
+            fetch(statusUrl, { credentials: 'same-origin' })
+              .then((response) => response.ok ? response.json() : null)
+              .then((payload) => {
+                if (payload && typeof payload === 'object') renderRun(payload);
+              })
+              .catch(() => {});
+          }
         } else {
           pollRun(statusUrl);
         }

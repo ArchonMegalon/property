@@ -1148,6 +1148,8 @@ def build_property_empty_outcome_summary(
     eta_label = str(run_summary.get("eta_label") or "").strip()
     repair_step_label = str(run_summary.get("repair_step_label") or "").strip()
     repair_status_label = str(run_summary.get("repair_status_label") or run_summary.get("repair_status") or "").strip()
+    repair_tasks = [row for row in list(run_summary.get("provider_repair_tasks") or []) if isinstance(row, dict)]
+    repair_task_open = any(str(row.get("status") or "").strip().lower() in {"opened", "assigned", "running", "repairing"} for row in repair_tasks)
     strongest_relax = next((row for row in (counterfactual_rows or []) if row.get("adjustments")), {})
     active_rule = ""
     if strongest_relax:
@@ -1158,7 +1160,9 @@ def build_property_empty_outcome_summary(
         if source_total or listing_total:
             completed_label = f"{source_completed}/{source_total} provider checks" if source_total else "Provider checks"
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
-            if repair_step_label or repair_status_label:
+            if repair_task_open:
+                happened = "A repair task is open in the fleet and will retry the interrupted provider checks."
+            elif repair_step_label or repair_status_label:
                 happened = "Auto-repair is queued and will retry the interrupted provider checks."
             else:
                 happened = "The search stopped before a stable shortlist was ready."
@@ -1175,14 +1179,16 @@ def build_property_empty_outcome_summary(
         if source_total or listing_total
         else "The brief, providers, and run receipts were still recorded."
     )
-    next_move = (
-        str(strongest_relax.get("detail") or "").strip()
-        or (f"Relax {active_rule} first so the next run changes one rule at a time." if active_rule else "")
-        or ("Restart the same brief and let auto-repair retry the failed provider checks." if status_value == "failed" else "")
-        or "Widen one rule first, then rerun."
-    )
+    if status_value == "failed":
+        next_move = "Wait for repair; this page checks quietly every 10s and will move to the usable run when one is ready."
+    else:
+        next_move = (
+            str(strongest_relax.get("detail") or "").strip()
+            or (f"Relax {active_rule} first so the next run changes one rule at a time." if active_rule else "")
+            or "Widen one rule first, then rerun."
+        )
     if status_value == "failed" and repair_step_label:
-        eta_feedback = f"{repair_step_label}. {stopped_context}".strip()
+        eta_feedback = stopped_context
     elif status_value == "failed" and repair_status_label:
         eta_feedback = f"Repair status: {repair_status_label}. {stopped_context}".strip()
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
