@@ -2100,7 +2100,20 @@ def property_workspace_payload(
             ]),
             "hero_highlights": [
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
-                {"label": "Provider checks", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Provider, area, and repair checks being executed for this run."},
+                (
+                    {
+                        "label": "Providers",
+                        "value": str(int(run_summary.get("provider_total") or 0)),
+                        "detail": f"{int(run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0)} source variants across selected areas.",
+                    }
+                    if int(run_summary.get("provider_total") or 0) > 0
+                    and int(run_summary.get("source_variant_total") or run_summary.get("sources_total") or 0) > int(run_summary.get("provider_total") or 0)
+                    else {
+                        "label": "Provider checks",
+                        "value": str(int(run_summary.get("sources_total") or 0)),
+                        "detail": "Provider, area, and repair checks being executed for this run.",
+                    }
+                ),
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},

@@ -971,6 +971,11 @@
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
+      const providerTotal = Number(summary.provider_total || 0);
+      const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
+      const scanLabel = providerTotal && sourceVariantTotal > providerTotal
+        ? `${providerTotal} providers · ${sourceVariantTotal} source variants`
+        : `${sources} provider checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
@@ -978,15 +983,15 @@
       const shortlistReady = Number(summary.high_fit_total || 0);
       const liveInfo = latestFractionInfo(runPayload);
       if (liveInfo.sourceLabel && liveInfo.fraction) {
-        return `${sources} provider checks · ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction}`;
+        return `${scanLabel} · ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction}`;
       }
       if (currentStep === 'source_review_packet' && packetPrepared > 0) {
-        return `${sources} provider checks · ${packetPrepared} property pages prepared`;
+        return `${scanLabel} · ${packetPrepared} property pages prepared`;
       }
       if (currentStep === 'source_shortlist' && shortlistReady > 0) {
-        return `${sources} provider checks · ${shortlistReady} shortlist home${shortlistReady === 1 ? '' : 's'} ready`;
+        return `${scanLabel} · ${shortlistReady} shortlist home${shortlistReady === 1 ? '' : 's'} ready`;
       }
-      return `${sources} provider checks · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
+      return `${scanLabel} · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
@@ -1247,6 +1252,11 @@
       const status = String(runPayload?.status || summary.status || 'queued');
       const sources = Number(summary.sources_total || 0);
       const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
+      const providerTotal = Number(summary.provider_total || 0);
+      const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
+      const scanCountLabel = providerTotal && sourceVariantTotal > providerTotal
+        ? `${providerTotal} providers · ${sourceVariantTotal} variants`
+        : `${completedSources}/${sources} provider checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
@@ -1420,8 +1430,8 @@
         </div>
         <div class="pqx-source-progress" data-pqx-source-progress>
           <div class="pqx-source-progress-head">
-            <strong data-pqx-radar-count>${escapeHtml(sourceLead || `${completedSources}/${sources} provider checks`)}</strong>
-            <span class="pqx-small">${escapeHtml(liveFraction || `${completedSources}/${sources} provider checks`)}</span>
+            <strong data-pqx-radar-count>${escapeHtml(sourceLead || scanCountLabel)}</strong>
+            <span class="pqx-small">${escapeHtml(liveFraction || scanCountLabel)}</span>
           </div>
           <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
           <span class="pqx-note">${escapeHtml(phaseMeta)}</span>

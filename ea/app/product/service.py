@@ -2045,6 +2045,10 @@ def _property_search_interleave_by_provider_group(specs: list[dict[str, object]]
     return interleaved
 
 
+def _property_search_provider_group_total(specs: list[dict[str, object]]) -> int:
+    return len({_property_search_provider_group_key(dict(spec)) for spec in specs})
+
+
 def _property_search_prefetch_listing_urls(
     *,
     specs: list[dict[str, object]],
@@ -29573,6 +29577,13 @@ class ProductService:
             and (not run_platforms or "all" in run_platforms or str(spec.get("platform") or "").strip() in run_platforms)
         ]
         specs = _property_search_interleave_by_provider_group(specs)
+        provider_total = _property_search_provider_group_total(specs)
+        source_variant_total = len(specs)
+        source_resolution_label = (
+            f"Resolved {provider_total} provider(s) across {source_variant_total} source variant(s) for scanning."
+            if provider_total and source_variant_total > provider_total
+            else f"Resolved {source_variant_total} source(s) for scanning."
+        )
         prefetched_source_results = _property_search_prefetch_listing_urls(
             specs=specs,
             force_refresh=effective_force_refresh,
@@ -29586,10 +29597,12 @@ class ProductService:
 
         _report(
             step="sources_resolved",
-            message=f"Resolved {len(specs)} source(s) for scanning.",
+            message=source_resolution_label,
             status="in_progress",
             summary_updates={
-                "sources_total": len(specs),
+                "sources_total": source_variant_total,
+                "source_variant_total": source_variant_total,
+                "provider_total": provider_total,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
@@ -32354,7 +32367,9 @@ class ProductService:
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
-            "sources_total": len(specs),
+            "sources_total": source_variant_total,
+            "source_variant_total": source_variant_total,
+            "provider_total": provider_total,
             "listing_total": listing_total,
             "reviewed_listing_total": reviewed_listing_total,
             "duplicate_listing_total": duplicate_listing_total,

@@ -119,6 +119,9 @@
 {% set status = run.get('status') or summary.get('status') or 'queued' %}
 {% set source_total = (summary.get('sources_total') or run_sources|length or 0)|int %}
 {% set source_completed = run_sources|length %}
+{% set source_variant_total = (summary.get('source_variant_total') or summary.get('sources_total') or source_total or 0)|int %}
+{% set provider_total = (summary.get('provider_total') or 0)|int %}
+{% set scan_count_label = (provider_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' variants') if provider_total > 0 and source_variant_total > provider_total else (source_completed|string ~ '/' ~ source_total|string ~ ' provider checks') %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
 {% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
@@ -136,7 +139,7 @@
   </div>
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
-      <strong data-pqx-radar-count>{{ source_completed }}/{{ source_total }} provider checks</strong>
+      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
       <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
@@ -6199,7 +6202,10 @@
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
-              <div class="pqx-fact"><span>Provider checks</span><strong>{{ run_summary.get('sources_total') or run_sources|length or 0 }}</strong></div>
+              <div class="pqx-fact"><span>Providers</span><strong>{{ run_summary.get('provider_total') or run_summary.get('sources_total') or run_sources|length or 0 }}</strong></div>
+              {% if (run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0)|int > (run_summary.get('provider_total') or 0)|int and (run_summary.get('provider_total') or 0)|int > 0 %}
+              <div class="pqx-fact"><span>Source variants</span><strong>{{ run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0 }}</strong></div>
+              {% endif %}
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
             </div>
@@ -6231,7 +6237,13 @@
             </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
-              <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{{ run_summary.get('sources_total') or run_sources|length or 0 }} provider checks · {{ run_summary.get('listing_total') or 0 }} homes checked</span>
+              <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>
+                {% if (run_summary.get('provider_total') or 0)|int > 0 and (run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0)|int > (run_summary.get('provider_total') or 0)|int %}
+                {{ run_summary.get('provider_total') }} providers · {{ run_summary.get('source_variant_total') or run_summary.get('sources_total') }} variants · {{ run_summary.get('listing_total') or 0 }} homes checked
+                {% else %}
+                {{ run_summary.get('sources_total') or run_sources|length or 0 }} provider checks · {{ run_summary.get('listing_total') or 0 }} homes checked
+                {% endif %}
+              </span>
             </div>
           </div>
           {% endif %}

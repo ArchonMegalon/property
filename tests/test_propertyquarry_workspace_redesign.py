@@ -2737,6 +2737,8 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
             ],
             "summary": {
                 "sources_total": 156,
+                "source_variant_total": 156,
+                "provider_total": 28,
                 "reviewed_listing_total": 25,
                 "sources": [
                     {
@@ -2751,7 +2753,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "156 provider checks · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "28 providers · 156 variants · Willhaben · 25 / 60"
     assert snapshot["phase_label"] == "Playground was too far away for candidate 23/60 (score impact only)"
     assert snapshot["source_count_label"] == "25 / 60"
 

@@ -6006,6 +6006,28 @@ def test_property_search_run_terminal_outcome_prefers_partial_success_for_mixed_
     ) == "failed"
 
 
+def test_property_search_provider_group_total_counts_brands_not_query_variants() -> None:
+    specs = [
+        {
+            "platform": "willhaben",
+            "label": "Willhaben | Austria | Rent | 1010 Vienna",
+            "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1010+Vienna",
+        },
+        {
+            "platform": "willhaben",
+            "label": "Willhaben | Austria | Rent | 1020 Vienna",
+            "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1020+Vienna",
+        },
+        {
+            "platform": "derstandard_at",
+            "label": "DER STANDARD Immobilien | Austria | Rent | 1020 Vienna",
+            "url": "https://immobilien.derstandard.at/search/1020",
+        },
+    ]
+
+    assert product_service._property_search_provider_group_total(specs) == 2
+
+
 def test_property_search_run_state_syncs_summary_projection() -> None:
     summary = product_service._state_property_search_run_sync_summary(
         state={"status": "in_progress", "progress": 42},

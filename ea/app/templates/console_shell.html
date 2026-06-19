@@ -1871,7 +1871,12 @@
     statusNode.textContent = `Status: ${String(payload.status || 'queued').replaceAll('_', ' ')}`;
     messageNode.textContent = String(payload.message || 'Queued for execution.');
     progressNode.style.width = `${progress}%`;
-    summaryNode.textContent = `${progress}% complete | ${Number(summary.sources_total || 0)} provider checks | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+    const sourceVariants = Number(summary.source_variant_total || summary.sources_total || 0);
+    const providers = Number(summary.provider_total || 0);
+    const scanLabel = providers && sourceVariants > providers
+      ? `${providers} providers / ${sourceVariants} variants`
+      : `${Number(summary.sources_total || 0)} provider checks`;
+    summaryNode.textContent = `${progress}% complete | ${scanLabel} | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
 
     const sources = Array.isArray(summary.sources) ? summary.sources : [];
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
