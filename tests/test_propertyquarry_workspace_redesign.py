@@ -177,6 +177,15 @@ def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_co
     assert "Source: DER STANDARD Immobilien" in message
     assert "Source: DER STANDARD Immobilien | Austria | Rent | 1010 Vienna" not in message
 
+    raw_message = _property_scout_brief_text(
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse in Salzburg",
+        property_url="https://example.test/listing",
+        source_text="Willhaben | Austria | Rent | 1010 Vienna",
+        fit_summary="Personal fit 54/100",
+    )
+    assert "Source: Willhaben" in raw_message
+    assert "Source: Willhaben | Austria | Rent | 1010 Vienna" not in raw_message
+
 
 def test_property_postal_parser_is_generic_but_not_price_hungry() -> None:
     names = landing_property_workspace_helpers._property_postal_names_from_text(

@@ -6648,13 +6648,36 @@ def _property_candidate_has_concrete_location(property_facts: dict[str, object] 
     location = str(facts.get("location") or "").strip()
     source_scope_location = str(facts.get("source_scope_location") or "").strip().lower()
     source_postal_code = str(facts.get("source_postal_code") or "").strip()
-    if exact_address or street_address or district:
-        return True
+    source_scope_candidates = {
+        source_scope_location,
+        str(facts.get("source_city") or "").strip().lower(),
+        " ".join(
+            part
+            for part in (
+                str(facts.get("source_postal_code") or "").strip(),
+                str(facts.get("source_city") or "").strip(),
+            )
+            if part
+        ).lower(),
+    }
+    source_scope_candidates.discard("")
+
+    def _is_source_scope_placeholder(value: str) -> bool:
+        lowered = str(value or "").strip().lower()
+        if not lowered:
+            return False
+        if lowered in source_scope_candidates:
+            return True
+        return bool(source_postal_code and _property_postal_code_core(lowered) == source_postal_code)
+
+    for value in (exact_address, street_address, district):
+        if value and not _is_source_scope_placeholder(value):
+            return True
     for value in (postal_name, location):
         lowered = value.lower()
         if not lowered:
             continue
-        if lowered == source_scope_location or (source_postal_code and _property_postal_code_core(lowered) == source_postal_code):
+        if _is_source_scope_placeholder(value):
             continue
         if re.search(r"\b\d{4,5}\b", lowered):
             return True
@@ -9273,7 +9296,13 @@ def _property_scout_brief_text(
         f"Title: {headline}",
     ]
     if str(source_text or "").strip():
-        lines.append(f"Source: {compact_text(str(source_text or '').strip(), fallback='', limit=80)}")
+        display_source = _property_source_display_label(source_text) or compact_text(
+            str(source_text or "").strip(),
+            fallback="",
+            limit=80,
+        )
+        if display_source:
+            lines.append(f"Source: {display_source}")
     if str(mailbox or "").strip():
         lines.append(f"Mailbox: {compact_text(str(mailbox or '').strip().lower(), fallback='', limit=80)}")
     if str(property_url or "").strip():

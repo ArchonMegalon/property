@@ -4669,6 +4669,27 @@ def test_property_scout_uses_exact_source_scope_as_hard_area_filter(monkeypatch)
     assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
 
 
+def test_property_scout_source_scope_placeholder_is_not_concrete_listing_location() -> None:
+    assert product_service._property_candidate_has_concrete_location(
+        {
+            "district": "1010 Vienna",
+            "postal_name": "1010 Vienna",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+        }
+    ) is False
+    assert product_service._property_candidate_has_concrete_location(
+        {
+            "district": "1220 Wien",
+            "postal_name": "1010 Vienna",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+        }
+    ) is True
+
+
 def test_property_scout_suppressed_review_gate_does_not_leak_into_ranked_candidates(monkeypatch) -> None:
     principal_id = "cf-email:suppressed-review-gate.search@example.com"
     client = build_product_client(principal_id=principal_id)
