@@ -36635,13 +36635,17 @@ class ProductService:
             return {"status": "suppressed", "reason": "already_emailed_today"}
         tour_payload = dict(tour_result or {})
         tour_url = str(tour_payload.get("tour_url") or "").strip()
+        display_counterparty = (
+            _property_source_display_label(counterparty)
+            or compact_text(str(counterparty or "").strip(), fallback="Property scout", limit=100)
+        )
         dossier_render = (
             self._render_property_scout_dossier(
                 principal_id=principal_id,
                 actor=actor,
                 title=title,
                 summary=summary,
-                counterparty=counterparty,
+                counterparty=display_counterparty,
                 account_email=recipient_email,
                 property_url=property_url,
                 source_ref=source_ref,
@@ -36658,7 +36662,7 @@ class ProductService:
         notification_neuronwriter = _property_review_page_neuronwriter_payload(
             title=title,
             summary=summary,
-            counterparty=counterparty,
+            counterparty=display_counterparty,
             assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
         )
         review_href = str(dossier_render.get("public_pdf_url") or review_url or "").strip()
@@ -36669,7 +36673,7 @@ class ProductService:
                 property_url=property_url,
                 review_url=review_href,
                 tour_url=tour_url,
-                provider_label=counterparty,
+                provider_label=display_counterparty,
                 fit_summary=_property_alert_fit_summary(dict(assessment or {})),
                 decision_summary_json=dict(assessment or {}),
             )

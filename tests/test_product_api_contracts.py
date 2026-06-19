@@ -2358,17 +2358,19 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
 
     observed: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        ProductService,
-        "_render_property_scout_dossier",
-        lambda self, **kwargs: {
+    rendered_dossier: dict[str, object] = {}
+
+    def _fake_render_property_scout_dossier(self, **kwargs):  # type: ignore[no-untyped-def]
+        rendered_dossier.update(kwargs)
+        return {
             "status": "rendered",
             "publication_id": "pub_mail_test",
             "pdf_path": "/tmp/property-scout-mail.pdf",
             "public_pdf_url": "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token",
             "caption": "PropertyQuarry dossier · Mail test",
-        },
-    )
+        }
+
+    monkeypatch.setattr(ProductService, "_render_property_scout_dossier", _fake_render_property_scout_dossier)
     monkeypatch.setattr(
         product_service,
         "send_property_match_email",
@@ -2379,14 +2381,26 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     result = service._send_property_scout_hit_email(
         principal_id=principal_id,
         actor="test",
-        title="Scout alert for 1050 Vienna",
-        summary="New Neubau listing with lift and storage room.",
-        counterparty="ImmoScout24 Austria",
+        title="Wohnung mieten in 1010 Wien | 64 m2 | 2 Zimmer | EUR 1.490",
+        summary="New Neubau listing with lift and storage room in 1010 Wien.",
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
         property_url="https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
         source_ref="gmail-thread:elisabeth.girschele@gmail.com:test-property-alert-email-dossier",
         assessment={"fit_score": 64.0, "recommendation": "ask_for_clarification"},
         review_url="",
         tour_result={"status": "blocked", "blocked_reason": "browseract_connector_unconfigured"},
+        candidate_properties=(
+            {
+                "property_url": "https://www.immobilienscout24.at/expose/telegram-test-property-dossier",
+                "listing_title": "Wohnung mieten in 1010 Wien | 64 m2 | 2 Zimmer | EUR 1.490",
+                "summary": "New Neubau listing with lift and storage room in 1010 Wien.",
+                "property_facts": {
+                    "postal_name": "1010 Wien",
+                    "street_address": "Stubenring 12",
+                    "price_display": "EUR 1.490",
+                },
+            },
+        ),
     )
 
     assert result["status"] == "sent"
@@ -2394,6 +2408,8 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     assert dict(result["notification_neuronwriter"])["status"] == "blocked"
     assert observed["review_url"] == "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token"
     assert observed["property_url"] == "https://www.immobilienscout24.at/expose/telegram-test-property-dossier"
+    assert observed["provider_label"] == "DER STANDARD Immobilien"
+    assert rendered_dossier["counterparty"] == "DER STANDARD Immobilien"
     sent_events = product_service.build_product_service(client.app.state.container).list_office_events(
         principal_id=principal_id,
         event_type="property_scout_hit_email_sent",
@@ -2404,6 +2420,7 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     notification_neuronwriter = dict(dict(sent_events[0].get("payload") or {}).get("notification_neuronwriter") or {})
     assert notification_neuronwriter["status"] == "blocked"
     assert notification_neuronwriter["mode"] == "private_packet_guard"
+    assert "1010 Vienna" not in json.dumps(notification_neuronwriter)
 
 
 def test_poppy_provider_operator_routes_verify_and_list(monkeypatch) -> None:
