@@ -6604,6 +6604,30 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "Tell us what to find." not in page.text
 
 
+def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_count() -> None:
+    summary = property_surface_state.build_property_empty_outcome_summary(
+        run_summary={
+            "sources_total": 156,
+            "sources_completed": 0,
+            "listing_total": 0,
+            "repair_status": "repairing",
+            "repair_status_label": "Repairing",
+            "repair_step_label": "Started a replacement search run from the saved brief.",
+            "repair_replacement_run_id": "replacement-run",
+        },
+        run_sources=[],
+        run_status_value="failed",
+        run_message="Queued a generic provider repair because the search stopped updating before it could finish.",
+        counterfactual_rows=[],
+        suppression_rows=[],
+    )
+
+    combined = " ".join(str(value) for value in summary.values())
+    assert "A replacement search is checking the saved brief." in combined
+    assert "0/156 source variants" not in combined
+    assert "interrupted pass stopped" not in combined
+
+
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
     principal_id = "pq-packet-fact-enrichment"
     client = build_property_client(principal_id=principal_id)

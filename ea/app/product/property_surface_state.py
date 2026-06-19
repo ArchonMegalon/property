@@ -1148,6 +1148,7 @@ def build_property_empty_outcome_summary(
     eta_label = str(run_summary.get("eta_label") or "").strip()
     repair_step_label = str(run_summary.get("repair_step_label") or "").strip()
     repair_status_label = str(run_summary.get("repair_status_label") or run_summary.get("repair_status") or "").strip()
+    replacement_run_id = str(run_summary.get("repair_replacement_run_id") or "").strip()
     repair_tasks = [row for row in list(run_summary.get("provider_repair_tasks") or []) if isinstance(row, dict)]
     repair_task_open = any(str(row.get("status") or "").strip().lower() in {"opened", "assigned", "running", "repairing"} for row in repair_tasks)
     strongest_relax = next((row for row in (counterfactual_rows or []) if row.get("adjustments")), {})
@@ -1156,7 +1157,10 @@ def build_property_empty_outcome_summary(
         active_rule = str(strongest_relax.get("title") or strongest_relax.get("rule_label") or "").strip()
     elif suppression_rows:
         active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
-    if status_value == "failed":
+    if status_value == "failed" and replacement_run_id:
+        happened = "A replacement search is checking the saved brief."
+        stopped_context = "This page will move to the replacement run when it has a usable update."
+    elif status_value == "failed":
         if source_total or listing_total:
             completed_label = f"{source_completed}/{source_total} source variants" if source_total else "Source variants"
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
@@ -1174,11 +1178,14 @@ def build_property_empty_outcome_summary(
         happened = f"The search finished, but {filtered_total} candidate{'s' if filtered_total != 1 else ''} stayed outside the shortlist."
     else:
         happened = "The search finished without a candidate clearing the current shortlist."
-    still_worked = (
-        f"{source_total} source variant{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
-        if source_total or listing_total
-        else "The brief, providers, and run receipts were still recorded."
-    )
+    if status_value == "failed" and replacement_run_id:
+        still_worked = "The brief and repair receipt were saved; the replacement run is now the active check."
+    else:
+        still_worked = (
+            f"{source_total} source variant{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            if source_total or listing_total
+            else "The brief, providers, and run receipts were still recorded."
+        )
     if status_value == "failed":
         next_move = "Wait for repair; this page checks quietly every 10s and will move to the usable run when one is ready."
     else:
@@ -1187,7 +1194,9 @@ def build_property_empty_outcome_summary(
             or (f"Relax {active_rule} first so the next run changes one rule at a time." if active_rule else "")
             or "Widen one rule first, then rerun."
         )
-    if status_value == "failed" and repair_step_label:
+    if status_value == "failed" and replacement_run_id:
+        eta_feedback = stopped_context
+    elif status_value == "failed" and repair_step_label:
         eta_feedback = stopped_context
     elif status_value == "failed" and repair_status_label:
         eta_feedback = f"Repair status: {repair_status_label}. {stopped_context}".strip()
