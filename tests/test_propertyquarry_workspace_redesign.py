@@ -5462,7 +5462,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert response.status_code == 200
     assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
     assert "<span>Providers</span><strong>156</strong>" not in response.text
-    assert "156 variants" in response.text
+    assert re.search(r"<span>Source variants</span><strong>\s*156\s*</strong>", response.text)
     assert "Status" in response.text
     assert "Timing" not in response.text
     assert "Queued a generic provider repair." in response.text
@@ -6605,11 +6605,12 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "The search could not finish." not in page.text
     assert "Repair is checking this run." in page.text
     assert "Retrying Willhaben provider check" in page.text
-    assert "Best matches" in page.text
+    assert "Best matches" not in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Open to relax one rule and rerun the search." not in page.text
-    assert ("Lower the match threshold" in page.text) or ("Reopen the brief with broader constraints" in page.text)
-    assert "Search progress" in page.text
+    assert "New search" in page.text
+    assert "Refresh delivery" in page.text
+    assert "Search progress" not in page.text
     assert 'data-workbench-brief-drawer' not in page.text
     assert "Tell us what to find." not in page.text
 

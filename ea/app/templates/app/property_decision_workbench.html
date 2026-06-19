@@ -17,13 +17,14 @@
 {% set terminal_states = ['processed', 'completed', 'completed_partial', 'failed', 'noop', 'cancelled'] %}
 {% set run_active = run.get('run_id') and run_status not in terminal_states %}
 {% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
+{% set run_failed_no_results = run_terminal_no_results and run_status == 'failed' %}
 {% set run_visible = run_active %}
 {% set has_results = results|length > 0 %}
 {% set static_surface = surface_mode in ['agents', 'account', 'billing'] %}
 {% set setup_mode = static_surface or surface_mode == 'search' or (surface_mode == 'properties' and not run_visible and not run_terminal_no_results and not has_results) %}
 {% set setup_mobile_primary = 'brief' if surface_mode in ['search', 'agents', 'account', 'billing'] else 'results' %}
 {% set has_mobile_results_panel = setup_mode or has_results or run_terminal_no_results %}
-{% set has_mobile_property_panel = has_results or run_visible or run_terminal_no_results %}
+{% set has_mobile_property_panel = has_results or run_visible or (run_terminal_no_results and not run_failed_no_results) %}
 {% set has_mobile_brief_panel = setup_mode %}
 {% set mobile_panel_count = (1 if has_mobile_results_panel else 0) + (1 if has_mobile_property_panel else 0) + (1 if has_mobile_brief_panel else 0) %}
 {% set mobile_primary = setup_mobile_primary if setup_mode else ('property' if run_visible and not run_terminal_no_results else 'results') %}
@@ -6253,6 +6254,7 @@
             {% endif %}
           </div>
         </aside>
+        {% if not run_failed_no_results %}
         <section class="pqx-panel pqx-command{% if mobile_primary == 'property' %} active{% endif %}" data-pqx-mobile-panel="property">
           <div>
           {% if not ranked_candidates %}
@@ -6420,6 +6422,7 @@
           </details>
           {% endif %}
         </section>
+        {% endif %}
       </section>
       {% elif run_visible %}
       {% include "app/_property_running_panel.html" %}
