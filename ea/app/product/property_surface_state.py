@@ -293,7 +293,7 @@ def build_property_run_reliability_snapshot(
     source_total = max(0, _positive_int(summary.get("sources_total"), default=len(source_rows)))
     source_checked = len(source_rows)
     listing_total = max(0, _positive_int(summary.get("listing_total") or summary.get("reviewed_listing_total")))
-    filtered_total = max(0, _positive_int(summary.get("filtered_out_total")))
+    filtered_total = max(0, _property_summary_held_back_total(summary))
     failed_total = 0
     for row in source_rows:
         row_status = str(row.get("status") or row.get("state") or "").strip().lower()

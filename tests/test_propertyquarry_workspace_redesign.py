@@ -2930,7 +2930,7 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
                     {"source_label": "A", "status": "completed"},
                     {"source_label": "B", "status": "failed", "error": "HTTP 410"},
                 ],
-                "filtered_out_total": 7,
+                "held_back_total": 7,
             },
         },
         results_total=3,
