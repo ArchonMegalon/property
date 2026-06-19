@@ -1140,6 +1140,7 @@ def _property_scope_point_preview(
     region_code: str,
     normalized_query: str,
     market_label: str,
+    allow_remote_lookup: bool = True,
 ) -> dict[str, object]:
     query = _context_preview_query(country_code, region_code, normalized_query, [normalized_query] if normalized_query else [])
     zoom = 16
@@ -1150,13 +1151,14 @@ def _property_scope_point_preview(
         _preview_query_with_context(country_code, "", ""),
     ]
     preview_kind = "osm_point_fallback"
-    for point_query in point_queries:
-        if not str(point_query or "").strip():
-            continue
-        point = _forward_geocode_preview_point(point_query)
-        if point is not None:
-            break
-    else:
+    if allow_remote_lookup:
+        for point_query in point_queries:
+            if not str(point_query or "").strip():
+                continue
+            point = _forward_geocode_preview_point(point_query)
+            if point is not None:
+                break
+    if point is None:
         fallback_point = _property_scope_fallback_point(country_code, region_code, normalized_query)
         if fallback_point is None:
             return {}
@@ -1462,6 +1464,16 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
         preview_kind = str(dict(boundary_preview).get("preview_kind") or "").strip()
         if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
             return dict(boundary_preview)
+    point_preview = _property_scope_point_preview(
+        country_code=normalized_country,
+        region_code=normalized_region,
+        normalized_query=normalized_query,
+        market_label=market_label,
+        allow_remote_lookup=False,
+    )
+    image_url = str(dict(point_preview).get("image_url") or "").strip()
+    if image_url.startswith("/app/api/property/map-previews/"):
+        return dict(point_preview)
     return _property_scope_map_pending_preview(
         normalized_query=normalized_query,
         market_label=market_label,
