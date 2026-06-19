@@ -4661,7 +4661,7 @@ def test_property_agents_surface_uses_map_only_scope_preview_for_cards_and_histo
     assert 'data-scope-overlay="true"' in page.text
     assert "data:image/svg+xml" not in page.text
     assert preview_calls == []
-    assert map_preview_calls == [("AT", "vienna", "1020 Vienna")] * 9
+    assert map_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
 def test_property_agents_surface_uses_map_only_preview_for_saved_search_cards(monkeypatch) -> None:
