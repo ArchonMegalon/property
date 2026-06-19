@@ -2479,8 +2479,8 @@ def property_workspace_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Operating posture",
-                    "title": "Where the next change belongs",
+                    "eyebrow": "Next change",
+                    "title": "Where to edit this account",
                     "body": "",
                     "items": [
                         row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
@@ -2549,8 +2549,8 @@ def property_workspace_payload(
                     "items": editable_search_defaults_items,
                 },
                 {
-                    "eyebrow": "Operating posture",
-                    "title": "Where the next change belongs",
+                    "eyebrow": "Next change",
+                    "title": "Where to edit this account",
                     "body": "",
                     "items": [
                         row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
@@ -2562,7 +2562,7 @@ def property_workspace_payload(
             "secondary_cards": [billing_rows and {
                 "id": "plans",
                 "eyebrow": "Plan",
-                "title": "Commercial posture",
+                "title": "Plan access",
                 "body": "",
                 "items": billing_rows,
             } or {}, {

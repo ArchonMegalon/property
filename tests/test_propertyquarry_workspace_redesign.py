@@ -7011,6 +7011,16 @@ def test_propertyquarry_static_surfaces_do_not_inline_search_only_scripts() -> N
         assert len(response.text) < 420_000, route
 
 
+def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    payload_source = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+
+    assert '"eyebrow": "Operating posture"' not in payload_source
+    assert '"title": "Commercial posture"' not in payload_source
+    assert '"title": "Where to edit this account"' in payload_source
+    assert '"title": "Plan access"' in payload_source
+
+
 def test_property_workspace_primary_internal_links_resolve() -> None:
     principal_id = "pq-primary-link-audit"
     client = build_property_client(principal_id=principal_id)
