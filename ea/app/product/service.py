@@ -29747,7 +29747,11 @@ class ProductService:
         source_resolution_label = (
             f"Resolved {provider_total} provider(s) across {source_variant_total} source variant(s) for scanning."
             if provider_total and source_variant_total > provider_total
-            else f"Resolved {provider_total or source_variant_total} provider(s) for scanning."
+            else (
+                f"Resolved {provider_total} provider(s) for scanning."
+                if provider_total
+                else f"Resolved {source_variant_total} provider check(s) for scanning."
+            )
         )
         prefetched_source_results = _property_search_prefetch_listing_urls(
             specs=specs,

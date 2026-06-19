@@ -3692,7 +3692,8 @@ def test_property_search_progress_copy_names_providers_not_generic_sources() -> 
     view_model_source = (repo_root / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
     assert "Resolved {source_variant_total} source(s) for scanning." not in service_source
-    assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." in service_source
+    assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." not in service_source
+    assert "Resolved {source_variant_total} provider check(s) for scanning." in service_source
     assert "provider_total = _property_search_provider_total(specs)" in service_source
     assert "provider_group_total = _property_search_provider_group_total(specs)" in service_source
     assert 'else "Sources"' not in view_model_source
