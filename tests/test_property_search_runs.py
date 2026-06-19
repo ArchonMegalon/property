@@ -1064,6 +1064,24 @@ def test_property_listing_mode_mismatch_uses_transaction_text_not_parser_price_f
     ) is True
 
 
+def test_property_listing_mode_mismatch_treats_generic_price_as_neutral_for_rent_preview() -> None:
+    assert product_service._property_candidate_listing_mode_mismatch(
+        listing_mode="rent",
+        property_url="https://www.willhaben.at/iad/object?adId=1775972917",
+        title="All-inclusive living, Balkon, U-Bahn, Lift vorhanden",
+        summary="",
+        property_facts={"property_type": "apartment", "price_display": "€ 1.017,09", "postal_name": "1010 Vienna"},
+    ) is False
+
+    assert product_service._property_candidate_listing_mode_mismatch(
+        listing_mode="rent",
+        property_url="https://www.willhaben.at/iad/object?adId=1775972917",
+        title="Eigentumswohnung mit Balkon",
+        summary="",
+        property_facts={"property_type": "apartment", "price_display": "€ 669.000", "postal_name": "1010 Vienna"},
+    ) is True
+
+
 def test_property_search_location_matching_rejects_source_scope_only_for_exact_postal_scope() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
     facts = product_service._property_facts_with_source_scope(

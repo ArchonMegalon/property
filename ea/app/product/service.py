@@ -6464,7 +6464,7 @@ def _property_candidate_listing_mode_evidence(
     mode_buy_signal = any(marker in mode_values for marker in ("buy", "sale", "kauf", "kaufen", "verkauf"))
     rent_text_signal = bool(rent_text_markers or mode_rent_signal)
     buy_text_signal = bool(buy_text_markers or mode_buy_signal)
-    if generic_price_signal and (buy_text_signal or (not rent_text_signal and not rent_fact_signal)):
+    if generic_price_signal and buy_text_signal and not rent_text_signal:
         buy_fact_signal = True
     return {
         "rent_text_signal": rent_text_signal,
