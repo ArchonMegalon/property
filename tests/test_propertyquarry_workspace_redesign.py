@@ -3766,6 +3766,8 @@ def test_property_research_decision_rows_remove_clarification_noise() -> None:
     text = " ".join(str(row.get("detail") or row.get("title") or row.get("tag") or "") for row in rows)
     assert "ask for clarification" not in text.lower()
     assert "request clarification" not in text.lower()
+    assert "Best next move" not in text
+    assert any(row.get("title") == "Next" for row in rows)
     assert "Verify the missing evidence before spending more time on it" in text
 
 

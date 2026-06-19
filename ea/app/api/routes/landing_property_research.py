@@ -1063,7 +1063,7 @@ def _property_packet_decision_rows(
         _object_detail_row("Why now", why_now, "Now"),
         _object_detail_row("Why not now", why_not_now, "Risk"),
         _object_detail_row("Missing-data severity", severity_detail, severity),
-        _object_detail_row("Best next move", recommendation, "Action"),
+        _object_detail_row("Next", recommendation, "Action"),
     ]
 
 
