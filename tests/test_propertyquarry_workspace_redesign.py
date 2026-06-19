@@ -1851,6 +1851,26 @@ def test_property_scope_preview_fast_falls_back_to_layout_when_point_preview_fai
     assert preview_render_calls[0]["layout_rows"][0]["value"] == "scope"
 
 
+def test_property_scope_preview_map_only_rejects_local_layout_thumbnail_pipeline(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_property_scope_preview",
+        lambda country_code, region_code, location_query: {
+            "image_url": "data:image/svg+xml;charset=utf-8,local-layout",
+            "summary": location_query,
+            "preview_kind": "local_district_layout",
+            "has_district_overlay": False,
+        },
+    )
+
+    preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna")
+
+    assert preview["preview_kind"] == "osm_map_pending"
+    assert str(preview["image_url"]).startswith("/app/api/property/map-previews/")
+    assert "data:image/svg+xml" not in str(preview["image_url"])
+    assert preview["has_district_overlay"] is False
+
+
 def test_property_scope_preview_uses_region_fallback_when_geocode_fails(monkeypatch) -> None:
     monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
     monkeypatch.setattr(landing_view_models, "_property_location_options", lambda country_code, region_code: [])
@@ -3893,7 +3913,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel > .pqx-section-head' in template
 
 
-def test_property_agents_surface_uses_fast_scope_preview_for_cards_and_history(monkeypatch) -> None:
+def test_property_agents_surface_uses_map_only_scope_preview_for_cards_and_history(monkeypatch) -> None:
     principal_id = "pq-agent-map-thumbnail"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Search Agent Fast")
@@ -3929,7 +3949,7 @@ def test_property_agents_surface_uses_fast_scope_preview_for_cards_and_history(m
     assert stored.status_code == 200, stored.text
 
     preview_calls: list[tuple[str, str, str]] = []
-    fast_preview_calls: list[tuple[str, str, str]] = []
+    map_preview_calls: list[tuple[str, str, str]] = []
 
     def _rich_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
         preview_calls.append((country_code, region_code, location_query))
@@ -3940,13 +3960,13 @@ def test_property_agents_surface_uses_fast_scope_preview_for_cards_and_history(m
             "has_district_overlay": True,
         }
 
-    def _fast_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
-        fast_preview_calls.append((country_code, region_code, location_query))
+    def _map_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        map_preview_calls.append((country_code, region_code, location_query))
         return {
-            "image_url": "data:image/svg+xml;charset=utf-8,fastscope",
+            "image_url": "/app/api/property/map-previews/1111111111111111111111111111111111111111.png",
             "summary": location_query,
-            "preview_kind": "fast_district_layout",
-            "has_district_overlay": False,
+            "preview_kind": "osm_district_overlay",
+            "has_district_overlay": True,
         }
 
     def _fake_runs(self, *, principal_id: str, limit: int = 8):
@@ -3970,7 +3990,7 @@ def test_property_agents_surface_uses_fast_scope_preview_for_cards_and_history(m
         ]
 
     monkeypatch.setattr(landing_view_models, "_property_scope_preview", _rich_scope_preview)
-    monkeypatch.setattr(landing_view_models, "_property_scope_preview_fast", _fast_scope_preview)
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview_map_only", _map_scope_preview)
     monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
 
     page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
@@ -3978,13 +3998,14 @@ def test_property_agents_surface_uses_fast_scope_preview_for_cards_and_history(m
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
     assert "agent-run-fast-0" in page.text
-    assert 'data-scope-preview-kind="fast_district_layout"' in page.text
-    assert 'data-scope-overlay="false"' in page.text
+    assert 'data-scope-preview-kind="osm_district_overlay"' in page.text
+    assert 'data-scope-overlay="true"' in page.text
+    assert "data:image/svg+xml" not in page.text
     assert preview_calls == []
-    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")] * 9
+    assert map_preview_calls == [("AT", "vienna", "1020 Vienna")] * 9
 
 
-def test_property_agents_surface_uses_fast_preview_for_saved_search_cards(monkeypatch) -> None:
+def test_property_agents_surface_uses_map_only_preview_for_saved_search_cards(monkeypatch) -> None:
     principal_id = "pq-agent-fast-card-preview"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Search Agent Fast Cards")
@@ -4020,29 +4041,26 @@ def test_property_agents_surface_uses_fast_preview_for_saved_search_cards(monkey
     )
     assert stored.status_code == 200, stored.text
 
-    def _fail_slow_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
-        raise AssertionError("/app/agents first paint must not use the slow scope preview builder")
+    map_preview_calls: list[tuple[str, str, str]] = []
 
-    fast_preview_calls: list[tuple[str, str, str]] = []
-
-    def _fast_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
-        fast_preview_calls.append((country_code, region_code, location_query))
+    def _map_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        map_preview_calls.append((country_code, region_code, location_query))
         return {
-            "image_url": "data:image/svg+xml;charset=utf-8,fastscope",
+            "image_url": "/app/api/property/map-previews/2222222222222222222222222222222222222222.png",
             "summary": location_query,
-            "preview_kind": "fast_district_layout",
-            "has_district_overlay": False,
+            "preview_kind": "osm_district_overlay",
+            "has_district_overlay": True,
         }
 
-    monkeypatch.setattr(landing_view_models, "_property_scope_preview", _fail_slow_scope_preview)
-    monkeypatch.setattr(landing_view_models, "_property_scope_preview_fast", _fast_scope_preview)
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview_map_only", _map_scope_preview)
 
     page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
-    assert 'data-scope-preview-kind="fast_district_layout"' in page.text
-    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")]
+    assert 'data-scope-preview-kind="osm_district_overlay"' in page.text
+    assert "data:image/svg+xml" not in page.text
+    assert map_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
 def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypatch) -> None:

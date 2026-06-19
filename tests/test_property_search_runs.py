@@ -2082,6 +2082,80 @@ def test_property_scout_hit_sender_suppresses_dirty_source_scope_when_listing_po
     assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
 
 
+def test_property_scout_hit_sender_validates_matching_candidate_not_first_shortlist_item(monkeypatch) -> None:
+    principal_id = "exec-property-hit-matching-candidate-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Matching Candidate Gate")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["derstandard_at"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append(dict(kwargs)) or SimpleNamespace(chat_id="1354554303", message_ids=("12",)),
+    )
+
+    current_title = "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | € 1.090 | DER STANDARD"
+    current_summary = "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien."
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title=current_title,
+        summary=current_summary,
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.derstandard.at/immobilien/wohnung-1220-wien",
+        source_ref="property-scout:derstandard-1220",
+        assessment={"fit_score": 54.0, "recommendation": "review"},
+        fit_score=54.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://www.derstandard.at/immobilien/wohnung-1010-wien",
+                "listing_title": "Wohnung mieten in 1010 Wien | 55 m² | 2 Zimmer | € 1.250",
+                "summary": "Zentrale Mietwohnung in 1010 Wien.",
+                "property_facts": {
+                    "postal_name": "1010 Wien",
+                    "price_display": "€ 1.250",
+                },
+            },
+            {
+                "property_url": "https://www.derstandard.at/immobilien/wohnung-1220-wien",
+                "listing_title": current_title,
+                "summary": current_summary,
+                "source_ref": "property-scout:derstandard-1220",
+                "property_facts": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "€ 1.090",
+                },
+            },
+        ),
+        requested_location_hints=("1010 Vienna",),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert sent == []
+
+
 def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match(monkeypatch) -> None:
     principal_id = "exec-property-hit-source-scope-only-gate"
     client = build_property_client(principal_id=principal_id)

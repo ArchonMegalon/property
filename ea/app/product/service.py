@@ -9315,6 +9315,34 @@ def _property_source_display_label(value: object) -> str:
     return compact_text(" · ".join(visible[:2]), fallback=parts[0], limit=100)
 
 
+def _property_select_notification_candidate(
+    candidate_properties: tuple[dict[str, object], ...],
+    *,
+    property_url: str = "",
+    source_ref: str = "",
+) -> dict[str, object]:
+    candidates = [dict(item or {}) for item in candidate_properties if isinstance(item, dict)]
+    if not candidates:
+        return {}
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if normalized_url:
+        for candidate in candidates:
+            candidate_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
+            if candidate_url and candidate_url == normalized_url:
+                return candidate
+    normalized_ref = str(source_ref or "").strip()
+    if normalized_ref:
+        for candidate in candidates:
+            candidate_refs = {
+                str(candidate.get("source_ref") or "").strip(),
+                str(candidate.get("listing_id") or "").strip(),
+                f"property-scout:{str(candidate.get('listing_id') or '').strip()}",
+            }
+            if normalized_ref in candidate_refs:
+                return candidate
+    return candidates[0]
+
+
 def _property_telegram_url_button_rows(
     *,
     property_url: str = "",
@@ -22251,7 +22279,11 @@ class ProductService:
             location_hints = tuple(dict.fromkeys((*current_location_hints, *source_scope_location_hints)))
         else:
             location_hints = source_scope_location_hints
-        first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        first_candidate = _property_select_notification_candidate(
+            candidate_properties,
+            property_url=property_url,
+            source_ref=source_ref,
+        )
         candidate_property_url = str(first_candidate.get("property_url") or property_url or "").strip()
         candidate_title = str(first_candidate.get("listing_title") or first_candidate.get("title") or title or "").strip()
         candidate_summary = str(first_candidate.get("summary") or first_candidate.get("fit_summary") or summary or "").strip()
@@ -23864,6 +23896,7 @@ class ProductService:
                 "resolution": existing_resolution,
             }
         urgent_filter_keys = {
+            "generic_listing_page",
             "walkthrough_video",
             "listing_mode",
             "location_scope",
@@ -35471,7 +35504,11 @@ class ProductService:
         ) or _property_search_location_hints(current_preferences) or source_scope_location_hints
         search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
         listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
-        first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        first_candidate = _property_select_notification_candidate(
+            candidate_properties,
+            property_url=property_url,
+            source_ref=source_ref,
+        )
         candidate_facts = (
             dict(first_candidate.get("property_facts_json") or {})
             if isinstance(first_candidate.get("property_facts_json"), dict)
@@ -36362,7 +36399,11 @@ class ProductService:
         ) or _property_search_location_hints(current_preferences) or source_scope_location_hints
         search_goal = str(current_preferences.get("search_goal") or "").strip().lower()
         listing_mode = "buy" if search_goal == "investment" else normalize_listing_mode(current_preferences.get("listing_mode"))
-        first_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        first_candidate = _property_select_notification_candidate(
+            candidate_properties,
+            property_url=property_url,
+            source_ref=source_ref,
+        )
         candidate_facts = (
             dict(first_candidate.get("property_facts_json") or {})
             if isinstance(first_candidate.get("property_facts_json"), dict)

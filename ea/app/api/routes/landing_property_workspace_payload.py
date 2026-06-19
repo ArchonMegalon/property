@@ -65,7 +65,7 @@ def property_workspace_payload(
         _property_preference_schema,
         _property_result_title_display,
         _property_scope_preview,
-        _property_scope_preview_fast,
+        _property_scope_preview_map_only,
         _sanitize_platform_catalog_for_client,
         app_section_payload,
         humanize,
@@ -340,7 +340,7 @@ def property_workspace_payload(
     dismissed_research_task_total = _run_count(run_health.get("dismissed_research_task_total") or run_payload.get("dismissed_research_task_total") or raw_run_summary.get("dismissed_research_task_total"))
     research_task_total = _run_count(run_health.get("research_task_total") or run_payload.get("research_task_total") or raw_run_summary.get("research_task_total"))
 
-    scope_preview_builder = _property_scope_preview_fast if normalized_section == "agents" else _property_scope_preview
+    scope_preview_builder = _property_scope_preview_map_only if normalized_section == "agents" else _property_scope_preview
     previous_search_runs = [
         build_property_previous_run_summary(
             dict(row),

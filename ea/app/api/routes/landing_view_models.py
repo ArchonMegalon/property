@@ -1196,6 +1196,26 @@ def _property_scope_fallback_layout_preview(
     }
 
 
+def _property_scope_map_pending_preview(
+    *,
+    normalized_query: str,
+    market_label: str,
+    selected_labels: list[str] | None = None,
+) -> dict[str, object]:
+    label = normalized_query or market_label or "Search area"
+    return {
+        "image_url": "/app/api/property/map-previews/0000000000000000000000000000000000000000.png",
+        "alt": f"Search area preview for {label}",
+        "summary": ", ".join(list(selected_labels or [])[:2]) if selected_labels else label,
+        "count_label": "",
+        "market_label": market_label,
+        "district_rows": [],
+        "district_overlay_svg": "",
+        "preview_kind": "osm_map_pending",
+        "has_district_overlay": False,
+    }
+
+
 def _property_scope_preview_fast(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
     normalized_country = str(country_code or "").strip().upper()
     normalized_region = str(region_code or "").strip().lower()
@@ -1269,6 +1289,29 @@ def _property_scope_preview_fast(country_code: str, region_code: str, location_q
         normalized_query=normalized_query,
         selected_labels=selected_labels,
         market_label=market_label,
+    )
+
+
+def _property_scope_preview_map_only(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+    """Automation thumbnails must be real map previews, never local diagram thumbnails."""
+    normalized_country = str(country_code or "").strip().upper()
+    normalized_region = str(region_code or "").strip().lower()
+    normalized_query = str(location_query or "").strip()
+    market_label_parts = [part for part in (normalized_region.replace("_", " ").title(), normalized_country) if part]
+    market_label = " · ".join(market_label_parts) or "Search area"
+    selected_labels = _csv_values(normalized_query)
+    try:
+        preview = _property_scope_preview(normalized_country, normalized_region, normalized_query)
+    except Exception:
+        preview = {}
+    preview_kind = str(dict(preview or {}).get("preview_kind") or "").strip()
+    image_url = str(dict(preview or {}).get("image_url") or "").strip()
+    if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
+        return dict(preview)
+    return _property_scope_map_pending_preview(
+        normalized_query=normalized_query,
+        market_label=market_label,
+        selected_labels=selected_labels,
     )
 
 
@@ -2817,7 +2860,7 @@ def app_section_payload(
         property_search_mode_requested = "strict"
     if surface_scope.wants_agent_views:
         search_agent_scope_preview_builder = (
-            _property_scope_preview_fast
+            _property_scope_preview_map_only
             if surface_scope.section == "agents"
             else _property_scope_preview
         )
