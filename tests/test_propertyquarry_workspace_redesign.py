@@ -6765,14 +6765,16 @@ def test_property_research_packet_missing_candidate_redirects_to_shortlist(monke
             status=None,
             limit=20,
         )
-        if task.task_type == "property_research_packet_repair"
+        if task.task_type == "property_provider_repair_ooda"
     ]
     assert len(repair_tasks) == 1
-    assert repair_tasks[0].priority == "high"
+    assert repair_tasks[0].priority == "urgent"
+    assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
     repair_payload = dict(repair_tasks[0].input_json or {})
-    assert repair_payload["repair_workflow"] == "property_research_packet_rebuild"
+    assert repair_payload["repair_workflow"] == "ea_provider_ooda"
+    assert repair_payload["filter_key"] == "research_packet_missing"
     assert repair_payload["run_id"] == "run-missing"
-    assert repair_payload["candidate_ref"] == "missing-packet-ref"
+    assert dict(repair_payload["diagnostics"])["candidate_ref"] == "missing-packet-ref"
 
 
 def test_property_research_packet_missing_candidate_returns_recovery_json(monkeypatch) -> None:
@@ -6830,9 +6832,17 @@ def test_property_research_packet_missing_candidate_returns_recovery_json(monkey
             status=None,
             limit=20,
         )
-        if task.task_type == "property_research_packet_repair"
+        if task.task_type == "property_provider_repair_ooda"
     ]
     assert len(repair_tasks) == 1
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "research_packet_missing"
+    repair_summary = ProductService(client.app.state.container).process_property_provider_repair_tasks(
+        principal_id=principal_id,
+        actor="test",
+        limit=5,
+    )
+    assert repair_summary["deferred_total"] == 1
+
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     client = build_property_client(principal_id="pq-redesign-settings")

@@ -23967,6 +23967,7 @@ class ProductService:
             "location_scope",
             "missing_location",
             "missing_price",
+            "research_packet_missing",
             "run_interrupted_stale",
             "source_fetch",
         }
