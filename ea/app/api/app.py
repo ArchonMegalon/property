@@ -5,6 +5,7 @@ from functools import lru_cache
 from importlib import import_module
 
 from fastapi import APIRouter, Depends, FastAPI
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
@@ -262,6 +263,7 @@ def create_app() -> FastAPI:
     rewrite_router = route_modules["rewrite"].router
     runtime_router = route_modules["runtime"].router
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
     app.state.container.readiness.register_startup_gate("property_search_shell_prewarm")

@@ -80,6 +80,14 @@ def test_propertyquarry_app_sets_default_browser_security_headers() -> None:
     assert response.headers["Strict-Transport-Security"].startswith("max-age=31536000")
 
 
+def test_propertyquarry_app_compresses_large_product_surfaces() -> None:
+    from starlette.middleware.gzip import GZipMiddleware
+
+    client = _client(principal_id="exec-browser-compression")
+
+    assert any(middleware.cls is GZipMiddleware for middleware in client.app.user_middleware)
+
+
 def test_responses_dotenv_lookup_caches_missing_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from app.services import responses_upstream
 
