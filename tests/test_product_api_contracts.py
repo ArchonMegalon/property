@@ -4898,7 +4898,8 @@ def test_property_scout_generic_provider_pages_never_enter_ranked_candidates(mon
     assert len(repair_tasks) == 1
     repair_input = dict(repair_tasks[0].input_json or {})
     assert repair_input.get("filter_key") == "generic_listing_page"
-    assert repair_input.get("property_url") == source_url
+    assert repair_input.get("property_url") == "propertyquarry://provider/derstandard_at/generic-listing-page"
+    assert repair_input.get("diagnostics", {}).get("source_url") == source_url
     assert repair_input.get("diagnostics", {}).get("example_property_url") == candidate_url
 
 

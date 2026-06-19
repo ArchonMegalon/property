@@ -29952,6 +29952,7 @@ class ProductService:
                 diagnostics = {
                     "provider_host": urllib.parse.urlparse(str(source_url or property_url)).netloc,
                     "candidate_stage": stage,
+                    "source_url": str(source_url or "").strip(),
                     "example_property_url": str(property_url or "").strip(),
                     "expected_listing_mode": listing_mode,
                     "postal_name": str(property_facts.get("postal_name") or "").strip(),
@@ -29962,9 +29963,12 @@ class ProductService:
                 repair_task: dict[str, object] = {}
                 repair_task_status = ""
                 if not provider_repair_tasks_for_source:
+                    repair_provider_key = str(source_key[0] or "").strip().lower()
+                    if not repair_provider_key:
+                        repair_provider_key = urllib.parse.urlparse(str(source_url or property_url)).netloc.lower() or "provider"
                     repair_task = self._open_property_provider_repair_task(
                         principal_id=principal_id,
-                        property_url=source_url or property_url,
+                        property_url=f"propertyquarry://provider/{repair_provider_key}/generic-listing-page",
                         title=f"{source_label} generic listing-page extraction drift",
                         source_url=source_url,
                         source_label=source_label,
@@ -29972,7 +29976,7 @@ class ProductService:
                         source_family=str(source_spec.get("provider_family") or "").strip().lower(),
                         filter_key="generic_listing_page",
                         diagnostics=diagnostics,
-                        source_ref=f"property-source:{source_key[0]}:{source_key[1]}:generic-listing-page",
+                        source_ref=f"property-provider:{repair_provider_key}:generic-listing-page",
                         run_id=property_search_run_id,
                     )
                     repair_task_status = str(repair_task.get("status") or "").strip().lower()
@@ -29986,7 +29990,8 @@ class ProductService:
                         provider_repair_tasks_for_source.append(
                             {
                                 "status": repair_task_status or "queued",
-                                "property_url": source_url or property_url,
+                                "property_url": f"propertyquarry://provider/{repair_provider_key}/generic-listing-page",
+                                "source_url": source_url,
                                 "example_property_url": property_url,
                                 "title": title or property_url,
                                 "filter_key": "generic_listing_page",
