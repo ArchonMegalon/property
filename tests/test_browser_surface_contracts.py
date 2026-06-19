@@ -38,6 +38,17 @@ LEGACY_APP_ROUTE_REDIRECTS = {
     "/app/automations": "/app/agents",
 }
 
+PROPERTY_SETTINGS_ALIAS_REDIRECTS = {
+    "/app/usage": "/app/settings/usage",
+    "/app/support": "/app/settings/support",
+    "/app/trust": "/app/settings/trust",
+    "/app/google": "/app/settings/google",
+    "/app/access": "/app/settings/access",
+    "/app/invitations": "/app/settings/invitations",
+    "/app/outcomes": "/app/settings/outcomes",
+    "/app/plan": "/app/settings/plan",
+}
+
 
 def _client(*, principal_id: str = "exec-browser-contract") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -176,6 +187,20 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
     assert "Ranked homes" in usage.text
     assert "Provider sources checked" in usage.text
     assert "Repair status" in usage.text
+
+
+def test_propertyquarry_settings_detail_aliases_redirect_to_property_pages() -> None:
+    client = _client(principal_id="exec-property-settings-aliases")
+    for source, target in PROPERTY_SETTINGS_ALIAS_REDIRECTS.items():
+        response = client.get(source, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=False)
+        assert response.status_code == 307, source
+        assert response.headers["location"] == target
+        page = client.get(target, headers={"host": "propertyquarry.com", "accept": "text/html"})
+        assert page.status_code == 200, target
+        text = _visible_text(page.text)
+        assert "memo items" not in text
+        assert "commitments" not in text
+        assert "handoffs" not in text
 
 
 def test_propertyquarry_core_surface_internal_links_resolve() -> None:

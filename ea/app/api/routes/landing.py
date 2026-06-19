@@ -3148,6 +3148,14 @@ def app_shell(
         "profile": "/app/account",
         "alerts": "/app/account",
         "settings": "/app/account",
+        "usage": "/app/settings/usage",
+        "support": "/app/settings/support",
+        "trust": "/app/settings/trust",
+        "google": "/app/settings/google",
+        "access": "/app/settings/access",
+        "invitations": "/app/settings/invitations",
+        "outcomes": "/app/settings/outcomes",
+        "plan": "/app/settings/plan",
     }
     allowed.update(legacy_redirects)
     allowed.update({"today", "queue", "commitments", "people", "evidence", "activity", "channel-loop"})
