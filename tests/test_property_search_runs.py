@@ -2919,6 +2919,89 @@ def test_property_provider_repair_auto_resolves_provider_scoped_generic_listing_
     assert summary["repair_receipts"][0]["source_url"] == source_url
 
 
+def test_property_provider_repair_auto_resolves_generic_listing_scope_from_diagnostics() -> None:
+    principal_id = "exec-property-provider-generic-scope-diagnostics"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Generic Scope Repair Office")
+    service = ProductService(client.app.state.container)
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://www.egw.at/suche/3789-2-zimmer-wohnung-mit-balkon-top-19",
+        title="2-Zimmer-Wohnung mit Balkon in 2630 Ternitz",
+        source_url="https://www.egw.at/suche/3789-2-zimmer-wohnung-mit-balkon-top-19",
+        source_label="Genossenschaften | Austria | Rent | 1010 Vienna | EGW Immobiliensuche",
+        source_platform="egw",
+        source_family="housing_coop",
+        filter_key="generic_listing_page",
+        diagnostics={
+            "title": "2-Zimmer-Wohnung mit Balkon in 2630 Ternitz",
+            "postal_name": "2630 Ternitz",
+            "source_scope_location": "1010 Vienna",
+            "provider_host": "www.egw.at",
+        },
+        source_ref="property-scout:egw:generic-listing-page",
+    )
+
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+    assert opened["resolution"] == "suppressed_location_scope"
+
+
+def test_property_provider_repair_auto_resolves_stale_run_without_claiming_patch() -> None:
+    principal_id = "exec-property-provider-stale-run-fallback"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Stale Run Repair Office")
+    service = ProductService(client.app.state.container)
+    run_id = f"stale-run-fallback-{uuid.uuid4().hex}"
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url=f"propertyquarry://search-run/{run_id}",
+        title="Search interrupted",
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1010+Vienna",
+        source_label="Willhaben | Austria | Rent | 1010 Vienna",
+        source_platform="willhaben",
+        source_family="core_portal",
+        filter_key="run_interrupted_stale",
+        diagnostics={"run_id": run_id, "failure_class": "run_interrupted_stale"},
+        source_ref=f"property-search-run:{run_id}:stale",
+        run_id=run_id,
+    )
+
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+    assert opened["resolution"] == "stale_run_restart_required"
+
+
+def test_property_provider_repair_auto_resolves_walkthrough_without_retrying_render() -> None:
+    principal_id = "exec-property-provider-walkthrough-fallback"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Walkthrough Repair Office")
+    service = ProductService(client.app.state.container)
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/object?adId=1530201253",
+        title="Attraktive Wohnung im 2. Bezirk",
+        source_url="https://www.willhaben.at/iad/object?adId=1530201253",
+        source_label="Willhaben | Austria | Rent | 1010 Vienna",
+        source_platform="willhaben",
+        source_family="core_portal",
+        filter_key="walkthrough_video",
+        diagnostics={
+            "raw_status": "failed",
+            "failure_reason": "onemin_segment_subprocess_timeout",
+            "video_url_present": False,
+        },
+        source_ref="property-tour:walkthrough-video",
+    )
+
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+    assert opened["resolution"] == "walkthrough_video_auto_generation_disabled"
+
+
 def test_property_provider_repair_does_not_cross_resolve_floorplan_into_location_scope(monkeypatch) -> None:
     principal_id = "exec-property-provider-floorplan-semantic-fence"
     client = build_property_client(principal_id=principal_id)
