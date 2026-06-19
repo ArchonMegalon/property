@@ -4718,7 +4718,7 @@ def app_section_payload(
                 {"label": "Country", "value": property_country_label},
                 {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
                 {
-                    "label": "Source variants" if int(property_summary.get("provider_total") or 0) > 0 and int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0) > int(property_summary.get("provider_total") or 0) else "Sources",
+                    "label": "Source variants" if int(property_summary.get("provider_total") or 0) > 0 and int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0) > int(property_summary.get("provider_total") or 0) else "Provider checks",
                     "value": str(int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0)),
                 },
                 {"label": "Listings", "value": str(int(property_summary.get("listing_total") or 0))},

@@ -3689,9 +3689,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     service_source = (repo_root / "ea/app/product/service.py").read_text(encoding="utf-8")
+    view_model_source = (repo_root / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
     assert "Resolved {source_variant_total} source(s) for scanning." not in service_source
     assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." in service_source
+    assert 'else "Sources"' not in view_model_source
+    assert 'else "Provider checks"' in view_model_source
 
 
 def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:
