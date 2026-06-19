@@ -69,6 +69,13 @@ def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_token
             assert token not in body, f"{token!r} leaked into {template_path.relative_to(repo_root)}"
 
 
+def test_property_results_empty_state_uses_saved_search_language() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
+
+    assert "Open saved searches" in body
+    assert "Open automation" not in body
+
+
 def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tools() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     body = template_path.read_text(encoding="utf-8")
