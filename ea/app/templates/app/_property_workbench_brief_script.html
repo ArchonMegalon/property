@@ -523,13 +523,13 @@
       }
       if (selectedInputs.length < inputs.length) {
         if (name === 'selected_platforms') {
-          setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} sources. Your current plan allows up to ${normalizedMax} at once.`);
+          setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} providers. Your current plan allows up to ${normalizedMax} at once.`);
         } else {
           setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${inputs.length} areas.`);
         }
         return;
       }
-      setCheckboxGroupStatus(name === 'selected_platforms' ? `Selected all ${selectedInputs.length} sources.` : `Selected all ${selectedInputs.length} areas.`);
+      setCheckboxGroupStatus(name === 'selected_platforms' ? `Selected all ${selectedInputs.length} providers.` : `Selected all ${selectedInputs.length} areas.`);
     };
     const clearAllCheckboxValues = (form, name) => {
       const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
@@ -545,14 +545,14 @@
         if (name !== 'selected_platforms') return;
         const total = [...form.querySelectorAll(`input[name="${name}"]`)].filter((node) => !node.disabled).length;
         if (!total) {
-          button.textContent = 'Select sources';
+          button.textContent = 'Select providers';
           button.removeAttribute('title');
           button.removeAttribute('aria-label');
           return;
         }
         if (!normalizedMax || total <= normalizedMax) {
-          button.textContent = 'All sources';
-          const title = `Select all ${total} available sources.`;
+          button.textContent = 'All providers';
+          const title = `Select all ${total} available providers.`;
           button.setAttribute('title', title);
           button.setAttribute('aria-label', title);
           return;

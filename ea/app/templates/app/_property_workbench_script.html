@@ -684,7 +684,7 @@
     const compactRunMessage = (value) => {
       const text = String(value || '').trim();
       if (!text) return 'Waiting for the first source update.';
-      const candidateMatch = text.match(/(?:Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
+      const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) return `${candidateMatch[1]} / ${candidateMatch[2]}`;
       const shortlistMatch = text.match(/^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$/i);
       if (shortlistMatch) return 'Shortlist ready';
@@ -694,7 +694,7 @@
       const text = String(value || '').trim();
       if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first source update.' };
       const sourceMatch = text.match(/\sfor\s+(.+?)\.?$/i);
-      const candidateMatch = text.match(/^(Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
+      const candidateMatch = text.match(/^(Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) {
         const verb = String(candidateMatch[1] || '').trim().toLowerCase();
         const phaseLabel = verb.startsWith('review') ? 'Reviewing homes' : (verb.startsWith('scor') ? 'Scoring homes' : 'Updating shortlist');
@@ -739,6 +739,107 @@
       }
       return current;
     };
+    const candidateReasonLabel = (value) => {
+      const text = String(value || '').trim();
+      if (!text) return '';
+      const candidate = text.match(/candidate\s+(\d+)\s+of\s+(\d+)/i);
+      if (!candidate) return '';
+      const ordinal = `${candidate[1]}/${candidate[2]}`;
+      const normalized = text.toLowerCase();
+      const positiveSignals = [
+        [['balcony', 'terrace', 'outdoor'], 'Outdoor space evidence found'],
+        [['lift', 'elevator', 'barrier-free', 'barrier free', 'accessible'], 'Access evidence improved the score'],
+        [['operating cost', 'monthly cost', 'total cost', 'betriebskosten'], 'Cost evidence improved the score'],
+        [['floorplan', 'layout'], 'Layout evidence improved the score'],
+        [['360', 'matterport', '3dvista', 'virtual tour', 'live tour'], 'Remote-view evidence improved the score'],
+        [['garage', 'parking'], 'Parking evidence improved the score'],
+        [['transit', 'subway', 'u-bahn', 'underground', 'train'], 'Transit evidence improved the score'],
+      ];
+      for (const [tokens, label] of positiveSignals) {
+        if (tokens.some((token) => normalized.includes(token)) && ['found', 'confirmed', 'available', 'evidence', 'clear', 'ready'].some((token) => normalized.includes(token))) {
+          return `${label} for candidate ${ordinal} (score upgraded)`;
+        }
+      }
+      const softConcerns = [
+        [['operating cost', 'monthly cost', 'total cost', 'betriebskosten', 'price'], 'Cost evidence still needs verification'],
+        [['noise', 'traffic noise', 'nuisance'], 'Noise risk needs verification'],
+        [['flood', 'water', 'groundwater'], 'Water-risk evidence needs verification'],
+        [['air quality', 'pollution', 'emissions'], 'Air-quality risk needs verification'],
+        [['crime', 'safety'], 'Local safety evidence needs verification'],
+        [['parking', 'garage'], 'Parking situation needs verification'],
+        [['winter', 'driving'], 'Winter access needs verification'],
+        [['septic', 'senkgrube'], 'Wastewater risk needs verification'],
+      ];
+      for (const [tokens, label] of softConcerns) {
+        if (tokens.some((token) => normalized.includes(token)) && ['missing', 'unknown', 'unclear', 'risk', 'burden', 'verify', 'verification'].some((token) => normalized.includes(token))) {
+          return `${label} for candidate ${ordinal} (score impact only)`;
+        }
+      }
+      if (
+        ['district', 'postal', 'postcode'].some((token) => normalized.includes(token))
+        && ['conflict', 'mismatch', 'outside', 'wrong'].some((token) => normalized.includes(token))
+      ) {
+        return `Location evidence conflicted for candidate ${ordinal} (hard area rule)`;
+      }
+      if (
+        (normalized.includes('school') || normalized.includes('kindergarten'))
+        && ['safe', 'safer', 'good', 'calm', 'low traffic', 'low-traffic'].some((token) => normalized.includes(token))
+        && ['route', 'way', 'walk'].some((token) => normalized.includes(token))
+      ) {
+        const routeLabel = normalized.includes('kindergarten') ? 'Way to kindergarten' : 'Way to school';
+        return `${routeLabel} looked safe for candidate ${ordinal} (score upgraded)`;
+      }
+      if (
+        (normalized.includes('school') || normalized.includes('kindergarten'))
+        && ['danger', 'dangerous', 'unsafe', 'risk', 'risky', 'traffic'].some((token) => normalized.includes(token))
+        && ['route', 'way', 'walk'].some((token) => normalized.includes(token))
+      ) {
+        const routeLabel = normalized.includes('kindergarten') ? 'Way to kindergarten' : 'Way to school';
+        return `${routeLabel} looked risky for candidate ${ordinal} (score impact only)`;
+      }
+      const distanceMatch = text.match(/(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius/i);
+      if (distanceMatch) {
+        const rawLabel = String(distanceMatch[1] || '').trim().replaceAll('-', ' ');
+        const label = rawLabel ? `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}` : 'Distance';
+        return `${label} was too far away for candidate ${ordinal} (score impact only)`;
+      }
+      if (normalized.includes('below') && (normalized.includes('/m2') || normalized.includes('area'))) {
+        return `Area was below the minimum for candidate ${ordinal}`;
+      }
+      if (normalized.includes('outside the move-in horizon')) {
+        return `Move-in was outside the horizon for candidate ${ordinal}`;
+      }
+      if (normalized.includes('outside the selected target area')) {
+        return `Location was outside the selected area for candidate ${ordinal} (hard area rule)`;
+      }
+      if (normalized.includes('without enough barrier-free evidence')) {
+        return `Barrier-free evidence was missing for candidate ${ordinal}`;
+      }
+      if (normalized.includes('non-residential')) {
+        return `Property type did not match for candidate ${ordinal}`;
+      }
+      if (normalized.includes('non-listing candidate')) {
+        return `Candidate ${ordinal} was a generic listing page`;
+      }
+      if (normalized.includes('layout verification') || normalized.includes('floorplan')) {
+        return `Layout still needs verification for candidate ${ordinal}`;
+      }
+      const discoveryMatch = text.match(/despite\s+a\s+(.+?)\s+miss/i);
+      if (discoveryMatch) {
+        const rawLabel = String(discoveryMatch[1] || '').trim();
+        const label = rawLabel ? `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}` : 'Preference';
+        return `${label} missed the preference for candidate ${ordinal} (score impact only)`;
+      }
+      return '';
+    };
+    const latestCandidateReasonLabel = (runPayload) => {
+      const events = Array.isArray(runPayload?.events) ? [...runPayload.events].reverse() : [];
+      for (const event of events) {
+        const label = candidateReasonLabel(event?.message);
+        if (label) return label;
+      }
+      return candidateReasonLabel(runPayload?.message);
+    };
     const compactProviderLabel = (value) => {
       let text = String(value || '').replace(/\s+/g, ' ').trim();
       if (!text) return 'Provider';
@@ -768,15 +869,15 @@
       const shortlistReady = Number(summary.high_fit_total || 0);
       const liveInfo = latestFractionInfo(runPayload);
       if (liveInfo.sourceLabel && liveInfo.fraction) {
-        return `${sources} sources · ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction}`;
+        return `${sources} provider checks · ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction}`;
       }
       if (currentStep === 'source_review_packet' && packetPrepared > 0) {
-        return `${sources} sources · ${packetPrepared} property pages prepared`;
+        return `${sources} provider checks · ${packetPrepared} property pages prepared`;
       }
       if (currentStep === 'source_shortlist' && shortlistReady > 0) {
-        return `${sources} sources · ${shortlistReady} shortlist home${shortlistReady === 1 ? '' : 's'} ready`;
+        return `${sources} provider checks · ${shortlistReady} shortlist home${shortlistReady === 1 ? '' : 's'} ready`;
       }
-      return `${sources} sources · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
+      return `${sources} provider checks · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
@@ -1053,7 +1154,7 @@
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
       const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
-      const workerTooltip = 'Search workers are the parallel source lanes running this search right now. They are separate from recurring saved searches.';
+      const workerTooltip = 'Search workers are the parallel provider checks running this search right now. They are separate from recurring saved searches.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
@@ -1061,6 +1162,10 @@
       }).join('');
       const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
       let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first source update.';
+      const latestReason = latestCandidateReasonLabel(runPayload);
+      if (liveInfo.fraction && latestReason) {
+        phaseMeta = latestReason;
+      }
       if (!liveInfo.phaseLabel && currentStep === 'source_review_packet' && packetPrepared > 0) {
         phaseMeta = `${packetPrepared} property pages prepared`;
       } else if (!liveInfo.phaseLabel && currentStep === 'source_shortlist' && shortlistReady > 0) {
@@ -1167,9 +1272,9 @@
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing source lanes' : (sourceRows.length ? 'Waiting for a source' : 'Ready when you start')));
+        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing provider checks' : (sourceRows.length ? 'Waiting for a provider check' : 'Ready when you start')));
         return {
-          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing sources' : (sourceRows.length ? 'Waiting' : 'Ready')),
+          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing provider checks' : (sourceRows.length ? 'Waiting' : 'Ready')),
           provider,
           shardCount,
           statusLabel,
@@ -1206,8 +1311,8 @@
         </div>
         <div class="pqx-source-progress" data-pqx-source-progress>
           <div class="pqx-source-progress-head">
-            <strong data-pqx-radar-count>${escapeHtml(sourceLead || `${completedSources}/${sources} sources checked`)}</strong>
-            <span class="pqx-small">${escapeHtml(liveFraction || `${completedSources}/${sources} sources checked`)}</span>
+            <strong data-pqx-radar-count>${escapeHtml(sourceLead || `${completedSources}/${sources} provider checks`)}</strong>
+            <span class="pqx-small">${escapeHtml(liveFraction || `${completedSources}/${sources} provider checks`)}</span>
           </div>
           <span class="pqx-small">${escapeHtml(sourceMeta)}</span>
           <span class="pqx-note">${escapeHtml(phaseMeta)}</span>
@@ -1598,7 +1703,7 @@
         research: isInvestment
           ? { label: 'Underwriting', detail: 'Return, risk, and external evidence depth.' }
           : { label: 'Research depth', detail: 'Risk, supply, and how much evidence each strong match should carry.' },
-        providers: { label: 'Sources', detail: 'Choose trusted sources, then save or launch.' },
+        providers: { label: 'Providers', detail: 'Choose trusted providers, then save or launch.' },
       };
       return map[key] || { label: fallbackLabel, detail: fallbackDetail };
     };
@@ -2373,15 +2478,15 @@
             applyCheckboxSelection(allInputs, selectedInputs);
             revealSelectedProviderGroups(form, selectedInputs);
             if (selectedInputs.length < sectionInputs.length) {
-              setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${sectionInputs.length} sources from this family. Your current plan allows up to ${normalizedMax} at once.`);
+              setCheckboxGroupStatus(`Selected ${selectedInputs.length} of ${sectionInputs.length} providers from this family. Your current plan allows up to ${normalizedMax} at once.`);
             } else {
-              setCheckboxGroupStatus(`Selected all ${selectedInputs.length} sources from this family.`);
+              setCheckboxGroupStatus(`Selected all ${selectedInputs.length} providers from this family.`);
             }
           } else {
             const selectedInputs = allInputs.filter((node) => !sectionInputs.includes(node) && node.checked);
             applyCheckboxSelection(allInputs, selectedInputs);
             revealSelectedProviderGroups(form, selectedInputs);
-            setCheckboxGroupStatus('Cleared this source family.');
+            setCheckboxGroupStatus('Cleared this provider family.');
           }
           return;
         }

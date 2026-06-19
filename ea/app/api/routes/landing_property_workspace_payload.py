@@ -1888,7 +1888,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Coverage",
-            f"{commercial.get('max_platforms') or 'Multi'} sources | up to {commercial.get('max_results_per_source') or 2} results per source",
+            f"{commercial.get('max_platforms') or 'Multi'} providers | up to {commercial.get('max_results_per_source') or 2} results per provider",
             "Limits",
         ),
         row_item(
@@ -1915,7 +1915,7 @@ def property_workspace_payload(
         match_cap = int(plan.get("max_match_score") or 0)
         delta_parts = [
             f"{platform_cap} platforms" if platform_cap else "",
-            f"{result_cap} results per source" if result_cap else "",
+            f"{result_cap} results per provider" if result_cap else "",
             f"{match_cap}/100 match ceiling" if match_cap else "",
             f"{str(plan.get('research_depth') or '').strip()} research".strip() if str(plan.get("research_depth") or "").strip() else "",
         ]
@@ -1925,7 +1925,7 @@ def property_workspace_payload(
         elif platform_cap < current_platform_cap:
             improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter working lane")
         if result_cap > current_result_cap:
-            improvement_parts.append(f"+{result_cap - current_result_cap} more results per source")
+            improvement_parts.append(f"+{result_cap - current_result_cap} more results per provider")
         if match_cap > current_match_cap:
             improvement_parts.append(f"+{match_cap - current_match_cap} points of shortlist ceiling")
         billing_upgrade_rows.append(
@@ -2100,7 +2100,7 @@ def property_workspace_payload(
             ]),
             "hero_highlights": [
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
-                {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Places being checked for this search."},
+                {"label": "Provider checks", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Provider, area, and repair checks being executed for this run."},
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
@@ -2372,8 +2372,8 @@ def property_workspace_payload(
                     "body": "",
                     "items": [
                         row_item("Workers", "Free 1 · Plus 2 · Agent 4 live search workers.", "Workers"),
-                        row_item("Provider breadth", f"Up to {commercial.get('max_platforms') or 'multi'} sources in one run.", "Breadth"),
-                        row_item("Rank density", f"Up to {commercial.get('max_results_per_source') or 2} ranked results per source.", "Results"),
+                        row_item("Provider breadth", f"Up to {commercial.get('max_platforms') or 'multi'} providers in one run.", "Breadth"),
+                        row_item("Rank density", f"Up to {commercial.get('max_results_per_source') or 2} ranked results per provider.", "Results"),
                     ],
                 },
                 {
@@ -2389,12 +2389,12 @@ def property_workspace_payload(
                     "items": [
                         row_item(
                             "Search breadth",
-                            f"The current plan allows up to {commercial.get('max_platforms') or 'multi'} sources in one run before the UI clips provider selection.",
+                            f"The current plan allows up to {commercial.get('max_platforms') or 'multi'} providers in one run before the UI clips provider selection.",
                             "Breadth",
                         ),
                         row_item(
                             "Shortlist density",
-                            f"The current plan allows up to {commercial.get('max_results_per_source') or 2} ranked results per source.",
+                            f"The current plan allows up to {commercial.get('max_results_per_source') or 2} ranked results per provider.",
                             "Results",
                         ),
                         row_item(
@@ -2444,7 +2444,7 @@ def property_workspace_payload(
                     "body": "",
                     "items": billing_rows + [
                         row_item("Workers", "Free 1 · Plus 2 · Agent 4 live search workers.", "Workers"),
-                        row_item("Providers", f"Current plan allows up to {commercial.get('max_platforms') or 'multi'} sources in one run.", "Breadth"),
+                        row_item("Providers", f"Current plan allows up to {commercial.get('max_platforms') or 'multi'} providers in one run.", "Breadth"),
                     ],
                 },
                 {

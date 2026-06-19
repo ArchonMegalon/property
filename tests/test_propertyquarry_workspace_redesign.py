@@ -425,7 +425,7 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
     assert "Search runs, provider coverage, ranked homes, filtered homes" in page.text
     assert "Property usage" in page.text
     assert "Ranked homes" in page.text
-    assert "Provider sources checked" in page.text
+    assert "Provider checks" in page.text
     forbidden_copy = (
         "Current office loop",
         "Queue pressure, memo activity",
@@ -2722,6 +2722,119 @@ def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fille
     assert all(row.get("label") != "Preparing sources" for row in worker_state["workers"])
 
 
+def test_property_run_live_board_replaces_duplicate_review_message_with_latest_filter_reason() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 45,
+            "message": "Reviewing candidate 25 of 60 for Willhaben | Austria | Rent | 1010 Vienna.",
+            "events": [
+                {
+                    "step": "source_family_filter",
+                    "message": "Skipped shortlist candidate 23 of 60 outside the relaxed playground radius for Willhaben | Austria | Rent | 1010 Vienna.",
+                    "status": "in_progress",
+                }
+            ],
+            "summary": {
+                "sources_total": 156,
+                "reviewed_listing_total": 25,
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "platform": "willhaben",
+                        "status": "running",
+                    }
+                ],
+            },
+        },
+        plan_key="agent",
+    )
+
+    assert snapshot["fraction_label"] == "25 / 60"
+    assert snapshot["summary_label"] == "156 provider checks · Willhaben · 25 / 60"
+    assert snapshot["phase_label"] == "Playground was too far away for candidate 23/60 (score impact only)"
+    assert snapshot["source_count_label"] == "25 / 60"
+
+
+def test_property_run_live_board_marks_school_route_risk_as_score_only() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 38,
+            "message": "Reviewing candidate 18 of 60 for Willhaben | Austria | Rent | 1010 Vienna.",
+            "events": [
+                {
+                    "step": "source_family_score",
+                    "message": "School route looked dangerous for candidate 17 of 60 because traffic exposure is high.",
+                    "status": "in_progress",
+                }
+            ],
+            "summary": {"sources_total": 12, "reviewed_listing_total": 18, "sources": []},
+        },
+        plan_key="plus",
+    )
+
+    assert snapshot["phase_label"] == "Way to school looked risky for candidate 17/60 (score impact only)"
+
+
+def test_property_run_live_board_marks_safe_kindergarten_route_as_score_upgrade() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 38,
+            "message": "Reviewing candidate 19 of 60 for Willhaben | Austria | Rent | 1010 Vienna.",
+            "events": [
+                {
+                    "step": "source_family_score",
+                    "message": "Kindergarten route looked safe for candidate 18 of 60 because the walk uses calm streets.",
+                    "status": "in_progress",
+                }
+            ],
+            "summary": {"sources_total": 12, "reviewed_listing_total": 19, "sources": []},
+        },
+        plan_key="plus",
+    )
+
+    assert snapshot["phase_label"] == "Way to kindergarten looked safe for candidate 18/60 (score upgraded)"
+
+
+def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
+    cases = [
+        (
+            "Balcony evidence confirmed for candidate 11 of 60.",
+            "Outdoor space evidence found for candidate 11/60 (score upgraded)",
+        ),
+        (
+            "Operating costs are missing for candidate 12 of 60 and need verification.",
+            "Cost evidence still needs verification for candidate 12/60 (score impact only)",
+        ),
+        (
+            "Postal code mismatch outside selected scope for candidate 13 of 60.",
+            "Location evidence conflicted for candidate 13/60 (hard area rule)",
+        ),
+        (
+            "Kept shortlist candidate 14 of 60 in discovery despite a Noise miss for Willhaben. Noise is higher than preferred.",
+            "Noise missed the preference for candidate 14/60 (score impact only)",
+        ),
+        (
+            "Matterport tour available for candidate 15 of 60.",
+            "Remote-view evidence improved the score for candidate 15/60 (score upgraded)",
+        ),
+    ]
+    for message, expected in cases:
+        snapshot = property_surface_state.build_property_run_live_board_snapshot(
+            {
+                "status": "running",
+                "progress": 50,
+                "message": "Reviewing candidate 20 of 60 for Willhaben | Austria | Rent | 1010 Vienna.",
+                "events": [{"step": "source_candidate_signal", "message": message, "status": "in_progress"}],
+                "summary": {"sources_total": 12, "reviewed_listing_total": 20, "sources": []},
+            },
+            plan_key="plus",
+        )
+        assert snapshot["phase_label"] == expected
+
+
 def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> None:
     reliability = landing_property_workspace_helpers._property_run_reliability_summary(
         {
@@ -2741,8 +2854,8 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Repairing"
-    assert reliability["repair_step_label"] == "Retrying 1 source"
-    assert reliability["coverage_label"] == "2/4 sources checked · 2 still running"
+    assert reliability["repair_step_label"] == "Retrying 1 provider check"
+    assert reliability["coverage_label"] == "2/4 provider checks · 2 still running"
     assert reliability["result_label"] == "3 ranked results ready"
     assert reliability["filtered_label"] == "7 filtered by active rules"
     assert reliability["repair"]["repair_status"] == "repairing"
@@ -2792,8 +2905,8 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
 
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Repairing"
-    assert repair["repair_step_label"] == "Retrying 1 source"
-    assert repair["repair_outcome_summary"] == "Some sources are retrying, but the current shortlist is already usable."
+    assert repair["repair_step_label"] == "Retrying 1 provider check"
+    assert repair["repair_outcome_summary"] == "Some provider checks are retrying, but the current shortlist is already usable."
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
 
@@ -2817,7 +2930,7 @@ def test_property_surface_state_builds_run_reliability_snapshot() -> None:
     )
 
     assert reliability["health_label"] == "Partial coverage"
-    assert reliability["repair_step_label"] == "Retrying 1 source"
+    assert reliability["repair_step_label"] == "Retrying 1 provider check"
     assert reliability["repair"]["repair_status"] == "degraded"
     assert reliability["customer_status_message"] == "One provider stayed degraded."
 
@@ -3202,7 +3315,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "padding: 0 0 12px;" in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
-    assert "Select sources" in setup.text
+    assert "Select providers" in setup.text
     assert "Court and auction listings" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
@@ -4747,7 +4860,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert '{% include "app/_property_workbench_script.html" %}' in body
     assert running_body.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
     assert 'data-pqx-running-details' in running_body
-    assert "Provider checks" not in body
+    assert "source lanes" not in body
     assert "0 lanes in progress" not in body
     assert "lanes in progress" not in body
 

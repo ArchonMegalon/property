@@ -556,15 +556,15 @@ def settings_usage_detail(
                 {"label": "Repair status", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What usage means here",
-            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, sources checked, homes ranked, artifacts prepared, and whether repair work is still open.",
+            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, provider checks run, homes ranked, artifacts prepared, and whether repair work is still open.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
                 _object_detail_row("Completed searches", str(property_usage["completed_total"]), "Search"),
                 _object_detail_row("Partial searches", str(property_usage["partial_total"]), "Coverage"),
                 _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Coverage"),
-                _object_detail_row("Provider sources checked", str(property_usage["source_total"]), "Sources"),
-                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
+                _object_detail_row("Provider checks", str(property_usage["source_total"]), "Checks"),
+                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Checks"),
             ],
             object_sections=[
                 {
@@ -586,8 +586,8 @@ def settings_usage_detail(
                     "items": [
                         _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                         _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Sources"),
-                        _object_detail_row("Provider sources checked", str(property_usage["source_total"]), "Sources"),
+                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Providers"),
+                        _object_detail_row("Provider checks", str(property_usage["source_total"]), "Checks"),
                     ],
                 },
                 {
@@ -1177,7 +1177,7 @@ def settings_outcomes_detail(
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                 _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
+                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Checks"),
                 _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
             ],
@@ -1198,8 +1198,8 @@ def settings_outcomes_detail(
                     "items": [
                         _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                         _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Sources"),
-                        _object_detail_row("Provider sources checked", str(property_usage["source_total"]), "Sources"),
+                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Providers"),
+                        _object_detail_row("Provider checks", str(property_usage["source_total"]), "Checks"),
                     ],
                 },
                 {

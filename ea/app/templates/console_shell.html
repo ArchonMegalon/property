@@ -1264,7 +1264,7 @@
           </small>
           <small class="console-run-note">
             {{ commercial.get('max_platforms') or 1 }} platform{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}
-            | up to {{ commercial.get('max_results_per_source') or 2 }} results per source
+            | up to {{ commercial.get('max_results_per_source') or 2 }} results per provider
           </small>
           <div class="console-inline-status" data-property-billing-status></div>
           <div class="console-inline-error" data-property-billing-error></div>
@@ -1444,7 +1444,7 @@
     const nextSelected = new Set((selectedValues || []).filter(Boolean));
     const familyHeadings = {
       marketplace: ['Core marketplaces', 'Primary broad-market search lanes for this country.'],
-      broker_direct: ['Broker direct', 'Broker-owned inventory and direct source lanes.'],
+      broker_direct: ['Broker direct', 'Broker-owned inventory and direct provider feeds.'],
       cooperative: ['Cooperatives', 'Genossenschaften and cooperative housing sources.'],
       public_housing: ['Public housing', 'Municipal and public-housing-adjacent sources.'],
       developer_projects: ['Developer projects', 'New-build and launch pipeline sources.'],
@@ -1871,7 +1871,7 @@
     statusNode.textContent = `Status: ${String(payload.status || 'queued').replaceAll('_', ' ')}`;
     messageNode.textContent = String(payload.message || 'Queued for execution.');
     progressNode.style.width = `${progress}%`;
-    summaryNode.textContent = `${progress}% complete | ${Number(summary.sources_total || 0)} sources | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+    summaryNode.textContent = `${progress}% complete | ${Number(summary.sources_total || 0)} provider checks | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
 
     const sources = Array.isArray(summary.sources) ? summary.sources : [];
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {

@@ -4269,7 +4269,7 @@ def app_section_payload(
             {
                 "type": "range",
                 "name": "max_results_per_source",
-                "label": "Max results per source",
+                "label": "Max results per provider",
                 "value": str(property_results_value),
                 "min": "1",
                 "max": str(property_visible_max_results_per_source),

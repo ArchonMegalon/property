@@ -295,8 +295,8 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         progress = _source_progress(source_row) if source_row else (max(8, min(run_progress, 24)) if status_label == "Starting" else 0)
         worker_rows.append(
             {
-                "label": compact_label if source_row else ("Preparing sources" if status_label == "Starting" else ("Waiting" if active_sources or source_rows else "Ready")),
-                "provider": source_label or ("Preparing source lanes" if status_label == "Starting" else ("Waiting for a source" if active_sources or source_rows else "Ready when you start")),
+                "label": compact_label if source_row else ("Preparing provider checks" if status_label == "Starting" else ("Waiting" if active_sources or source_rows else "Ready")),
+                "provider": source_label or ("Preparing provider checks" if status_label == "Starting" else ("Waiting for a provider check" if active_sources or source_rows else "Ready when you start")),
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
@@ -317,7 +317,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "configured_workers": configured_workers,
         "workers": worker_rows,
         "upgrade_copy": upgrade_copy,
-        "tooltip": "Search workers are the parallel source lanes running this search right now. They are not the same thing as recurring saved searches.",
+        "tooltip": "Search workers are the parallel provider checks running this search right now. They are not the same thing as recurring saved searches.",
     }
 
 
@@ -804,7 +804,7 @@ def _group_property_provider_options(options: list[dict[str, object]]) -> list[d
         "shared_housing": ("Shared housing", "Rooms, WG, sublet, and student-friendly sources that should not pollute standard family-home search."),
         "corporate_landlord": ("Direct landlords", "Large landlord-direct inventory that often carries better availability and operating details."),
         "municipal_housing": ("Municipal housing", "City-owned or public-sector housing supply with eligibility and application rules."),
-        "broker_direct": ("Broker direct", "Broker-owned inventory and direct source lanes."),
+        "broker_direct": ("Broker direct", "Broker-owned inventory and direct provider feeds."),
         "cooperative": ("Cooperatives", "Genossenschaften and cooperative housing sources."),
         "public_housing": ("Public housing", "Municipal and public-housing-adjacent sources."),
         "developer_projects": ("Developer projects", "New-build and launch pipeline sources."),

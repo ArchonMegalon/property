@@ -217,7 +217,7 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
 
     usage = client.get("/app/settings/usage", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert "Ranked homes" in usage.text
-    assert "Provider sources checked" in usage.text
+    assert "Provider checks" in usage.text
     assert "Repair status" in usage.text
 
 

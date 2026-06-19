@@ -136,7 +136,7 @@
   </div>
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
-      <strong data-pqx-radar-count>{{ source_completed }}/{{ source_total }} sources checked</strong>
+      <strong data-pqx-radar-count>{{ source_completed }}/{{ source_total }} provider checks</strong>
       <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
@@ -184,7 +184,7 @@
         </div>
         <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         <div class="pqx-worker-popover">
-          <strong>{{ worker.get('provider') or 'Waiting for a source' }}{% if worker.get('shard_count') %} · +{{ worker.get('shard_count') }} more shard{% if worker.get('shard_count') != 1 %}s{% endif %}{% endif %}</strong>
+          <strong>{{ worker.get('provider') or 'Waiting for a provider check' }}{% if worker.get('shard_count') %} · +{{ worker.get('shard_count') }} more shard{% if worker.get('shard_count') != 1 %}s{% endif %}{% endif %}</strong>
           <span class="pqx-note">{{ worker.get('status_label') or 'Idle' }}</span>
           <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         </div>
@@ -5937,7 +5937,7 @@
                   <div class="pqx-choice-groupbox-head">
                     <div class="pqx-choice-groupbox-actions pqx-field-tools">
                       {% if field.name == 'selected_platforms' %}
-                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select sources</button>
+                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select providers</button>
                       {% else %}
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all areas</button>
                       <button class="pqx-field-action" type="button" data-checkbox-group-clear-all="{{ field.name }}">Deselect all areas</button>
@@ -6199,7 +6199,7 @@
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
-              <div class="pqx-fact"><span>Sources</span><strong>{{ run_summary.get('sources_total') or run_sources|length or 0 }}</strong></div>
+              <div class="pqx-fact"><span>Provider checks</span><strong>{{ run_summary.get('sources_total') or run_sources|length or 0 }}</strong></div>
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
             </div>
@@ -6231,7 +6231,7 @@
             </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
-              <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources · {{ run_summary.get('listing_total') or 0 }} homes checked</span>
+              <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>{{ run_summary.get('sources_total') or run_sources|length or 0 }} provider checks · {{ run_summary.get('listing_total') or 0 }} homes checked</span>
             </div>
           </div>
           {% endif %}

@@ -227,7 +227,7 @@ def build_property_run_repair_snapshot(
             failed_total += 1
     repair_step = str(summary.get("repair_step_label") or "").strip()
     if not repair_step and failed_total:
-        repair_step = f"Retrying {failed_total} source{'s' if failed_total != 1 else ''}"
+        repair_step = f"Retrying {failed_total} provider check{'s' if failed_total != 1 else ''}"
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
@@ -263,9 +263,9 @@ def build_property_run_repair_snapshot(
         if status == "completed_partial":
             repair_outcome_summary = "The shortlist is ready, but one or more sources finished degraded."
         elif failed_total and results_total > 0:
-            repair_outcome_summary = "Some sources are retrying, but the current shortlist is already usable."
+            repair_outcome_summary = "Some provider checks are retrying, but the current shortlist is already usable."
         elif failed_total:
-            repair_outcome_summary = "Some sources are retrying before the shortlist can settle."
+            repair_outcome_summary = "Some provider checks are retrying before the shortlist can settle."
     return PropertyRunRepairSnapshot(
         repair_status=repair_status,
         repair_status_label=repair_status_label,
@@ -306,13 +306,13 @@ def build_property_run_reliability_snapshot(
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
-            customer_status = message or "Search finished with partial coverage after one or more sources degraded."
+            customer_status = message or "Search finished with partial coverage after one or more provider checks degraded."
         elif status == "failed":
             customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
-            customer_status = "Some sources are retrying, but the current shortlist is already usable."
+            customer_status = "Some provider checks are retrying, but the current shortlist is already usable."
         elif failed_total:
-            customer_status = "Some sources are retrying before the shortlist can settle."
+            customer_status = "Some provider checks are retrying before the shortlist can settle."
         elif results_total > 0:
             customer_status = "Strongest verified matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
@@ -339,7 +339,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Starting"
     coverage_label = ""
     if source_total:
-        coverage_label = f"{source_checked}/{source_total} sources checked"
+        coverage_label = f"{source_checked}/{source_total} provider checks"
         if pending_total:
             coverage_label += f" · {pending_total} still running"
     result_label = ""
@@ -369,7 +369,7 @@ def _compact_run_message(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return "Waiting for the first source update."
-    candidate_match = re.search(r"(?:Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
+    candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
         return f"{candidate_match.group(1)} / {candidate_match.group(2)}"
     shortlist_match = re.search(r"^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$", text, flags=re.IGNORECASE)
@@ -388,7 +388,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "phase_label": "Waiting for the first source update.",
         }
     source_match = re.search(r"\sfor\s+(.+?)\.?$", text, flags=re.IGNORECASE)
-    candidate_match = re.search(r"^(Reviewing|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
+    candidate_match = re.search(r"^(Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
         verb = str(candidate_match.group(1) or "").strip().lower()
         phase_label = (
@@ -457,6 +457,99 @@ def _latest_property_run_fraction_info(run_payload: dict[str, object]) -> dict[s
     return current
 
 
+def _property_run_candidate_reason_label(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    candidate = re.search(r"candidate\s+(\d+)\s+of\s+(\d+)", text, flags=re.IGNORECASE)
+    if not candidate:
+        return ""
+    ordinal = f"{candidate.group(1)}/{candidate.group(2)}"
+    normalized = text.lower()
+    positive_signals = (
+        (("balcony", "terrace", "outdoor"), "Outdoor space evidence found"),
+        (("lift", "elevator", "barrier-free", "barrier free", "accessible"), "Access evidence improved the score"),
+        (("operating cost", "monthly cost", "total cost", "betriebskosten"), "Cost evidence improved the score"),
+        (("floorplan", "layout"), "Layout evidence improved the score"),
+        (("360", "matterport", "3dvista", "virtual tour", "live tour"), "Remote-view evidence improved the score"),
+        (("garage", "parking"), "Parking evidence improved the score"),
+        (("transit", "subway", "u-bahn", "underground", "train"), "Transit evidence improved the score"),
+    )
+    for tokens, label in positive_signals:
+        if any(token in normalized for token in tokens) and any(token in normalized for token in ("found", "confirmed", "available", "evidence", "clear", "ready")):
+            return f"{label} for candidate {ordinal} (score upgraded)"
+    soft_concerns = (
+        (("operating cost", "monthly cost", "total cost", "betriebskosten", "price"), "Cost evidence still needs verification"),
+        (("noise", "traffic noise", "nuisance"), "Noise risk needs verification"),
+        (("flood", "water", "groundwater"), "Water-risk evidence needs verification"),
+        (("air quality", "pollution", "emissions"), "Air-quality risk needs verification"),
+        (("crime", "safety"), "Local safety evidence needs verification"),
+        (("parking", "garage"), "Parking situation needs verification"),
+        (("winter", "driving"), "Winter access needs verification"),
+        (("septic", "senkgrube"), "Wastewater risk needs verification"),
+    )
+    for tokens, label in soft_concerns:
+        if any(token in normalized for token in tokens) and any(token in normalized for token in ("missing", "unknown", "unclear", "risk", "burden", "verify", "verification")):
+            return f"{label} for candidate {ordinal} (score impact only)"
+    if "district" in normalized or "postal" in normalized or "postcode" in normalized:
+        if any(token in normalized for token in ("conflict", "mismatch", "outside", "wrong")):
+            return f"Location evidence conflicted for candidate {ordinal} (hard area rule)"
+    if (
+        ("school" in normalized or "kindergarten" in normalized)
+        and any(token in normalized for token in ("safe", "safer", "good", "calm", "low traffic", "low-traffic"))
+        and any(token in normalized for token in ("route", "way", "walk"))
+    ):
+        route_label = "Way to kindergarten" if "kindergarten" in normalized else "Way to school"
+        return f"{route_label} looked safe for candidate {ordinal} (score upgraded)"
+    if (
+        ("school" in normalized or "kindergarten" in normalized)
+        and any(token in normalized for token in ("danger", "dangerous", "unsafe", "risk", "risky", "traffic"))
+        and any(token in normalized for token in ("route", "way", "walk"))
+    ):
+        route_label = "Way to kindergarten" if "kindergarten" in normalized else "Way to school"
+        return f"{route_label} looked risky for candidate {ordinal} (score impact only)"
+    distance_match = re.search(
+        r"(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if distance_match:
+        label = str(distance_match.group(1) or "").strip().replace("-", " ")
+        label = label[:1].upper() + label[1:] if label else "Distance"
+        return f"{label} was too far away for candidate {ordinal} (score impact only)"
+    if "below" in normalized and ("/m2" in normalized or "area" in normalized):
+        return f"Area was below the minimum for candidate {ordinal}"
+    if "outside the move-in horizon" in normalized:
+        return f"Move-in was outside the horizon for candidate {ordinal}"
+    if "outside the selected target area" in normalized:
+        return f"Location was outside the selected area for candidate {ordinal} (hard area rule)"
+    if "without enough barrier-free evidence" in normalized:
+        return f"Barrier-free evidence was missing for candidate {ordinal}"
+    if "non-residential" in normalized:
+        return f"Property type did not match for candidate {ordinal}"
+    if "non-listing candidate" in normalized:
+        return f"Candidate {ordinal} was a generic listing page"
+    if "layout verification" in normalized or "floorplan" in normalized:
+        return f"Layout still needs verification for candidate {ordinal}"
+    discovery_match = re.search(r"despite\s+a\s+(.+?)\s+miss", text, flags=re.IGNORECASE)
+    if discovery_match:
+        label = str(discovery_match.group(1) or "").strip()
+        label = label[:1].upper() + label[1:] if label else "Preference"
+        return f"{label} missed the preference for candidate {ordinal} (score impact only)"
+    return ""
+
+
+def _latest_property_run_candidate_reason_label(run_payload: dict[str, object]) -> str:
+    events = list(run_payload.get("events") or [])
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+        label = _property_run_candidate_reason_label(event.get("message"))
+        if label:
+            return label
+    return _property_run_candidate_reason_label(run_payload.get("message"))
+
+
 def _compact_property_provider_label(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
@@ -514,6 +607,9 @@ def build_property_run_live_board_snapshot(
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"
     phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first source update."
+    candidate_reason_label = _latest_property_run_candidate_reason_label(payload)
+    if current_info.get("fraction_label") and candidate_reason_label:
+        phase_label = candidate_reason_label
     if phase_label == "Waiting for the first source update." and packet_prepared > 0 and str(payload.get("current_step") or "").strip().lower() == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
     elif phase_label == "Waiting for the first source update." and shortlist_ready > 0 and str(payload.get("current_step") or "").strip().lower() == "source_shortlist":
@@ -592,12 +688,12 @@ def build_property_run_live_board_snapshot(
             tone = "warn"
         else:
             tone = "queued"
-        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing source lanes" if status_label == "Starting" else ("Waiting for a source" if source_rows else "Ready when you start")))
+        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing provider checks" if status_label == "Starting" else ("Waiting for a provider check" if source_rows else "Ready when you start")))
         group_key = _source_provider_group(source or {})
         shard_count = max(0, len([row for row in raw_worker_queue if _source_provider_group(row) == group_key]) - 1) if source else 0
         worker_lanes.append(
             {
-                "label": _compact_property_provider_label(provider) if source else ("Preparing sources" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
+                "label": _compact_property_provider_label(provider) if source else ("Preparing provider checks" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
                 "provider": provider,
                 "shard_count": shard_count,
                 "status_label": status_label,
@@ -613,12 +709,12 @@ def build_property_run_live_board_snapshot(
         for source in source_rows[:8]
     ]
     provider_full_label = str(live_info.get("source_label") or (worker_queue[0].get("source_label") if worker_queue else "") or "").strip()
-    provider_label = _compact_property_provider_label(provider_full_label or f"{len(source_rows)}/{source_total} sources checked")
-    source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} sources checked"
+    provider_label = _compact_property_provider_label(provider_full_label or f"{len(source_rows)}/{source_total} provider checks")
+    source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} provider checks"
     summary_label = (
-        f"{source_total} sources · {provider_label} · {live_info.get('fraction_label')}"
+        f"{source_total} provider checks · {provider_label} · {live_info.get('fraction_label')}"
         if provider_full_label and live_info.get("fraction_label")
-        else f"{source_total} sources · {aggregate_label}"
+        else f"{source_total} provider checks · {aggregate_label}"
     )
     return PropertyRunLiveBoardSnapshot(
         provider_label=provider_label,
@@ -969,7 +1065,7 @@ def build_property_empty_outcome_summary(
     else:
         happened = "The search finished without a candidate clearing the current shortlist."
     still_worked = (
-        f"{source_total} source{'s' if source_total != 1 else ''} checked {listing_total} listing{'s' if listing_total != 1 else ''}."
+        f"{source_total} provider check{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
         if source_total or listing_total
         else "The brief, providers, and run receipts were still recorded."
     )

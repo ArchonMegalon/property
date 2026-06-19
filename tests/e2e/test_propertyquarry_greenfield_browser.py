@@ -2088,7 +2088,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert providerCount > checkedProviderCount
         assert checkedProviderCount == expectedProviderCap
         assert page.locator('[data-provider-group-panel][open]').count() >= 1
-        assert page.locator('[data-property-inline-status]', has_text=f"Selected {expectedProviderCap} of {providerCount} sources").is_visible()
+        assert page.locator('[data-property-inline-status]', has_text=f"Selected {expectedProviderCap} of {providerCount} providers").is_visible()
         page.locator('input[name="min_match_score"]').evaluate(
             "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
         )

@@ -78,7 +78,7 @@ _FREE_PLAN = PropertyPlanSpec(
     auto_tour_policy="hero_only",
     features=(
         "up to 3 platforms per run",
-        "up to 2 results per source",
+        "up to 2 results per provider",
         "match threshold up to 45/100",
         "standard research on the shortlisted results",
         "one 3D reconstruction floor plan per week and one interior flythrough per day",
@@ -105,7 +105,7 @@ _PAID_PLANS = {
         auto_tour_policy="shortlist_opt_in",
         features=(
             "up to 8 platforms per run",
-            "up to 5 results per source",
+            "up to 5 results per provider",
             "match threshold up to 65/100",
             "deep research with preview investment signals",
             "multiple 3D reconstruction floor plans and interior flythroughs per day (3 max)",
@@ -130,7 +130,7 @@ _PAID_PLANS = {
         auto_tour_policy="all_opt_in",
         features=(
             "all Austria provider lanes in one run",
-            "up to 10 results per source",
+            "up to 10 results per provider",
             "match threshold up to 80/100",
             "deep research and follow-up readiness",
             "opt-in 3D reconstruction floor plans and interior flythroughs for every found property",
