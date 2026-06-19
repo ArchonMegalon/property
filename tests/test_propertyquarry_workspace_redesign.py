@@ -6251,7 +6251,16 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
             "status": "failed",
             "progress": 100,
             "message": "Provider returned 403 while fetching Willhaben.",
-            "summary": {"sources_total": 1, "listing_total": 0, "tour_created_total": 0, "tour_existing_total": 0, "sources": []},
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 0,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "repair_status": "repairing",
+                "repair_status_label": "Repairing",
+                "repair_step_label": "Retrying Willhaben provider check",
+                "sources": [],
+            },
             "events": [
                 {"step": "source_fetching", "message": "Fetching source page for Willhaben.", "status": "in_progress"},
                 {"step": "failed", "message": "Provider returned 403 while fetching Willhaben.", "status": "failed"},
@@ -6262,7 +6271,9 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     page = client.get("/app/properties", params={"run_id": "run-failed"}, headers=headers)
     assert page.status_code == 200
     assert 'data-pqx-state="empty_results"' in page.text
-    assert "The search could not finish." in page.text
+    assert "The search could not finish." not in page.text
+    assert "Repair is checking this run." in page.text
+    assert "Retrying Willhaben provider check" in page.text
     assert "Best matches" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Open to relax one rule and rerun the search." not in page.text

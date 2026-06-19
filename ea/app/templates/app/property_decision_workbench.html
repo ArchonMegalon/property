@@ -9,6 +9,7 @@
 {% set recent_packets = workbench.get('recent_packets') or [] %}
 {% set run_status = (run.get('status') or 'not_started')|string %}
 {% set run_summary = run.get('summary') or {} %}
+{% set run_reliability = run.get('reliability') or {} %}
 {% set run_sources = run_summary.get('sources') or [] %}
 {% set previous_search_runs = workbench.get('previous_search_runs') or [] %}
 {% set suppression_rows = workbench.get('suppression_rows') or [] %}
@@ -6196,8 +6197,20 @@
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}" data-pqx-empty-results>
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results">
           <div class="pqx-title">
-            <span>{% if run_status == 'failed' %}Run failed{% else %}Run complete{% endif %}</span>
-            <h1>{% if run_status == 'failed' %}The search could not finish.{% else %}No strong matches found yet.{% endif %}</h1>
+            <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Run complete{% endif %}</span>
+            <h1>
+              {% if run_status == 'failed' %}
+                {% if run_reliability.get('repair_step_label') %}Repair is checking this run.{% else %}This run stopped before ranking.{% endif %}
+              {% else %}
+                No strong matches found yet.
+              {% endif %}
+            </h1>
+            {% if run_status == 'failed' and (run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label')) %}
+            <div class="pqx-note">
+              {% if run_reliability.get('repair_step_label') %}<strong>{{ run_reliability.get('repair_step_label') }}</strong>{% endif %}
+              {% if run_reliability.get('customer_status_message') %}<span>{{ run_reliability.get('customer_status_message') }}</span>{% endif %}
+            </div>
+            {% endif %}
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
