@@ -4027,6 +4027,37 @@ def test_property_search_posture_summary_hides_child_rows_when_parent_toggles_ar
     assert "Auction legal review" not in labels
 
 
+def test_property_search_posture_summary_uses_selected_market_currency() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Currency Posture"}, "channels": {}},
+        property_state={
+            "preferences": {
+                "country_code": "GB",
+                "search_goal": "investment",
+                "listing_mode": "buy",
+                "investment_research_mode": "auto",
+                "equity_available_eur": 250000,
+            },
+            "commercial": {"current_plan_key": "agent"},
+            "preference_bundle": {},
+        },
+    )
+
+    search_posture_card = next(
+        card
+        for card in list(payload.get("primary_cards") or [])
+        if str(card.get("eyebrow") or "").strip() == "Search posture"
+    )
+    equity_row = next(
+        item
+        for item in list(search_posture_card.get("items") or [])
+        if isinstance(item, dict) and str(item.get("title") or "").strip() == "Equity available"
+    )
+
+    assert equity_row["detail"] == "GBP 250 000"
+
+
 def test_property_dashboard_renders_previous_searches_with_compact_finished_results(monkeypatch) -> None:
     principal_id = "pq-previous-searches"
     client = build_property_client(principal_id=principal_id)

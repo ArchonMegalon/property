@@ -6,6 +6,7 @@ from typing import Callable
 def build_property_market_summary_items(
     *,
     row_item: Callable[[str, str, str], dict[str, str]],
+    currency_code: str,
     property_country_label: str,
     property_language_label: str,
     property_search_goal_label: str,
@@ -26,6 +27,11 @@ def build_property_market_summary_items(
     show_public_housing_policy_controls: bool,
     show_distressed_review_controls: bool,
 ) -> list[dict[str, str]]:
+    resolved_currency_code = str(currency_code or "EUR").strip().upper() or "EUR"
+
+    def money_label(value: int | float) -> str:
+        return f"{resolved_currency_code} {float(value):,.0f}".replace(",", " ")
+
     items = [
         row_item("Country", property_country_label, "Market"),
         row_item("Browser language", property_language_label, "Research"),
@@ -39,7 +45,7 @@ def build_property_market_summary_items(
         if min_gross_yield_pct > 0:
             items.append(row_item("Minimum gross yield", f"{min_gross_yield_pct}%", "Return"))
         if equity_available_eur > 0:
-            items.append(row_item("Equity available", f"EUR {equity_available_eur:,.0f}".replace(",", " "), "Financing"))
+            items.append(row_item("Equity available", money_label(equity_available_eur), "Financing"))
         if min_dscr > 0:
             items.append(row_item("Minimum DSCR", f"{min_dscr:.2f}x", "Financing"))
     if property_is_investment_search:
@@ -114,7 +120,7 @@ def build_property_market_summary_items(
         items.append(
             row_item(
                 "Eigenmittel ceiling",
-                f"EUR {int(property_preferences.get('eigenmittel_max_eur') or 0):,}".replace(",", ","),
+                money_label(int(property_preferences.get("eigenmittel_max_eur") or 0)),
                 "Eligibility",
             )
         )

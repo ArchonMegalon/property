@@ -2639,6 +2639,7 @@ def app_section_payload(
     ]
     property_market_summary_items = build_property_market_summary_items(
         row_item=row_item,
+        currency_code=selected_currency_code,
         property_country_label=property_country_label,
         property_language_label=property_language_label,
         property_search_goal_label=property_search_goal_label,
