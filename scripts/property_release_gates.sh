@@ -33,6 +33,7 @@ Runs the focused PropertyQuarry release bundle:
   - Telegram titled-link delivery contracts
   - property browser journey contracts
   - dossier writer, Dadan video request, media factory, and premium dossier screenshot/quality contracts
+  - public tour privacy, live-360, Matterport/3DVista, and asset hardening contracts
   - optional local visual-watch screenshot gate when PROPERTYQUARRY_VISUAL_WATCH_URL is set
 EOF
   exit 0
@@ -90,6 +91,10 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'property_notification_preview or property_feedback'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'telegram_property_link_bundle or property_scout_dossier_promotes_media or property_scout_hit_telegram_sends_dossier or property_scout_hit_email_prefers_public_dossier_link or property_alert_review_handoff_page_renders_research_packet'
+PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
+  tests/test_product_api_contracts.py -k 'hosted_property_tour_writer_keeps_raw_public_manifest_narrow or hosted_floorplan_tour_revalidates_asset_suffix_after_content_type or willhaben_property_tour_route_accepts_external_live_360_source_when_panorama_images_are_absent or matterport_hosted_pure_360_bundle_uses_http_thumb_preview or 3dvista_hosted_pure_360_bundle_preserves_provider_url or kalandra_cube_360_bundle_generation_is_disabled or willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required'
+PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
+  tests/test_providers_api_contracts.py -k 'public_tour_json_never_exposes_listing_or_source_urls or public_tour_routes_ignore_unsafe_live_360_source_urls or public_tour_page_does_not_fetch_live_listing_research_at_render_time or public_tour_routes_drop_untrusted_external_scene_media or public_tour_routes_embed_live_360_source_when_present or public_tour_routes_allow_matterport_thumb_preview_for_live_360'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_soft_filter_equivalence.py \
