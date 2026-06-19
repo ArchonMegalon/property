@@ -9268,17 +9268,29 @@ def _property_source_display_label(value: object) -> str:
     parts = [part.strip() for part in raw.split("|") if part.strip()]
     if len(parts) <= 1:
         return raw
+    location_re = re.compile(
+        r"^(?:"
+        r"wien|vienna|salzburg|graz|linz|innsbruck|klagenfurt|villach|wels|sankt pölten|st\.?\s*pölten|"
+        r"wiener neustadt|schärding|schaerding|hütteldorf|huetteldorf|brigittenau|leopoldstadt|"
+        r"burgenland|kärnten|kaernten|niederösterreich|niederoesterreich|oberösterreich|oberoesterreich|"
+        r"steiermark|tirol|vorarlberg|all austria|österreich|osterreich|austria"
+        r")(?:[\s,/-].*)?$",
+        flags=re.IGNORECASE,
+    )
     metadata_re = re.compile(
         r"^(?:"
         r"at|de|ch|cr|uk|us|"
         r"austria|germany|switzerland|costa rica|united kingdom|united states|"
         r"rent|buy|auction|rent to own|miete|kauf|mietwohnungen|eigentumswohnungen|"
-        r"wien|vienna|all austria|österreich|osterreich|"
         r"\d{4,5}(?:[\s,/-]+[A-Za-zÄÖÜäöüß .,'/-]+)?"
         r")$",
         flags=re.IGNORECASE,
     )
-    visible = [part for part in parts if not metadata_re.match(part)]
+    visible = [
+        part
+        for part in parts
+        if not metadata_re.match(part) and not location_re.match(part)
+    ]
     if not visible:
         visible = parts[:1]
     # Keep a provider qualifier such as "GESIBA Wohnungen" but never the search scope.
@@ -22289,6 +22301,10 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{source_ref or external_id or property_url}|property-alert-review-invalid",
             )
             return payload
+        display_counterparty = (
+            _property_source_display_label(counterparty)
+            or compact_text(str(counterparty or "").strip(), fallback="Property scout", limit=100)
+        )
         if isinstance(personal_fit_assessment, dict):
             personal_fit_assessment = dict(personal_fit_assessment)
         else:
@@ -22303,7 +22319,7 @@ class ProductService:
         review_page_neuronwriter = _property_review_page_neuronwriter_payload(
             title=str(title or "").strip(),
             summary=str(summary or "").strip(),
-            counterparty=str(counterparty or "").strip(),
+            counterparty=display_counterparty,
             assessment=dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
         )
         existing = self._existing_property_alert_review_task(
@@ -22366,7 +22382,7 @@ class ProductService:
             input_json={
                 "title": str(title or "").strip(),
                 "summary": str(summary or "").strip(),
-                "counterparty": str(counterparty or "").strip(),
+                "counterparty": display_counterparty,
                 "account_email": str(account_email or "").strip().lower(),
                 "property_url": str(property_url or "").strip(),
                 "source_ref": str(source_ref or "").strip(),
@@ -22414,7 +22430,7 @@ class ProductService:
                 **payload,
                 "title": str(title or "").strip(),
                 "summary": str(summary or "").strip(),
-                "counterparty": str(counterparty or "").strip(),
+                "counterparty": display_counterparty,
                 "account_email": str(account_email or "").strip().lower(),
                 "actor": str(actor or "").strip() or "office_api",
                 "preference_person_id": str(preference_person_id or "").strip() or "self",
@@ -22434,7 +22450,7 @@ class ProductService:
                 feedback_raw_signal = {
                     "title": str(title or "").strip(),
                     "summary": str(summary or "").strip(),
-                    "counterparty": str(counterparty or "").strip(),
+                    "counterparty": display_counterparty,
                     "property_url": feedback_property_url,
                     "fit_score": float(fit_score or 0.0),
                     "account_email": str(account_email or "").strip(),
@@ -22474,7 +22490,7 @@ class ProductService:
 	                    text=_property_alert_review_telegram_text(
 	                        title=title,
 	                        summary=summary,
-	                        counterparty=counterparty,
+	                        counterparty=display_counterparty,
 	                        account_email=account_email,
 	                        property_url=property_url,
 	                        personal_fit_assessment=personal_fit_assessment,
@@ -35598,13 +35614,17 @@ class ProductService:
         tour_url = str(tour_payload.get("tour_url") or "").strip()
         review_url = str(review_url or "").strip()
         blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
+        display_counterparty = (
+            _property_source_display_label(counterparty)
+            or compact_text(str(counterparty or "").strip(), fallback="Property scout", limit=100)
+        )
         dossier_render = (
             self._render_property_scout_dossier(
                 principal_id=principal_id,
                 actor=actor,
                 title=title,
                 summary=summary,
-                counterparty=counterparty,
+                counterparty=display_counterparty,
                 account_email=account_email,
                 property_url=property_url,
                 source_ref=source_ref,
@@ -35621,13 +35641,13 @@ class ProductService:
         notification_neuronwriter = _property_review_page_neuronwriter_payload(
             title=title,
             summary=summary,
-            counterparty=counterparty,
+            counterparty=display_counterparty,
             assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
         )
         feedback_raw_signal = {
             "title": str(title or "").strip(),
             "summary": str(summary or "").strip(),
-            "counterparty": str(counterparty or "").strip(),
+            "counterparty": display_counterparty,
             "property_url": str(property_url or "").strip(),
             "fit_score": float(fit_score or 0.0),
             "account_email": str(account_email or "").strip(),
@@ -35687,7 +35707,7 @@ class ProductService:
                 text=_property_alert_review_telegram_text(
                     title=title,
                     summary=summary,
-                    counterparty=counterparty,
+                    counterparty=display_counterparty,
                     account_email=account_email,
                     property_url=property_url,
                     personal_fit_assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},

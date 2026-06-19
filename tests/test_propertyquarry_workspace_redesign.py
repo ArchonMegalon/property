@@ -17,7 +17,13 @@ from app.services import public_branding
 from app.services import property_market_catalog
 from app.product import property_surface_state
 from app.product.models import HandoffNote
-from app.product.service import ProductService, _property_search_analysis_cap_per_source, build_product_service
+from app.product.service import (
+    ProductService,
+    _property_search_analysis_cap_per_source,
+    _property_source_display_label,
+    _property_scout_brief_text,
+    build_product_service,
+)
 from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
 
@@ -145,6 +151,23 @@ def test_propertyquarry_candidate_display_facts_use_listing_postal_over_dirty_so
     assert facts["postal_name"] == "1220 Wien"
     assert facts["district"] == "1220 Wien"
     assert facts["address"] == "1220 Wien"
+
+
+def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_code() -> None:
+    assert _property_source_display_label("DER STANDARD Immobilien | Austria | Rent | 1010 Vienna") == "DER STANDARD Immobilien"
+    assert _property_source_display_label("Willhaben | Austria | Rent | Salzburg") == "Willhaben"
+    assert _property_source_display_label("Willhaben | Austria | Rent | 4784 Schärding") == "Willhaben"
+    assert _property_source_display_label("Genossenschaften | Austria | Rent | 1220 Wien | GESIBA Wohnungen") == "Genossenschaften · GESIBA Wohnungen"
+
+    message = _property_scout_brief_text(
+        title="Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+        property_url="https://example.test/listing",
+        source_text=_property_source_display_label("DER STANDARD Immobilien | Austria | Rent | 1010 Vienna"),
+        fit_summary="Personal fit 50/100",
+    )
+
+    assert "Source: DER STANDARD Immobilien" in message
+    assert "Source: DER STANDARD Immobilien | Austria | Rent | 1010 Vienna" not in message
 
 
 def test_propertyquarry_shortlist_does_not_surface_willhaben_tracking_endpoint_as_provider_360() -> None:
@@ -3757,13 +3780,16 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' in template
     assert "object-position: center 44%;" in template
-    assert 'transform: scale(1.78);' in template
-    assert 'transform: scale(2.42);' in template
+    assert 'transform: scale(1.95);' in template
+    assert 'transform: scale(2.68);' in template
     assert ".pqx-automation-scope-empty::after" in template
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     assert "const showPreviewFallback = () => {" in script
     assert "img.complete && img.naturalWidth === 0" in script
+    assert "thumb.classList.add('is-preview-error')" in script
+    assert "fallback.hidden = false" in script
+    assert "fallback.style.display = 'grid'" in script
     assert "grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);" in template
     assert ".pqx-automation-table" not in template
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch' in template
