@@ -3893,7 +3893,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel > .pqx-section-head' in template
 
 
-def test_property_agents_surface_uses_osm_scope_preview_for_cards_and_fast_preview_for_history(monkeypatch) -> None:
+def test_property_agents_surface_uses_fast_scope_preview_for_cards_and_history(monkeypatch) -> None:
     principal_id = "pq-agent-map-thumbnail"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Search Agent Fast")
@@ -3978,10 +3978,71 @@ def test_property_agents_surface_uses_osm_scope_preview_for_cards_and_fast_previ
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
     assert "agent-run-fast-0" in page.text
-    assert 'data-scope-preview-kind="osm_district_overlay"' in page.text
-    assert 'data-scope-overlay="true"' in page.text
-    assert preview_calls == [("AT", "vienna", "1020 Vienna")]
-    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")] * 8
+    assert 'data-scope-preview-kind="fast_district_layout"' in page.text
+    assert 'data-scope-overlay="false"' in page.text
+    assert preview_calls == []
+    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")] * 9
+
+
+def test_property_agents_surface_uses_fast_preview_for_saved_search_cards(monkeypatch) -> None:
+    principal_id = "pq-agent-fast-card-preview"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Agent Fast Cards")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "active_search_agent_id": "agent-vienna",
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "name": "Vienna rent watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                    },
+                }
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fail_slow_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        raise AssertionError("/app/agents first paint must not use the slow scope preview builder")
+
+    fast_preview_calls: list[tuple[str, str, str]] = []
+
+    def _fast_scope_preview(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
+        fast_preview_calls.append((country_code, region_code, location_query))
+        return {
+            "image_url": "data:image/svg+xml;charset=utf-8,fastscope",
+            "summary": location_query,
+            "preview_kind": "fast_district_layout",
+            "has_district_overlay": False,
+        }
+
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview", _fail_slow_scope_preview)
+    monkeypatch.setattr(landing_view_models, "_property_scope_preview_fast", _fast_scope_preview)
+
+    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Vienna rent watch" in page.text
+    assert 'data-scope-preview-kind="fast_district_layout"' in page.text
+    assert fast_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
 def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypatch) -> None:

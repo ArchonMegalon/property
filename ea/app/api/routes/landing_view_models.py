@@ -2816,6 +2816,11 @@ def app_section_payload(
     if property_search_mode_requested not in {"strict", "discovery"}:
         property_search_mode_requested = "strict"
     if surface_scope.wants_agent_views:
+        search_agent_scope_preview_builder = (
+            _property_scope_preview_fast
+            if surface_scope.section == "agents"
+            else _property_scope_preview
+        )
         property_search_agents, property_search_agent = build_property_search_agents(
             property_preferences,
             selected_platforms=selected_platforms,
@@ -2825,7 +2830,7 @@ def app_section_payload(
             default_notification_limit=property_search_agent_notification_limit,
             default_notification_period=property_search_agent_notification_period,
             normalize_property_type_values=_normalize_property_type_values,
-            scope_preview_builder=_property_scope_preview,
+            scope_preview_builder=search_agent_scope_preview_builder,
         )
     else:
         property_search_agents, property_search_agent = [], {}
