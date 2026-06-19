@@ -8,6 +8,7 @@ import json
 import math
 import os
 import re
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,6 +50,9 @@ from app.api.routes.landing_property_surface_contracts import (
     PropertySurfacePayloadContract,
     PropertySurfaceScope,
 )
+
+_PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
+_PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
 from app.api.routes.landing_property_workspace_payload import (
     property_workspace_payload as build_property_workspace_payload,
 )
@@ -426,6 +430,56 @@ def _map_preview_cache_root() -> Path:
     return root
 
 
+def _map_preview_cache_path_for_key(cache_key: dict[str, object]) -> Path:
+    normalized_key = json.dumps(cache_key, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    digest = hashlib.sha1(normalized_key.encode("utf-8")).hexdigest()
+    return _map_preview_cache_root() / f"{digest}.png"
+
+
+def _schedule_cached_preview_render(
+    *,
+    cache_key: dict[str, object],
+    center_lat: float,
+    center_lon: float,
+    zoom: int,
+    overlay_rows: list[dict[str, object]] | None = None,
+    boundary_paths: list[str] | None = None,
+    pin: tuple[float, float] | None = None,
+    draw_overlay: bool = True,
+    width: int = 640,
+    height: int = 368,
+) -> Path:
+    cache_path = _map_preview_cache_path_for_key(cache_key)
+    if cache_path.exists():
+        return cache_path
+    cache_id = cache_path.stem
+    with _PROPERTY_MAP_PREVIEW_RENDER_LOCK:
+        if cache_id in _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT:
+            return cache_path
+        _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT.add(cache_id)
+
+    def _render() -> None:
+        try:
+            _cached_preview_png_path(
+                cache_key=cache_key,
+                center_lat=center_lat,
+                center_lon=center_lon,
+                zoom=zoom,
+                overlay_rows=overlay_rows,
+                boundary_paths=boundary_paths,
+                pin=pin,
+                draw_overlay=draw_overlay,
+                width=width,
+                height=height,
+            )
+        finally:
+            with _PROPERTY_MAP_PREVIEW_RENDER_LOCK:
+                _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT.discard(cache_id)
+
+    threading.Thread(target=_render, name=f"property-map-preview-{cache_id[:8]}", daemon=True).start()
+    return cache_path
+
+
 def _png_file_to_data_url(path: Path) -> str:
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
@@ -464,9 +518,7 @@ def _cached_preview_png_path(
     width: int = 640,
     height: int = 368,
 ) -> Path:
-    normalized_key = json.dumps(cache_key, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    digest = hashlib.sha1(normalized_key.encode("utf-8")).hexdigest()
-    cache_path = _map_preview_cache_root() / f"{digest}.png"
+    cache_path = _map_preview_cache_path_for_key(cache_key)
     if cache_path.exists():
         return cache_path
 
@@ -574,19 +626,34 @@ def _cached_preview_image_url(
     draw_overlay: bool = True,
     width: int = 640,
     height: int = 368,
+    materialize: str = "sync",
 ) -> str:
-    cache_path = _cached_preview_png_path(
-        cache_key=cache_key,
-        center_lat=center_lat,
-        center_lon=center_lon,
-        zoom=zoom,
-        overlay_rows=overlay_rows,
-        boundary_paths=boundary_paths,
-        pin=pin,
-        draw_overlay=draw_overlay,
-        width=width,
-        height=height,
-    )
+    if str(materialize or "sync").strip().lower() == "async":
+        cache_path = _schedule_cached_preview_render(
+            cache_key=cache_key,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            zoom=zoom,
+            overlay_rows=overlay_rows,
+            boundary_paths=boundary_paths,
+            pin=pin,
+            draw_overlay=draw_overlay,
+            width=width,
+            height=height,
+        )
+    else:
+        cache_path = _cached_preview_png_path(
+            cache_key=cache_key,
+            center_lat=center_lat,
+            center_lon=center_lon,
+            zoom=zoom,
+            overlay_rows=overlay_rows,
+            boundary_paths=boundary_paths,
+            pin=pin,
+            draw_overlay=draw_overlay,
+            width=width,
+            height=height,
+        )
     return f"/app/api/property/map-previews/{cache_path.stem}.png"
 
 
@@ -908,6 +975,8 @@ def _build_scope_boundary_preview(
     selected_values: list[str],
     option_lookup: dict[str, str],
     market_label: str,
+    allow_remote_lookup: bool = True,
+    materialize_preview: str = "sync",
 ) -> dict[str, object]:
     queries = [
         _preview_query_with_context(option_lookup.get(value.lower(), value), country_code, region_code)
@@ -919,9 +988,9 @@ def _build_scope_boundary_preview(
     rows: list[dict[str, object]] = []
     bounds_rows: list[tuple[float, float, float, float]] = []
     for query in queries[:12]:
-        record = _nominatim_boundary_record(query)
-        if not record:
-            record = _local_scope_boundary_record(query, country_code=country_code, region_code=region_code)
+        record = _local_scope_boundary_record(query, country_code=country_code, region_code=region_code)
+        if not record and allow_remote_lookup:
+            record = _nominatim_boundary_record(query)
         if not record:
             continue
         bounds = record.get("bounds")
@@ -933,7 +1002,11 @@ def _build_scope_boundary_preview(
     if not rows:
         return {}
 
-    context_record = _nominatim_boundary_record(_context_preview_query(country_code, region_code, normalized_query, selected_labels))
+    context_record = (
+        _nominatim_boundary_record(_context_preview_query(country_code, region_code, normalized_query, selected_labels))
+        if allow_remote_lookup
+        else {}
+    )
     boundary_paths: list[str] = []
     context_bounds = context_record.get("bounds") if isinstance(context_record.get("bounds"), tuple) else None
     union_bounds = _union_geo_bounds(bounds_rows)
@@ -980,8 +1053,9 @@ def _build_scope_boundary_preview(
             "query": normalized_query,
             "areas": [row["label"] for row in district_rows],
             "zoom": zoom,
-            "overlay_mode": "svg_tile_crop_v4",
+            "overlay_mode": "svg_tile_crop_v5",
             "render_bounds_source": "selected_areas",
+            "materialize": str(materialize_preview or "sync").strip().lower(),
         },
         center_lat=center_lat,
         center_lon=center_lon,
@@ -989,6 +1063,7 @@ def _build_scope_boundary_preview(
         overlay_rows=district_rows,
         boundary_paths=boundary_paths,
         draw_overlay=True,
+        materialize=materialize_preview,
     )
     return {
         "image_url": image_url,
@@ -1321,6 +1396,8 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
             selected_values=selected_values,
             option_lookup=option_lookup,
             market_label=market_label,
+            allow_remote_lookup=False,
+            materialize_preview="async",
         )
     except Exception:
         boundary_preview = {}
@@ -1329,20 +1406,6 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
         preview_kind = str(dict(boundary_preview).get("preview_kind") or "").strip()
         if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
             return dict(boundary_preview)
-    try:
-        point_preview = _property_scope_point_preview(
-            country_code=normalized_country,
-            region_code=normalized_region,
-            normalized_query=normalized_query,
-            market_label=market_label,
-        )
-    except Exception:
-        point_preview = {}
-    if point_preview:
-        image_url = str(dict(point_preview).get("image_url") or "").strip()
-        preview_kind = str(dict(point_preview).get("preview_kind") or "").strip()
-        if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
-            return dict(point_preview)
     return _property_scope_map_pending_preview(
         normalized_query=normalized_query,
         market_label=market_label,

@@ -1725,6 +1725,18 @@
       font-size: 12px;
       line-height: 1.35;
     }
+    .pqx-step-head-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex: 0 0 auto;
+      margin-left: auto;
+    }
+    .pqx-step-head-actions .pqx-button {
+      min-height: 34px;
+      white-space: nowrap;
+    }
     .pqx-workflow {
       display: flex;
       flex-wrap: nowrap;
@@ -2946,7 +2958,9 @@
     }
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img,
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_point_fallback"] img {
-      transform: scale(3.05);
+      object-fit: contain;
+      object-position: center center;
+      transform: none;
     }
     .pqx-automation-thumbnail-action {
       position: absolute;
@@ -5614,17 +5628,22 @@
                 {% endif %}
               </div>
             </div>
-            <span class="pqx-pill" data-property-step-progress>
-              {% if surface_mode == 'agents' %}
-              Agents
-              {% elif surface_mode == 'billing' %}
-              Billing
-              {% elif surface_mode == 'account' %}
-              Account
-              {% else %}
-              Brief
+            <div class="pqx-step-head-actions">
+              <span class="pqx-pill" data-property-step-progress>
+                {% if surface_mode == 'agents' %}
+                Agents
+                {% elif surface_mode == 'billing' %}
+                Billing
+                {% elif surface_mode == 'account' %}
+                Account
+                {% else %}
+                Brief
+                {% endif %}
+              </span>
+              {% if setup_mode and console_form and show_form_controls and surface_mode != 'agents' %}
+              <button class="pqx-button primary" type="button" data-property-start-top>{{ console_form.get('submit_label') or 'Launch search' }}</button>
               {% endif %}
-            </span>
+            </div>
           </div>
           {% if surface_mode in ['agents', 'account', 'billing'] %}
           {% if surface_mode == 'agents' %}
@@ -5685,7 +5704,7 @@
           <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
             {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
             {% if wizard_steps %}
-            <fieldset class="pqx-workflow" aria-label="Search setup">
+            <fieldset class="pqx-workflow" aria-label="Search setup" data-property-step-nav>
               <legend>Search flow</legend>
               {% for step in wizard_steps %}
               <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}">

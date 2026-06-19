@@ -1852,7 +1852,7 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
     assert preview["has_district_overlay"] is True
     assert len(preview_render_calls) == 1
     assert len(preview_render_calls[0]["overlay_rows"]) == 2
-    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v4"
+    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v5"
     assert preview_render_calls[0]["cache_key"]["render_bounds_source"] == "selected_areas"
     assert preview_render_calls[0]["zoom"] >= 10
 
@@ -1873,7 +1873,7 @@ def test_property_scope_preview_without_boundary_data_uses_local_vienna_overlay_
     assert preview["preview_kind"] == "osm_district_overlay"
     assert preview["has_district_overlay"] is True
     assert preview["district_rows"][0]["label"] == "Leopoldstadt"
-    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v4"
+    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v5"
 
 
 def test_property_scope_preview_without_boundary_or_local_overlay_uses_local_layout_fallback(monkeypatch) -> None:
@@ -2053,6 +2053,31 @@ def test_property_scope_preview_map_only_rejects_local_layout_thumbnail_pipeline
     assert str(preview["image_url"]).startswith("/app/api/property/map-previews/")
     assert "data:image/svg+xml" not in str(preview["image_url"])
     assert preview["has_district_overlay"] is False
+
+
+def test_property_scope_preview_map_only_uses_local_boundary_and_async_render(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_nominatim_boundary_record",
+        lambda query: (_ for _ in ()).throw(AssertionError("agents first paint must not call Nominatim")),
+    )
+    scheduled: list[dict[str, object]] = []
+
+    def fake_schedule_cached_preview_render(**kwargs) -> Path:
+        scheduled.append(dict(kwargs))
+        return tmp_path / "1234567890abcdef1234567890abcdef12345678.png"
+
+    monkeypatch.setattr(landing_view_models, "_schedule_cached_preview_render", fake_schedule_cached_preview_render)
+
+    preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna, 1200 Vienna")
+
+    assert preview["preview_kind"] == "osm_district_overlay"
+    assert preview["has_district_overlay"] is True
+    assert len(preview["district_rows"]) == 2
+    assert preview["image_url"] == "/app/api/property/map-previews/1234567890abcdef1234567890abcdef12345678.png"
+    assert scheduled
+    assert scheduled[0]["draw_overlay"] is True
+    assert len(scheduled[0]["overlay_rows"]) == 2
 
 
 def test_property_scope_preview_uses_region_fallback_when_geocode_fails(monkeypatch) -> None:
@@ -3158,6 +3183,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Select Volksschule to reveal Ganztags- and Halbtagsvolksschule variants." in setup.text
     assert "Select Kindergarten to reveal public and private kindergarten options." in setup.text
     assert 'data-checkbox-group-select-all="selected_platforms"' in setup.text
+    assert 'class="pqx-step-head-actions"' in setup.text
+    assert 'data-property-start-top' in setup.text
+    assert setup.text.index('data-property-start-top') < setup.text.index('data-property-step-nav')
+    assert 'data-property-step-nav' in setup.text
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
     assert "Select sources" in setup.text
@@ -4279,10 +4308,16 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "Map preview unavailable" not in template
     assert "object-position: center 44%;" in template
     assert 'transform: scale(2.18);' in template
-    assert 'transform: scale(3.05);' in template
+    assert 'transform: scale(3.05);' not in template
+    assert '.pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img' in template
+    assert "object-fit: contain;" in template
+    assert "transform: none;" in template
     assert ".pqx-automation-scope-empty::after" in template
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    assert "root.querySelector('[data-property-start-top]')?.addEventListener('click', startSearch);" in script
+    assert "const stepNav = form.querySelector('[data-property-step-nav]');" in script
+    assert "stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });" in script
     assert "const showPreviewFallback = () => {" not in script
     assert "img.complete && img.naturalWidth === 0" not in script
     assert "thumb.classList.add('is-preview-error')" not in script

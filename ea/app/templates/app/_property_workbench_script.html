@@ -1611,6 +1611,7 @@
       const back = root.querySelector('[data-property-step-back]');
       const next = root.querySelector('[data-property-step-next]');
       const actions = root.querySelector('[data-property-actions]');
+      const stepNav = form.querySelector('[data-property-step-nav]');
       let current = 0;
       const goToStepByKey = (stepKey) => {
         const normalizedKey = String(stepKey || '').trim();
@@ -1674,6 +1675,11 @@
           next.textContent = current === visibleSteps.length - 2 ? 'Review launch' : 'Next';
         }
         if (actions) actions.hidden = current !== visibleSteps.length - 1;
+        if (!silent && stepNav && typeof stepNav.scrollIntoView === 'function') {
+          window.requestAnimationFrame(() => {
+            stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+          });
+        }
         if (!silent) {
           form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
         }
@@ -2513,6 +2519,7 @@
       }
     });
     root.querySelector('[data-property-start]')?.addEventListener('click', startSearch);
+    root.querySelector('[data-property-start-top]')?.addEventListener('click', startSearch);
     const updateSearchAgent = async (agentId, action, patch = {}) => {
       const template = String(meta.search_agent_update_endpoint_template || '/v1/onboarding/property-search/agents/__AGENT_ID__');
       const resolvedAgentId = encodeURIComponent(String(agentId || 'current').trim() || 'current');

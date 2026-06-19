@@ -1182,6 +1182,8 @@ def test_propertyquarry_search_wizard_steps_replace_visible_controls_without_acc
         response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        expect(page.locator('[data-property-start-top]')).to_be_visible()
+        expect(page.locator('[data-property-step-nav]')).to_be_visible()
         expected_fields = {
             "search": "country_code",
             "what": "property_type",
@@ -1209,6 +1211,20 @@ def test_propertyquarry_search_wizard_steps_replace_visible_controls_without_acc
             if field_name:
                 expect(page.locator(f'[data-property-field-name="{field_name}"]')).to_be_visible()
             assert page.locator(".pqx-workflow-step.active").count() == 1
+            nav_box = page.locator('[data-property-step-nav]').bounding_box()
+            assert nav_box is not None
+            assert nav_box["y"] >= 0
+            assert nav_box["y"] < 220
+        page.locator('[data-property-step-trigger="search"]').click()
+        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        page.locator('[data-property-step-next]').click()
+        page.wait_for_function(
+            """() => document.querySelector('[data-console-form-variant="property_search"]')?.dataset.propertyActiveStep === 'what'"""
+        )
+        nav_box = page.locator('[data-property-step-nav]').bounding_box()
+        assert nav_box is not None
+        assert nav_box["y"] >= 0
+        assert nav_box["y"] < 220
     finally:
         context.close()
 
