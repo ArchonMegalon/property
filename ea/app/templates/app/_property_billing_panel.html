@@ -6,11 +6,11 @@
 {% set verification_card = namespace(value={}) %}
 {% set decision_card = namespace(value={}) %}
 {% for card in billing_cards %}
-  {% if card.get('title') == 'Current commercial state' %}{% set current_card.value = card %}{% endif %}
-  {% if card.get('title') == 'Checkout path and plan verification' %}{% set checkout_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Current search access' %}{% set current_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Checkout path' %}{% set checkout_card.value = card %}{% endif %}
   {% if card.get('title') == 'What this plan can actually run' %}{% set entitlement_card.value = card %}{% endif %}
   {% if card.get('title') == 'What actually changes with each tier' %}{% set upgrade_card.value = card %}{% endif %}
-  {% if card.get('title') == 'How the limits affect real search runs' %}{% set verification_card.value = card %}{% endif %}
+  {% if card.get('title') == 'How this plan affects real runs' %}{% set verification_card.value = card %}{% endif %}
   {% if card.get('title') == 'Upgrade only when the current lane is the bottleneck' %}{% set decision_card.value = card %}{% endif %}
 {% endfor %}
 

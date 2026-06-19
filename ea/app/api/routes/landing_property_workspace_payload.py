@@ -1806,7 +1806,7 @@ def property_workspace_payload(
             {"label": "Reports", "value": "Email", "detail": "Digests, repair notes, and market watches leave from this lane.", "href": f"/app/agents{run_suffix}"},
         ],
         "billing": [
-            {"label": "Plan", "value": current_plan_label, "detail": "Current commercial posture.", "href": f"/app/billing{run_suffix}"},
+            {"label": "Plan", "value": current_plan_label, "detail": "Current search access.", "href": f"/app/billing{run_suffix}"},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "How deep the research lane runs.", "href": f"/app/billing{run_suffix}"},
             {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Maximum provider breadth for this plan.", "href": f"/app/billing{run_suffix}"},
             {"label": "Per source", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked results per provider.", "href": f"/app/billing{run_suffix}"},
@@ -2342,7 +2342,7 @@ def property_workspace_payload(
         },
         "billing": {
             "title": "Billing",
-            "summary": "Use one billing surface for plan state, checkout path, entitlements, and verified plan limits.",
+            "summary": "Plan, checkout, and the search capacity available right now.",
             "hero_kicker": "Billing",
             "hero_title": "Your plan.",
             "hero_summary": "Current access, checkout status, and search capacity.",
@@ -2350,14 +2350,14 @@ def property_workspace_payload(
             "hero_highlights": hero_highlights["billing"],
             "primary_cards": [
                 {
-                    "eyebrow": "Plan posture",
-                    "title": "Current commercial state",
+                    "eyebrow": "Plan",
+                    "title": "Current search access",
                     "body": "",
                     "items": billing_rows,
                 },
                 {
-                    "eyebrow": "Checkout and verification",
-                    "title": "Checkout path and plan verification",
+                    "eyebrow": "Checkout",
+                    "title": "Checkout path",
                     "body": "",
                     "items": [
                         row_item(
@@ -2367,12 +2367,12 @@ def property_workspace_payload(
                         ),
                         row_item(
                             "Plan state",
-                            "The visible limits on this page match the current plan.",
-                            "Verified",
+                            "The visible search capacity on this page comes from the active plan.",
+                            "Active",
                         ),
                         row_item(
-                            "Plan impact",
-                            "Use this surface to understand what the current tier actually unlocks before changing plan.",
+                            "Before changing plan",
+                            "Check whether the current bottleneck is provider breadth, shortlist density, or research depth.",
                             "Plan",
                         ),
                     ],
@@ -2396,8 +2396,8 @@ def property_workspace_payload(
                     "items": billing_upgrade_rows,
                 },
                 {
-                    "eyebrow": "Plan posture",
-                    "title": "How the limits affect real search runs",
+                    "eyebrow": "Search capacity",
+                    "title": "How this plan affects real runs",
                     "body": "",
                     "items": [
                         row_item(
@@ -2418,7 +2418,7 @@ def property_workspace_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Commercial decision",
+                    "eyebrow": "Decision",
                     "title": "Upgrade only when the current lane is the bottleneck",
                     "body": "",
                     "items": billing_decision_rows,

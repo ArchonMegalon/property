@@ -305,7 +305,10 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers)
     assert billing.status_code == 200
-    assert "Current commercial state" in billing.text
+    assert "Current search access" in billing.text
+    assert "Current commercial state" not in billing.text
+    assert "Plan posture" not in billing.text
+    assert "Commercial decision" not in billing.text
     assert "Plus checkout" in billing.text
 
 
