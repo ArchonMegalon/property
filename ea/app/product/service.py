@@ -2049,6 +2049,21 @@ def _property_search_provider_group_total(specs: list[dict[str, object]]) -> int
     return len({_property_search_provider_group_key(dict(spec)) for spec in specs})
 
 
+def _property_search_provider_total(specs: list[dict[str, object]]) -> int:
+    provider_keys: set[str] = set()
+    for spec in specs:
+        platform = str(dict(spec).get("platform") or "").strip().lower()
+        if platform:
+            provider_keys.add(platform)
+            continue
+        label = " ".join(str(dict(spec).get("label") or "").split()).strip()
+        if "|" in label:
+            label = label.split("|", 1)[0].strip()
+        if label:
+            provider_keys.add(label.casefold())
+    return len(provider_keys)
+
+
 def _property_search_prefetch_listing_urls(
     *,
     specs: list[dict[str, object]],
@@ -29726,7 +29741,8 @@ class ProductService:
             and (not run_platforms or "all" in run_platforms or str(spec.get("platform") or "").strip() in run_platforms)
         ]
         specs = _property_search_interleave_by_provider_group(specs)
-        provider_total = _property_search_provider_group_total(specs)
+        provider_total = _property_search_provider_total(specs)
+        provider_group_total = _property_search_provider_group_total(specs)
         source_variant_total = len(specs)
         source_resolution_label = (
             f"Resolved {provider_total} provider(s) across {source_variant_total} source variant(s) for scanning."
@@ -29752,6 +29768,7 @@ class ProductService:
                 "sources_total": source_variant_total,
                 "source_variant_total": source_variant_total,
                 "provider_total": provider_total,
+                "provider_group_total": provider_group_total,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
@@ -32520,6 +32537,7 @@ class ProductService:
             "sources_total": source_variant_total,
             "source_variant_total": source_variant_total,
             "provider_total": provider_total,
+            "provider_group_total": provider_group_total,
             "listing_total": listing_total,
             "reviewed_listing_total": reviewed_listing_total,
             "duplicate_listing_total": duplicate_listing_total,

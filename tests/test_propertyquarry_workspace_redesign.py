@@ -3693,6 +3693,8 @@ def test_property_search_progress_copy_names_providers_not_generic_sources() -> 
 
     assert "Resolved {source_variant_total} source(s) for scanning." not in service_source
     assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." in service_source
+    assert "provider_total = _property_search_provider_total(specs)" in service_source
+    assert "provider_group_total = _property_search_provider_group_total(specs)" in service_source
     assert 'else "Sources"' not in view_model_source
     assert 'else "Provider checks"' in view_model_source
 

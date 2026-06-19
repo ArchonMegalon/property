@@ -6309,25 +6309,41 @@ def test_property_search_run_terminal_outcome_prefers_partial_success_for_mixed_
     ) == "failed"
 
 
-def test_property_search_provider_group_total_counts_brands_not_query_variants() -> None:
+def test_property_search_provider_totals_distinguish_integrations_from_groups() -> None:
     specs = [
         {
             "platform": "willhaben",
+            "provider_family": "core_portal",
             "label": "Willhaben | Austria | Rent | 1010 Vienna",
             "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1010+Vienna",
         },
         {
             "platform": "willhaben",
+            "provider_family": "core_portal",
             "label": "Willhaben | Austria | Rent | 1020 Vienna",
             "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1020+Vienna",
         },
         {
             "platform": "derstandard_at",
+            "provider_family": "core_portal",
             "label": "DER STANDARD Immobilien | Austria | Rent | 1020 Vienna",
             "url": "https://immobilien.derstandard.at/search/1020",
         },
+        {
+            "platform": "gesiba_at",
+            "provider_family": "housing_coop",
+            "label": "GESIBA | Austria | Rent | 1020 Vienna",
+            "url": "https://www.gesiba.at/search/1020",
+        },
+        {
+            "platform": "oesw_at",
+            "provider_family": "housing_coop",
+            "label": "ÖSW | Austria | Rent | 1020 Vienna",
+            "url": "https://www.oesw.at/search/1020",
+        },
     ]
 
+    assert product_service._property_search_provider_total(specs) == 4
     assert product_service._property_search_provider_group_total(specs) == 2
 
 
