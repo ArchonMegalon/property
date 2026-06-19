@@ -24426,6 +24426,28 @@ class ProductService:
         candidate_title = str(snapshot.get("title") or title).strip()
         candidate_summary = str(snapshot.get("text") or diagnostics.get("summary") or "").strip()
         candidate_facts = dict(snapshot.get("property_facts") or {})
+        provider_scoped_subject = urllib.parse.urlparse(property_url).scheme == "propertyquarry"
+        diagnostic_example_url = str(diagnostics.get("example_property_url") or diagnostics.get("source_url") or "").strip()
+        if provider_scoped_subject:
+            candidate_title = str(diagnostics.get("title") or title or candidate_title).strip()
+            candidate_summary = str(diagnostics.get("summary") or candidate_summary).strip()
+            candidate_facts = {
+                key: value
+                for key, value in diagnostics.items()
+                if key
+                in {
+                    "postal_name",
+                    "district",
+                    "source_scope_location",
+                    "source_city",
+                    "source_postal_code",
+                    "price_display",
+                    "rooms",
+                    "area_sqm",
+                    "listing_id",
+                }
+                and str(value or "").strip()
+            }
         resolution = ""
         reason = ""
         if filter_key == "source_fetch":
@@ -24440,8 +24462,11 @@ class ProductService:
                 reason = "provider source endpoint was removed"
             elif not bool(snapshot.get("http_ok")):
                 return {"status": "deferred", "reason": "manual_provider_patch_required"}
+        elif filter_key == "generic_listing_page" and provider_scoped_subject and diagnostic_example_url:
+            resolution = "suppressed_generic_listing_page"
+            reason = "provider returned generic or non-listing candidates for this source family"
         elif _property_candidate_is_generic_listing_page(
-            property_url=property_url,
+            property_url=diagnostic_example_url or property_url,
             title=candidate_title,
             summary=candidate_summary,
             property_facts=candidate_facts,

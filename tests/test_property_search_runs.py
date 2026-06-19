@@ -2846,6 +2846,61 @@ def test_property_provider_repair_auto_resolves_generic_listing_page_key_and_rec
     assert summary["sources"][0]["repair_resolution"] == "suppressed_generic_listing_page"
 
 
+def test_property_provider_repair_auto_resolves_provider_scoped_generic_listing_page() -> None:
+    principal_id = "exec-property-provider-scoped-generic-repair"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Scoped Generic Repair Office")
+    service = ProductService(client.app.state.container)
+    run_id = f"provider-scoped-generic-{uuid.uuid4().hex}"
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1010+Vienna"
+    example_url = "https://www.willhaben.at/iad/object?adId=755995091"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "summary": {
+                "sources": [
+                    {
+                        "source_url": source_url,
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "provider_repair_task_opened_total": 1,
+                    }
+                ]
+            },
+        }
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="propertyquarry://provider/willhaben/generic-listing-page",
+        title="Willhaben generic listing-page extraction drift",
+        source_url=source_url,
+        source_label="Willhaben | Austria | Rent | 1010 Vienna",
+        source_platform="willhaben",
+        source_family="core_portal",
+        filter_key="generic_listing_page",
+        diagnostics={
+            "provider_host": "www.willhaben.at",
+            "source_url": source_url,
+            "example_property_url": example_url,
+            "title": "Wohnen im Zentrum von Graz - Uhrturmblick - willhaben",
+            "postal_name": "8020 Graz",
+            "source_scope_location": "1010 Vienna",
+        },
+        source_ref="property-provider:willhaben:generic-listing-page",
+        run_id=run_id,
+    )
+
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+    assert opened["resolution"] == "suppressed_generic_listing_page"
+    snapshot = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    summary = dict(dict(snapshot or {}).get("summary") or {})
+    assert summary["repair_receipts"][0]["filter_key"] == "generic_listing_page"
+    assert summary["repair_receipts"][0]["resolution"] == "suppressed_generic_listing_page"
+    assert summary["repair_receipts"][0]["source_url"] == source_url
+
+
 def test_property_provider_repair_does_not_cross_resolve_floorplan_into_location_scope(monkeypatch) -> None:
     principal_id = "exec-property-provider-floorplan-semantic-fence"
     client = build_property_client(principal_id=principal_id)
