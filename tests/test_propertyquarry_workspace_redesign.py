@@ -2548,6 +2548,16 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "Questions worth asking next" in body
 
 
+def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
+    body = template_path.read_text(encoding="utf-8")
+    assert "grid-template-columns: minmax(0, 1.42fr) minmax(360px, 0.82fr);" in body
+    assert "grid-template-columns: 1fr;" in body
+    assert "min-height: clamp(330px, calc(100vh - 260px), 520px);" in body
+    assert "min-height: min(56vh, 520px);" not in body
+    assert body.index("data-object-media-stage") < body.index("At a glance")
+
+
 def test_base_public_template_exposes_public_seo_contract() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/base_public.html"
     body = template_path.read_text(encoding="utf-8")

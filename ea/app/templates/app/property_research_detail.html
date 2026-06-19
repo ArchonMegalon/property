@@ -18,10 +18,12 @@
   .prd-shell {
     width: min(1240px, calc(100vw - 32px));
     margin: 0 auto;
-    padding-bottom: 40px;
-    gap: 24px;
+    padding-bottom: 28px;
+    gap: 18px;
   }
   .prd-hero {
+    grid-template-columns: minmax(0, 1.42fr) minmax(360px, 0.82fr);
+    align-items: start;
     gap: 14px;
   }
   .prd-body {
@@ -30,9 +32,9 @@
     gap: 18px;
   }
   .prd-headline {
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 332px);
+    grid-template-columns: 1fr;
     align-items: start;
-    gap: 14px;
+    gap: 12px;
   }
   .prd-summary-stack,
   .prd-side-stack {
@@ -47,7 +49,7 @@
     border-radius: 14px;
     background: var(--panel);
     box-shadow: none;
-    padding: 16px;
+    padding: 14px;
     box-sizing: border-box;
     min-width: 0;
   }
@@ -78,28 +80,28 @@
   }
   .prd-headline-panel h1 {
     margin: 0;
-    font-size: 1.22rem;
+    font-size: 1.12rem;
     line-height: 1.22;
     letter-spacing: 0;
   }
   .prd-price {
-    font-size: 1.08rem;
+    font-size: 1rem;
     line-height: 1.18;
-    margin: 8px 0 0;
+    margin: 6px 0 0;
     color: var(--text);
   }
   .prd-facts {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 14px;
+    gap: 6px;
+    margin-top: 10px;
   }
   .prd-chip {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    min-height: 32px;
-    padding: 0 12px;
+    min-height: 28px;
+    padding: 0 10px;
     border-radius: 999px;
     border: 1px solid var(--line);
     background: var(--panel-2);
@@ -109,11 +111,12 @@
   .prd-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
   }
   .prd-actions .console-action,
   .prd-actions .pqx-button {
-    min-height: 40px;
+    min-height: 34px;
+    padding-block: 7px;
   }
   .prd-status-line {
     display: flex;
@@ -125,7 +128,7 @@
   .prd-status-badge {
     display: inline-flex;
     align-items: center;
-    min-height: 30px;
+    min-height: 28px;
     padding: 0 11px;
     border-radius: 999px;
     border: 1px solid rgba(195, 159, 86, 0.44);
@@ -139,16 +142,16 @@
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    min-height: clamp(280px, 44vh, 560px);
-    max-height: min(60vh, 560px);
+    min-height: clamp(330px, calc(100vh - 260px), 520px);
+    max-height: min(calc(100vh - 220px), 540px);
     padding: 0;
     background: var(--panel-2);
     border: 1px solid var(--line);
     border-radius: 18px;
   }
   .prd-media-frame.prd-media-frame-live {
-    min-height: min(56vh, 520px);
-    max-height: min(56vh, 520px);
+    min-height: clamp(340px, calc(100vh - 240px), 540px);
+    max-height: min(calc(100vh - 210px), 560px);
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -191,16 +194,16 @@
   }
   .prd-media-caption {
     position: absolute;
-    left: 18px;
-    right: 18px;
-    bottom: 18px;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
     z-index: 2;
     display: grid;
     gap: 6px;
     color: #fffdf8;
   }
   .prd-media-caption strong {
-    font-size: 1.14rem;
+    font-size: 1rem;
     line-height: 1.14;
   }
   .prd-media-caption span {
@@ -208,7 +211,7 @@
     font-size: 13px;
   }
   .prd-visual-status {
-    margin-top: 10px;
+    margin-top: 8px;
     color: var(--text-soft);
     font-size: 13px;
   }
@@ -251,6 +254,7 @@
   }
   .prd-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
   .prd-meta-card span {
     display: block;
@@ -261,10 +265,10 @@
   .prd-meta-card strong {
     display: block;
     color: var(--text);
-    font-size: 1rem;
+    font-size: 0.95rem;
   }
   .prd-map-card {
-    gap: 14px;
+    gap: 10px;
   }
   .prd-map-embed {
     width: 100%;
@@ -283,8 +287,8 @@
   }
   .prd-map-inline {
     display: grid;
-    grid-template-columns: 112px minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 12px;
     align-items: start;
   }
   .prd-map-thumb {
@@ -300,8 +304,8 @@
     cursor: zoom-in;
   }
   .prd-map-thumb.is-inline {
-    width: 112px;
-    min-width: 112px;
+    width: 96px;
+    min-width: 96px;
     aspect-ratio: 1 / 1;
     border-radius: 12px;
   }
@@ -350,13 +354,13 @@
   .prd-summary-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
   }
   .prd-summary-box {
     border: 1px solid var(--line);
     border-radius: 14px;
     background: var(--panel-2);
-    padding: 14px;
+    padding: 12px;
   }
   .prd-summary-box span {
     display: block;
@@ -763,6 +767,7 @@
     opacity: 1;
   }
   @media (max-width: 1080px) {
+    .prd-hero,
     .prd-headline,
     .prd-body,
     .prd-section-grid,

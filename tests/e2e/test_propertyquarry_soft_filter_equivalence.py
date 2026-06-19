@@ -235,7 +235,8 @@ def test_propertyquarry_e2e_exact_district_selection_remains_a_hard_filter(monke
     in_scope_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/e2e-location-1010/"
     wrong_vienna_url = "https://www.derstandard.at/immobilien/wohnung-mieten-in-1220-wien-e2e-location"
     wrong_region_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/e2e-location-salzburg/"
-    listing_urls = [in_scope_url, wrong_vienna_url, wrong_region_url]
+    wrong_project_url = "https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70?quot%3B%2Fn="
+    listing_urls = [in_scope_url, wrong_vienna_url, wrong_region_url, wrong_project_url]
 
     monkeypatch.setattr(
         product_service,
@@ -284,6 +285,20 @@ def test_propertyquarry_e2e_exact_district_selection_remains_a_hard_filter(monke
                     "area_sqm": 60,
                     "rooms": 2,
                     "total_rent_eur": 1090,
+                },
+            }
+        if property_url == wrong_project_url:
+            return {
+                "listing_id": "e2e-location-raiffeisen-1090",
+                "title": "Augasse 17 | Raiffeisen WohnBau",
+                "summary": "Projektadresse Augasse 17 in 1090 Wien.",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "area_sqm": 70,
+                    "rooms": 2,
+                    "purchase_price_eur": 520000,
                 },
             }
         return {
@@ -354,4 +369,4 @@ def test_propertyquarry_e2e_exact_district_selection_remains_a_hard_filter(monke
     assert status["status"] == "processed"
     assert _candidate_urls(status) == {in_scope_url}
     summary = dict(status.get("summary") or {})
-    assert int(summary.get("filtered_area_total") or 0) >= 2
+    assert int(summary.get("filtered_area_total") or 0) >= 3
