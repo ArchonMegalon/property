@@ -2343,7 +2343,7 @@ def _telegram_property_alert_policy_reply(
     )
     threshold = int(float(policy.get("good_fit_min_score") or 80.0))
     return (
-        "Understood. EA will now score and compare property alerts automatically, "
+        "Understood. PropertyQuarry will now score and compare property alerts automatically, "
         f"and only notify you here when the fit looks genuinely good, around {threshold}/100 or shortlist-level."
     )
 
@@ -4760,8 +4760,8 @@ def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecisi
         return TelegramTurnDecision(
             reply_text=(
                 "Link received. This broker portal is behind an authenticated service-portal session, "
-                "so EA cannot truthfully build the 3D tour, flythrough, or dossier from the raw link alone. "
-                "Send a public expose link, the broker PDF, or the listing photos/screenshots here and EA can continue from that."
+                "so PropertyQuarry cannot truthfully build the 3D tour, flythrough, or dossier from the raw link alone. "
+                "Send a public expose link, the broker PDF, or the listing photos/screenshots here and PropertyQuarry can continue from that."
             )
         )
     local_assistant_reply = _telegram_local_assistant_reply_text(
@@ -5573,6 +5573,7 @@ def _telegram_processing_ack_text(text: str, *, render_priority: str = "") -> st
     normalized = str(text or "").strip()
     base = "Saved. EA is processing this asynchronously now."
     if _telegram_supported_property_link(normalized):
+        base = "Saved. PropertyQuarry is processing this listing now."
         if str(render_priority or "").strip().lower() == "paid":
             return f"{base} Your render request is in the paid-priority lane."
         return f"{base} Free-tier requests are processed after paid render requests."

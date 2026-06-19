@@ -1686,6 +1686,43 @@ def test_telegram_link_turn_decision_reports_login_walled_broker_portal() -> Non
     assert decision.schedule_async is False
     assert "authenticated service-portal session" in decision.reply_text
     assert "3D tour, flythrough, or dossier" in decision.reply_text
+    assert "PropertyQuarry cannot truthfully build" in decision.reply_text
+    assert "EA cannot" not in decision.reply_text
+    assert "EA can continue" not in decision.reply_text
+
+
+def test_telegram_property_processing_ack_uses_propertyquarry_brand() -> None:
+    from app.api.routes import channels as channels_route
+
+    text = channels_route._telegram_processing_ack_text(
+        "https://www.immobilienscout24.at/expose/telegram-property-link-worker",
+        render_priority="paid",
+    )
+
+    assert "PropertyQuarry is processing this listing now" in text
+    assert "EA is processing" not in text
+
+
+def test_telegram_property_alert_policy_reply_uses_propertyquarry_brand(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+
+    client = _client(principal_id="exec-telegram-property-policy", operator=False)
+    monkeypatch.setattr(
+        channels_route,
+        "build_product_service",
+        lambda container: SimpleNamespace(
+            update_property_alert_policy=lambda **kwargs: {"good_fit_min_score": kwargs["good_fit_min_score"]}
+        ),
+    )
+
+    reply = channels_route._telegram_property_alert_policy_reply(
+        client.app.state.container,
+        principal_id="exec-telegram-property-policy",
+        lower="do all of that by itself",
+    )
+
+    assert "PropertyQuarry will now score and compare property alerts automatically" in reply
+    assert "EA will now score" not in reply
 
 
 def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: pytest.MonkeyPatch) -> None:
