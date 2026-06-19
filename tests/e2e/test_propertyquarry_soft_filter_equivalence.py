@@ -224,3 +224,134 @@ def test_propertyquarry_e2e_soft_preferences_preserve_search_hits(monkeypatch) -
         or dict(row.get("property_facts") or {}).get("score_demoted_by_match_threshold")
         for row in _candidate_fact_rows(soft_status)
     )
+
+
+def test_propertyquarry_e2e_exact_district_selection_remains_a_hard_filter(monkeypatch) -> None:
+    principal_id = "exec-property-e2e-location-hard-filter"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Location Hard Filter E2E")
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1010-innere-stadt"
+    in_scope_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/e2e-location-1010/"
+    wrong_vienna_url = "https://www.derstandard.at/immobilien/wohnung-mieten-in-1220-wien-e2e-location"
+    wrong_region_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/e2e-location-salzburg/"
+    listing_urls = [in_scope_url, wrong_vienna_url, wrong_region_url]
+
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 5,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": list(listing_urls),
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:e2e-location-hard-filter"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+
+    def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+        if property_url == in_scope_url:
+            return {
+                "listing_id": "e2e-location-1010",
+                "title": "Mietwohnung in 1010 Wien | 77 m2 | 3 Zimmer",
+                "summary": "Ruhige Wohnung in der Inneren Stadt.",
+                "property_facts_json": {"postal_name": "1010 Wien", "area_sqm": 77, "rooms": 3, "total_rent_eur": 1590},
+            }
+        if property_url == wrong_vienna_url:
+            return {
+                "listing_id": "e2e-location-1220",
+                "title": "Wohnung mieten in 1220 Wien | 60 m2 | 2 Zimmer | EUR 1.090",
+                "summary": "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "area_sqm": 60,
+                    "rooms": 2,
+                    "total_rent_eur": 1090,
+                },
+            }
+        return {
+            "listing_id": "e2e-location-salzburg",
+            "title": "Moderne Zwei-Zimmer Wohnung mit Terrasse",
+            "summary": "Moderne Wohnung mit Penthouse-Charakter in Salzburg.",
+            "property_facts_json": {
+                "postal_name": "1010 Vienna",
+                "source_scope_location": "1010 Vienna",
+                "source_postal_code": "1010",
+                "area_sqm": 70,
+                "rooms": 2,
+                "total_rent_eur": 1320,
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 72.0,
+            "recommendation": "review",
+            "match_reasons_json": ["Listing basics match"],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {
+            "status": "opened",
+            "editor_url": f"/app/research/{str(kwargs.get('source_ref') or 'candidate').split(':')[-1]}",
+        },
+    )
+
+    started = client.post(
+        "/app/api/property/search-runs",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "Wien",
+                "selected_districts": ["1010 Vienna"],
+                "property_type": "apartment",
+                "search_mode": "discovery",
+                "min_match_score": 50,
+                "require_floorplan": False,
+                "max_distance_to_playground_m": 100,
+                "max_distance_to_playground_importance": "nice_to_have",
+                "property_commercial": {
+                    "active_plan_key": "agent",
+                    "status": "active",
+                    "active_until": "2999-01-01T00:00:00+00:00",
+                },
+            },
+            "force_refresh": True,
+            "max_results_per_source": 5,
+        },
+    )
+    assert started.status_code == 200, started.text
+
+    status = _poll_search_run(client, started.json()["run_id"])
+
+    assert status["status"] == "processed"
+    assert _candidate_urls(status) == {in_scope_url}
+    summary = dict(status.get("summary") or {})
+    assert int(summary.get("filtered_area_total") or 0) >= 2
