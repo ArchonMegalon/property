@@ -172,6 +172,63 @@ def test_preference_profile_service_scores_willhaben_candidate_from_profile() ->
     assert assessment["blocking_constraints_json"] == []
 
 
+def test_preference_profile_service_uses_candidate_currency_in_rent_reasons() -> None:
+    service = _service()
+    service.ensure_profile(
+        principal_id="pref-principal",
+        person_id="self",
+        consent_mode="behavioral_learning",
+        learning_enabled=True,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        category="constraint",
+        key="max_total_rent_eur",
+        value_json=1200,
+        confidence=1.0,
+    )
+    service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        category="soft_preference",
+        key="prefer_lower_total_rent_eur",
+        value_json=900,
+        confidence=1.0,
+    )
+
+    assessment = service.assess_candidate(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        object_type="listing",
+        object_id="uk-listing-1",
+        object_payload={
+            "country_code": "GB",
+            "currency_code": "GBP",
+            "postal_name": "London",
+            "total_rent_eur": 1350.0,
+            "rooms": 2.0,
+            "area_sqm": 55.0,
+        },
+        persist=False,
+        require_existing_profile=True,
+    )
+
+    assert assessment is not None
+    copy = " ".join(
+        list(assessment["blocking_constraints_json"])
+        + list(assessment["match_reasons_json"])
+        + list(assessment["mismatch_reasons_json"])
+    )
+    assert "GBP 1200" in copy
+    assert "GBP 900" in copy
+    assert "EUR 1200" not in copy
+    assert "EUR 900" not in copy
+
+
 def test_preference_profile_service_builds_teable_projection_rows() -> None:
     service = _service()
     service.ensure_profile(principal_id="pref-principal", person_id="self", display_name="Tibor")

@@ -6,6 +6,7 @@ from typing import Any
 
 from app.repositories.preference_profiles import InMemoryPreferenceProfileRepository, PreferenceProfileRepository
 from app.repositories.preference_profiles_postgres import PostgresPreferenceProfileRepository
+from app.services.property_market_catalog import currency_code_for_country, supported_currency_codes
 from app.settings import Settings, ensure_storage_fallback_allowed
 
 
@@ -81,6 +82,27 @@ def _list_value(value: object) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value.strip()]
     return []
+
+
+def _candidate_currency_code(facts: dict[str, object]) -> str:
+    supported = {code.upper() for code in supported_currency_codes()}
+    for key in ("price_currency", "currency_code", "currency"):
+        currency_code = str(facts.get(key) or "").strip().upper()
+        if currency_code in supported:
+            return currency_code
+    for key in ("country_code", "market_country_code"):
+        country_code = str(facts.get(key) or "").strip().upper()
+        if country_code:
+            return currency_code_for_country(country_code)
+    return "EUR"
+
+
+def _money_label(value: float, *, currency_code: str) -> str:
+    if float(value).is_integer():
+        amount = f"{value:.0f}"
+    else:
+        amount = f"{value:g}"
+    return f"{currency_code} {amount}"
 
 
 class PreferenceProfileService:
@@ -593,6 +615,7 @@ class PreferenceProfileService:
     ) -> dict[str, object]:
         facts = dict(object_payload or {})
         attributes = dict(facts.get("attribute_map") or {})
+        currency_code = _candidate_currency_code(facts)
         district = str(facts.get("postal_name") or facts.get("district") or facts.get("location") or "").strip()
         total_rent = facts.get("total_rent_eur")
         rooms = facts.get("rooms")
@@ -648,7 +671,8 @@ class PreferenceProfileService:
                 except Exception:
                     ceiling = None
                 if ceiling is not None and total_rent > ceiling:
-                    blocking_constraints.append(f"Total monthly burden exceeds the preferred ceiling of EUR {ceiling:g}.")
+                    ceiling_label = _money_label(ceiling, currency_code=currency_code)
+                    blocking_constraints.append(f"Total monthly burden exceeds the preferred ceiling of {ceiling_label}.")
                     score -= 20.0
             elif category == "constraint" and key == "min_rooms" and isinstance(rooms, (int, float)):
                 try:
@@ -769,12 +793,13 @@ class PreferenceProfileService:
                 except Exception:
                     preferred_rent = 0.0
                 if preferred_rent > 0.0:
+                    preferred_rent_label = _money_label(preferred_rent, currency_code=currency_code)
                     if total_rent <= preferred_rent:
                         score += 4.0 * weight
-                        match_reasons.append(f"The total rent sits within the preferred range (about EUR {preferred_rent:g}).")
+                        match_reasons.append(f"The total rent sits within the preferred range (about {preferred_rent_label}).")
                     elif total_rent > preferred_rent * 1.12:
                         score -= 5.0 * weight
-                        mismatch_reasons.append(f"The total rent exceeds the preferred range (about EUR {preferred_rent:g}).")
+                        mismatch_reasons.append(f"The total rent exceeds the preferred range (about {preferred_rent_label}).")
             elif category == "soft_preference" and key == "min_area_sqm_preference" and isinstance(area_sqm, (int, float)):
                 try:
                     preferred_area = float(value)
