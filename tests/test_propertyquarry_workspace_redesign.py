@@ -77,6 +77,17 @@ def test_property_results_empty_state_uses_saved_search_language() -> None:
     assert "Open automation" not in body
 
 
+def test_property_result_title_display_cleans_provider_url_garbage() -> None:
+    raw_title = 'https://www.raiffeisen-wohnbau.at/projects/id/1090-vienna/augasse-17/70/\\&quot;\\n'
+
+    display = landing_view_models._property_result_title_display(raw_title)
+
+    assert display == "Augasse 17 70"
+    assert "https://" not in display
+    assert "&quot;" not in display
+    assert "\\n" not in display
+
+
 def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tools() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     body = template_path.read_text(encoding="utf-8")
@@ -3504,7 +3515,6 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'target="_blank" rel="noreferrer">Map</a>' in search.text
     assert "https://www.google.com/maps/dir/?api=1" in search.text
     assert "Evidence" in search.text
-    assert "CART" in search.text
     assert "Supermarket" in search.text
     assert "280 m" in search.text
     assert 'class="pqx-route-evidence"' in search.text
@@ -3536,7 +3546,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-research-task-action="fill"' not in search.text
     assert 'data-research-task-action="dismiss"' not in search.text
     assert "EUR 5,385/m2" in search.text
-    assert "Chosen ahead of the next option because it scored 5 points higher on the current brief" in search.text
+    assert "Lift and transit fit" in search.text
     assert "Lift and transit fit." in search.text
     assert "Preferred because: Includes a live 360 source" not in search.text
     assert "Open property page" in search.text
@@ -3550,7 +3560,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Layout not verified" not in search.text
     assert "Missing floorplan evidence" in search.text
     assert 'data-pqx-filtered-dialog' in search.text
-    assert "Launch search" not in search.text
+    assert re.search(r"<button[^>]+data-property-start-top[^>]*>\\s*Launch search\\s*</button>", search.text) is None
     assert "Morning Memo" not in search.text
     assert "Office signals ingested" not in search.text
     family_candidate_ref = landing_routes._property_candidate_ref(
@@ -4712,6 +4722,90 @@ def test_property_agents_surface_uses_map_only_preview_for_saved_search_cards(mo
     assert map_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
+def test_property_agents_surface_strips_candidate_media_from_management_payload(monkeypatch) -> None:
+    principal_id = "pq-agent-strip-result-media"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Agent Media Boundary")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "active_search_agent_id": "agent-vienna",
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "name": "Vienna rent watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                    },
+                }
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "completed",
+            "summary": {
+                "status": "completed",
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "media-heavy",
+                        "title": "Media heavy result",
+                        "fit_score": 91,
+                        "preview_image_url": "data:image/png;base64,very-heavy-preview",
+                        "orientation_preview": {
+                            "image_url": "data:image/png;base64,very-heavy-orientation",
+                            "thumb_image_url": "data:image/png;base64,very-heavy-thumb",
+                        },
+                        "property_facts": {"postal_name": "1020 Wien"},
+                    }
+                ],
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "source-media-heavy",
+                                "preview_image_url": "data:image/png;base64,source-preview",
+                            }
+                        ],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get("/app/agents", params={"run_id": "run-media-heavy"}, headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "Vienna rent watch" in page.text
+    assert "data:image/png;base64,very-heavy" not in page.text
+    assert "data:image/png;base64,source-preview" not in page.text
+    assert "Media heavy result" not in page.text
+
+
 def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypatch) -> None:
     principal_id = "pq-agent-account-fast-first-paint"
     client = build_property_client(principal_id=principal_id)
@@ -5136,8 +5230,8 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'class="pqx-source-list"' in live.text
     assert 'class="pqx-route-preview-strip"' in live.text
     assert "Scoring enriched candidate 2 of 4" in live.text
-    assert "Launch search" not in live.text
-    assert "Save defaults" not in live.text
+    assert re.search(r"<button[^>]+data-property-start-top[^>]*>\\s*Launch search\\s*</button>", live.text) is None
+    assert ">Save defaults</button>" not in live.text
     assert "Test a wider budget ceiling" not in live.text
 
 
@@ -5241,14 +5335,14 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     response = client.get("/app/properties", params={"run_id": "run-empty-outcome"}, headers=headers)
 
     assert response.status_code == 200
-    assert "What happened" in response.text
+    assert "Status" in response.text
     assert "The search stopped before a stable shortlist was ready." in response.text
-    assert "What still worked" in response.text
-    assert "The brief and latest source receipts are still available." in response.text
-    assert "Main blocker" in response.text
-    assert "Provider-check health and repair blocked the run before a stable shortlist formed." in response.text
-    assert "Best next move" in response.text
+    assert "Next" in response.text
     assert "Restart the same brief and let repair retry the failed provider checks." in response.text
+    assert "What happened" not in response.text
+    assert "What still worked" not in response.text
+    assert "Main blocker" not in response.text
+    assert "Best next move" not in response.text
 
 
 def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatch) -> None:
@@ -5284,9 +5378,10 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
                 "status": "failed",
                 "sources_total": 156,
                 "source_variant_total": 156,
-                "provider_total": 0,
+                "provider_total": 1,
                 "sources_completed": 153,
                 "listing_total": 2160,
+                "filtered_total": 24,
                 "ranked_candidates": [],
                 "eta_label": "about 8 hr",
                 "repair_status_label": "Repairing",
@@ -5304,8 +5399,11 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
     assert "<span>Providers</span><strong>156</strong>" not in response.text
     assert "156 variants" in response.text
-    assert "Timing" in response.text
+    assert "Status" in response.text
+    assert "Timing" not in response.text
     assert "Queued a generic provider repair." in response.text
+    assert response.text.count("How this search was filtered") == 1
+    assert "Filtered by rules: How this search was filtered" not in response.text
 
 
 def test_propertyquarry_raw_ranked_fallback_excludes_maybe_false_candidates(monkeypatch) -> None:

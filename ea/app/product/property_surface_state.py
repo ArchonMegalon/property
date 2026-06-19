@@ -1155,7 +1155,12 @@ def build_property_empty_outcome_summary(
     elif suppression_rows:
         active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
     if status_value == "failed":
-        happened = str(run_message or "The search stopped before a stable shortlist was ready.").strip()
+        if source_total or listing_total:
+            completed_label = f"{source_completed}/{source_total} provider checks" if source_total else "Provider checks"
+            listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
+            happened = f"{completed_label} completed; {listing_label} inspected before the run stopped."
+        else:
+            happened = str(run_message or "The search stopped before a stable shortlist was ready.").strip()
     elif filtered_total > 0:
         happened = f"The search finished, but {filtered_total} candidate{'s' if filtered_total != 1 else ''} stayed outside the shortlist."
     else:
@@ -1172,7 +1177,7 @@ def build_property_empty_outcome_summary(
         or "Widen one rule first, then rerun."
     )
     if status_value == "failed" and repair_step_label:
-        eta_feedback = repair_step_label
+        eta_feedback = f"Repair queued: {repair_step_label}"
     elif status_value == "failed" and repair_status_label:
         eta_feedback = f"Repair status: {repair_status_label}."
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:

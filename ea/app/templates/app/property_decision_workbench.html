@@ -123,7 +123,7 @@
 {% set source_variant_total = (summary.get('source_variant_total') or summary.get('sources_total') or source_total or 0)|int %}
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
 {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
-{% set provider_display_total = provider_total if provider_total > 0 else selected_provider_total %}
+{% set provider_display_total = selected_provider_total if selected_provider_total > provider_total else provider_total %}
 {% set scan_count_label = (provider_display_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' variants') if provider_display_total > 0 and source_variant_total > provider_display_total else (source_completed|string ~ '/' ~ source_total|string ~ ' provider checks') %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
@@ -6217,7 +6217,8 @@
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
               {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
-              {% set provider_display_total = (run_summary.get('provider_total') or 0)|int if (run_summary.get('provider_total') or 0)|int > 0 else selected_provider_total %}
+              {% set stored_provider_total = (run_summary.get('provider_total') or 0)|int %}
+              {% set provider_display_total = selected_provider_total if selected_provider_total > stored_provider_total else stored_provider_total %}
               {% set variant_display_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
@@ -6236,11 +6237,8 @@
               {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
               {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
               <div class="pqx-pref-list">
-                <div class="pqx-pref-row"><div><strong>What happened</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}</small></div></div>
-                <div class="pqx-pref-row"><div><strong>What still worked</strong><small>{{ empty_still_worked or 'The brief and latest source receipts are still available.' }}</small></div></div>
-                <div class="pqx-pref-row"><div><strong>Main blocker</strong><small>{{ empty_active_rule or ('Provider-check health and repair blocked the run before a stable shortlist formed.' if run_status == 'failed' else 'The current shortlist rules stayed stricter than the available market evidence.') }}</small></div></div>
-                <div class="pqx-pref-row"><div><strong>Timing</strong><small>{{ empty_eta_feedback or ('Repair has the run queued; refresh this page or open the rerun when it appears.' if run_status == 'failed' else 'The run is complete; rerun after changing one rule to get a fresh ETA.') }}</small></div></div>
-                <div class="pqx-pref-row"><div><strong>Best next move</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed provider checks.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Status</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}{% if empty_eta_feedback %} {{ empty_eta_feedback }}{% endif %}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed provider checks.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
               </div>
             </div>
             <div class="pqx-actions">
@@ -6265,7 +6263,8 @@
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
               <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>
                 {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
-                {% set provider_display_total = (run_summary.get('provider_total') or 0)|int if (run_summary.get('provider_total') or 0)|int > 0 else selected_provider_total %}
+                {% set stored_provider_total = (run_summary.get('provider_total') or 0)|int %}
+                {% set provider_display_total = selected_provider_total if selected_provider_total > stored_provider_total else stored_provider_total %}
                 {% set variant_display_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
                 {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
                 {{ provider_display_total }} providers · {{ variant_display_total }} variants · {{ run_summary.get('listing_total') or 0 }} homes checked
@@ -6399,29 +6398,6 @@
             </div>
             <div class="pqx-note">{% if run_status == 'failed' %}Refresh if the failure looks transient. Otherwise remove one strict rule before starting over.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
           </section>
-          <details class="pqx-card">
-            <summary><strong>Filtered by rules: How this search was filtered</strong></summary>
-            {% if run_status != 'failed' %}
-            <p class="pqx-note">Open to relax one rule and rerun the search.</p>
-            {% endif %}
-            <div class="pqx-source-list" data-pqx-source-breakdown>
-              {% for source in run_sources[:8] %}
-              <article class="pqx-source-card">
-                <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-                <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
-                <div class="pqx-source-metrics">
-                  {% set provider_quality = source.get('provider_quality') or {} %}
-                  <span>Floorplans {{ provider_quality.get('floorplan_reliability') }}</span>
-                  <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
-                  <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
-                  <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
-                  <span>Awaiting floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
-                </div>
-                {% if source.get('message') or source.get('error') %}<span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>{% endif %}
-              </article>
-              {% endfor %}
-            </div>
-          </details>
           </div>
           {% endif %}
           {% if run.get('events') %}

@@ -280,9 +280,19 @@ def _sanitize_platform_catalog_for_client(platform_catalog: dict[str, object]) -
 
 
 def _property_result_title_display(title: object) -> str:
-    text = " ".join(str(title or "").split()).strip()
+    text = html.unescape(str(title or ""))
+    text = text.replace("\\n", " ").replace("\\r", " ").replace("\\t", " ")
+    text = text.replace('\\"', '"').replace("\\'", "'")
+    text = " ".join(text.split()).strip(" \t\r\n\"'`.,;")
     if not text:
         return "Property"
+    parsed = urllib.parse.urlparse(text)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        path_bits = [part for part in parsed.path.split("/") if part and part not in {"projects", "project", "id"}]
+        readable = " ".join(path_bits[-2:]).replace("-", " ").replace("_", " ").strip()
+        if readable and not re.fullmatch(r"\d+", readable):
+            return readable.title()
+        return "Property listing"
     text = re.sub(r"\s+-\s+(willhaben|immobilienscout24|immoscout|immowelt|idealista|kleinanzeigen)\b.*$", "", text, flags=re.IGNORECASE).strip()
     trailing_patterns = (
         r",\s*\d+(?:[.,]\d+)?\s*m².*$",

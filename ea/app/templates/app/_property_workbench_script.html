@@ -976,9 +976,11 @@
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
       const providerTotal = Number(summary.provider_total || 0);
+      const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;
+      const providerDisplayTotal = Math.max(providerTotal, selectedProviderTotal);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
-      const scanLabel = providerTotal && sourceVariantTotal > providerTotal
-        ? `${providerTotal} providers · ${sourceVariantTotal} source variants`
+      const scanLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
+        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} source variants`
         : `${sources} provider checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
@@ -1257,9 +1259,11 @@
       const sources = Number(summary.sources_total || 0);
       const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
       const providerTotal = Number(summary.provider_total || 0);
+      const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;
+      const providerDisplayTotal = Math.max(providerTotal, selectedProviderTotal);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
-      const scanCountLabel = providerTotal && sourceVariantTotal > providerTotal
-        ? `${providerTotal} providers · ${sourceVariantTotal} variants`
+      const scanCountLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
+        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} variants`
         : `${completedSources}/${sources} provider checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
@@ -1489,7 +1493,7 @@
       const filteredLabel = filteredTotal > 0 ? `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</a>` : '';
       const filteredBreakdown = filteredTotal > 0 ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>Filtered by rules: How this search was filtered</strong></summary>
+            <summary><strong>How this search was filtered</strong></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';

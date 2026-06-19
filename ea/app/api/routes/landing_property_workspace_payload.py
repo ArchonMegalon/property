@@ -150,10 +150,11 @@ def property_workspace_payload(
         for candidate in list(property_meta.get("shortlist_candidates") or [])
         if isinstance(candidate, dict)
     ]
-    if normalized_section in {"properties", "search"}:
+    if normalized_section in {"properties", "search", "agents", "account", "settings", "billing"}:
         trimmed_meta = dict(property_meta)
-        trimmed_meta.pop("search_agent", None)
-        trimmed_meta.pop("search_agents", None)
+        if normalized_section in {"properties", "search", "account", "settings", "billing"}:
+            trimmed_meta.pop("search_agent", None)
+            trimmed_meta.pop("search_agents", None)
         trimmed_meta.pop("shortlist_candidates", None)
         property_form["meta"] = trimmed_meta
         property_meta = trimmed_meta
@@ -191,6 +192,26 @@ def property_workspace_payload(
     raw_run_summary = dict(run_payload.get("summary") or {})
     run_summary = _property_customer_run_summary(raw_run_summary)
     run_payload = {**run_payload, "summary": run_summary}
+
+    def _management_safe_run_summary(summary: dict[str, object]) -> dict[str, object]:
+        safe_summary = dict(summary)
+        safe_summary.pop("ranked_candidates", None)
+        safe_summary.pop("candidates", None)
+        safe_summary.pop("shortlist_candidates", None)
+        safe_sources: list[dict[str, object]] = []
+        for source in list(safe_summary.get("sources") or []):
+            if not isinstance(source, dict):
+                continue
+            safe_source = dict(source)
+            safe_source.pop("top_candidates", None)
+            safe_source.pop("ranked_candidates", None)
+            safe_sources.append(safe_source)
+        safe_summary["sources"] = safe_sources
+        return safe_summary
+
+    management_surface = normalized_section in {"agents", "account", "settings", "billing"}
+    run_summary_for_surface = _management_safe_run_summary(run_summary) if management_surface else run_summary
+    run_payload_for_surface = {**run_payload, "summary": run_summary_for_surface} if management_surface else run_payload
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
     if not shortlist_candidates:
@@ -244,6 +265,9 @@ def property_workspace_payload(
         else ""
     )
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    run_provider_total = int(run_summary.get("provider_total") or 0)
+    run_source_variant_total = int(run_summary.get("source_variant_total") or run_summary.get("sources_total") or 0)
+    run_provider_display_total = max(run_provider_total, len(selected_platforms))
     selected_country_code = str(property_preferences.get("country_code") or property_state.get("country_code") or "AT").strip().upper() or "AT"
     workspace_currency_code = currency_code_for_country(selected_country_code) or "EUR"
     workspace_timezone = str(workspace.get("timezone") or default_timezone_for_country(selected_country_code) or "UTC").strip() or "UTC"
@@ -1524,7 +1548,7 @@ def property_workspace_payload(
             return ("Repair flagged", "Renderer reported failed even though a hosted walkthrough exists.")
         return ("", "")
 
-    for candidate in shortlist_candidates:
+    for candidate in ([] if management_surface else shortlist_candidates):
         facts = _property_candidate_display_facts(candidate)
         if run_has_explicit_listing_context and _obvious_listing_mode_mismatch(facts, listing_mode=effective_listing_mode):
             continue
@@ -1563,7 +1587,10 @@ def property_workspace_payload(
             or facts.get("floorplan_urls_json")
             or facts.get("floorplan_urls")
         )
-        packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
+        packet_url = str(candidate.get("packet_url") or "").strip()
+        review_url = str(candidate.get("review_url") or "").strip()
+        if not packet_url and "/app/research/" in review_url:
+            packet_url = review_url
         map_url = str(candidate.get("map_url") or "").strip() or _property_candidate_maps_url(candidate)
         tour_status_line = _tour_status_line(candidate)
         ooda_detail = _distance_line(candidate)
@@ -2105,14 +2132,14 @@ def property_workspace_payload(
                 (
                     {
                         "label": "Providers",
-                        "value": str(int(run_summary.get("provider_total") or 0)),
-                        "detail": f"{int(run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0)} source variants across selected areas.",
+                        "value": str(run_provider_display_total),
+                        "detail": f"{run_source_variant_total} source variants across selected areas.",
                     }
-                    if int(run_summary.get("provider_total") or 0) > 0
-                    and int(run_summary.get("source_variant_total") or run_summary.get("sources_total") or 0) > int(run_summary.get("provider_total") or 0)
+                    if run_provider_display_total > 0
+                    and run_source_variant_total > run_provider_display_total
                     else {
                         "label": "Provider checks",
-                        "value": str(int(run_summary.get("sources_total") or 0)),
+                        "value": str(run_source_variant_total),
                         "detail": "Provider, area, and repair checks being executed for this run.",
                     }
                 ),
@@ -2632,7 +2659,7 @@ def property_workspace_payload(
             status_url=str(run_health.get("status_url") or run_payload.get("status_url") or "").strip(),
             filtered_total=workbench_filtered_total,
             held_back_total=workbench_held_back_total,
-            summary=run_summary,
+            summary=run_summary_for_surface,
             events=run_events[-8:],
             worker_state=search_worker_state,
             reliability=_property_run_reliability_summary(
@@ -2641,7 +2668,7 @@ def property_workspace_payload(
                     "progress": int(run_health.get("progress") or run_payload.get("progress") or 0),
                     "message": run_status_note or run_message,
                     "eta_label": str(run_health.get("eta_label") or run_payload.get("eta_label") or "").strip(),
-                    "summary": run_summary,
+                    "summary": run_summary_for_surface,
                 },
                 results_total=int(shortlist_snapshot.get("results_total") or len(workbench_results)),
             ),
@@ -2716,8 +2743,8 @@ def property_workspace_payload(
         summary=str(payload.get("summary") or ""),
         stats=list(base.get("stats") or []),
         current_plan_label=current_plan_label,
-        run_payload=run_payload,
-        run_summary=run_summary,
+        run_payload=run_payload_for_surface,
+        run_summary=run_summary_for_surface,
         preference_manager=preference_manager,
         decision_workbench=decision_workbench,
         extras={
