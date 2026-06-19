@@ -29912,7 +29912,7 @@ class ProductService:
             else (
                 f"Resolved {provider_total} provider(s) for scanning."
                 if provider_total
-                else f"Resolved {source_variant_total} provider check(s) for scanning."
+                else f"Resolved {source_variant_total} source check(s) for scanning."
             )
         )
         prefetched_source_results = _property_search_prefetch_listing_urls(

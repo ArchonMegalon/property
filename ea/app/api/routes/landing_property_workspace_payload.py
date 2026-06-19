@@ -2133,12 +2133,12 @@ def property_workspace_payload(
                     {
                         "label": "Providers",
                         "value": str(run_provider_display_total),
-                        "detail": f"{run_source_variant_total} provider checks across selected areas.",
+                        "detail": f"{run_source_variant_total} source checks across selected areas.",
                     }
                     if run_provider_display_total > 0
                     and run_source_variant_total > run_provider_display_total
                     else {
-                        "label": "Provider checks",
+                        "label": "Source checks",
                         "value": str(run_source_variant_total),
                         "detail": "Provider, area, and repair checks being executed for this run.",
                     }

@@ -451,7 +451,7 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
     assert "Search runs, provider coverage, ranked homes, filtered homes" in page.text
     assert "Property usage" in page.text
     assert "Ranked homes" in page.text
-    assert "Provider checks" in page.text
+    assert "Source checks" in page.text
     forbidden_copy = (
         "Current office loop",
         "Queue pressure, memo activity",
@@ -2968,8 +2968,8 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Repairing"
-    assert reliability["repair_step_label"] == "Retrying 1 provider check"
-    assert reliability["coverage_label"] == "2/4 provider checks · 2 still running"
+    assert reliability["repair_step_label"] == "Retrying 1 source check"
+    assert reliability["coverage_label"] == "2/4 source checks · 2 still running"
     assert reliability["result_label"] == "3 ranked results ready"
     assert reliability["filtered_label"] == "7 filtered by active rules"
     assert reliability["repair"]["repair_status"] == "repairing"
@@ -3019,8 +3019,8 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
 
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Repairing"
-    assert repair["repair_step_label"] == "Retrying 1 provider check"
-    assert repair["repair_outcome_summary"] == "Some provider checks are retrying, but the current shortlist is already usable."
+    assert repair["repair_step_label"] == "Retrying 1 source check"
+    assert repair["repair_outcome_summary"] == "Some source checks are retrying, but the current shortlist is already usable."
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
 
@@ -3044,7 +3044,7 @@ def test_property_surface_state_builds_run_reliability_snapshot() -> None:
     )
 
     assert reliability["health_label"] == "Partial coverage"
-    assert reliability["repair_step_label"] == "Retrying 1 provider check"
+    assert reliability["repair_step_label"] == "Retrying 1 source check"
     assert reliability["repair"]["repair_status"] == "degraded"
     assert reliability["customer_status_message"] == "One provider stayed degraded."
 
@@ -3724,11 +3724,11 @@ def test_property_search_progress_copy_names_providers_not_generic_sources() -> 
 
     assert "Resolved {source_variant_total} source(s) for scanning." not in service_source
     assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." not in service_source
-    assert "Resolved {source_variant_total} provider check(s) for scanning." in service_source
+    assert "Resolved {source_variant_total} source check(s) for scanning." in service_source
     assert "provider_total = _property_search_provider_total(specs)" in service_source
     assert "provider_group_total = _property_search_provider_group_total(specs)" in service_source
     assert 'else "Sources"' not in view_model_source
-    assert '"label": "Provider checks"' in view_model_source
+    assert '"label": "Source checks"' in view_model_source
 
 
 def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:
@@ -5498,7 +5498,7 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert "Status" in response.text
     assert "The search stopped before a stable shortlist was ready." in response.text
     assert "Next" in response.text
-    assert "Restart the same brief and let repair retry the failed provider checks." in response.text
+    assert "Restart the same brief and let repair retry the failed source checks." in response.text
     assert "What happened" not in response.text
     assert "What still worked" not in response.text
     assert "Main blocker" not in response.text
@@ -5567,7 +5567,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert response.status_code == 200
     assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
     assert "<span>Providers</span><strong>156</strong>" not in response.text
-    assert re.search(r"<span>Provider checks</span><strong>\s*156\s*</strong>", response.text)
+    assert re.search(r"<span>Source checks</span><strong>\s*156\s*</strong>", response.text)
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
@@ -6798,7 +6798,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "No valid homes survived inside the selected area."
-    assert "31 provider checks scanned 361 candidates" in summary["still_worked"]
+    assert "31 source checks scanned 361 candidates" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "provider overview pages" in summary["eta_feedback"]
     assert "0/31 source variants" not in " ".join(summary.values())

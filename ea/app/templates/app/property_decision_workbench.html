@@ -221,7 +221,7 @@
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
 {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
 {% set provider_display_total = selected_provider_total if selected_provider_total > provider_total else provider_total %}
-{% set scan_count_label = (provider_display_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' checks') if provider_display_total > 0 and source_variant_total > provider_display_total else (source_completed|string ~ '/' ~ source_total|string ~ ' provider checks') %}
+{% set scan_count_label = (provider_display_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' source checks') if provider_display_total > 0 and source_variant_total > provider_display_total else (source_completed|string ~ '/' ~ source_total|string ~ ' source checks') %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
 {% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
@@ -287,7 +287,7 @@
         </div>
         <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         <div class="pqx-worker-popover">
-          <strong>{{ worker.get('provider') or 'Waiting for a provider check' }}{% if worker.get('shard_count') %} · +{{ worker.get('shard_count') }} more shard{% if worker.get('shard_count') != 1 %}s{% endif %}{% endif %}</strong>
+          <strong>{{ worker.get('provider') or 'Waiting for a source check' }}{% if worker.get('shard_count') %} · +{{ worker.get('shard_count') }} more shard{% if worker.get('shard_count') != 1 %}s{% endif %}{% endif %}</strong>
           <span class="pqx-note">{{ worker.get('status_label') or 'Idle' }}</span>
           <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         </div>
@@ -6343,9 +6343,9 @@
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
               {% if variant_display_total > provider_display_total and provider_display_total > 0 %}
-              <div class="pqx-fact"><span>Provider checks</span><strong>{{ variant_display_total }}</strong></div>
+              <div class="pqx-fact"><span>Source checks</span><strong>{{ variant_display_total }}</strong></div>
               {% elif variant_display_total > 0 and provider_display_total == 0 %}
-              <div class="pqx-fact"><span>Provider checks</span><strong>{{ variant_display_total }}</strong></div>
+              <div class="pqx-fact"><span>Source checks</span><strong>{{ variant_display_total }}</strong></div>
               {% endif %}
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
               {% if not run_failed_no_results %}
@@ -6360,7 +6360,7 @@
               {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
               <div class="pqx-pref-list">
                 <div class="pqx-pref-row"><div><strong>Status</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}{% if empty_eta_feedback and not run_failed_no_results %} {{ empty_eta_feedback }}{% endif %}</small></div></div>
-                <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed provider checks.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed source checks.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
               </div>
             </div>
             <div class="pqx-actions">
@@ -6387,7 +6387,7 @@
               {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
                 {{ provider_display_total }} providers · {{ variant_display_total }} checks · {{ run_summary.get('listing_total') or 0 }} homes checked
               {% else %}
-                {{ variant_display_total }} provider checks · {{ run_summary.get('listing_total') or 0 }} homes checked
+                {{ variant_display_total }} source checks · {{ run_summary.get('listing_total') or 0 }} homes checked
                 {% endif %}
               </span>
             </div>

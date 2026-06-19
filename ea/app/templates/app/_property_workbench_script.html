@@ -1021,8 +1021,8 @@
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const scanLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} checks`
-        : `${sources} provider checks`;
+        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} source checks`
+        : `${sources} source checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
@@ -1302,8 +1302,8 @@
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const scanCountLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} checks`
-        : `${completedSources}/${sources} provider checks`;
+        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} source checks`
+        : `${completedSources}/${sources} source checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
@@ -1320,7 +1320,7 @@
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
       const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
-      const workerTooltip = 'Search workers are the parallel provider checks running this search right now. They are separate from recurring saved searches.';
+      const workerTooltip = 'Search workers are the parallel source checks running this search right now. They are separate from recurring saved searches.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
@@ -1438,9 +1438,9 @@
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing provider checks' : (sourceRows.length ? 'Waiting for a provider check' : 'Ready when you start')));
+        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing source checks' : (sourceRows.length ? 'Waiting for a source check' : 'Ready when you start')));
         return {
-          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing provider checks' : (sourceRows.length ? 'Waiting' : 'Ready')),
+          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing source checks' : (sourceRows.length ? 'Waiting' : 'Ready')),
           provider,
           shardCount,
           statusLabel,

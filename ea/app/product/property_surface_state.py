@@ -227,7 +227,7 @@ def build_property_run_repair_snapshot(
             failed_total += 1
     repair_step = str(summary.get("repair_step_label") or "").strip()
     if not repair_step and failed_total:
-        repair_step = f"Retrying {failed_total} provider check{'s' if failed_total != 1 else ''}"
+        repair_step = f"Retrying {failed_total} source check{'s' if failed_total != 1 else ''}"
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
@@ -263,9 +263,9 @@ def build_property_run_repair_snapshot(
         if status == "completed_partial":
             repair_outcome_summary = "The shortlist is ready, but one or more sources finished degraded."
         elif failed_total and results_total > 0:
-            repair_outcome_summary = "Some provider checks are retrying, but the current shortlist is already usable."
+            repair_outcome_summary = "Some source checks are retrying, but the current shortlist is already usable."
         elif failed_total:
-            repair_outcome_summary = "Some provider checks are retrying before the shortlist can settle."
+            repair_outcome_summary = "Some source checks are retrying before the shortlist can settle."
     return PropertyRunRepairSnapshot(
         repair_status=repair_status,
         repair_status_label=repair_status_label,
@@ -306,19 +306,19 @@ def build_property_run_reliability_snapshot(
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
-            customer_status = message or "Search finished with partial coverage after one or more provider checks degraded."
+            customer_status = message or "Search finished with partial coverage after one or more source checks degraded."
         elif status == "failed":
             customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
-            customer_status = "Some provider checks are retrying, but the current shortlist is already usable."
+            customer_status = "Some source checks are retrying, but the current shortlist is already usable."
         elif failed_total:
-            customer_status = "Some provider checks are retrying before the shortlist can settle."
+            customer_status = "Some source checks are retrying before the shortlist can settle."
         elif results_total > 0:
             customer_status = "Strongest verified matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
-            customer_status = "Providers are being checked and the first shortlist is still building."
+            customer_status = "Selected sources are being checked and the first shortlist is still building."
         else:
-            customer_status = message or "Preparing the first provider lanes."
+            customer_status = message or "Preparing the first source lanes."
     if status in {"processed", "completed"}:
         health_tone = "good"
         health_label = "Healthy"
@@ -339,7 +339,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Starting"
     coverage_label = ""
     if source_total:
-        coverage_label = f"{source_checked}/{source_total} provider checks"
+        coverage_label = f"{source_checked}/{source_total} source checks"
         if pending_total:
             coverage_label += f" · {pending_total} still running"
     result_label = ""
@@ -763,12 +763,12 @@ def build_property_run_live_board_snapshot(
             tone = "warn"
         else:
             tone = "queued"
-        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing provider checks" if status_label == "Starting" else ("Waiting for a provider check" if source_rows else "Ready when you start")))
+        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing source checks" if status_label == "Starting" else ("Waiting for a source check" if source_rows else "Ready when you start")))
         group_key = _source_provider_group(source or {})
         shard_count = max(0, len([row for row in raw_worker_queue if _source_provider_group(row) == group_key]) - 1) if source else 0
         worker_lanes.append(
             {
-                "label": _compact_property_provider_label(provider) if source else ("Preparing provider checks" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
+                "label": _compact_property_provider_label(provider) if source else ("Preparing source checks" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
                 "provider": provider,
                 "shard_count": shard_count,
                 "status_label": status_label,
@@ -789,7 +789,7 @@ def build_property_run_live_board_snapshot(
     scan_total_label = (
         f"{provider_total} providers · {source_variant_total} checks"
         if provider_total and source_variant_total > provider_total
-        else f"{source_total} provider checks"
+        else f"{source_total} source checks"
     )
     provider_label = _compact_property_provider_label(provider_full_label or scan_total_label)
     source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} checks"
@@ -1172,10 +1172,10 @@ def build_property_empty_outcome_summary(
         stopped_context = "This page will move to the replacement run when it has a usable update."
     elif status_value == "failed":
         if source_total or listing_total:
-            completed_label = f"{source_completed}/{source_total} provider checks" if source_total else "Provider checks"
+            completed_label = f"{source_completed}/{source_total} source checks" if source_total else "Source checks"
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open:
-                happened = "Repair is retrying the interrupted provider checks."
+                happened = "Repair is retrying the interrupted source checks."
             elif repair_step_label or repair_status_label:
                 happened = "Repairing the interrupted run."
             else:
@@ -1198,12 +1198,12 @@ def build_property_empty_outcome_summary(
         still_worked = "The brief and repair receipt were saved; the replacement run is now the active check."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{source_total} provider check{'s' if source_total != 1 else ''} scanned "
+            f"{source_total} source check{'s' if source_total != 1 else ''} scanned "
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''}."
         )
     else:
         still_worked = (
-            f"{source_total} provider check{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"{source_total} source check{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
             if source_total or listing_total
             else "The brief, providers, and run receipts were still recorded."
         )
@@ -1231,7 +1231,7 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         eta_feedback = stopped_context
     elif source_total:
-        eta_feedback = f"{source_completed}/{source_total} provider checks completed."
+        eta_feedback = f"{source_completed}/{source_total} source checks completed."
     elif status_value == "failed":
         eta_feedback = "Repair has the run queued; this page checks quietly every 10s and will switch when a usable rerun is ready."
     else:
