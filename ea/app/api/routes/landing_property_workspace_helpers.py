@@ -1304,6 +1304,7 @@ def _property_counterfactual_rows(
     run_summary: dict[str, object],
     provider_options: list[dict[str, object]],
     current_platform_cap: int,
+    currency_code: str = "EUR",
 ) -> list[dict[str, object]]:
     def _sanitize_counterfactual_row(row: dict[str, object]) -> dict[str, object]:
         item = dict(row)
@@ -1441,12 +1442,13 @@ def _property_counterfactual_rows(
     explicit_budget = _has_explicit_numeric_filter(raw_preferences, "max_price_eur")
     if current_budget > 0 and explicit_budget:
         next_budget = current_budget + max(25000, int(round(current_budget * 0.1)))
+        budget_currency = str(currency_code or "EUR").strip().upper() or "EUR"
         rows.append(
             {
                 "title": "Raise the budget once",
                 "detail": "Use one wider price pass to see whether budget pressure is the real blocker.",
                 "tag": "Budget",
-                "action_label": f"Raise to EUR {next_budget:,}".replace(",", ","),
+                "action_label": f"Raise to {budget_currency} {next_budget:,}",
                 "adjustments": {"max_price_eur": next_budget},
                 "affected_total": outside_area_or_size_total,
             }

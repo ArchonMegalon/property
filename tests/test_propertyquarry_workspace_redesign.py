@@ -3484,6 +3484,21 @@ def test_property_research_decision_rows_remove_clarification_noise() -> None:
     assert "Verify the missing evidence before spending more time on it" in text
 
 
+def test_property_counterfactual_budget_action_uses_market_currency() -> None:
+    rows = landing_property_workspace_helpers._property_counterfactual_rows(
+        preferences={"max_price_eur": 500000},
+        raw_preferences={"max_price_eur": 500000},
+        run_summary={"sources": [{"filtered_area_total": 4}]},
+        provider_options=[],
+        current_platform_cap=0,
+        currency_code="GBP",
+    )
+
+    budget_row = next(row for row in rows if row.get("tag") == "Budget")
+    assert budget_row["action_label"] == "Raise to GBP 550,000"
+    assert "EUR" not in str(budget_row["action_label"])
+
+
 def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_packets.html"
     body = template_path.read_text(encoding="utf-8")

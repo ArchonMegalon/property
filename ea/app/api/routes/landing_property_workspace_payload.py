@@ -270,6 +270,7 @@ def property_workspace_payload(
         run_summary=run_summary,
         provider_options=provider_options,
         current_platform_cap=current_platform_cap,
+        currency_code=workspace_currency_code,
     )
     delivery_proof_rows = _delivery_proof_rows(run_summary)
     artifact_receipt_rows = _artifact_receipt_rows(run_summary)
