@@ -10215,6 +10215,14 @@ def test_workspace_email_fallback_helpers_use_propertyquarry_branding() -> None:
     assert "You will get account access" in invite_text
 
 
+def test_product_service_customer_fallback_copy_does_not_use_executive_workspace_brand() -> None:
+    source = Path(product_service.__file__).read_text(encoding="utf-8")
+
+    assert "Executive Assistant workspace" not in source
+    assert "Executive Workspace" not in source
+    assert "invited you to Executive Assistant" not in source
+
+
 def test_preference_profile_mailbox_import_applies_property_history_without_review(monkeypatch) -> None:
     principal_id = "pref-mailbox-import"
     client = build_product_client(principal_id=principal_id)

@@ -17657,7 +17657,7 @@ class ProductService:
             or getattr(primary_google_account, "google_email", "")
             or ""
         ).strip().lower()
-        display_name = str(workspace.get("name") or recipient_email or "Executive Workspace").strip()
+        display_name = str(workspace.get("name") or recipient_email or "PropertyQuarry account").strip()
         return {
             "recipient_email": recipient_email,
             "display_name": display_name,
@@ -38683,7 +38683,7 @@ class ProductService:
         for principal_id, last_seen_at in sorted(principal_last_seen.items(), key=lambda item: item[1], reverse=True):
             status = self._container.onboarding.status(principal_id=principal_id)
             workspace = dict(status.get("workspace") or {})
-            workspace_name = str(workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace"
+            workspace_name = str(workspace.get("name") or "PropertyQuarry account").strip() or "PropertyQuarry account"
             access_matches = [
                 dict(row)
                 for row in self.list_workspace_access_sessions(
@@ -38803,7 +38803,7 @@ class ProductService:
         items: list[dict[str, object]] = []
         for candidate in candidates:
             principal_id = str(candidate.get("principal_id") or "").strip()
-            workspace_name = str(candidate.get("workspace_name") or "Executive Workspace").strip() or "Executive Workspace"
+            workspace_name = str(candidate.get("workspace_name") or "PropertyQuarry account").strip() or "PropertyQuarry account"
             kind = str(candidate.get("kind") or "access").strip().lower() or "access"
             role = str(candidate.get("role") or "principal").strip().lower() or "principal"
             display_name = str(candidate.get("display_name") or workspace_name).strip() or workspace_name
@@ -38976,7 +38976,7 @@ class ProductService:
         if normalized_bundle == "all":
             normalized_bundle = "identity"
         workspace = dict(self._container.onboarding.status(principal_id=principal_id).get("workspace") or {})
-        workspace_name = str(workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace"
+        workspace_name = str(workspace.get("name") or "PropertyQuarry account").strip() or "PropertyQuarry account"
         accounts = sorted(
             google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id),
             key=lambda account: (
@@ -41972,7 +41972,7 @@ class ProductService:
         )
         return {
             "workspace": {
-                "name": str(workspace.get("name") or "Executive Workspace"),
+                "name": str(workspace.get("name") or "PropertyQuarry account"),
                 "mode": str(workspace.get("mode") or "personal"),
                 "region": str(workspace.get("region") or ""),
                 "language": str(workspace.get("language") or ""),
