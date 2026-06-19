@@ -4891,6 +4891,8 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "filtered" in body
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
+    assert "if (opened) {\n        return;\n      }\n      const fallbackOpened = openFilteredFallbackPanel();" in body
+    assert "if (opened || fallbackOpened)" not in body
     assert "[data-pqx-source-breakdown]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
     assert "No ranked homes are ready yet. Open the filtered breakdown" in body

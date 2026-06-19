@@ -3312,8 +3312,11 @@
       event.preventDefault();
       event.stopPropagation();
       const opened = openFilteredDialog();
+      if (opened) {
+        return;
+      }
       const fallbackOpened = openFilteredFallbackPanel();
-      if (opened || fallbackOpened) {
+      if (fallbackOpened) {
         return;
       }
       const fallbackPanel = root.querySelector(
