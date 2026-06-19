@@ -6628,6 +6628,39 @@ def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_co
     assert "interrupted pass stopped" not in combined
 
 
+def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
+    summary = property_surface_state.build_property_empty_outcome_summary(
+        run_summary={
+            "status": "processed",
+            "sources_total": 31,
+            "sources_completed": 31,
+            "raw_listing_total": 361,
+            "listing_total": 0,
+            "filtered_total": 236,
+            "held_back_total": 236,
+            "filtered_area_total": 153,
+            "filtered_generic_page_total": 83,
+        },
+        run_sources=[
+            {
+                "source_scope_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "location_mismatch_candidate_total": 30,
+                "filtered_area_total": 30,
+            }
+        ],
+        run_status_value="processed",
+        run_message="Property scouting run completed.",
+        counterfactual_rows=[],
+        suppression_rows=[],
+    )
+
+    assert summary["happened"] == "No valid homes survived inside the selected area."
+    assert "31 source variants checked 361 candidates" in summary["still_worked"]
+    assert "Widen the selected districts" in summary["next_move"]
+    assert "provider overview pages" in summary["eta_feedback"]
+    assert "0/31 source variants" not in " ".join(summary.values())
+
+
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
     principal_id = "pq-packet-fact-enrichment"
     client = build_property_client(principal_id=principal_id)

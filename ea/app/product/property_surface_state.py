@@ -1144,6 +1144,16 @@ def build_property_empty_outcome_summary(
         or 0
     )
     listing_total = int(run_summary.get("listing_total") or 0)
+    raw_listing_total = int(run_summary.get("raw_listing_total") or run_summary.get("reviewed_listing_total") or 0)
+    area_filtered_total = int(run_summary.get("filtered_area_total") or 0)
+    location_mismatch_total = 0
+    for source in run_sources or []:
+        if not isinstance(source, dict):
+            continue
+        try:
+            location_mismatch_total += max(0, int(float(source.get("location_mismatch_candidate_total") or 0)))
+        except Exception:
+            continue
     status_value = str(run_status_value or "").strip().lower()
     eta_label = str(run_summary.get("eta_label") or "").strip()
     repair_step_label = str(run_summary.get("repair_step_label") or "").strip()
@@ -1174,12 +1184,23 @@ def build_property_empty_outcome_summary(
         else:
             happened = str(run_message or "The search stopped before a stable shortlist was ready.").strip()
             stopped_context = ""
+    elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
+        happened = "No valid homes survived inside the selected area."
+        stopped_context = (
+            f"{filtered_total} candidate{'s' if filtered_total != 1 else ''} were held back; "
+            "most conflicted with the selected-area rule or were provider overview pages."
+        )
     elif filtered_total > 0:
         happened = f"The search finished, but {filtered_total} candidate{'s' if filtered_total != 1 else ''} stayed outside the shortlist."
     else:
         happened = "The search finished without a candidate clearing the current shortlist."
     if status_value == "failed" and replacement_run_id:
         still_worked = "The brief and repair receipt were saved; the replacement run is now the active check."
+    elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
+        still_worked = (
+            f"{source_total} source variant{'s' if source_total != 1 else ''} checked "
+            f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''}."
+        )
     else:
         still_worked = (
             f"{source_total} source variant{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
@@ -1188,6 +1209,8 @@ def build_property_empty_outcome_summary(
         )
     if status_value == "failed":
         next_move = "Wait for repair; this page checks quietly every 10s and will move to the usable run when one is ready."
+    elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
+        next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
     else:
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
@@ -1202,6 +1225,8 @@ def build_property_empty_outcome_summary(
         eta_feedback = f"Repair status: {repair_status_label}. {stopped_context}".strip()
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
         eta_feedback = f"Estimated remaining time: {eta_label}."
+    elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
+        eta_feedback = stopped_context
     elif source_total:
         eta_feedback = f"{source_completed}/{source_total} source variants completed."
     elif status_value == "failed":

@@ -32689,6 +32689,16 @@ class ProductService:
             + int(filtered_generic_page_total or 0)
             + int(filtered_listing_mode_total or 0)
         )
+        raw_listing_total = sum(
+            int(float(source.get("raw_listing_total") or 0))
+            for source in source_summaries
+            if isinstance(source, dict)
+        )
+        scanned_listing_total = sum(
+            int(float(source.get("scanned_listing_total") or source.get("reviewed_listing_total") or 0))
+            for source in source_summaries
+            if isinstance(source, dict)
+        )
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
@@ -32696,6 +32706,8 @@ class ProductService:
             "source_variant_total": source_variant_total,
             "provider_total": provider_total,
             "provider_group_total": provider_group_total,
+            "raw_listing_total": raw_listing_total,
+            "scanned_listing_total": scanned_listing_total,
             "listing_total": listing_total,
             "reviewed_listing_total": reviewed_listing_total,
             "duplicate_listing_total": duplicate_listing_total,
