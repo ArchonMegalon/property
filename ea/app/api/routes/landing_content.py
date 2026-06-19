@@ -248,7 +248,7 @@ PUBLIC_TRUST_PAGES = {
                 "title": "Service limits",
                 "body": "Search, enrichment, media generation, notifications, and provider repair can be degraded by provider outages, rate limits, source drift, and external services.",
                 "items": (
-                    "A completed-partial run can still be useful, but it must say which sources failed.",
+                    "A completed-partial run can still be useful, but it must say which provider checks failed.",
                     "Repair attempts should be bounded and visible instead of silently consuming resources.",
                     "Unsupported providers and markets should stay marked as coming soon until verified.",
                 ),
@@ -345,7 +345,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "What if a provider keeps failing?",
-                "answer": "Provider failures should trigger bounded repair attempts and then a visible partial-coverage status if the source cannot be recovered.",
+                "answer": "Provider-check failures should trigger bounded repair attempts and then a visible partial-coverage status if the provider check cannot be recovered.",
             },
         ),
     },

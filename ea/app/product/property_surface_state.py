@@ -1072,7 +1072,7 @@ def build_property_empty_outcome_summary(
     next_move = (
         str(strongest_relax.get("detail") or "").strip()
         or (f"Relax {active_rule} first so the next run changes one rule at a time." if active_rule else "")
-        or ("Restart the same brief and let auto-repair retry the failed sources." if status_value == "failed" else "")
+        or ("Restart the same brief and let auto-repair retry the failed provider checks." if status_value == "failed" else "")
         or "Widen one rule first, then rerun."
     )
     return {

@@ -564,7 +564,7 @@ def settings_usage_detail(
                 _object_detail_row("Partial searches", str(property_usage["partial_total"]), "Coverage"),
                 _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Coverage"),
                 _object_detail_row("Provider checks", str(property_usage["source_total"]), "Checks"),
-                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Checks"),
+                _object_detail_row("Provider check failures", str(property_usage["failed_source_total"]), "Checks"),
             ],
             object_sections=[
                 {
@@ -605,8 +605,8 @@ def settings_usage_detail(
                     "title": "Repair and delivery posture",
                     "items": [
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
-                        _object_detail_row("Repairing sources", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Provider check failures", str(property_usage["failed_source_total"]), "Checks"),
+                        _object_detail_row("Repairing provider checks", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
                         _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Delivery"),
                     ],
@@ -755,18 +755,18 @@ def settings_support_detail(
             object_kind="Support posture",
             object_title=str(property_usage["repair_status"]),
             object_summary=(
-                f"{property_usage['failed_source_total']} provider failures · "
+                f"{property_usage['failed_source_total']} provider check failures · "
                 f"{property_usage['ranked_total']} ranked homes · "
                 f"{str(billing.get('support_tier') or 'standard').title()} support"
             ),
             object_meta=[
-                {"label": "Provider failures", "value": str(property_usage["failed_source_total"])},
-                {"label": "Repairing sources", "value": str(property_usage["repairing_source_total"])},
+                {"label": "Provider check failures", "value": str(property_usage["failed_source_total"])},
+                {"label": "Repairing provider checks", "value": str(property_usage["repairing_source_total"])},
                 {"label": "Partial runs", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
             object_sidebar_title="What support answers",
-            object_sidebar_copy="This view answers whether sources failed, whether repair work is active, what results are already usable, and which account bundle support can inspect.",
+            object_sidebar_copy="This view answers whether provider checks failed, whether repair work is active, what results are already usable, and which account bundle support can inspect.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
@@ -789,8 +789,8 @@ def settings_support_detail(
                     "title": "Provider repair and run health",
                     "items": [
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Sources"),
-                        _object_detail_row("Repairing sources", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Provider check failures", str(property_usage["failed_source_total"]), "Checks"),
+                        _object_detail_row("Repairing provider checks", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
                         _object_detail_row("Partial runs", str(property_usage["partial_total"]), "Coverage"),
                         _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
@@ -1177,7 +1177,7 @@ def settings_outcomes_detail(
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                 _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Checks"),
+                _object_detail_row("Provider check failures", str(property_usage["failed_source_total"]), "Checks"),
                 _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
             ],
