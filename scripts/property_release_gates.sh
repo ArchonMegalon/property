@@ -18,6 +18,7 @@ Usage:
 
 Runs the focused PropertyQuarry release bundle:
   - property workspace redesign browser contracts
+  - browser surface link/action contracts and design-system registry gates
   - notification email and action-surface contracts
   - FlipLink packet privacy, publication, and webhook contracts
   - MagicFit-only promo packet contracts
@@ -48,6 +49,8 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
   tests/test_property_notification_email_templates.py \
   tests/test_propertyquarry_teable_sync.py \
+  tests/test_browser_surface_contracts.py \
+  tests/test_propertyquarry_design_system_gate.py \
   tests/test_propertyquarry_magicfit_promo_contract.py \
   tests/test_fliplink_packet_privacy.py \
   tests/test_property_packet_publications.py \
