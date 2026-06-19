@@ -1880,6 +1880,7 @@ def _property_keyword_options() -> list[dict[str, str]]:
         {
             "value": value,
             "label": label,
+            "display_key": re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-"),
             "detail": detail,
             "group": "daily_life" if value in daily_life_keywords else ("risk_evidence" if value in risk_evidence_keywords else "home_basics"),
             **({"preference_options": preference_options[value]} if value in preference_options else {}),

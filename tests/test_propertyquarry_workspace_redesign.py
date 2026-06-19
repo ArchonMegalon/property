@@ -759,6 +759,9 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '<select name="keyword_preference__library nearby"' in section_html
     assert '<select name="keyword_preference__public pool nearby"' in section_html
     assert '<select name="keyword_preference__medical care nearby"' in section_html
+    assert 'data-keyword-display-key="hardware-store"' in section_html
+    assert 'data-keyword-display-key="shopping-center"' in section_html
+    assert 'data-keyword-display-key="promenade"' in section_html
     assert '<select name="school_preference__kindergarten"' in section_html
     assert '<select name="school_preference__volksschule"' in section_html
     assert '<select name="school_preference__gymnasium"' in section_html

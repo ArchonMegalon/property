@@ -5870,7 +5870,7 @@
                       <p class="pqx-what-matters-group-note">{{ group.get('note') }}</p>
                       <div class="pqx-pref-list">
                         {% for option in group_options %}
-                        <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-preference-state="{{ option.get('state') or 'any' }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
+                        <label class="pqx-pref-row pqx-keyword-priority-row"{% if option.get('hidden') %} hidden{% endif %} data-keyword-priority-row data-keyword-value="{{ option.get('value') }}" data-keyword-display-key="{{ option.get('display_key') or option.get('label') }}" data-preference-state="{{ option.get('state') or 'any' }}" data-keyword-distance-enabled="{{ 'true' if (option.get('state') or 'any') != 'any' else 'false' }}">
                           <div>
                             <strong>{{ option.get('label') }}</strong>
                             {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
