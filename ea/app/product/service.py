@@ -22386,8 +22386,8 @@ class ProductService:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
         current_location_hints = _property_search_location_hints(current_preferences)
         source_scope_location_hints = _property_exact_source_scope_location_hints(
-            source_url=str(property_url or external_id or source_ref or "").strip(),
-            source_label=str(counterparty or "").strip(),
+            source_url="",
+            source_label=str(counterparty or source_ref or external_id or "").strip(),
         )
         current_hint_postal_codes = set(re.findall(r"\b\d{4,5}\b", " ".join(current_location_hints)))
         if current_hint_postal_codes:
@@ -36104,7 +36104,7 @@ class ProductService:
     ) -> dict[str, object]:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
         source_scope_location_hints = _property_exact_source_scope_location_hints(
-            source_url=property_url,
+            source_url="",
             source_label=str(counterparty or source_ref or "").strip(),
         )
         location_hints = tuple(
@@ -36999,7 +36999,7 @@ class ProductService:
     ) -> dict[str, object]:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
         source_scope_location_hints = _property_exact_source_scope_location_hints(
-            source_url=property_url,
+            source_url="",
             source_label=str(counterparty or source_ref or "").strip(),
         )
         location_hints = tuple(
