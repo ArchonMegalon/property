@@ -20966,6 +20966,42 @@ def test_public_tour_landing_hides_magicfit_without_route_coverage_proof() -> No
     assert "Open 3D Control" not in html
 
 
+def test_public_tour_landing_renderer_redacts_private_payload_fields() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_html(
+        {
+            "slug": "direct-private-render-test",
+            "display_title": "Direct Private Render Test",
+            "principal_id": "cf-email:tibor@example.com",
+            "recipient_email": "viewer@example.com",
+            "listing_url": "https://www.willhaben.at/iad/private-listing",
+            "property_url": "https://broker.example.test/private-property",
+            "brief": {
+                "creative_brief": "Show Private Street 7 clearly.",
+                "call_to_action": "Contact the private recipient.",
+            },
+            "facts": {
+                "rooms": 2,
+                "area_sqm": 61,
+                "exact_address": "Private Street 7, 1020 Wien",
+                "map_lat": 48.22,
+                "map_lng": 16.39,
+            },
+            "scenes": [{"name": "Living", "asset_relpath": "living.jpg", "role": "photo"}],
+        },
+        hostname="propertyquarry.com",
+        path="/tours/direct-private-render-test",
+    )
+
+    assert "Open Listing" not in html
+    assert "Tour Brief" not in html
+    assert "willhaben.at/iad/private-listing" not in html
+    assert "broker.example.test" not in html
+    assert "Private Street" not in html
+    assert "viewer@example.com" not in html
+
+
 def test_public_tour_landing_links_magicfit_with_route_coverage_proof() -> None:
     from app.api.routes import public_tours
 

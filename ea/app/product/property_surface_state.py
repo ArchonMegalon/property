@@ -466,20 +466,34 @@ def _property_run_candidate_reason_label(value: object) -> str:
         return ""
     ordinal = f"{candidate.group(1)}/{candidate.group(2)}"
     normalized = text.lower()
+    if any(token in normalized for token in ("balcony", "terrace", "outdoor")) and any(
+        token in normalized for token in ("missing", "none", "without", "absent", "no ")
+    ):
+        return f"Outdoor space was missing for candidate {ordinal} (score impact only)"
     positive_signals = (
         (("balcony", "terrace", "outdoor"), "Outdoor space evidence found"),
         (("lift", "elevator", "barrier-free", "barrier free", "accessible"), "Access evidence improved the score"),
         (("operating cost", "monthly cost", "total cost", "betriebskosten"), "Cost evidence improved the score"),
+        (("heating", "heizung"), "Heating evidence improved the score"),
+        (("energy", "energy certificate", "energieausweis"), "Energy evidence improved the score"),
+        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet evidence improved the score"),
         (("floorplan", "layout"), "Layout evidence improved the score"),
         (("360", "matterport", "3dvista", "virtual tour", "live tour"), "Remote-view evidence improved the score"),
         (("garage", "parking"), "Parking evidence improved the score"),
-        (("transit", "subway", "u-bahn", "underground", "train"), "Transit evidence improved the score"),
+        (("commute", "transit", "subway", "u-bahn", "underground", "train"), "Transit evidence improved the score"),
+        (("school", "volksschule"), "School fit improved the score"),
+        (("kindergarten", "childcare"), "Childcare fit improved the score"),
+        (("supermarket", "pharmacy", "bakery", "market", "errand"), "Daily errands improved the score"),
+        (("sunlight", "bright", "orientation", "south-facing"), "Light and orientation evidence improved the score"),
     )
     for tokens, label in positive_signals:
         if any(token in normalized for token in tokens) and any(token in normalized for token in ("found", "confirmed", "available", "evidence", "clear", "ready")):
             return f"{label} for candidate {ordinal} (score upgraded)"
     soft_concerns = (
         (("operating cost", "monthly cost", "total cost", "betriebskosten", "price"), "Cost evidence still needs verification"),
+        (("heating", "heizung"), "Heating evidence still needs verification"),
+        (("energy", "energy certificate", "energieausweis"), "Energy evidence still needs verification"),
+        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet evidence still needs verification"),
         (("noise", "traffic noise", "nuisance"), "Noise risk needs verification"),
         (("flood", "water", "groundwater"), "Water-risk evidence needs verification"),
         (("air quality", "pollution", "emissions"), "Air-quality risk needs verification"),
@@ -487,6 +501,7 @@ def _property_run_candidate_reason_label(value: object) -> str:
         (("parking", "garage"), "Parking situation needs verification"),
         (("winter", "driving"), "Winter access needs verification"),
         (("septic", "senkgrube"), "Wastewater risk needs verification"),
+        (("sunlight", "orientation", "light"), "Light and orientation need verification"),
     )
     for tokens, label in soft_concerns:
         if any(token in normalized for token in tokens) and any(token in normalized for token in ("missing", "unknown", "unclear", "risk", "burden", "verify", "verification")):
@@ -508,6 +523,24 @@ def _property_run_candidate_reason_label(value: object) -> str:
     ):
         route_label = "Way to kindergarten" if "kindergarten" in normalized else "Way to school"
         return f"{route_label} looked risky for candidate {ordinal} (score impact only)"
+    if ("school" in normalized or "kindergarten" in normalized) and any(
+        token in normalized for token in ("close enough", "within", "near", "nearby", "fit", "matches", "matched")
+    ):
+        fit_label = "Kindergarten distance" if "kindergarten" in normalized else "School distance"
+        return f"{fit_label} fit the preference for candidate {ordinal} (score upgraded)"
+    if ("school" in normalized or "kindergarten" in normalized) and any(
+        token in normalized for token in ("too far", "farther", "further", "beyond", "outside")
+    ):
+        fit_label = "Kindergarten distance" if "kindergarten" in normalized else "School distance"
+        return f"{fit_label} was wider than preferred for candidate {ordinal} (score impact only)"
+    if "commute" in normalized and any(token in normalized for token in ("within", "fast", "short", "fits", "fit", "matched")):
+        return f"Commute fit improved the score for candidate {ordinal}"
+    if "commute" in normalized and any(token in normalized for token in ("long", "slow", "longer", "beyond", "outside")):
+        return f"Commute was longer than preferred for candidate {ordinal} (score impact only)"
+    if any(token in normalized for token in ("supermarket", "pharmacy", "bakery", "market", "errand")) and any(
+        token in normalized for token in ("far", "farther", "beyond", "outside")
+    ):
+        return f"Daily errands were farther than preferred for candidate {ordinal} (score impact only)"
     distance_match = re.search(
         r"(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius",
         text,

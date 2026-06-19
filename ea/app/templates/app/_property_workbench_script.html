@@ -746,14 +746,27 @@
       if (!candidate) return '';
       const ordinal = `${candidate[1]}/${candidate[2]}`;
       const normalized = text.toLowerCase();
+      if (
+        ['balcony', 'terrace', 'outdoor'].some((token) => normalized.includes(token))
+        && ['missing', 'none', 'without', 'absent', 'no '].some((token) => normalized.includes(token))
+      ) {
+        return `Outdoor space was missing for candidate ${ordinal} (score impact only)`;
+      }
       const positiveSignals = [
         [['balcony', 'terrace', 'outdoor'], 'Outdoor space evidence found'],
         [['lift', 'elevator', 'barrier-free', 'barrier free', 'accessible'], 'Access evidence improved the score'],
         [['operating cost', 'monthly cost', 'total cost', 'betriebskosten'], 'Cost evidence improved the score'],
+        [['heating', 'heizung'], 'Heating evidence improved the score'],
+        [['energy', 'energy certificate', 'energieausweis'], 'Energy evidence improved the score'],
+        [['internet', 'broadband', 'fiber', 'fibre', 'high-speed'], 'Internet evidence improved the score'],
         [['floorplan', 'layout'], 'Layout evidence improved the score'],
         [['360', 'matterport', '3dvista', 'virtual tour', 'live tour'], 'Remote-view evidence improved the score'],
         [['garage', 'parking'], 'Parking evidence improved the score'],
-        [['transit', 'subway', 'u-bahn', 'underground', 'train'], 'Transit evidence improved the score'],
+        [['commute', 'transit', 'subway', 'u-bahn', 'underground', 'train'], 'Transit evidence improved the score'],
+        [['school', 'volksschule'], 'School fit improved the score'],
+        [['kindergarten', 'childcare'], 'Childcare fit improved the score'],
+        [['supermarket', 'pharmacy', 'bakery', 'market', 'errand'], 'Daily errands improved the score'],
+        [['sunlight', 'bright', 'orientation', 'south-facing'], 'Light and orientation evidence improved the score'],
       ];
       for (const [tokens, label] of positiveSignals) {
         if (tokens.some((token) => normalized.includes(token)) && ['found', 'confirmed', 'available', 'evidence', 'clear', 'ready'].some((token) => normalized.includes(token))) {
@@ -762,6 +775,9 @@
       }
       const softConcerns = [
         [['operating cost', 'monthly cost', 'total cost', 'betriebskosten', 'price'], 'Cost evidence still needs verification'],
+        [['heating', 'heizung'], 'Heating evidence still needs verification'],
+        [['energy', 'energy certificate', 'energieausweis'], 'Energy evidence still needs verification'],
+        [['internet', 'broadband', 'fiber', 'fibre', 'high-speed'], 'Internet evidence still needs verification'],
         [['noise', 'traffic noise', 'nuisance'], 'Noise risk needs verification'],
         [['flood', 'water', 'groundwater'], 'Water-risk evidence needs verification'],
         [['air quality', 'pollution', 'emissions'], 'Air-quality risk needs verification'],
@@ -769,6 +785,7 @@
         [['parking', 'garage'], 'Parking situation needs verification'],
         [['winter', 'driving'], 'Winter access needs verification'],
         [['septic', 'senkgrube'], 'Wastewater risk needs verification'],
+        [['sunlight', 'orientation', 'light'], 'Light and orientation need verification'],
       ];
       for (const [tokens, label] of softConcerns) {
         if (tokens.some((token) => normalized.includes(token)) && ['missing', 'unknown', 'unclear', 'risk', 'burden', 'verify', 'verification'].some((token) => normalized.includes(token))) {
@@ -796,6 +813,32 @@
       ) {
         const routeLabel = normalized.includes('kindergarten') ? 'Way to kindergarten' : 'Way to school';
         return `${routeLabel} looked risky for candidate ${ordinal} (score impact only)`;
+      }
+      if (
+        (normalized.includes('school') || normalized.includes('kindergarten'))
+        && ['close enough', 'within', 'near', 'nearby', 'fit', 'matches', 'matched'].some((token) => normalized.includes(token))
+      ) {
+        const fitLabel = normalized.includes('kindergarten') ? 'Kindergarten distance' : 'School distance';
+        return `${fitLabel} fit the preference for candidate ${ordinal} (score upgraded)`;
+      }
+      if (
+        (normalized.includes('school') || normalized.includes('kindergarten'))
+        && ['too far', 'farther', 'further', 'beyond', 'outside'].some((token) => normalized.includes(token))
+      ) {
+        const fitLabel = normalized.includes('kindergarten') ? 'Kindergarten distance' : 'School distance';
+        return `${fitLabel} was wider than preferred for candidate ${ordinal} (score impact only)`;
+      }
+      if (normalized.includes('commute') && ['within', 'fast', 'short', 'fits', 'fit', 'matched'].some((token) => normalized.includes(token))) {
+        return `Commute fit improved the score for candidate ${ordinal}`;
+      }
+      if (normalized.includes('commute') && ['long', 'slow', 'longer', 'beyond', 'outside'].some((token) => normalized.includes(token))) {
+        return `Commute was longer than preferred for candidate ${ordinal} (score impact only)`;
+      }
+      if (
+        ['supermarket', 'pharmacy', 'bakery', 'market', 'errand'].some((token) => normalized.includes(token))
+        && ['far', 'farther', 'beyond', 'outside'].some((token) => normalized.includes(token))
+      ) {
+        return `Daily errands were farther than preferred for candidate ${ordinal} (score impact only)`;
       }
       const distanceMatch = text.match(/(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius/i);
       if (distanceMatch) {

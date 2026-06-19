@@ -1308,6 +1308,29 @@ def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain
 
 
 def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
+    if any(
+        key in payload
+        for key in (
+            "brief",
+            "listing_url",
+            "property_url",
+            "principal_id",
+            "recipient_email",
+            "source_ref",
+            "external_id",
+        )
+    ):
+        rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
+        for runtime_key in (
+            "_feedback_enabled",
+            "_feedback_suggestions",
+            "_learning_summary",
+            "_shortlist_compare",
+            "_public_research_completed",
+        ):
+            if runtime_key in payload:
+                rendered_payload[runtime_key] = payload[runtime_key]
+        payload = rendered_payload
     slug = str(payload.get("slug") or "").strip()
     matterport_url = ""
     for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):

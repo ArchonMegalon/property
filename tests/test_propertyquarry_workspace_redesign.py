@@ -2820,6 +2820,38 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
             "Matterport tour available for candidate 15 of 60.",
             "Remote-view evidence improved the score for candidate 15/60 (score upgraded)",
         ),
+        (
+            "High-speed internet evidence confirmed for candidate 16 of 60.",
+            "Internet evidence improved the score for candidate 16/60 (score upgraded)",
+        ),
+        (
+            "Energy certificate is missing for candidate 17 of 60.",
+            "Energy evidence still needs verification for candidate 17/60 (score impact only)",
+        ),
+        (
+            "School distance is within the selected preference for candidate 18 of 60.",
+            "School distance fit the preference for candidate 18/60 (score upgraded)",
+        ),
+        (
+            "Kindergarten is too far beyond the preference for candidate 19 of 60.",
+            "Kindergarten distance was wider than preferred for candidate 19/60 (score impact only)",
+        ),
+        (
+            "Commute is longer than preferred for candidate 20 of 60.",
+            "Commute was longer than preferred for candidate 20/60 (score impact only)",
+        ),
+        (
+            "Supermarket and pharmacy are farther than preferred for candidate 21 of 60.",
+            "Daily errands were farther than preferred for candidate 21/60 (score impact only)",
+        ),
+        (
+            "No balcony or terrace found for candidate 22 of 60.",
+            "Outdoor space was missing for candidate 22/60 (score impact only)",
+        ),
+        (
+            "South-facing orientation evidence confirmed for candidate 23 of 60.",
+            "Light and orientation evidence improved the score for candidate 23/60 (score upgraded)",
+        ),
     ]
     for message, expected in cases:
         snapshot = property_surface_state.build_property_run_live_board_snapshot(
