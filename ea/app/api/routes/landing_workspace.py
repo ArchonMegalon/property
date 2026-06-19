@@ -190,6 +190,8 @@ def _propertyquarry_href(value: object) -> str:
         return "/support"
     if href == "/now":
         return "/product"
+    if href == "/downloads":
+        return "/app/api/property/account/export?download=1"
     if href == "/app/api/support":
         return "/app/settings/support"
     if href.startswith("/app/api/diagnostics/export"):

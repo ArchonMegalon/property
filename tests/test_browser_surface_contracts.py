@@ -220,6 +220,10 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
     assert "Provider checks" in usage.text
     assert "Repair status" in usage.text
 
+    trust = client.get("/app/settings/trust", headers={"host": "propertyquarry.com", "accept": "text/html"})
+    assert 'href="/downloads"' not in trust.text
+    assert 'href="/app/api/property/account/export?download=1"' in trust.text
+
 
 def test_propertyquarry_settings_detail_aliases_redirect_to_property_pages() -> None:
     client = _client(principal_id="exec-property-settings-aliases")
