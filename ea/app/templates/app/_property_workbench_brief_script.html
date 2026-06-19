@@ -1022,9 +1022,10 @@
         const emptyLabel = String(input.getAttribute('data-range-empty-label') || '').trim();
         if (value <= 0 && emptyLabel) return emptyLabel;
         const format = String(input.getAttribute('data-range-format') || '').trim();
+        const currencyCode = String(input.getAttribute('data-range-currency-code') || 'EUR').trim() || 'EUR';
         const unitField = String(input.getAttribute('data-range-unit-field') || '').trim();
         const unit = unitField ? String(form.querySelector(`[name="${unitField}"]`)?.value || 'm').trim().toLowerCase() : '';
-        if (format === 'currency_eur') return `EUR ${numberFormatter.format(Math.round(value))}`;
+        if (format === 'currency_eur') return `${currencyCode} ${numberFormatter.format(Math.round(value))}`;
         if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
         if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
         if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;

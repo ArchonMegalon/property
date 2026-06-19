@@ -3362,6 +3362,14 @@ def country_label(country_code: object) -> str:
     return _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"]).label
 
 
+def currency_code_for_country(country_code: object) -> str:
+    return _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"]).currency_code
+
+
+def currency_symbol_for_country(country_code: object) -> str:
+    return _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"]).currency_symbol
+
+
 def _property_location_catalog_path() -> Path:
     configured = str(os.getenv("PROPERTYQUARRY_LOCATION_CATALOG_PATH") or "").strip()
     if configured:

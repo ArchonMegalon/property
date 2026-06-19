@@ -73,6 +73,7 @@ def property_workspace_payload(
         row_item,
         string_rows,
     )
+    from app.services.property_market_catalog import currency_code_for_country
 
     surface_scope = PropertySurfaceScope.for_section(section)
     normalized_section = surface_scope.section
@@ -237,6 +238,8 @@ def property_workspace_payload(
         else ""
     )
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    selected_country_code = str(property_preferences.get("country_code") or property_state.get("country_code") or "AT").strip().upper() or "AT"
+    workspace_currency_code = currency_code_for_country(selected_country_code) or "EUR"
     run_has_explicit_listing_context = bool(
         run_property_preferences
         or str(raw_run_summary.get("listing_mode") or "").strip()
@@ -722,7 +725,7 @@ def property_workspace_payload(
             return ""
         if price <= 0 or area <= 0:
             return ""
-        return f"EUR {price / area:,.0f}/m2"
+        return f"{workspace_currency_code} {price / area:,.0f}/m2"
 
     def _missing_fact_items(facts: dict[str, object]) -> list[dict[str, object]]:
         research = facts.get("missing_fact_research")
@@ -1135,7 +1138,10 @@ def property_workspace_payload(
         return 0
 
     def _normalized_money_text(text: str) -> str:
-        currency = "EUR" if ("eur" in text.lower() or "€" in text) else ""
+        upper_text = text.upper()
+        currency = next((code for code in ("EUR", "USD", "CHF", "GBP", "CAD", "AUD", "CRC", "SEK", "PLN") if code in upper_text), "")
+        if not currency and "€" in text:
+            currency = "EUR"
         money_match = re.search(r"[0-9][0-9\.\,\s]*(?:[,.][0-9]{1,2})?", text)
         if not money_match:
             return text if currency else ""
@@ -1157,7 +1163,7 @@ def property_workspace_payload(
             return text if currency else ""
         if amount <= 0:
             return ""
-        return f"{currency or 'EUR'} {amount:,.0f}".replace(",", ",")
+        return f"{currency or workspace_currency_code} {amount:,.0f}".replace(",", ",")
 
     def _money_display(value: object) -> str:
         if value in (None, "", []):
@@ -1177,9 +1183,9 @@ def property_workspace_payload(
             amount = float(value)
             if abs(amount) >= 1000:
                 formatted = f"{amount:,.0f}".replace(",", ",")
-                return f"EUR {formatted}"
+                return f"{workspace_currency_code} {formatted}"
             if amount:
-                return f"EUR {amount:.0f}"
+                return f"{workspace_currency_code} {amount:.0f}"
         return ""
 
     def _money_numeric_value(value: object) -> float | None:

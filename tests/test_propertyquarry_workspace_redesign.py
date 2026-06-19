@@ -2900,6 +2900,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-range-control="max_results_per_source"' in setup.text
     assert 'data-range-control="min_match_score"' in setup.text
     assert 'data-range-format="currency_eur"' in setup.text
+    assert 'data-range-currency-code="EUR"' in setup.text
     assert 'data-range-format="area_m2"' in setup.text
     assert 'data-range-empty-label="Any budget"' in setup.text
     assert 'data-range-preset="listing_mode_price"' in setup.text
@@ -2933,6 +2934,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-field-step="what" data-property-field-name="investment_require_floorplan"' in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
     assert 'name="max_distance_to_library_importance"' in setup.text
+
     assert 'name="max_distance_to_playground_importance"' in setup.text
     assert 'name="max_distance_to_supermarket_m"' in setup.text
     assert 'name="max_distance_to_supermarket_importance"' in setup.text
@@ -3199,6 +3201,30 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert billing.status_code == 200
     assert "Billing" in billing.text
     assert "Plan and limits" in billing.text
+
+
+def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:
+    client = build_property_client(principal_id="pq-search-currency-uk")
+    start_workspace(client, mode="personal", workspace_name="Property Search Currency UK")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "UK",
+            "language_code": "en",
+            "listing_mode": "buy",
+            "location_query": "London",
+            "selected_platforms": ["rightmove"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    response = client.get("/app/search", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert 'data-range-control="max_price_eur"' in response.text
+    assert 'data-range-format="currency_eur"' in response.text
+    assert 'data-range-currency-code="GBP"' in response.text
+    assert "GBP 2M" in response.text
 
 
 def test_property_packets_dashboard_uses_customer_facing_language() -> None:

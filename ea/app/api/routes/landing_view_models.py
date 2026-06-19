@@ -75,6 +75,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_search_worker_slots,
     _property_suppression_rows,
 )
+from app.services.property_market_catalog import currency_code_for_country
 
 
 def _csv_values(value: object) -> list[str]:
@@ -2338,6 +2339,7 @@ def app_section_payload(
         selected_listing_mode=selected_listing_mode,
     )
     selected_country_code = str(search_form_state.get("selected_country_code") or "AT").strip().upper() or "AT"
+    selected_currency_code = currency_code_for_country(selected_country_code) or "EUR"
     selected_search_goal = str(search_form_state.get("selected_search_goal") or "home").strip().lower() or "home"
     selected_investment_strategy = str(search_form_state.get("selected_investment_strategy") or "best_overall").strip().lower() or "best_overall"
     selected_investment_research_mode = str(search_form_state.get("selected_investment_research_mode") or "off").strip().lower() or "off"
@@ -2853,18 +2855,18 @@ def app_section_payload(
             return default
         return max(0, parsed)
 
-    def _eur_short(value: int) -> str:
+    def _currency_short(value: int) -> str:
         if value >= 1_000_000:
-            return f"EUR {value // 1_000_000}M"
+            return f"{selected_currency_code} {value // 1_000_000}M"
         if value >= 1_000:
-            return f"EUR {value // 1_000}k"
-        return f"EUR {value}"
+            return f"{selected_currency_code} {value // 1_000}k"
+        return f"{selected_currency_code} {value}"
 
     property_price_value = _positive_int(property_preferences.get("max_price_eur"))
     property_price_range_presets = {
-        "rent": {"max": 6000, "step": 100, "scaleMaxLabel": "EUR 6k"},
-        "buy": {"max": 2_000_000, "step": 25_000, "scaleMaxLabel": "EUR 2M"},
-        "any": {"max": 2_000_000, "step": 25_000, "scaleMaxLabel": "EUR 2M"},
+        "rent": {"max": 6000, "step": 100, "scaleMaxLabel": _currency_short(6000)},
+        "buy": {"max": 2_000_000, "step": 25_000, "scaleMaxLabel": _currency_short(2_000_000)},
+        "any": {"max": 2_000_000, "step": 25_000, "scaleMaxLabel": _currency_short(2_000_000)},
     }
     property_price_preset = property_price_range_presets.get(selected_listing_mode) or property_price_range_presets["rent"]
     property_price_slider_max = max(int(property_price_preset["max"]), property_price_value)
@@ -3048,9 +3050,10 @@ def app_section_payload(
                 "visual_max": "1000000",
                 "range_step": "25000",
                 "format": "currency_eur",
+                "currency_code": selected_currency_code,
                 "empty_label": "Model leverage automatically",
                 "scale_min_label": "Auto",
-                "scale_max_label": "EUR 1.0m",
+                "scale_max_label": _currency_short(1_000_000),
                 "hidden": not show_investment_underwriting_controls,
                 "tooltip": "Use this when you want debt coverage and cash-on-cash yield to reflect your real equity instead of the default leverage assumption.",
                 "step": "search",
@@ -3371,9 +3374,10 @@ def app_section_payload(
                 "visual_max": "150000",
                 "range_step": "1000",
                 "format": "currency_eur",
+                "currency_code": selected_currency_code,
                 "empty_label": "Any Eigenmittel",
                 "scale_min_label": "Any",
-                "scale_max_label": "EUR 150k",
+                "scale_max_label": _currency_short(150_000),
                 "tooltip": "Treat cooperative or subsidized offers above this financing contribution as a weaker fit instead of hiding them completely.",
                 "step": "providers",
                 "advanced_panel": "provider_policies",
@@ -4140,9 +4144,10 @@ def app_section_payload(
                 "visual_max": str(property_price_slider_max),
                 "range_step": str(property_price_slider_step),
                 "format": "currency_eur",
+                "currency_code": selected_currency_code,
                 "empty_label": "Any budget",
                 "scale_min_label": "No max",
-                "scale_max_label": _eur_short(property_price_slider_max),
+                "scale_max_label": _currency_short(property_price_slider_max),
                 "tooltip": "Set a hard budget ceiling. Leave it at Any budget when you want PropertyQuarry to rank first and filter price later.",
                 "range_preset": "listing_mode_price",
                 "range_presets": property_price_range_presets,

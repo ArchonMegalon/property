@@ -3,6 +3,8 @@ from __future__ import annotations
 import urllib.parse
 
 from app.services.property_market_catalog import (
+    currency_code_for_country,
+    currency_symbol_for_country,
     default_language_for_country,
     default_platforms_for_country,
     default_platforms_for_country_listing_mode,
@@ -783,6 +785,9 @@ def test_default_platforms_for_country_are_stable() -> None:
     )
     assert default_language_for_country("SE") == "sv"
     assert default_language_for_country("CR") == "es"
+    assert currency_code_for_country("UK") == "GBP"
+    assert currency_symbol_for_country("US") == "USD"
+    assert currency_code_for_country("not-a-country") == "EUR"
 
 
 def test_workspace_location_options_follow_supported_country_codes() -> None:
