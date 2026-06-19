@@ -1757,6 +1757,7 @@ def test_property_workbench_templates_render_provider_homepage_links_in_new_tabs
 def test_property_surface_scope_owns_loading_rules() -> None:
     properties_scope = PropertySurfaceScope.for_section("properties")
     search_scope = PropertySurfaceScope.for_section("search")
+    agents_scope = PropertySurfaceScope.for_section("agents")
     billing_scope = PropertySurfaceScope.for_section("billing")
     shortlist_scope = PropertySurfaceScope.for_section("shortlist")
 
@@ -1769,6 +1770,10 @@ def test_property_surface_scope_owns_loading_rules() -> None:
     assert search_scope.wants_run_state is True
     assert search_scope.wants_run_views is True
     assert search_scope.wants_credit_digest is False
+
+    assert agents_scope.wants_agent_views is True
+    assert agents_scope.wants_recent_runs is False
+    assert agents_scope.wants_search_runs is False
 
     assert billing_scope.wants_credit_digest is True
     assert billing_scope.wants_recent_runs is False
@@ -4656,7 +4661,7 @@ def test_property_agents_surface_uses_map_only_scope_preview_for_cards_and_histo
 
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
-    assert "agent-run-fast-0" in page.text
+    assert "agent-run-fast-0" not in page.text
     assert 'data-scope-preview-kind="osm_district_overlay"' in page.text
     assert 'data-scope-overlay="true"' in page.text
     assert "data:image/svg+xml" not in page.text
@@ -4990,8 +4995,9 @@ def test_property_search_agents_can_open_focused_cockpit_view(monkeypatch) -> No
 
     assert page.status_code == 200
     assert "Vienna rent watch" in page.text
-    assert "Ranked 1 | Sent 2 | Filtered 8" in page.text
-    assert "run-agent-1" in page.text
+    assert "Ranked 1 | Sent 2 | Filtered 8" not in page.text
+    assert "run-agent-1" not in page.text
+    assert "No finished run yet" in page.text
     assert "/app/search?load_agent=" in page.text
 
 
