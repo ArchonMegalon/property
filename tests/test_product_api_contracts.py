@@ -4714,6 +4714,94 @@ def test_property_scout_uses_exact_source_scope_as_hard_area_filter(monkeypatch)
     assert result["sources"][0]["source_scope_label"] == "Willhaben | Austria | Rent | 1010 Vienna"
 
 
+def test_property_scout_rejects_unselected_austrian_region_slug_before_scoring(monkeypatch) -> None:
+    principal_id = "cf-email:region-slug-post-filter.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Region Slug Gate Office")
+    candidate_url = (
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/"
+        "schaerding/einziehen-sorgenfrei-starten-umzugskosten-oder-moebel-gutschein-inklusive-1631373932/"
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/1010-wien",
+                "label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "willhaben-schaerding-1631373932",
+            "title": "Einziehen, sorgenfrei starten - ihre Traumwohnung mit Balkon",
+            "summary": "Unbefristeter Vertrag ab sofort verfügbar in Schärding, Oberösterreich.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "area_sqm": 71.0,
+                "rooms": 2,
+                "rent_display": "€ 790",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("unselected-region listings must not notify Telegram"),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: pytest.fail("unselected-region listings must not open review packets"),
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: pytest.fail("unselected-region listings must not be scored"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["review_created_total"] == 0
+    assert result["ranked_candidates"] == []
+    assert result["sources"][0]["location_mismatch_candidate_total"] == 1
+    assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+    assert result["sources"][0]["source_label"] == "Willhaben"
+    assert result["sources"][0]["source_scope_label"] == "Willhaben | Austria | Rent | 1010 Vienna"
+
+
 def test_property_scout_rejects_url_slug_postal_conflict_before_scoring(monkeypatch) -> None:
     principal_id = "cf-email:url-slug-postal-conflict.search@example.com"
     client = build_product_client(principal_id=principal_id)
@@ -6851,7 +6939,7 @@ def test_property_scout_route_sends_client_email_alerts_via_emailit(monkeypatch)
     assert "Willhaben Wien rentals" in str(observed_email["provider_label"])
 
 
-def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatch) -> None:
+def test_property_scout_route_suppresses_top_watch_hit_below_outbound_score_floor(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Watch Notify Office")
@@ -6954,13 +7042,13 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
     body = response.json()
     assert body["status"] == "processed"
     assert body["high_fit_total"] == 0
-    assert body["notified_total"] == 1
-    assert body["sources"][0]["watch_notified_total"] == 1
-    assert "Personal fit 37/100" in str(observed_telegram["text"])
-    assert "Review: use the button below." in str(observed_telegram["text"])
-    assert "https://myexternalbrain.com/workspace-access/" not in str(observed_telegram["text"])
-    assert any(label == "Open Review" and str(url).startswith("https://propertyquarry.com/workspace-access/") for row in list(observed_telegram["url_buttons"] or []) for label, url in row)
-    assert f"Listing: {listing_url}" not in str(observed_telegram["text"])
+    assert body["notified_total"] == 0
+    assert body["watch_notified_total"] == 0
+    assert body["notification_score_suppressed_total"] == 1
+    assert body["scout_outbound_min_score"] == 60.0
+    assert body["sources"][0]["watch_notified_total"] == 0
+    assert body["sources"][0]["notification_score_suppressed_total"] == 1
+    assert observed_telegram == {}
 
 
 def test_property_alert_review_handoff_page_renders_research_packet() -> None:
@@ -10811,6 +10899,7 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
 
 
 def test_willhaben_property_tour_route_accepts_floorplan_only_requests(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS", "1")
     principal_id = "tour-floorplan-only-route"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -12336,6 +12425,50 @@ def test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missin
     assert any(item["id"] == body["human_task_id"] for item in handoffs.json())
 
 
+def test_willhaben_property_visual_user_request_queues_without_synchronous_render(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS", raising=False)
+    principal_id = "tour-user-queued-route"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+
+    def _unexpected_packet_load(url: str) -> dict[str, object]:
+        raise AssertionError(f"user-triggered visual request should not synchronously load packet for {url}")
+
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", _unexpected_packet_load)
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/apartment-queued-001",
+            "request_kind": "flythrough",
+            "auto_deliver": False,
+            "allow_floorplan_only": True,
+            "run_id": "run-queued-001",
+            "candidate_ref": "candidate-queued-001",
+            "source_ref": "willhaben:queued-001",
+        },
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["status"] == "queued"
+    assert body["blocked_reason"] == ""
+    assert body["tour_status"] == "pending"
+    assert body["flythrough_status"] == "queued"
+    assert body["status_label"] == "Walkthrough queued"
+    assert "without blocking this page" in body["status_detail"]
+    assert body["run_id"] == "run-queued-001"
+    assert body["candidate_ref"] == "candidate-queued-001"
+    assert body["source_ref"] == "willhaben:queued-001"
+    assert body["human_task_id"].startswith("human_task:")
+
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "property_visual_request_queued"},
+    )
+    assert events.status_code == 200
+    assert any(item["payload"]["status"] == "queued" for item in events.json()["items"])
+
+
 def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
@@ -12502,6 +12635,7 @@ def test_property_tour_followup_suppresses_internal_repair_blockers() -> None:
         "property_tour_execution_failed",
         "property_tour_delivery_failed",
         "property_tour_video_delivery_failed",
+        "user_requested_visual_generation",
     }
     assert internal_repair_reasons
     for blocked_reason in internal_repair_reasons:

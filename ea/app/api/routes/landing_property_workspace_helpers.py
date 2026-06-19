@@ -964,19 +964,21 @@ def _property_suppression_rows(
     run_summary: dict[str, object],
     source_rows: list[dict[str, object]],
     preferences: dict[str, object] | None = None,
+    include_soft: bool = False,
 ) -> list[dict[str, object]]:
     effective_preferences = dict(preferences or {})
-    counters = {
+    counters: dict[str, int] = {
         "Outside selected area": 0,
         "Property type mismatch": 0,
         "Wrong transaction type": 0,
         "Provider overview page": 0,
         "Missing floorplan evidence": 0,
-        "Below fit threshold": 0,
         "Outside area/size rule": 0,
         "Availability mismatch": 0,
         "Alert budget": 0,
     }
+    if include_soft:
+        counters["Below fit threshold"] = 0
     source_labels: dict[str, set[str]] = {key: set() for key in counters}
     field_map = (
         ("Outside selected area", "location_mismatch_candidate_total"),
@@ -984,11 +986,22 @@ def _property_suppression_rows(
         ("Wrong transaction type", "filtered_listing_mode_total"),
         ("Provider overview page", "filtered_generic_page_total"),
         ("Missing floorplan evidence", "filtered_floorplan_total"),
-        ("Below fit threshold", "filtered_low_fit_total"),
         ("Outside area/size rule", "filtered_area_total"),
         ("Availability mismatch", "filtered_availability_total"),
         ("Alert budget", "notification_budget_suppressed_total"),
     )
+    if include_soft:
+        field_map = (
+            ("Outside selected area", "location_mismatch_candidate_total"),
+            ("Property type mismatch", "filtered_property_type_total"),
+            ("Wrong transaction type", "filtered_listing_mode_total"),
+            ("Provider overview page", "filtered_generic_page_total"),
+            ("Missing floorplan evidence", "filtered_floorplan_total"),
+            ("Below fit threshold", "filtered_low_fit_total"),
+            ("Outside area/size rule", "filtered_area_total"),
+            ("Availability mismatch", "filtered_availability_total"),
+            ("Alert budget", "notification_budget_suppressed_total"),
+        )
     for source in source_rows:
         source_label = str(source.get("source_label") or source.get("platform") or "Provider").strip() or "Provider"
         for label, field_name in field_map:
@@ -1011,10 +1024,11 @@ def _property_suppression_rows(
         ("Wrong transaction type", "filtered_listing_mode_total"),
         ("Provider overview page", "filtered_generic_page_total"),
         ("Missing floorplan evidence", "filtered_floorplan_total"),
-        ("Below fit threshold", "filtered_low_fit_total"),
         ("Outside area/size rule", "filtered_area_total"),
         ("Availability mismatch", "filtered_availability_total"),
     )
+    if include_soft:
+        summary_field_map = summary_field_map + (("Below fit threshold", "filtered_low_fit_total"),)
     for label, field_name in summary_field_map:
         if counters[label] > 0:
             continue
@@ -1037,20 +1051,22 @@ def _property_suppression_rows(
         "Outside selected area": "Include nearby districts",
         "Property type mismatch": "Widen property-type rule",
         "Missing floorplan evidence": "Include homes while floorplans are still being checked",
-        "Below fit threshold": "Lower the match bar",
         "Outside area/size rule": "Stretch the size rule",
         "Availability mismatch": "Loosen move-in timing",
         "Alert budget": "Raise the alert limit",
     }
+    if include_soft:
+        title_map["Below fit threshold"] = "Lower the match bar"
     action_label_map = {
         "Outside selected area": "Set nearby radius",
         "Property type mismatch": "Relax property type",
         "Missing floorplan evidence": "Show held-back homes",
-        "Below fit threshold": "See lower-fit homes",
         "Outside area/size rule": "Relax size",
         "Availability mismatch": "Edit move-in timing",
         "Alert budget": "Raise alerts",
     }
+    if include_soft:
+        action_label_map["Below fit threshold"] = "See lower-fit homes"
 
     def _positive_int(value: object) -> int:
         try:
@@ -1091,6 +1107,8 @@ def _property_suppression_rows(
                 area_parts.append(f"{adjacent_radius_m} m spillover")
             if area_parts:
                 rule_detail = f" Current area rule: {' · '.join(area_parts)}."
+        elif label == "Below fit threshold":
+            rule_detail = " This affects ranking score only."
         rows.append(
             {
                 "title": title_map.get(label, label),

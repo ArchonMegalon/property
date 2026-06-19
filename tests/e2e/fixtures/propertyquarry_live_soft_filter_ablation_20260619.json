@@ -1,0 +1,65 @@
+{
+  "contract": "propertyquarry.live_soft_filter_ablation.v1",
+  "captured_at": "2026-06-19T17:57:02Z",
+  "principal_alias": "tibor",
+  "baseline_run_id": "5a0e4698d1504281a39519e4667a31aa",
+  "neutral_soft_run_id": "ad6592aeafd740bb84a335208cb6870a",
+  "no_location_hard_scope_run_id": "e31788bc5b014c08bd0eb29c4542e5c9",
+  "baseline": {
+    "status": "completed_partial",
+    "sources_completed": 29,
+    "sources_total": 104,
+    "listing_total": 304,
+    "ranked_count": 0,
+    "filtered_area_total": 246,
+    "filtered_generic_page_total": 24,
+    "filtered_low_fit_total": 0,
+    "filtered_floorplan_total": 0,
+    "filtered_property_type_total": 0,
+    "filtered_listing_mode_total": 0,
+    "filtered_availability_total": 0,
+    "high_match_min_score": 1.0
+  },
+  "neutral_soft": {
+    "status": "processed",
+    "sources_completed": 104,
+    "sources_total": 104,
+    "raw_listing_total": 1343,
+    "reviewed_listing_total": 1343,
+    "ranked_count": 10,
+    "filtered_area_total": 425,
+    "filtered_generic_page_total": 309,
+    "filtered_low_fit_total": 0,
+    "filtered_floorplan_total": 0,
+    "filtered_property_type_total": 0,
+    "filtered_listing_mode_total": 0,
+    "filtered_availability_total": 0,
+    "high_match_min_score": 1.0
+  },
+  "no_location_hard_scope": {
+    "status": "completed_partial",
+    "sources_completed": 104,
+    "sources_total": 104,
+    "raw_listing_total": 1343,
+    "reviewed_listing_total": 1343,
+    "ranked_count": 10,
+    "filtered_area_total": 425,
+    "filtered_generic_page_total": 309,
+    "filtered_low_fit_total": 0,
+    "filtered_floorplan_total": 0,
+    "filtered_property_type_total": 0,
+    "filtered_listing_mode_total": 0,
+    "filtered_availability_total": 0,
+    "high_match_min_score": 1.0
+  },
+  "expected": {
+    "soft_filters_preserve_ranked_hits": true,
+    "baseline_was_partial_coverage": true,
+    "hard_location_scope_was_primary_risk": true,
+    "soft_filter_bucket_must_not_filter": "filtered_low_fit_total",
+    "dominant_hard_filter_buckets": [
+      "filtered_area_total",
+      "filtered_generic_page_total"
+    ]
+  }
+}

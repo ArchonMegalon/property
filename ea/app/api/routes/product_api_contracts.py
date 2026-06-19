@@ -1537,6 +1537,7 @@ class WillhabenPropertyTourOut(BaseModel):
     candidate_ref: str = ""
     flythrough_url: str = ""
     flythrough_status: str = ""
+    tour_status: str = ""
     status_label: str = ""
     status_detail: str = ""
     tour_media_mode: str = ""
@@ -1837,6 +1838,7 @@ class PropertyScoutSourceOut(BaseModel):
     tour_existing_total: int = 0
     high_fit_total: int = 0
     watch_notified_total: int = 0
+    notification_score_suppressed_total: int = 0
     top_fit_score: float = 0.0
     top_candidates: list[dict[str, object]] = Field(default_factory=list)
     error: str = ""
@@ -1855,6 +1857,9 @@ class PropertyScoutSyncOut(BaseModel):
     tour_created_total: int = 0
     tour_existing_total: int = 0
     high_fit_total: int = 0
+    watch_notified_total: int = 0
+    notification_score_suppressed_total: int = 0
+    scout_outbound_min_score: float = 60.0
     failed_total: int = 0
     sources: list[PropertyScoutSourceOut] = Field(default_factory=list)
 

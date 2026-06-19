@@ -1,13 +1,8 @@
 <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
   {% set run_summary = run.get('summary') or {} %}
   {% set run_sources = run_summary.get('sources') or [] %}
-  {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or run_summary.get('filtered_out_total') or 0 %}
-  {% if not filtered_total %}
-    {% set filtered_total = (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
-  {% endif %}
-  {% if not filtered_total and suppression_rows %}
-    {% set filtered_total = suppression_rows|sum(attribute='affected_total') %}
-  {% endif %}
+  {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
+  {% set score_demoted_total = run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0 %}
   <div class="pqx-result-panel-head">
     <div class="pqx-results-headline">
       <div class="pqx-note pqx-results-summary-row">
@@ -19,6 +14,11 @@
         {% if filtered_total %}
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} filtered">
           {{ filtered_total }} filtered
+        </a>
+        {% endif %}
+        {% if score_demoted_total %}
+        <a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ score_demoted_total }} score-demoted">
+          {{ score_demoted_total }} score-demoted
         </a>
         {% endif %}
       </div>
@@ -184,11 +184,11 @@
       </span>
       {% else %}
       <strong>No ranked homes are ready yet.</strong>
-      <span class="pqx-note">Start a search or inspect what hard rules held back before widening the brief.</span>
+      <span class="pqx-note">Use setup rules first, then open filtered recovery to widen only what is blocking results.</span>
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/search">Adjust search</a>
-        {% if filtered_total %}
-        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Recover filtered homes</button>
+        {% if filtered_total or score_demoted_total %}
+        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Recover homes</button>
         {% endif %}
       </span>
       {% endif %}

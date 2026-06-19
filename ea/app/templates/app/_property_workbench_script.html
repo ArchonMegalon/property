@@ -991,6 +991,10 @@
       return text || 'Provider';
     };
     const providerDisplayTotalForRun = (runPayload, summary = null) => {
+      const explicitDisplayTotal = Number(runPayload?.provider_display_total || 0);
+      if (Number.isFinite(explicitDisplayTotal) && explicitDisplayTotal > 0) {
+        return explicitDisplayTotal;
+      }
       const runSummary = summary && typeof summary === 'object' ? summary : (runPayload?.summary || {});
       const explicitProviderTotal = Math.max(0, Number(runSummary.provider_total || 0));
       const selectedPlatforms = Array.isArray(runPayload?.selected_platforms)
@@ -999,8 +1003,9 @@
           ? runPayload.brief.providers
           : (Array.isArray(data?.brief?.providers) ? data.brief.providers : []));
       const selectedProviderTotal = selectedPlatforms
-        .map((value) => String(value || '').trim())
-        .filter(Boolean).length;
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter(Boolean)
+        .filter((value, index, values) => value && values.indexOf(value) === index).length;
       const sourceProviders = new Set();
       (Array.isArray(runSummary.sources) ? runSummary.sources : []).forEach((source) => {
         if (!source || typeof source !== 'object') return;
@@ -1298,12 +1303,14 @@
       const summary = runPayload?.summary || {};
       const status = String(runPayload?.status || summary.status || 'queued');
       const sources = Number(summary.sources_total || 0);
-      const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
+      const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const scanCountLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
         ? `${providerDisplayTotal} providers · ${sourceVariantTotal} source checks`
-        : `${completedSources}/${sources} source checks`;
+        : (sourceVariantTotal > 0
+          ? `${sourceVariantTotal} source checks`
+          : (completedSources > 0 ? `${completedSources} source checks` : 'Source checks'));
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
@@ -1513,6 +1520,12 @@
         + Number(summary.filtered_floorplan_total || 0)
         + Number(summary.filtered_generic_page_total || 0)
         + Number(summary.filtered_listing_mode_total || 0);
+      const scoreDemotedTotal = Number(
+        runPayload?.score_demoted_total
+        || summary.score_demoted_total
+        || summary.filtered_low_fit_total
+        || 0
+      );
       const filteredTotal = Number(
         runPayload?.filtered_total
         || runPayload?.held_back_total
@@ -1529,8 +1542,17 @@
         || 0
       );
       const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
-      const filteredLabel = filteredTotal > 0 ? `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered. Adjust filters">${escapeHtml(filteredTotal)} filtered <span>Adjust filters</span></a>` : '';
-      const filteredBreakdown = filteredTotal > 0 ? `
+      const filteredLabel = filteredTotal > 0 ? (
+        `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
+        `aria-label="${escapeHtml(filteredTotal)} candidates filtered by hard rules">${escapeHtml(filteredTotal)} filtered ` +
+        `<span class="pqx-suppression-action">Adjust filters</span></a>`
+      ) : '';
+      const scoreDemotedLabel = scoreDemotedTotal > 0 ? (
+        `<a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
+        `aria-label="${escapeHtml(scoreDemotedTotal)} score-demoted candidates">${escapeHtml(scoreDemotedTotal)} score-demoted ` +
+        `<span class="pqx-suppression-action">Adjust filters</span></a>`
+      ) : '';
+      const filteredBreakdown = (filteredTotal > 0 || scoreDemotedTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
             <summary><strong>Filtering diagnostics</strong><span class="pqx-note">Provider-level details</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
@@ -1544,11 +1566,12 @@
                 <div class="pqx-note pqx-results-summary-row">
                   <a class="pqx-results-summary-link" href="#results-list"><b>0</b> ${summaryLabel}</a>
                   ${filteredLabel}
+                  ${scoreDemotedLabel}
                 </div>
               </div>
             </div>
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
-              <div class="pqx-empty">No ranked homes are ready yet. Open filtered recovery to relax one rule and rerun.</div>
+              <div class="pqx-empty">No ranked homes are ready yet. Open recovery to relax one blocker and rerun.</div>
             </div>
             ${filteredBreakdown}
           </section>
@@ -1725,10 +1748,12 @@
       const normalizedSummary = runPayload.summary && typeof runPayload.summary === 'object'
         ? { ...runPayload.summary }
         : {};
+      const status = String(runPayload.status || 'queued');
+      const isTerminal = terminalStates.has(status);
       const summaryRankedCandidates = Array.isArray(normalizedSummary.ranked_candidates)
         ? normalizedSummary.ranked_candidates.filter((row) => row && typeof row === 'object')
         : [];
-      if (!summaryRankedCandidates.length && Array.isArray(data.results) && data.results.length) {
+      if (!summaryRankedCandidates.length && !isTerminal && Array.isArray(data.results) && data.results.length) {
         normalizedSummary.ranked_candidates = data.results
           .filter((row) => row && typeof row === 'object')
           .map((row, index) => ({
@@ -1741,7 +1766,6 @@
       if (Object.keys(normalizedSummary).length) {
         runPayload = { ...runPayload, summary: normalizedSummary };
       }
-      const status = String(runPayload.status || 'queued');
       const progress = Math.max(0, Math.min(100, Number(runPayload.progress || 0)));
       const statusNode = root.querySelector('[data-pqx-run-status]');
       const messageNode = root.querySelector('[data-pqx-run-message]');
@@ -1761,17 +1785,24 @@
       if (rankedNode && runPayload.summary) {
         const rankedCandidates = rankedCandidatesFromRunPayload(runPayload);
         rankedNode.outerHTML = renderRankedCandidates(rankedCandidates, runPayload);
-        if (rankedCandidates.length) {
-          replaceCandidates(rankedCandidates);
-          const rankedPanel = root.querySelector('[data-pqx-ranked-candidates]')?.closest('[data-pqx-mobile-panel]');
-          setMode(rankedPanel?.getAttribute('data-pqx-mobile-panel') || 'results');
-          const panel = root.querySelector('[data-pqx-empty-results] .pqx-panel.pqx-command');
-          const helperHeading = panel?.querySelector('.pqx-section-head h2');
-          if (helperHeading && /ways to get more matches/i.test(String(helperHeading.textContent || ''))) {
-            panel.querySelector('.pqx-section-head')?.remove();
-          }
+      if (rankedCandidates.length) {
+        const hasRankedOutcome = (
+          Number(runPayload?.summary?.high_fit_total || 0) > 0
+          || Number(runPayload?.summary?.ranked_total || 0) > 0
+          || Number(runPayload?.summary?.ranked_candidates?.length || 0) > 0
+        );
+        replaceCandidates(rankedCandidates);
+        const rankedPanel = root.querySelector('[data-pqx-ranked-candidates]')?.closest('[data-pqx-mobile-panel]');
+        setMode(rankedPanel?.getAttribute('data-pqx-mobile-panel') || 'results');
+        const panel = root.querySelector('[data-pqx-empty-results] .pqx-panel.pqx-command');
+        const helperHeading = panel?.querySelector('.pqx-section-head h2');
+        if (helperHeading && /ways to get more matches/i.test(String(helperHeading.textContent || ''))) {
+          panel.querySelector('.pqx-section-head')?.remove();
+        }
+        if (hasRankedOutcome) {
           panel?.querySelector('[data-pqx-counterfactuals]')?.remove();
-          panel?.querySelectorAll('.pqx-note').forEach((node) => {
+        }
+        panel?.querySelectorAll('.pqx-note').forEach((node) => {
             const text = String(node.textContent || '').trim().toLowerCase();
             if (
               text === 'try one small relaxation first, then rerun only if the current brief is clearly too narrow.'
@@ -2778,12 +2809,24 @@
       syncSelectAllButtons(form, planPlatformCap);
       applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
     }
+    const propertyInlineStatuses = () => [
+      ...root.querySelectorAll('[data-property-inline-status], [data-property-launch-status]'),
+    ];
+    const setPropertyInlineStatus = (message) => {
+      propertyInlineStatuses().forEach((node) => {
+        node.textContent = String(message || '');
+      });
+    };
+    const setPropertyInlineError = (message) => {
+      const nodes = [...root.querySelectorAll('[data-property-inline-error]')];
+      nodes.forEach((node) => {
+        node.textContent = String(message || '');
+      });
+    };
     const savePreferences = async () => {
       if (!form) return;
-      const status = root.querySelector('[data-property-inline-status]');
-      const error = root.querySelector('[data-property-inline-error]');
-      status.textContent = 'Saving...';
-      error.textContent = '';
+      setPropertyInlineStatus('Saving...');
+      setPropertyInlineError('');
       const body = collectPayload(form);
       const response = await fetch(String(meta.preferences_endpoint || data.endpoints?.preferences || ''), {
         method: 'POST',
@@ -2792,7 +2835,7 @@
         body: JSON.stringify(body.property_preferences),
       });
       if (!response.ok) throw new Error(await responseErrorMessage(response, 'Could not save the search.'));
-      status.textContent = 'Saved.';
+      setPropertyInlineStatus('Saved.');
       return body;
     };
     let searchLaunchInFlight = false;
@@ -2816,15 +2859,13 @@
     const startSearch = async () => {
       if (!form) return;
       if (searchLaunchInFlight) return;
-      const status = root.querySelector('[data-property-inline-status]');
-      const error = root.querySelector('[data-property-inline-error]');
       try {
         searchLaunchInFlight = true;
         setSearchLaunchBusy(true);
-        status.textContent = 'Starting search...';
-        error.textContent = '';
+        setPropertyInlineStatus('Starting search...');
+        setPropertyInlineError('');
         const body = await savePreferences();
-        status.textContent = 'Launching search...';
+        setPropertyInlineStatus('Launching search...');
         const runResponse = await fetch(String(meta.start_endpoint || data.endpoints?.start || ''), {
           method: 'POST',
           credentials: 'same-origin',
@@ -2843,7 +2884,7 @@
         });
         renderRun(runBody);
         if (runBody.bootstrap_required) {
-          status.textContent = readableErrorDetail(runBody.message || `Initialization required for ${runBody.bootstrap_country_label || runBody.bootstrap_country_code || 'this market'}.`, 'Market initialization is required before this search can run.');
+          setPropertyInlineStatus(readableErrorDetail(runBody.message || `Initialization required for ${runBody.bootstrap_country_label || runBody.bootstrap_country_code || 'this market'}.`, 'Market initialization is required before this search can run.'));
           searchLaunchInFlight = false;
           setSearchLaunchBusy(false);
           return;
@@ -2854,8 +2895,8 @@
         }
         pollRun(String(runBody.status_url || ''));
       } catch (err) {
-        error.textContent = err.message || 'Could not start property search.';
-        status.textContent = '';
+        setPropertyInlineError(err.message || 'Could not start property search.');
+        setPropertyInlineStatus('');
         searchLaunchInFlight = false;
         setSearchLaunchBusy(false);
       }
@@ -3225,6 +3266,26 @@
         }
       });
     });
+    const refreshPendingMapPreviews = () => {
+      if (initialSurface !== 'agents') return;
+      const images = [...root.querySelectorAll('.pqx-automation-thumbnail img')].filter((image) => {
+        const src = String(image.getAttribute('src') || '').trim();
+        return src.startsWith('/app/api/property/map-previews/');
+      });
+      if (!images.length) return;
+      const retryDelays = [1200, 2800, 5200, 8800];
+      images.forEach((image) => {
+        const baseSrc = String(image.getAttribute('src') || '').split('?')[0];
+        if (!baseSrc || image.getAttribute('data-map-preview-refresh-bound') === 'true') return;
+        image.setAttribute('data-map-preview-refresh-bound', 'true');
+        retryDelays.forEach((delay, index) => {
+          window.setTimeout(() => {
+            image.setAttribute('src', `${baseSrc}?preview=${index + 1}-${Date.now()}`);
+          }, delay);
+        });
+      });
+    };
+    refreshPendingMapPreviews();
     const urlSearchParams = new URL(window.location.href).searchParams;
     const requestedRunAgentId = String(urlSearchParams.get('run_agent') || '').trim();
     const requestedAgentId = String(urlSearchParams.get('load_agent') || requestedRunAgentId || '').trim();

@@ -215,13 +215,22 @@
 {% macro progress_board(run, run_sources, research_task_counts) -%}
 {% set summary = run.get('summary') or {} %}
 {% set status = run.get('status') or summary.get('status') or 'queued' %}
-{% set source_total = (summary.get('sources_total') or run_sources|length or 0)|int %}
-{% set source_completed = run_sources|length %}
+{% set source_total = (summary.get('source_variant_total') or summary.get('sources_total') or run_sources|length or 0)|int %}
+{% set source_completed = (summary.get('sources_completed') or summary.get('completed_sources') or 0)|int %}
 {% set source_variant_total = (summary.get('source_variant_total') or summary.get('sources_total') or source_total or 0)|int %}
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
-{% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
-{% set provider_display_total = selected_provider_total if selected_provider_total > provider_total else provider_total %}
-{% set scan_count_label = (provider_display_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' source checks') if provider_display_total > 0 and source_variant_total > provider_display_total else (source_completed|string ~ '/' ~ source_total|string ~ ' source checks') %}
+{% set provider_display_total = (run.get('provider_display_total') or provider_total)|int %}
+{% if provider_display_total > 0 and source_variant_total > provider_display_total %}
+{% set scan_count_label = provider_display_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' source checks' %}
+{% elif source_total > 0 and source_total == source_completed %}
+{% set scan_count_label = source_completed|string ~ '/' ~ source_total|string ~ ' source checks' %}
+{% elif source_total > 0 %}
+{% set scan_count_label = source_total|string ~ ' source checks' %}
+{% elif source_completed > 0 %}
+{% set scan_count_label = source_completed|string ~ ' source checks' %}
+{% else %}
+{% set scan_count_label = 'Source checks' %}
+{% endif %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
 {% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
@@ -1854,6 +1863,13 @@
       gap: 8px;
       flex: 0 0 auto;
       margin-left: auto;
+    }
+    .pqx-launch-status {
+      min-width: 0;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .pqx-step-head-actions .pqx-button {
       min-height: 34px;
@@ -5450,6 +5466,7 @@
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% elif setup_mode %}
+        <span class="pqx-inline-status pqx-launch-status" data-property-launch-status aria-live="polite"></span>
         <button class="pqx-button primary" type="button" data-pqx-launch-top>Launch search</button>
         {% endif %}
         {% if account_nav %}
@@ -5782,6 +5799,7 @@
                 {% endif %}
               </span>
               {% if setup_mode and console_form and show_form_controls and surface_mode != 'agents' %}
+              <span class="pqx-inline-status pqx-launch-status" data-property-launch-status aria-live="polite"></span>
               <button class="pqx-button primary" type="button" data-property-start-top>{{ console_form.get('submit_label') or 'Launch search' }}</button>
               {% endif %}
             </div>
@@ -6336,10 +6354,8 @@
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
-              {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
-              {% set stored_provider_total = (run_summary.get('provider_total') or 0)|int %}
-              {% set provider_display_total = selected_provider_total if selected_provider_total > stored_provider_total else stored_provider_total %}
-              {% set variant_display_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
+              {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or 0)|int %}
+              {% set variant_display_total = (run.get('source_variant_display_total') or run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
               {% if variant_display_total > provider_display_total and provider_display_total > 0 %}
@@ -6380,10 +6396,8 @@
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
               <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>
-                {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
-                {% set stored_provider_total = (run_summary.get('provider_total') or 0)|int %}
-                {% set provider_display_total = selected_provider_total if selected_provider_total > stored_provider_total else stored_provider_total %}
-                {% set variant_display_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
+                {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or 0)|int %}
+                {% set variant_display_total = (run.get('source_variant_display_total') or run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
               {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
                 {{ provider_display_total }} providers · {{ variant_display_total }} checks · {{ run_summary.get('listing_total') or 0 }} homes checked
               {% else %}
@@ -6396,20 +6410,27 @@
           <div data-pqx-counterfactuals>
           {% if (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) and not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
-            {% for row in (workbench.get('counterfactual_rows') or [])[:3] if row.get('adjustments') %}
+            {% for row in (workbench.get('counterfactual_rows') or [])[:3] %}
+            {% if row.get('adjustments') %}
             <button class="pqx-suppression-item" type="button" data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}' aria-label="Relax rule">
               <strong>{{ row.get('title') }}</strong>
               <span class="pqx-note">{{ row.get('detail') }}</span>
               <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax rule' }}</span>
             </button>
             {% else %}
+            <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax rule">
+              <strong>{{ row.get('title') or 'Reopen brief' }}</strong>
+              <span class="pqx-note">{{ row.get('detail') or 'Reopen the brief and adjust one filter before rerunning.' }}</span>
+              <span class="pqx-suppression-action">{{ row.get('action_label') or 'Reopen brief' }}</span>
+            </button>
+            {% endif %}
+            {% endfor %}
             {% for row in (workbench.get('suppression_rows') or [])[:3] %}
             <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax rule">
               <strong>{{ row.get('title') }}</strong>
               <span class="pqx-note">{{ row.get('detail') }}</span>
               <span class="pqx-suppression-action">{{ row.get('action_label') or 'Relax rule' }}</span>
             </button>
-            {% endfor %}
             {% endfor %}
           </div>
           {% elif not ranked_candidates %}

@@ -3409,8 +3409,8 @@ def _property_location_catalog_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "property_location_catalog.json"
 
 
-def _safe_location_option_rows(value: object) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+def _safe_location_option_rows_with_metadata(value: object) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
     seen: set[str] = set()
     for item in list(value or []) if isinstance(value, list) else []:
         if not isinstance(item, dict):
@@ -3419,14 +3419,32 @@ def _safe_location_option_rows(value: object) -> list[dict[str, str]]:
         if not option_value or option_value.lower() in seen:
             continue
         seen.add(option_value.lower())
-        rows.append(
-            {
-                "value": option_value,
-                "label": str(item.get("label") or option_value).strip() or option_value,
-                "detail": str(item.get("detail") or "").strip(),
-            }
-        )
+        row: dict[str, object] = {
+            "value": option_value,
+            "label": str(item.get("label") or option_value).strip() or option_value,
+            "detail": str(item.get("detail") or "").strip(),
+        }
+        adjacent_values = [
+            str(adjacent or "").strip()
+            for adjacent in list(item.get("adjacent_values") or [])
+            if str(adjacent or "").strip()
+        ]
+        if adjacent_values:
+            row["adjacent_values"] = list(dict.fromkeys(adjacent_values))
+        rows.append(row)
     return rows
+
+
+def _safe_location_option_rows(value: object) -> list[dict[str, str]]:
+    return [
+        {
+            "value": str(row.get("value") or "").strip(),
+            "label": str(row.get("label") or row.get("value") or "").strip(),
+            "detail": str(row.get("detail") or "").strip(),
+        }
+        for row in _safe_location_option_rows_with_metadata(value)
+        if str(row.get("value") or "").strip()
+    ]
 
 
 def _loaded_property_location_catalog() -> dict[str, object]:
@@ -3497,6 +3515,34 @@ def location_options_for_country_region(country_code: object, region_code: objec
                 if rows:
                     return rows
     return _generic_country_location_options(normalized)
+
+
+def _location_options_for_country_region_with_metadata(country_code: object, region_code: object = "") -> list[dict[str, object]]:
+    normalized = normalize_country_code(country_code)
+    requested_region = str(region_code or "").strip().lower()
+    catalog = _loaded_property_location_catalog()
+    country_catalog = catalog.get(normalized)
+    if isinstance(country_catalog, dict):
+        locations = country_catalog.get("locations")
+        if isinstance(locations, dict):
+            if requested_region and requested_region in locations:
+                rows = _safe_location_option_rows_with_metadata(locations.get(requested_region))
+                if rows:
+                    return rows
+            regions = region_options_for_country(normalized)
+            fallback_region = str(regions[0].get("value") or "").strip().lower() if regions else ""
+            if fallback_region and fallback_region in locations:
+                rows = _safe_location_option_rows_with_metadata(locations.get(fallback_region))
+                if rows:
+                    return rows
+    return [
+        {
+            "value": row["value"],
+            "label": row["label"],
+            "detail": row.get("detail", ""),
+        }
+        for row in _generic_country_location_options(normalized)
+    ]
 
 
 def region_label_for_country_region(country_code: object, region_code: object = "") -> str:
@@ -4387,6 +4433,67 @@ def _explicit_location_query_variants(preferences: dict[str, object]) -> tuple[s
     return ()
 
 
+def _adjacent_area_radius_m_from_preferences(preferences: dict[str, object]) -> int:
+    direct_value = preferences.get("adjacent_area_radius_m")
+    try:
+        direct_meters = int(float(direct_value))
+    except Exception:
+        direct_meters = 0
+    if direct_meters > 0:
+        return max(0, direct_meters)
+    raw_value = preferences.get("adjacent_area_radius_value")
+    try:
+        unit_value = max(0.0, float(raw_value))
+    except Exception:
+        unit_value = 0.0
+    unit = str(preferences.get("adjacent_area_radius_unit") or "m").strip().lower()
+    multiplier = 1000 if unit == "km" else 1
+    return max(0, int(round(unit_value * multiplier)))
+
+
+def _normalized_location_option_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9äöüß]+", "", str(value or "").strip().lower())
+
+
+def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[str, ...]:
+    if _adjacent_area_radius_m_from_preferences(preferences) <= 0:
+        return ()
+    selected_variants = _explicit_location_query_variants(preferences)
+    if not selected_variants:
+        return ()
+    rows = _location_options_for_country_region_with_metadata(
+        preferences.get("country_code"),
+        preferences.get("region_code"),
+    )
+    by_key: dict[str, dict[str, object]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for field in ("value", "label", "detail"):
+            key = _normalized_location_option_key(row.get(field))
+            if key:
+                by_key.setdefault(key, row)
+        postal_match = re.search(r"\b([1-9]\d{3})\b", str(row.get("value") or ""))
+        if postal_match:
+            by_key.setdefault(postal_match.group(1), row)
+    selected_keys = {_normalized_location_option_key(value) for value in selected_variants}
+    adjacent: list[str] = []
+    for selected in selected_variants:
+        selected_key = _normalized_location_option_key(selected)
+        row = by_key.get(selected_key)
+        if row is None:
+            postal_match = re.search(r"\b([1-9]\d{3})\b", str(selected or ""))
+            row = by_key.get(postal_match.group(1)) if postal_match else None
+        if row is None:
+            continue
+        for adjacent_value in list(row.get("adjacent_values") or []):
+            normalized_adjacent = _normalized_location_option_key(adjacent_value)
+            if not normalized_adjacent or normalized_adjacent in selected_keys:
+                continue
+            adjacent.append(str(adjacent_value or "").strip())
+    return tuple(dict.fromkeys(value for value in adjacent if value))
+
+
 def _region_code_matches_supported(value: object, supported_region_codes: object) -> bool:
     normalized_region = str(value or "").strip().lower()
     supported = tuple(
@@ -4880,7 +4987,18 @@ def generated_source_specs(
                 property_type=property_type,
             )
         )
-    location_queries = _explicit_location_query_variants(normalized_preferences) or _location_query_variants(location_query)
+    explicit_location_queries = _explicit_location_query_variants(normalized_preferences)
+    if explicit_location_queries:
+        location_queries = tuple(
+            dict.fromkeys(
+                (
+                    *explicit_location_queries,
+                    *_adjacent_location_query_variants(normalized_preferences),
+                )
+            )
+        )
+    else:
+        location_queries = _location_query_variants(location_query)
     rows: list[dict[str, object]] = []
     for provider_key in effective_platforms:
         provider = _PROVIDER_INDEX.get(provider_key)

@@ -86,6 +86,11 @@ GOOGLE_SCOPE_CORE_AND_PHOTOS = GOOGLE_SCOPE_CORE + (
 GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS = GOOGLE_SCOPE_FULL_WORKSPACE + (
     GOOGLE_SCOPE_PHOTOS_PICKER,
 )
+# "Everything" means every Google scope currently safe for the shared OAuth
+# client and deployed consent screen. Keep and Photos remain explicit lanes
+# because Google can reject the combined request with invalid_scope until those
+# scopes are enabled/configured for the OAuth client.
+GOOGLE_SCOPE_EVERYTHING = GOOGLE_SCOPE_FULL_WORKSPACE
 
 SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
     "identity": GOOGLE_SCOPE_IDENTITY,
@@ -97,6 +102,7 @@ SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
     "core_photos": GOOGLE_SCOPE_CORE_AND_PHOTOS,
     "full_workspace": GOOGLE_SCOPE_FULL_WORKSPACE,
     "full_workspace_photos": GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS,
+    "everything": GOOGLE_SCOPE_EVERYTHING,
     "all": GOOGLE_SCOPE_FULL_WORKSPACE,
 }
 
@@ -219,6 +225,21 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
         "limitations": (
             "Still not a promise that every Google surface is integrated today",
             "Only selected Google Photos items are shared",
+        ),
+    },
+    "everything": {
+        "label": "Google Everything",
+        "summary": "Every Google scope currently safe for EA's shared OAuth client: Gmail, Calendar, Contacts, and Drive metadata.",
+        "capabilities": (
+            "Inbox understanding and modification",
+            "Send mail",
+            "Calendar read and write actions",
+            "Contacts read context",
+            "Drive file index context",
+        ),
+        "limitations": (
+            "Google Keep and Google Photos use separate explicit authorization lanes until their scopes are configured on the OAuth client",
+            "The granted scope still depends on what Google and the user approve",
         ),
     },
     "all": {
@@ -594,15 +615,12 @@ def complete_google_oauth_callback(
         else:
             raise RuntimeError("google_oauth_principal_missing")
 
-    granted_scopes = tuple(
-        sorted(
-            {
-                scope.strip()
-                for scope in str(token_payload.get("scope") or "").split(" ")
-                if scope.strip()
-            }
-        )
-    ) or SCOPE_BUNDLES[scope_bundle]
+    returned_scope_text = str(token_payload.get("scope") or "").strip()
+    returned_granted_scopes = tuple(
+        sorted({scope.strip() for scope in returned_scope_text.split(" ") if scope.strip()})
+    )
+    granted_scopes = returned_granted_scopes or SCOPE_BUNDLES[scope_bundle]
+    granted_scopes_source = "google_token_response" if returned_granted_scopes else "requested_scope_fallback"
     if set(granted_scopes).issubset(set(GOOGLE_SCOPE_IDENTITY)):
         consent_stage = "identity"
     elif GOOGLE_SCOPE_METADATA in granted_scopes:
@@ -642,7 +660,10 @@ def complete_google_oauth_callback(
         "google_subject": google_subject,
         "google_email": google_email,
         "google_hosted_domain": str(userinfo.get("hd") or "").strip(),
+        "requested_scopes": list(SCOPE_BUNDLES[scope_bundle]),
         "granted_scopes": list(granted_scopes),
+        "granted_scopes_source": granted_scopes_source,
+        "returned_scope_text": returned_scope_text,
         "refresh_token_ref": encrypted_refresh,
         "access_token_expires_at": access_token_expires_at,
         "token_status": "active",
@@ -654,7 +675,10 @@ def complete_google_oauth_callback(
     }
     scope_json = {
         "bundle": scope_bundle,
+        "requested_scopes": list(SCOPE_BUNDLES[scope_bundle]),
         "scopes": list(granted_scopes),
+        "granted_scopes": list(granted_scopes),
+        "granted_scopes_source": granted_scopes_source,
     }
     probe_details_json = {
         "google_email": google_email,
@@ -677,13 +701,22 @@ def complete_google_oauth_callback(
         principal_id=principal_id,
         connector_name=GOOGLE_CONNECTOR_NAME,
         external_account_ref=google_email,
-        scope_json={"scopes": list(granted_scopes), "bundle": scope_bundle},
+        scope_json={
+            "scopes": list(granted_scopes),
+            "granted_scopes": list(granted_scopes),
+            "requested_scopes": list(SCOPE_BUNDLES[scope_bundle]),
+            "granted_scopes_source": granted_scopes_source,
+            "bundle": scope_bundle,
+        },
         auth_metadata_json={
             "google_email": google_email,
             "google_subject": google_subject,
             "google_hosted_domain": str(userinfo.get("hd") or "").strip(),
             "workspace_mode": "user_oauth",
+            "requested_scopes": list(SCOPE_BUNDLES[scope_bundle]),
             "granted_scopes": list(granted_scopes),
+            "granted_scopes_source": granted_scopes_source,
+            "returned_scope_text": returned_scope_text,
             "consent_stage": consent_stage,
             "refresh_token_ref": encrypted_refresh,
             "access_token_expires_at": access_token_expires_at,

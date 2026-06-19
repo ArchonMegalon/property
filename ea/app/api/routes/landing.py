@@ -2787,12 +2787,15 @@ def property_research_packet(
     flythrough_url = str(candidate.get("flythrough_url") or "").strip()
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
+    hosted_tour_ready = bool(research_media.get("hosted_ready"))
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
-    if tour_url:
+    if hosted_tour_ready and tour_url:
         hero_actions.append({"href": tour_url, "label": "Open 3D tour", "external": False})
+    elif tour_url and not hosted_tour_ready and property_url:
+        hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle"})
     elif tour_status in {"queued", "pending"} and property_url:
         hero_actions.append({"kind": "tour", "label": f"3D tour queued{f' · ETA {eta_raw} min' if eta_raw else ''}", "property_url": property_url, "state": "pending"})
     elif tour_status in {"processing", "running", "in_progress", "started"} and property_url:
@@ -2816,8 +2819,10 @@ def property_research_packet(
         visual_status_line = "Flythrough is queued and will appear here as soon as rendering starts."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = "Flythrough is rendering now and will appear here when it is ready."
-    elif tour_url:
+    elif hosted_tour_ready and tour_url:
         visual_status_line = "3D tour is ready. You can inspect it now or request a flythrough next."
+    elif tour_url and not hosted_tour_ready:
+        visual_status_line = "Hosted 3D assets are not ready yet. You can request a rebuild now."
     elif tour_status in {"queued", "pending"}:
         visual_status_line = f"3D tour is queued{f' with an ETA of about {eta_raw} minutes' if eta_raw else ''}."
     elif tour_status in {"processing", "running", "in_progress", "started"}:

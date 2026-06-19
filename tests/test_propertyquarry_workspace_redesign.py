@@ -368,6 +368,31 @@ def test_propertyquarry_research_investment_rows_use_listing_currency(monkeypatc
     assert " EUR" not in detail_text
 
 
+def test_property_research_investment_auto_mode_requires_explicit_request() -> None:
+    preferences = {
+        "listing_mode": "buy",
+        "investment_research_mode": "auto",
+    }
+    commercial = {"investment_research_level": "full"}
+
+    assert (
+        landing_property_research._property_investment_research_access_level(
+            preferences,
+            commercial,
+            requested=False,
+        )
+        == "off"
+    )
+    assert (
+        landing_property_research._property_investment_research_access_level(
+            preferences,
+            commercial,
+            requested=True,
+        )
+        == "full"
+    )
+
+
 def test_propertyquarry_research_packet_extracts_non_eur_price_display() -> None:
     facts = landing_property_research._property_enriched_candidate_facts(
         candidate={
@@ -2103,6 +2128,21 @@ def test_property_scope_preview_map_only_uses_local_boundary_and_async_render(mo
     assert len(scheduled[0]["overlay_rows"]) == 2
 
 
+def test_property_scope_preview_boundary_framing_adds_small_map_breathing_room() -> None:
+    bounds = (16.356, 48.202, 16.379, 48.216)
+
+    west, south, east, north = landing_view_models._expand_geo_bounds(bounds)
+
+    assert west < bounds[0]
+    assert south < bounds[1]
+    assert east > bounds[2]
+    assert north > bounds[3]
+    assert round(bounds[0] - west, 3) >= 0.006
+    assert round(south - bounds[1], 3) <= -0.006
+    assert round(east - bounds[2], 3) >= 0.006
+    assert round(north - bounds[3], 3) >= 0.006
+
+
 def test_property_scope_preview_uses_region_fallback_when_geocode_fails(monkeypatch) -> None:
     monkeypatch.setattr(landing_view_models, "_nominatim_boundary_record", lambda query: {})
     monkeypatch.setattr(landing_view_models, "_property_location_options", lambda country_code, region_code: [])
@@ -2561,22 +2601,54 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "Open question helper" in body
     assert "data-prd-map-overlay" in body
     assert "Questions worth asking next" in body
+    assert "Requesting a 3D tour from the available source material" in body
+    assert ".prd-actions .console-action.is-processing::before" in body
+    assert "prd-media-image-failed" in body
+    assert "img[data-prd-hero-image]" in body
+    assert "data-prd-hero-fallback-src" in body
 
 
 def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.96fr);" in body
+    assert "grid-template-columns: minmax(0, 0.98fr) minmax(340px, 0.92fr);" in body
     assert "grid-template-columns: 1fr;" in body
-    assert "min-height: clamp(210px, 32vh, 320px);" in body
-    assert "max-height: min(calc(100vh - 340px), 340px);" in body
-    assert "min-height: clamp(230px, 34vh, 340px);" in body
+    assert "min-height: clamp(210px, 30vh, 300px);" in body
+    assert "max-height: min(calc(100vh - 370px), 320px);" in body
+    assert "min-height: clamp(230px, 32vh, 320px);" in body
     assert "grid-template-columns: 76px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert "prd-hero-gallery" in body
     assert "-webkit-line-clamp: 2;" in body
     assert "min-height: min(56vh, 520px);" not in body
     assert body.index("data-object-media-stage") < body.index("At a glance")
+
+
+def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeypatch) -> None:
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {})
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ())
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_url": "https://propertyquarry.com/tours/stale-tour",
+            "property_url": "https://example.test/listing",
+        }
+    )
+
+    assert payload["has_live_viewer"] is False
+    assert payload["embed_href"] == ""
+    assert payload["hosted_ready"] is False
+    assert payload["status_label"] == "360 needs rebuild"
+    assert payload["primary_href"] == ""
+
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {"matterport_url": "https://my.matterport.com/show/?m=TEST123"})
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ("matterport",))
+    ready_payload = landing_property_research._property_tour_media_payload(
+        {"tour_url": "https://propertyquarry.com/tours/ready-tour"}
+    )
+    assert ready_payload["has_live_viewer"] is True
+    assert ready_payload["hosted_ready"] is True
+    assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control"
 
 
 def test_base_public_template_exposes_public_seo_contract() -> None:
@@ -3421,6 +3493,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-checkbox-group-select-all="selected_platforms"' in setup.text
     assert 'class="pqx-step-head-actions"' in setup.text
     assert 'data-property-start-top' in setup.text
+    assert 'data-property-launch-status' in setup.text
+    assert 'aria-live="polite"' in setup.text
     assert setup.text.index('data-property-start-top') < setup.text.index('data-property-step-nav')
     assert 'data-property-step-nav' in setup.text
     template = _read_workbench_bundle()
@@ -3631,9 +3705,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Open the space before you read the rest" not in packet.text
     assert "360 review first" not in packet.text
     assert 'data-object-media-stage' in packet.text
-    assert 'title="Property 360 review"' in packet.text
+    assert 'title="Property 360 review"' not in packet.text
     assert packet.text.index("data-object-media-stage") < packet.text.index("At a glance")
-    assert "Live 360 ready" in packet.text
+    assert "360 needs rebuild" in packet.text
+    assert "Rebuild 3D tour" in packet.text
     assert 'data-property-research-detail' in packet.text
     assert "At a glance" in packet.text
     assert "Current recommendation" not in packet.text
@@ -4571,12 +4646,15 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "/app/search?load_agent=" in page.text
     assert "/app/search?run_agent=" in page.text
     template = _read_workbench_bundle()
+    product_api = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/product_api.py").read_text(encoding="utf-8")
     assert ".pqx-automation-grid" in template
     assert ".pqx-automation-thumbnail" in template
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' not in template
     assert "Map preview unavailable" not in template
+    assert "Map preview unavailable" not in product_api
+    assert "Preparing map" in product_api
     assert "object-position: center 44%;" not in template
     assert 'transform: scale(2.18);' not in template
     assert 'transform: scale(3.05);' not in template
@@ -4593,6 +4671,11 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "setSearchLaunchBusy(true);" in script
     assert "searchLaunchInFlight" in script
     assert "root.querySelector('[data-pqx-launch-top]')?.addEventListener('click'" not in script
+    assert "const setPropertyInlineStatus = (message) => {" in script
+    assert "data-property-launch-status" in script
+    assert "const refreshPendingMapPreviews = () => {" in script
+    assert "data-map-preview-refresh-bound" in script
+    assert "?preview=" in script
     assert "const stepNav = form.querySelector('[data-property-step-nav]');" in script
     assert "stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });" in script
     assert "const showPreviewFallback = () => {" not in script
@@ -5148,13 +5231,13 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "Adjust filters" in body
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "Recover filtered homes" in body
+    assert "Recover homes" in body
     assert "estimated newly ranked homes after rerun" in body
     assert "data-pqx-filter-slider" in body
     assert "data-pqx-filter-field" in body
     assert "adjustments[fieldName]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
-    assert "No ranked homes are ready yet. Open filtered recovery" in body
+    assert "No ranked homes are ready yet. Open recovery" in body
     assert "Best homes first" not in body
 
 
@@ -5701,12 +5784,31 @@ def test_propertyquarry_suppression_rows_use_summary_fallback_and_show_active_ru
             "adjacent_area_radius_m": 500,
             "location_query": "Vienna",
         },
+        include_soft=True,
     )
     low_fit_row = next(row for row in rows if row.get("rule_key") == "Below fit threshold")
     assert "Current match bar: 82." in str(low_fit_row.get("detail") or "")
     location_row = next(row for row in rows if row.get("rule_key") == "Outside selected area")
     assert "Vienna" in str(location_row.get("detail") or "")
     assert "500 m spillover" in str(location_row.get("detail") or "")
+
+
+def test_propertyquarry_suppression_rows_treats_low_fit_as_soft_by_default() -> None:
+    rows = landing_property_workspace_helpers._property_suppression_rows(
+        run_summary={
+            "filtered_low_fit_total": 9,
+            "filtered_area_total": 4,
+            "filtered_location_total": 3,
+        },
+        source_rows=[],
+        preferences={
+            "min_match_score": 82,
+            "min_area_m2": 70,
+            "adjacent_area_radius_m": 500,
+            "location_query": "Vienna",
+        },
+    )
+    assert not any((row.get("rule_key") or "") == "Below fit threshold" for row in rows)
 
 
 def test_propertyquarry_suppression_rows_includes_property_type_and_availability_rules() -> None:
@@ -6493,6 +6595,7 @@ def test_propertyquarry_results_header_uses_held_back_total_for_filtered_count()
     bundle = _read_workbench_bundle()
     assert "runPayload?.filtered_total" in bundle
     assert "runPayload?.held_back_total" in bundle
+    assert "runPayload?.score_demoted_total" in bundle
     assert "run.get('held_back_total')" in bundle
     assert "run_summary.get('held_back_total')" in bundle
     assert 'id="pqx-filtered-breakdown"' in bundle
@@ -6502,6 +6605,7 @@ def test_property_surface_run_contract_exposes_filtered_totals() -> None:
     contract_path = Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_surface_contracts.py"
     body = contract_path.read_text(encoding="utf-8")
     assert "filtered_total: int = 0" in body
+    assert "score_demoted_total: int = 0" in body
     assert "held_back_total: int = 0" in body
 
 

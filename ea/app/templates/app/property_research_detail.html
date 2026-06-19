@@ -16,29 +16,32 @@
     gap: 14px;
   }
   .prd-shell {
-    width: min(1280px, calc(100vw - 28px));
+    width: min(1180px, calc(100vw - 28px));
     margin: 0 auto;
     padding-bottom: 18px;
-    gap: 12px;
+    gap: 10px;
   }
   .prd-hero {
-    grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.96fr);
+    grid-template-columns: minmax(0, 0.98fr) minmax(340px, 0.92fr);
     align-items: start;
     gap: 10px;
   }
   .prd-body {
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
     align-items: start;
-    gap: 18px;
+    gap: 12px;
   }
   .prd-headline {
     grid-template-columns: 1fr;
     align-items: start;
-    gap: 12px;
+    gap: 8px;
   }
   .prd-summary-stack,
   .prd-side-stack {
     align-content: start;
+  }
+  .prd-summary-stack {
+    gap: 8px;
   }
   .prd-panel,
   .prd-band,
@@ -46,7 +49,7 @@
   .prd-meta-card,
   .prd-lightbox-card {
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--panel);
     box-shadow: none;
     padding: 10px;
@@ -72,7 +75,7 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
   .prd-copy {
     color: var(--text-soft);
@@ -146,16 +149,16 @@
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    min-height: clamp(210px, 32vh, 320px);
-    max-height: min(calc(100vh - 340px), 340px);
+    min-height: clamp(210px, 30vh, 300px);
+    max-height: min(calc(100vh - 370px), 320px);
     padding: 0;
     background: var(--panel-2);
     border: 1px solid var(--line);
-    border-radius: 18px;
+    border-radius: 10px;
   }
   .prd-media-frame.prd-media-frame-live {
-    min-height: clamp(230px, 34vh, 340px);
-    max-height: min(calc(100vh - 320px), 360px);
+    min-height: clamp(230px, 32vh, 320px);
+    max-height: min(calc(100vh - 350px), 340px);
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -171,6 +174,20 @@
     place-items: center;
     padding: 24px;
     color: var(--text-soft);
+  }
+  .prd-media-frame.prd-media-image-failed::before {
+    content: "Preview unavailable";
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    color: var(--text-soft);
+    background:
+      linear-gradient(180deg, rgba(250, 248, 242, 0.95), rgba(239, 235, 225, 0.95));
+  }
+  .prd-media-frame.prd-media-image-failed img[data-prd-hero-image] {
+    display: none;
   }
   .prd-media-gradient {
     position: absolute;
@@ -222,6 +239,33 @@
     margin-top: 8px;
     color: var(--text-soft);
     font-size: 13px;
+    min-height: 18px;
+  }
+  .prd-actions .console-action.is-processing {
+    position: relative;
+    padding-left: 30px;
+  }
+  .prd-actions .console-action.is-processing::before {
+    content: "";
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    margin-top: -6px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    opacity: 0.82;
+    animation: prd-spin 760ms linear infinite;
+  }
+  @keyframes prd-spin {
+    to { transform: rotate(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prd-actions .console-action.is-processing::before {
+      animation: none;
+    }
   }
   .prd-gallery {
     grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
@@ -287,7 +331,7 @@
     width: 100%;
     aspect-ratio: 16 / 10;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 8px;
     overflow: hidden;
     background: var(--panel-2);
   }
@@ -309,7 +353,7 @@
     display: block;
     width: 100%;
     aspect-ratio: 640 / 368;
-    border-radius: 14px;
+    border-radius: 8px;
     overflow: hidden;
     padding: 0;
     border: 1px solid var(--line);
@@ -320,7 +364,7 @@
     width: 76px;
     min-width: 76px;
     aspect-ratio: 1 / 1;
-    border-radius: 12px;
+    border-radius: 8px;
   }
   .prd-map-thumb img {
     width: 100%;
@@ -380,7 +424,7 @@
   }
   .prd-summary-box {
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--panel-2);
     padding: 10px;
   }
@@ -480,7 +524,7 @@
     gap: 10px;
     padding: 12px;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 8px;
     background: var(--panel);
   }
   .prd-compare-card strong {
@@ -497,7 +541,7 @@
   }
   .prd-collapse {
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--panel);
     padding: 0;
     overflow: hidden;
@@ -610,7 +654,7 @@
   }
   .prd-lightbox-stage {
     overflow: hidden;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid var(--line);
     background: var(--panel-2);
     width: 100%;
@@ -671,7 +715,7 @@
   .object-field textarea {
     width: 100%;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 8px;
     background: var(--panel);
     color: var(--text);
     padding: 10px 12px;
@@ -743,7 +787,7 @@
     margin-top: 14px;
     padding: 14px;
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--panel-2);
   }
   .object-magicfit-grid {
@@ -751,7 +795,7 @@
   }
   .object-magicfit-preview img {
     width: 100%;
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid var(--line);
     display: block;
     object-fit: cover;
@@ -872,7 +916,7 @@
       {% if research_media.get('embed_href') %}
       <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
       {% elif research_preview_image %}
-      <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image>
+      <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}">
       {% elif research_location_preview.get('image_url') %}
       <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy" data-prd-hero-image>
       {% else %}
@@ -1018,8 +1062,8 @@
     <section class="prd-sections">
       <section class="prd-band">
         <div class="prd-kicker">Current read</div>
-        <h2 class="prd-section-title">Why this property is still worth your attention</h2>
-        <p class="prd-section-copy">Start with the few facts that justify another minute of attention. Everything else should support, sharpen, or block that decision.</p>
+        <h2 class="prd-section-title">Keep, question, or drop</h2>
+        <p class="prd-section-copy">The first rows show the current reason to continue and the main unresolved risk.</p>
         <div class="prd-summary-grid">
           {% for row in research_overview_rows[:4] %}
           <div class="prd-summary-box">
@@ -1450,6 +1494,26 @@
 (() => {
   const visualRequestStatusNode = document.querySelector('[data-prd-visual-status]');
   const visualRequestButtons = Array.from(document.querySelectorAll('[data-pw-visual-request]'));
+  document.querySelectorAll('img[data-prd-hero-image]').forEach((image) => {
+    const frame = image.closest('[data-object-media-stage]');
+    let fallbackTried = false;
+    const markFailed = () => {
+      const fallbackSrc = String(image.getAttribute('data-prd-hero-fallback-src') || '').trim();
+      if (!fallbackTried && fallbackSrc && fallbackSrc !== image.getAttribute('src')) {
+        fallbackTried = true;
+        image.setAttribute('src', fallbackSrc);
+        image.removeAttribute('aria-hidden');
+        if (frame) frame.classList.remove('prd-media-image-failed');
+        return;
+      }
+      if (frame) frame.classList.add('prd-media-image-failed');
+      image.setAttribute('aria-hidden', 'true');
+    };
+    image.addEventListener('error', markFailed, { once: true });
+    if (image.complete && image.naturalWidth === 0) {
+      markFailed();
+    }
+  });
   const applyVisualButtonState = (button, state) => {
     if (!(button instanceof HTMLButtonElement)) return;
     const normalized = state && typeof state === 'object' ? state : {};

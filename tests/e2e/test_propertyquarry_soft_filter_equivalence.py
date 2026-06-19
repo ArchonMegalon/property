@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import time
 
 import app.product.service as product_service
@@ -46,6 +48,26 @@ def _candidate_fact_rows(status: dict[str, object]) -> list[dict[str, object]]:
         if isinstance(row, dict):
             rows.append(row)
     return rows
+
+
+def test_propertyquarry_live_soft_filter_ablation_fixture_preserves_diagnostic_truth() -> None:
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "propertyquarry_live_soft_filter_ablation_20260619.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    baseline = dict(payload["baseline"])
+    neutral_soft = dict(payload["neutral_soft"])
+    no_location = dict(payload["no_location_hard_scope"])
+
+    assert baseline["status"] == "completed_partial"
+    assert int(baseline["sources_completed"]) < int(baseline["sources_total"])
+    assert int(baseline["filtered_low_fit_total"]) == 0
+    assert int(neutral_soft["filtered_low_fit_total"]) == 0
+    assert int(no_location["filtered_low_fit_total"]) == 0
+    assert int(neutral_soft["ranked_count"]) == int(no_location["ranked_count"]) == 10
+    assert int(neutral_soft["sources_completed"]) == int(neutral_soft["sources_total"])
+    assert int(no_location["sources_completed"]) == int(no_location["sources_total"])
+    assert int(neutral_soft["filtered_area_total"]) > int(neutral_soft["filtered_low_fit_total"])
+    assert int(neutral_soft["filtered_generic_page_total"]) > int(neutral_soft["filtered_low_fit_total"])
 
 
 def test_propertyquarry_e2e_soft_preferences_preserve_search_hits(monkeypatch) -> None:

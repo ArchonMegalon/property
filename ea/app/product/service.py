@@ -608,6 +608,7 @@ _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = _property_search_storage._PROPERTY
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
 _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE = 50.0
 _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE = 60.0
+_PROPERTY_SCOUT_OUTBOUND_NOTIFICATION_MIN_SCORE = 60.0
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
 _PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
@@ -615,6 +616,16 @@ _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
 _PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "completed_partial", "failed", "cancelled", "noop"}
 _PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID = "property-market-codex"
 _PROPERTY_SCHOOLATLAS_SOURCE_URL = "https://www.statistik.at/atlas/schulen/"
+
+
+def _property_scout_outbound_notification_min_score() -> float:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SCOUT_OUTBOUND_MIN_SCORE") or "").strip()
+    if not raw_value:
+        return _PROPERTY_SCOUT_OUTBOUND_NOTIFICATION_MIN_SCORE
+    try:
+        return max(0.0, min(100.0, float(raw_value)))
+    except Exception:
+        return _PROPERTY_SCOUT_OUTBOUND_NOTIFICATION_MIN_SCORE
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -6057,6 +6068,8 @@ def _property_candidate_matches_requested_location(
             lowered_hint = str(hint or "").strip().lower()
             if not lowered_hint:
                 continue
+            if lowered_hint in {"vienna", "wien"} and ("vienna" in raw_text or "wien" in raw_text):
+                return True
             if lowered_hint in raw_text:
                 return True
             normalized_hint = re.sub(r"[^a-z0-9äöüß]+", "", lowered_hint)
@@ -6110,6 +6123,11 @@ def _property_candidate_matches_requested_location(
         concrete_text=real_concrete_text,
     ) and not strong_exact_postal_match:
         return False
+    if wants_vienna and not explicit_hint_postal_codes:
+        if observed_listing_postal_codes and any(str(code).startswith("1") for code in observed_listing_postal_codes):
+            return True
+        if real_concrete_postal_codes and any(str(code).startswith("1") for code in real_concrete_postal_codes):
+            return True
 
     concrete_postal_codes = tuple(re.findall(r"\b\d{4,5}\b", concrete_text))
     if concrete_postal_codes:
@@ -11007,6 +11025,7 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
         "floorplan_missing",
         "pure_360_assets_unavailable",
         "provider_export_missing",
+        "user_requested_visual_generation",
     }
 
 
@@ -23800,9 +23819,25 @@ class ProductService:
         )
         if existing is not None:
             return existing
+        is_user_visual_request = str(blocked_reason or "").strip() == "user_requested_visual_generation"
+        review_goal = (
+            f"Build requested property visual for {title or property_url}"
+            if is_user_visual_request
+            else f"Finish apartment-tour automation for {title or property_url}"
+        )
+        task_brief = (
+            f"Build requested 3D or walkthrough visual for {title or property_url}"
+            if is_user_visual_request
+            else f"Finish apartment tour delivery for {title or property_url}"
+        )
+        why_human = (
+            "A user explicitly requested a 3D tour or walkthrough. Queue the media lane and attach the finished asset when ready."
+            if is_user_visual_request
+            else f"Automatic apartment-tour handling stopped at {blocked_reason}. Finish the tour or delivery path."
+        )
         session_id = self._start_product_review_session(
             principal_id=principal_id,
-            goal=f"Finish apartment-tour automation for {title or property_url}",
+            goal=review_goal,
             source_ref=source_ref or property_url,
         )
         task = self._container.orchestrator.create_human_task(
@@ -23810,8 +23845,8 @@ class ProductService:
             principal_id=principal_id,
             task_type="property_tour_followup",
             role_required="operator",
-            brief=f"Finish apartment tour delivery for {title or property_url}",
-            why_human=f"Automatic apartment-tour handling stopped at {blocked_reason}. Finish the tour or delivery path.",
+            brief=task_brief,
+            why_human=why_human,
             priority="high",
             input_json={
                 "property_url": str(property_url or "").strip(),
@@ -28584,6 +28619,86 @@ class ProductService:
         normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
+        if not normalized_property_url:
+            raise ValueError("property_tour_url_missing")
+        if not auto_deliver and str(os.getenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS") or "").strip().lower() not in {"1", "true", "yes", "on"}:
+            title = "Selected property"
+            human_task_id = ""
+            try:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_property_url,
+                    title=title,
+                    variant_key=variant_key,
+                    blocked_reason="user_requested_visual_generation",
+                    recipient_email=recipient_email,
+                    source_ref=normalized_source_ref,
+                    external_id=external_id or normalized_property_url,
+                    connector_binding_id=str(binding_id or "").strip(),
+                )
+                human_task_id = f"human_task:{followup.human_task_id}"
+            except Exception:
+                human_task_id = ""
+            status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
+            status_detail = (
+                "Walkthrough request queued. The media lane will build it without blocking this page."
+                if normalized_kind == "flythrough"
+                else "3D tour request queued. The media lane will build it without blocking this page."
+            )
+            visual_state = {
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "tour_status": "pending",
+                "flythrough_url": "",
+                "flythrough_status": "queued" if normalized_kind == "flythrough" else "",
+                "blocked_reason": "",
+            }
+            self._persist_property_search_visual_state(
+                principal_id=principal_id,
+                run_id=str(run_id or "").strip(),
+                candidate_ref=str(candidate_ref or "").strip(),
+                source_ref=normalized_source_ref,
+                property_url=normalized_property_url,
+                visual_state=visual_state,
+            )
+            payload = {
+                "generated_at": _now_iso(),
+                "status": "queued",
+                "property_url": normalized_property_url,
+                "title": title,
+                "listing_id": "",
+                "variant_key": str(variant_key or "layout_first").strip() or "layout_first",
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": str(binding_id or "").strip(),
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": "",
+                "delivery_email": str(recipient_email or "").strip().lower(),
+                "delivery_status": "queued",
+                "blocked_reason": "",
+                "human_task_id": human_task_id,
+                "source_ref": normalized_source_ref,
+                "external_id": str(external_id or normalized_property_url).strip(),
+                "request_kind": normalized_kind,
+                "run_id": str(run_id or "").strip(),
+                "candidate_ref": str(candidate_ref or "").strip(),
+                "flythrough_url": "",
+                "flythrough_status": "queued" if normalized_kind == "flythrough" else "",
+                "tour_status": "pending",
+                "status_label": status_label,
+                "status_detail": status_detail,
+                "tour_media_mode": "queued_user_request",
+                "personal_fit_assessment": {},
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_visual_request_queued",
+                payload=payload,
+                source_id=normalized_source_ref,
+                dedupe_key=f"{principal_id}|{normalized_source_ref}|{variant_key}|{normalized_kind}|visual-request-queued",
+            )
+            return payload
         base_result = self.create_willhaben_property_tour(
             principal_id=principal_id,
             property_url=normalized_property_url,
@@ -29852,6 +29967,8 @@ class ProductService:
         paid_plan = plan_key in {"plus", "agent"}
         notification_budget_remaining = int(notification_budget.get("remaining") or 0)
         notification_budget_suppressed_total = 0
+        notification_score_suppressed_total = 0
+        scout_outbound_min_score = _property_scout_outbound_notification_min_score()
         min_area_m2 = _float_or_none(request_preferences.get("min_area_m2")) or 0.0
         if min_area_m2 < 0.0:
             min_area_m2 = 0.0
@@ -30167,7 +30284,15 @@ class ProductService:
                 source_url=source_url,
                 source_label=raw_source_label,
             )
-            source_location_hints = source_scope_location_hints or location_hints
+            source_exact_scope_requested = _property_search_has_exact_scope(
+                request_preferences=request_preferences,
+                location_hints=location_hints,
+            )
+            source_location_hints = (
+                source_scope_location_hints
+                if source_scope_location_hints and (source_exact_scope_requested or not location_hints)
+                else location_hints
+            )
             source_repair_memory = recent_source_fetch_repair_memory.get(
                 self._property_source_repair_memory_key(source_url=source_url, source_label=source_label)
             )
@@ -32116,6 +32241,7 @@ class ProductService:
             high_fit_for_source = 0
             watch_notified_for_source = 0
             notification_budget_suppressed_for_source = 0
+            notification_score_suppressed_for_source = 0
             top_watch_candidate: dict[str, object] | None = (
                 dict(top_watch_candidate_for_source)
                 if isinstance(top_watch_candidate_for_source, dict) and top_watch_candidate_for_source
@@ -32575,6 +32701,7 @@ class ProductService:
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
                     "notification_budget_suppressed_total": notification_budget_suppressed_for_source,
+                    "notification_score_suppressed_total": notification_score_suppressed_for_source,
                     "filter_near_miss_total": len(filter_near_misses_for_source),
                     "filter_near_miss_notified_total": filter_near_miss_notified_for_source,
                     "filter_near_misses": filter_near_misses_for_source[:5],
@@ -32786,6 +32913,17 @@ class ProductService:
         )
         for pending_notification in pending_telegram_notifications:
             source_summary = _source_summary_for_notification(pending_notification)
+            try:
+                pending_score = float(pending_notification.get("score") or 0.0)
+            except Exception:
+                pending_score = 0.0
+            if pending_score < scout_outbound_min_score:
+                notification_score_suppressed_total += 1
+                if source_summary is not None:
+                    source_summary["notification_score_suppressed_total"] = int(
+                        source_summary.get("notification_score_suppressed_total") or 0
+                    ) + 1
+                continue
             if notification_budget_remaining <= 0:
                 notification_budget_suppressed_total += 1
                 if source_summary is not None:
@@ -32909,7 +33047,9 @@ class ProductService:
             },
             "provider_workers": dict(provider_worker_state),
             "notification_budget_suppressed_total": notification_budget_suppressed_total,
-            "notification_suppressed_total": notification_budget_suppressed_total,
+            "notification_score_suppressed_total": notification_score_suppressed_total,
+            "scout_outbound_min_score": scout_outbound_min_score,
+            "notification_suppressed_total": notification_budget_suppressed_total + notification_score_suppressed_total,
             "tour_created_total": tour_created_total,
             "tour_existing_total": tour_existing_total,
             "tour_auto_min_score": _PROPERTY_SCOUT_AUTO_TOUR_MIN_SCORE,

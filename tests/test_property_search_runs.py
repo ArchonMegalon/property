@@ -276,6 +276,27 @@ def test_property_search_analysis_cap_expands_for_exact_scope() -> None:
     )
 
 
+def test_property_search_location_matching_treats_wien_as_broad_vienna_scope() -> None:
+    assert _property_candidate_matches_requested_location(
+        location_hints=("Vienna",),
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/demo",
+        title="Wohnung mieten in 1020 Wien | 74 m² | 3 Zimmer",
+        summary="Wohnung im 2. Bezirk.",
+        property_facts={"postal_name": "1020 Wien"},
+        country_code="AT",
+        region_code="vienna",
+    )
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/demo",
+        title="Wohnung mieten in 1020 Wien | 74 m² | 3 Zimmer",
+        summary="Wohnung im 2. Bezirk.",
+        property_facts={"postal_name": "1020 Wien"},
+        country_code="AT",
+        region_code="vienna",
+    )
+
+
 def test_investment_underwriting_payload_exposes_dimensions_and_confidence() -> None:
     payload = _property_investment_underwriting_payload(
         title="Apartment near U-Bahn",
@@ -4072,6 +4093,102 @@ def test_property_search_filters_dirty_source_scope_postal_conflict_before_short
     assert source["top_candidates"] == []
     assert source["location_mismatch_candidate_total"] >= 1
     assert source["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+
+
+def test_property_search_full_region_does_not_treat_generated_district_source_as_hard_scope(monkeypatch) -> None:
+    principal_id = "exec-property-run-full-region-source-scope"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Run Full Region Source Scope Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen?isNavigation=true&q=1010+Vienna"
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/full-region-1020/"
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 1,
+                "notify_telegram": False,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:full-region-source-scope"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: {
+            "listing_id": "full-region-1020",
+            "title": "Wohnung mieten in 1020 Wien | 74 m² | 3 Zimmer",
+            "summary": "Wohnung im 2. Bezirk, aber innerhalb der gewählten Stadt Wien.",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 74,
+                "rooms": 3,
+                "total_rent_eur": 990,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 72.0,
+            "recommendation": "review",
+            "match_reasons_json": ["The listing is inside Vienna."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {
+            "status": "opened",
+            "editor_url": "/app/research/full-region-1020",
+        },
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+            "full_region_scope": True,
+            "property_type": "apartment",
+            "min_match_score": 50,
+            "require_floorplan": False,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    source = dict(result["sources"][0])
+    assert source["filtered_area_total"] == 0
+    assert source["location_mismatch_candidate_total"] == 0
+    assert [row["property_url"] for row in source["research_candidates"]] == [listing_url]
 
 
 def test_property_search_type_filter_blocks_garage_for_residential_searches() -> None:

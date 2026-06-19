@@ -23,6 +23,8 @@ from app.product.service import (
     _property_investment_price_eur,
     _property_investment_research_snapshot,
     _property_tour_control_link,
+    _hosted_property_tour_manifest,
+    _hosted_property_tour_provider_export_keys,
     _property_money_amount_label,
 )
 from app.services.property_market_catalog import supported_currency_codes
@@ -546,6 +548,24 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
     return "No hosted 3D tour yet. More source media is needed before PropertyQuarry can build it."
 
 
+def _property_hosted_tour_ready(tour_url: str) -> bool:
+    normalized = str(tour_url or "").strip()
+    if not normalized:
+        return False
+    try:
+        manifest = _hosted_property_tour_manifest(normalized)
+    except Exception:
+        manifest = {}
+    if not manifest:
+        return False
+    if str(manifest.get("code") or manifest.get("error") or manifest.get("details") or "").strip():
+        return False
+    try:
+        return bool(_hosted_property_tour_provider_export_keys(normalized))
+    except Exception:
+        return False
+
+
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
     tour_url = str(candidate.get("tour_url") or "").strip()
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
@@ -558,10 +578,14 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
             eta_minutes = int(float(eta_raw))
         except Exception:
             eta_minutes = 0
-    embed_href = _property_tour_control_link(tour_url) if tour_url else ""
-    if tour_url:
+    hosted_tour_ready = _property_hosted_tour_ready(tour_url)
+    embed_href = _property_tour_control_link(tour_url) if hosted_tour_ready else ""
+    if hosted_tour_ready:
         status_label = "Live 360 ready"
         status_detail = "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
+    elif tour_url:
+        status_label = "360 needs rebuild"
+        status_detail = "The hosted tour link is not backed by usable viewer assets yet. Request a rebuild from this page."
     elif vendor_tour_url:
         status_label = "Source 360 available"
         status_detail = "The source 360 is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
@@ -582,17 +606,18 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "status_detail": status_detail,
         "embed_href": embed_href,
         "has_live_viewer": bool(embed_href),
-        "show_status_line": bool(tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started"}),
-        "primary_href": tour_url or vendor_tour_url or review_url,
+        "hosted_ready": hosted_tour_ready,
+        "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started"}),
+        "primary_href": tour_url if hosted_tour_ready else (vendor_tour_url or review_url),
         "primary_label": (
             "Open 3D reconstruction floor plan"
-            if tour_url
+            if hosted_tour_ready
             else ("Open source 360" if vendor_tour_url else ("Open property page" if review_url else ""))
         ),
         "secondary_href": review_url,
         "secondary_label": "Open property page" if review_url else "",
-        "tertiary_href": vendor_tour_url if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
-        "tertiary_label": "Vendor 360" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "tertiary_label": "Vendor 360" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
     }
 
 
@@ -1112,7 +1137,7 @@ def _property_packet_compare_rows(
 def _property_investment_research_access_level(preferences: dict[str, object], commercial: dict[str, object], *, requested: bool) -> str:
     if str(preferences.get("listing_mode") or "").strip().lower() != "buy":
         return "off"
-    if not requested and str(preferences.get("investment_research_mode") or "").strip().lower() != "auto":
+    if not requested:
         return "off"
     level = str(commercial.get("investment_research_level") or "none").strip().lower() or "none"
     return level

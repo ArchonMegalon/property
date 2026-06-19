@@ -1046,6 +1046,34 @@ def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources(
     assert "q=1020+Vienna+lift+family" in str(specs[1]["url"])
 
 
+def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_when_radius_is_enabled() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "adjacent_area_radius_m": 750,
+            "keywords": "lift",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-fuzzy-adjacent-districts",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    location_queries = [str(row["location_query"]) for row in specs]
+    assert location_queries[0] == "1010 Vienna"
+    assert {"1020 Vienna", "1030 Vienna", "1040 Vienna", "1090 Vienna"}.issubset(set(location_queries))
+    assert "Salzburg" not in set(location_queries)
+    assert all(
+        dict(row["provider_filter_pushdown"])["applied"]["location_query"] == row["location_query"]
+        for row in specs
+    )
+
+
 def test_generated_source_specs_pushes_coarse_filters_to_willhaben() -> None:
     specs = generated_source_specs(
         preferences={

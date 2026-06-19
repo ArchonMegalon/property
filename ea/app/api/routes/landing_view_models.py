@@ -988,11 +988,11 @@ def _project_lonlat_to_preview_path(
 def _expand_geo_bounds(
     bounds: tuple[float, float, float, float],
     *,
-    padding_ratio: float = 0.08,
+    padding_ratio: float = 0.14,
 ) -> tuple[float, float, float, float]:
     west, south, east, north = bounds
-    lon_pad = max((east - west) * padding_ratio, 0.004)
-    lat_pad = max((north - south) * padding_ratio, 0.004)
+    lon_pad = max((east - west) * padding_ratio, 0.006)
+    lat_pad = max((north - south) * padding_ratio, 0.006)
     return west - lon_pad, south - lat_pad, east + lon_pad, north + lat_pad
 
 
