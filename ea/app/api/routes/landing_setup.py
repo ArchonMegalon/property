@@ -389,7 +389,7 @@ def google_oauth_browser_callback(
                     f"Imported locations this pass: {int(sync_result.get('imported_total') or 0)}",
                 ),
                 body_points=(
-                    "EA will continue using this lane for automatic Pocket/Timeline matching.",
+                    "PropertyQuarry will continue using this lane for automatic Pocket/Timeline matching.",
                     "You can close this page.",
                 ),
             )

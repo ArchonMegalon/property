@@ -537,7 +537,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     diagnostics_support_fallout = dict(diagnostics_product_control.get("support_fallout") or {})
     diagnostics_route_stewardship = dict(diagnostics_product_control.get("provider_route_stewardship") or {})
     workspace_rows = [
-        _row("Workspace", str(diagnostics_workspace.get("name") or "Executive Workspace"), "Workspace"),
+        _row("Workspace", str(diagnostics_workspace.get("name") or "PropertyQuarry account"), "Workspace"),
         _row("Mode", _humanize(str(diagnostics_workspace.get("mode") or "personal")).title(), "Workspace"),
         _row("Region", str(diagnostics_workspace.get("region") or "Not set"), "Workspace"),
         _row("Timezone", str(diagnostics_workspace.get("timezone") or "Not set"), "Workspace"),

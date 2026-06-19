@@ -256,6 +256,23 @@ def test_public_branding_repo_urls_stay_in_property_repository(monkeypatch) -> N
     assert public_branding.brand_from_hostname("legacy.invalid")["repo_url"] == "https://github.com/ArchonMegalon/property"
 
 
+def test_propertyquarry_account_surfaces_do_not_use_ea_channel_copy() -> None:
+    root = Path(__file__).resolve().parents[1]
+    checked_files = [
+        root / "ea/app/api/routes/landing.py",
+        root / "ea/app/api/routes/landing_channel.py",
+        root / "ea/app/api/routes/landing_setup.py",
+        root / "ea/app/api/routes/admin_view_models.py",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in checked_files)
+
+    assert "Record where EA will operate" not in combined
+    assert "After confirmation, EA will return" not in combined
+    assert "EA will continue using this lane" not in combined
+    assert "Executive Workspace" not in combined
+    assert "PropertyQuarry will return" in combined
+
+
 def test_propertyquarry_search_surface_prewarm_touches_templates_and_catalogs(monkeypatch) -> None:
     landing_routes.prewarm_property_search_surface_cache.cache_clear()
     landing_routes._property_country_catalog_snapshot_json.cache_clear()

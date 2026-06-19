@@ -102,7 +102,7 @@ def _render_channel_action_confirmation(
             {
                 "label": "Next surface",
                 "value": return_to,
-                "detail": f"After confirmation, EA will return you to {return_to}.",
+                "detail": f"After confirmation, PropertyQuarry will return you to {return_to}.",
             },
             {
                 "label": "Expiry",

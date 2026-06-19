@@ -1680,7 +1680,7 @@ def integration_detail(
             ),
             "body_points": (
                 "Ask first whether this is a personal Telegram setup or a bot rollout.",
-                "Record where EA will operate: DM, groups, or channels.",
+                "Record where PropertyQuarry should operate: DM, groups, or channels.",
                 "Treat the bot as the durable operating surface once installed and verified.",
             ),
         },
