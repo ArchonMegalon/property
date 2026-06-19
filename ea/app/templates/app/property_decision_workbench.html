@@ -56,6 +56,98 @@
 </div>
 {% endif %}
 {%- endmacro %}
+{% macro filtered_recovery_dialog(counterfactual_rows, suppression_rows) -%}
+          <dialog class="pqx-filtered-dialog" data-pqx-filtered-dialog>
+            <div class="pqx-filtered-dialog-card">
+              <div class="pqx-filtered-dialog-head">
+                <div>
+                  <strong>Recover filtered homes</strong>
+                  <div class="pqx-note">Choose one small change, then rerun.</div>
+                </div>
+                <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
+              </div>
+              <div class="pqx-filtered-dialog-actions">
+                {% if counterfactual_rows %}
+                {% for row in counterfactual_rows %}
+                <div class="pqx-filtered-dialog-rule">
+                  {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true" data-pqx-filter-impact>+{{ row.get('affected_total') }}</span>{% endif %}
+                  <strong>{{ row.get('title') }}</strong>
+                  <span class="pqx-note">{{ row.get('detail') }}</span>
+                  {% set slider = row.get('slider') or {} %}
+                  {% if slider %}
+                  <label class="pqx-filter-radius-control">
+                    <span>{{ slider.get('label') or 'Adjustment' }} <b data-pqx-filter-slider-value>{{ slider.get('value') }}{% if slider.get('unit') %} {{ slider.get('unit') }}{% endif %}</b></span>
+                    <input
+                      type="range"
+                      min="{{ slider.get('min') or 0 }}"
+                      max="{{ slider.get('max') or slider.get('value') or 0 }}"
+                      step="{{ slider.get('step') or 1 }}"
+                      value="{{ slider.get('value') or slider.get('min') or 0 }}"
+                      data-pqx-filter-slider
+                      data-pqx-filter-field="{{ slider.get('field') or '' }}"
+                      data-pqx-filter-kind="{{ slider.get('kind') or '' }}"
+                      data-pqx-filter-unit="{{ slider.get('unit') or '' }}"
+                      data-pqx-filter-base="{{ slider.get('min') or 0 }}"
+                      data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
+                      data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
+                    >
+                    <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes changes as the slider moves.</span>
+                  </label>
+                  {% endif %}
+                  <div class="pqx-actions">
+                    <button
+                      class="pqx-button primary"
+                      type="button"
+                      data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
+                    >{{ row.get('action_label') or 'Relax and restart' }}</button>
+                    {% if row.get('affected_total') %}
+                    <span class="pqx-filtered-dialog-estimate">
+                      {{ row.get('affected_total') }} more
+                      <button
+                        type="button"
+                        class="pqx-tooltip"
+                        title="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability checks."
+                        aria-label="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability checks."
+                        aria-expanded="false"
+                        data-tooltip-trigger
+                      >?</button>
+                    </span>
+                    {% endif %}
+                  </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                {% for row in suppression_rows %}
+                <div class="pqx-filtered-dialog-rule">
+                  {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
+                  <strong>{{ row.get('title') or 'Filtered matches' }}</strong>
+                  <span class="pqx-note">{{ row.get('detail') or 'Some candidates stayed outside the shortlist because of the current brief or missing evidence.' }}</span>
+                  <div class="pqx-actions">
+                    <a class="pqx-button primary" href="/app/search">{{ row.get('action_label') or 'Adjust search' }}</a>
+                  </div>
+                </div>
+                {% else %}
+                <div class="pqx-filtered-dialog-rule">
+                  <strong>Widen the selected area</strong>
+                  <span class="pqx-note">Keep hard requirements, but add nearby districts or a small radius before rerunning.</span>
+                  <div class="pqx-actions">
+                    <a class="pqx-button primary" href="/app/search">Adjust search</a>
+                  </div>
+                </div>
+                <div class="pqx-filtered-dialog-rule">
+                  <strong>Soften one preference</strong>
+                  <span class="pqx-note">Leave must-haves strict; move nice-to-have rules into scoring so good homes can surface.</span>
+                  <div class="pqx-actions">
+                    <a class="pqx-button subtle" href="/app/search">Review what matters</a>
+                  </div>
+                </div>
+                {% endfor %}
+                {% endif %}
+              </div>
+              <div class="pqx-note" data-pqx-counterfactual-status></div>
+            </div>
+          </dialog>
+{%- endmacro %}
 {% macro research_queue_panel(tasks, run_id, counts) -%}
 {% if tasks %}
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
@@ -6409,6 +6501,7 @@
           {% endif %}
           {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}
           </div>
+          {{ filtered_recovery_dialog(workbench.get('counterfactual_rows') or [], workbench.get('suppression_rows') or []) }}
           {% if not ranked_candidates %}
           </div>
           {% endif %}
