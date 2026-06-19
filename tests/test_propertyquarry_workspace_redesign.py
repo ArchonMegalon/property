@@ -4756,7 +4756,7 @@ def test_property_agents_surface_uses_map_only_preview_for_saved_search_cards(mo
     assert map_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
-def test_property_agents_surface_caps_first_paint_map_previews_without_blank_thumbnails(monkeypatch) -> None:
+def test_property_agents_surface_renders_map_preview_for_every_saved_search(monkeypatch) -> None:
     principal_id = "pq-agent-preview-all"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Search Agent Preview Cap")
@@ -4810,13 +4810,13 @@ def test_property_agents_surface_caps_first_paint_map_previews_without_blank_thu
 
     assert page.status_code == 200
     assert "Vienna watch 6" in page.text
-    assert len(map_preview_calls) == 6
-    assert 'data-scope-preview-kind="deferred_map"' in page.text
-    assert "/app/api/property/map-previews/0000000000000000000000000000000000000000.png" in page.text
+    assert len(map_preview_calls) == 7
+    assert 'data-scope-preview-kind="deferred_map"' not in page.text
+    assert "/app/api/property/map-previews/0000000000000000000000000000000000000000.png" not in page.text
     assert page.text.count('class="pqx-automation-thumbnail"') >= 7
 
 
-def test_property_search_agent_preview_limit_defers_extra_maps_with_placeholder() -> None:
+def test_property_search_agent_builder_renders_all_scope_previews() -> None:
     calls: list[str] = []
 
     def _preview_builder(country_code: str, region_code: str, location_query: str) -> dict[str, object]:
@@ -4854,13 +4854,12 @@ def test_property_search_agent_preview_limit_defers_extra_maps_with_placeholder(
         default_notification_period="week",
         normalize_property_type_values=lambda value: [str(value or "apartment")],
         scope_preview_builder=_preview_builder,
-        scope_preview_limit=1,
     )
 
-    assert calls == ["1010 Vienna"]
+    assert calls == ["1010 Vienna", "1011 Vienna", "1012 Vienna"]
     assert agents[0]["scope_preview"]["preview_kind"] == "osm_district_overlay"
-    assert agents[1]["scope_preview"]["preview_kind"] == "deferred_map"
-    assert agents[2]["scope_preview"]["image_url"] == "/app/api/property/map-previews/0000000000000000000000000000000000000000.png"
+    assert agents[1]["scope_preview"]["preview_kind"] == "osm_district_overlay"
+    assert agents[2]["scope_preview"]["image_url"] == "/app/api/property/map-previews/0000000000000000000000000000000000000003.png"
 
 
 def test_property_agents_surface_strips_candidate_media_from_management_payload(monkeypatch) -> None:
