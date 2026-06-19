@@ -3403,6 +3403,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'class="pqx-disclosure-summary"' in setup.text
     assert 'class="pqx-disclosure-icon" aria-hidden="true">+</span>' in setup.text
     assert ">What matters<" in setup.text
+    assert ">Sources<" in setup.text
     assert 'data-pqx-save-what-matters' in setup.text
     assert 'data-pqx-load-what-matters' in setup.text
     assert ">Strategy<" not in setup.text
@@ -3418,6 +3419,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Playground nearby means" not in setup.text
     assert "Library nearby means" not in setup.text
     assert "Supermarket radius" in setup.text
+    assert "providers: { label: 'Providers'" not in template
+    assert "providers: { label: 'Sources', detail: 'Choose trusted sources, then save or launch.' }" in template
     assert "If good matches are scarce" in setup.text
     assert 'name="max_distance_to_zoo_m"' in setup.text
     assert 'name="max_distance_to_market_m"' in setup.text
