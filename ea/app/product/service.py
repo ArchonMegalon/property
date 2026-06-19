@@ -22922,18 +22922,11 @@ class ProductService:
                         candidate_notify = _property_alert_is_good_fit(candidate_assessment, policy=policy)
                 candidate_source_ref = source_ref if index == 0 else f"{source_ref}#listing:{index + 1}"
                 candidate_external_id = external_id if index == 0 else f"{external_id}#listing:{index + 1}"
-                candidate_tour_result = (
-                    self._maybe_auto_create_property_scout_tour(
-                        principal_id=principal_id,
-                        actor=actor,
-                        property_url=candidate_url,
-                        source_ref=candidate_source_ref,
-                        assessment=candidate_assessment,
-                        policy=policy,
-                    )
-                    if candidate_notify
-                    else {"status": "skipped", "tour_url": "", "blocked_reason": ""}
-                )
+                candidate_tour_result = {
+                    "status": "skipped",
+                    "tour_url": "",
+                    "blocked_reason": "visual_assets_require_user_request",
+                }
                 review_results.append(
                     self._open_property_alert_review(
                         principal_id=principal_id,
@@ -22957,18 +22950,11 @@ class ProductService:
                 primary["related_reviews"] = [dict(item) for item in review_results[1:]]
                 primary["review_count"] = len(review_results)
                 return primary
-        tour_result = (
-            self._maybe_auto_create_property_scout_tour(
-                principal_id=principal_id,
-                actor=actor,
-                property_url=property_url,
-                source_ref=source_ref,
-                assessment=personal_fit_assessment,
-                policy=policy,
-            )
-            if notify_telegram and property_url
-            else {"status": "skipped", "tour_url": "", "blocked_reason": ""}
-        )
+        tour_result = {
+            "status": "skipped",
+            "tour_url": "",
+            "blocked_reason": "visual_assets_require_user_request" if property_url else "",
+        }
         return self._open_property_alert_review(
             principal_id=principal_id,
             title=title,

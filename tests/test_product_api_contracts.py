@@ -6709,16 +6709,18 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
             {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons, "url_buttons": url_buttons}
         ) or _TelegramReceipt(),
     )
-    monkeypatch.setattr(
-        ProductService,
-        "create_willhaben_property_tour",
-        lambda self, **kwargs: {
+    tour_create_calls: list[dict[str, object]] = []
+
+    def _unexpected_tour_create(self, **kwargs):
+        tour_create_calls.append(dict(kwargs))
+        return {
             "status": "created",
             "tour_url": "https://myexternalbrain.com/tours/test-scout-flat",
             "vendor_tour_url": "https://vendor.example.com/tours/test-scout-flat",
             "blocked_reason": "",
-        },
-    )
+        }
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _unexpected_tour_create)
     response = client.post("/app/api/signals/property/scout")
     assert response.status_code == 200
     body = response.json()
@@ -6726,6 +6728,7 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     assert body["review_existing_total"] == 1
     assert body["notified_total"] == 1
     assert body["tour_created_total"] == 0
+    assert tour_create_calls == []
     assert body["high_fit_total"] == 1
     assert "Personal fit 96/100" in str(observed_telegram["text"])
     assert "https://myexternalbrain.com/tours/test-scout-flat" not in str(observed_telegram["text"])
