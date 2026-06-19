@@ -1074,6 +1074,27 @@ def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_wh
     )
 
 
+def test_generated_source_specs_do_not_expand_adjacent_districts_for_full_region_scope() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "full_region_scope": True,
+            "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+            "adjacent_area_radius_m": 750,
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-full-region-no-adjacent-expansion",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert [str(row["location_query"]) for row in specs] == ["1010 Vienna", "1020 Vienna"]
+
+
 def test_generated_source_specs_pushes_coarse_filters_to_willhaben() -> None:
     specs = generated_source_specs(
         preferences={

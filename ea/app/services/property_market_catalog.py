@@ -4456,6 +4456,8 @@ def _normalized_location_option_key(value: object) -> str:
 
 
 def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[str, ...]:
+    if bool(preferences.get("full_region_scope")):
+        return ()
     if _adjacent_area_radius_m_from_preferences(preferences) <= 0:
         return ()
     selected_variants = _explicit_location_query_variants(preferences)
