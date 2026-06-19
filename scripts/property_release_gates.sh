@@ -92,6 +92,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'telegram_property_link_bundle or property_scout_dossier_promotes_media or property_scout_hit_telegram_sends_dossier or property_scout_hit_email_prefers_public_dossier_link or property_alert_review_handoff_page_renders_research_packet'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
+  tests/e2e/test_propertyquarry_soft_filter_equivalence.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py \
   tests/e2e/test_propertyquarry_public_tour_browser.py \
   tests/e2e/test_propertyquarry_packet_engagement_browser.py \
