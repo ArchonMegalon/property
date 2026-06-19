@@ -718,6 +718,11 @@ def test_floorplan_recovery_workers_store_recovered_preview(monkeypatch: pytest.
 def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_BASE_URL", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
+    monkeypatch.delenv("EA_PUBLIC_APP_BASE_URL", raising=False)
+    monkeypatch.delenv("EA_PUBLIC_TOUR_BASE_URL", raising=False)
+
+    assert product_service._public_app_base_url() == "https://propertyquarry.com"
+
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
 

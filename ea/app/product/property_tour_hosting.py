@@ -210,7 +210,7 @@ def _configured_public_tour_hosts() -> tuple[str, ...]:
     return tuple(hosts)
 
 def _public_app_base_url() -> str:
-    return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://myexternalbrain.com").strip().rstrip("/")
+    return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
 
 def _property_public_app_base_url() -> str:
     explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
