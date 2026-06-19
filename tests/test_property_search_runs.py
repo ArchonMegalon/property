@@ -2019,6 +2019,34 @@ def test_property_location_match_uses_listing_postal_evidence_over_source_scope(
         region_code="vienna",
     )
 
+
+def test_property_location_match_uses_url_slug_postal_evidence_over_source_scope() -> None:
+    dirty_scope_facts = {
+        "postal_name": "1010 Vienna",
+        "source_scope_location": "1010 Vienna",
+        "source_postal_code": "1010",
+        "source_city": "Vienna",
+    }
+
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url="https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70?quot%3B%2Fn=",
+        title="Augasse 17",
+        summary="Provider card was returned from a selected 1010 source scope.",
+        property_facts=dirty_scope_facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+    assert _property_candidate_matches_requested_location(
+        location_hints=("1090 Vienna",),
+        property_url="https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70?quot%3B%2Fn=",
+        title="Augasse 17",
+        summary="Provider card was returned from a selected 1090 source scope.",
+        property_facts=dirty_scope_facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+
     assert not _property_candidate_matches_requested_location(
         location_hints=("90210 Beverly Hills",),
         property_url="https://example.test/apartment-10001-new-york",

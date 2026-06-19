@@ -4714,6 +4714,91 @@ def test_property_scout_uses_exact_source_scope_as_hard_area_filter(monkeypatch)
     assert result["sources"][0]["source_scope_label"] == "Willhaben | Austria | Rent | 1010 Vienna"
 
 
+def test_property_scout_rejects_url_slug_postal_conflict_before_scoring(monkeypatch) -> None:
+    principal_id = "cf-email:url-slug-postal-conflict.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout URL Postal Gate Office")
+    candidate_url = "https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70?quot%3B%2Fn="
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.raiffeisen-wohnbau.at/de/projects/id/1010-vienna",
+                "label": "Raiffeisen Wohnbau | Austria | Rent | 1010 Vienna",
+                "platform": "raiffeisen_wohnbau_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": True,
+                "max_results": 1,
+                "country_code": "AT",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "raiffeisen-1090-augasse",
+            "title": "Augasse 17",
+            "summary": "Provider result page was queried from a selected 1010 source scope.",
+            "property_facts_json": {
+                "property_type": "apartment",
+                "postal_name": "1010 Vienna",
+                "source_scope_location": "1010 Vienna",
+                "source_postal_code": "1010",
+                "source_city": "Vienna",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("url postal conflicts must not notify Telegram"),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review",
+        lambda self, **kwargs: pytest.fail("url postal conflicts must not open review packets"),
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: pytest.fail("url postal conflicts must not be scored"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("raiffeisen_wohnbau_at",),
+        property_search_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "min_match_score": 40,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 0
+    assert result["review_created_total"] == 0
+    assert result["ranked_candidates"] == []
+    assert result["sources"][0]["location_mismatch_candidate_total"] == 1
+    assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+    assert result["sources"][0]["source_label"] == "Raiffeisen Wohnbau"
+
+
 def test_property_scout_source_scope_placeholder_is_not_concrete_listing_location() -> None:
     assert product_service._property_candidate_has_concrete_location(
         {

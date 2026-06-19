@@ -5369,7 +5369,12 @@ def _property_postal_location_evidence(value: object) -> tuple[dict[str, str], .
     raw_text = html.unescape(str(value or ""))
     if not raw_text.strip():
         return ()
-    text = " ".join(raw_text.replace("|", " ").replace("·", " ").split())
+    slug_expanded_text = re.sub(
+        r"\b(?P<code>[1-9]\d{3,4})[-_/]+(?=[A-Za-zÄÖÜäöüß])",
+        r"\g<code> ",
+        raw_text,
+    )
+    text = " ".join(slug_expanded_text.replace("|", " ").replace("·", " ").split())
     rows: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for match in _PROPERTY_POSTAL_LOCATION_RE.finditer(text):
