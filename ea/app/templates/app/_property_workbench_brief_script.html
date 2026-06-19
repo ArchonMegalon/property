@@ -578,7 +578,7 @@
         const plan = raw.split(':').pop() || 'paid';
         return `Upgrade required for this run. Reduce the selected providers or max results, or switch to the ${plan} plan.`;
       }
-      if (raw === 'invalid_property_search_platform') return 'One selected provider is not available for this country. Refresh the provider step and choose again.';
+      if (raw === 'invalid_property_search_platform') return 'One selected provider is not available for this country. Reopen Sources and choose again.';
       if (raw === 'principal_id_required') return 'You are not signed in cleanly. Sign in again before starting a search.';
       return raw.replaceAll('_', ' ');
     };

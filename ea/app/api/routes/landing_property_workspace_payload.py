@@ -2283,7 +2283,7 @@ def property_workspace_payload(
                                 "tag": str((selected_agent or {}).get("status_label") or "Idle"),
                                 "action_href": selected_agent_open_href or f"/app/agents{run_suffix}",
                                 "action_method": "get",
-                                "action_label": "Refresh",
+                                "action_label": "Open watch",
                                 "secondary_action_href": selected_agent_edit_href or f"/app/properties{run_suffix}",
                                 "secondary_action_method": "get",
                                 "secondary_action_label": "Edit",

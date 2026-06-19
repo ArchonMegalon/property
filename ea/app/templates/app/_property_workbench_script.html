@@ -1807,7 +1807,7 @@
             renderRun({
               status: 'in_progress',
               progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
-              message: failedPolls >= 3 ? message : 'Refreshing run status...',
+              message: failedPolls >= 3 ? message : 'Checking run status...',
               events: [{ step: 'status_refresh', message, status: 'retrying' }],
             });
             await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));

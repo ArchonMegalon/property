@@ -4553,6 +4553,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert 'href="/app/agents"' in page.text
     assert 'href="/app/search' in page.text
     assert "Run</button>" in page.text
+    assert "Refresh" not in page.text
     assert 'class="pqx-automation-thumbnail-action">Edit</span>' in page.text
     assert "Pause</button>" in page.text
     assert "/app/search?load_agent=" in page.text
@@ -5104,6 +5105,7 @@ def test_property_live_run_has_no_manual_refresh_controls() -> None:
     assert "data-pqx-refresh-status" not in running_panel
     assert "Refresh status" not in body
     assert ">Refresh<" not in running_panel
+    assert "Refresh the provider step" not in body
     assert "Stop and remove" in running_panel
     assert "Refreshing this page will continue to show the completed result desk" not in body
     assert "Refreshing this page will continue to show the completed result desk" not in running_panel
