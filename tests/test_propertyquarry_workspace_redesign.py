@@ -2781,7 +2781,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "28 providers · 156 variants · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "28 providers · 156 checks · Willhaben · 25 / 60"
     assert snapshot["phase_label"] == "Playground was too far away for candidate 23/60 (score impact only)"
     assert snapshot["source_count_label"] == "25 / 60"
 
@@ -5138,6 +5138,7 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert '<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open' not in body
     assert "pqx-results-filter-link" in body
     assert "filtered" in body
+    assert "Adjust filters" in body
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
     assert "Recover filtered homes" in body
@@ -5491,7 +5492,7 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert "Status" in response.text
     assert "The search stopped before a stable shortlist was ready." in response.text
     assert "Next" in response.text
-    assert "Restart the same brief and let repair retry the failed source variants." in response.text
+    assert "Restart the same brief and let repair retry the failed provider checks." in response.text
     assert "What happened" not in response.text
     assert "What still worked" not in response.text
     assert "Main blocker" not in response.text
@@ -5551,7 +5552,8 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert response.status_code == 200
     assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
     assert "<span>Providers</span><strong>156</strong>" not in response.text
-    assert re.search(r"<span>Source variants</span><strong>\s*156\s*</strong>", response.text)
+    assert re.search(r"<span>Provider checks</span><strong>\s*156\s*</strong>", response.text)
+    assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
     assert "Queued a generic provider repair." in response.text
@@ -6697,7 +6699,7 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     hero_note = re.search(r'<div class="pqx-note">\s*(.*?)\s*</div>', page.text, re.S)
     assert hero_note is not None
     assert "<strong>" not in hero_note.group(1)
-    assert "Repair is queued for the interrupted source variants." in page.text
+    assert "Repair is queued for the interrupted provider checks." in page.text
     assert "Auto-repair is queued and will retry" not in page.text
     assert "Best matches" not in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
@@ -6735,6 +6737,7 @@ def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_co
     combined = " ".join(str(value) for value in summary.values())
     assert "A replacement search is checking the saved brief." in combined
     assert "0/156 source variants" not in combined
+    assert "0/156 provider checks" not in combined
     assert "interrupted pass stopped" not in combined
 
 
@@ -6765,7 +6768,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "No valid homes survived inside the selected area."
-    assert "31 source variants checked 361 candidates" in summary["still_worked"]
+    assert "31 provider checks scanned 361 candidates" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "provider overview pages" in summary["eta_feedback"]
     assert "0/31 source variants" not in " ".join(summary.values())

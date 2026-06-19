@@ -998,7 +998,7 @@
       const providerDisplayTotal = Math.max(providerTotal, selectedProviderTotal);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const scanLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} source variants`
+        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} checks`
         : `${sources} provider checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
@@ -1281,7 +1281,7 @@
       const providerDisplayTotal = Math.max(providerTotal, selectedProviderTotal);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const scanCountLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} variants`
+        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} checks`
         : `${completedSources}/${sources} provider checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const layout = Number(summary.filtered_floorplan_total || 0);
@@ -1508,7 +1508,7 @@
         || 0
       );
       const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
-      const filteredLabel = filteredTotal > 0 ? `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</a>` : '';
+      const filteredLabel = filteredTotal > 0 ? `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered. Adjust filters">${escapeHtml(filteredTotal)} filtered <span>Adjust filters</span></a>` : '';
       const filteredBreakdown = filteredTotal > 0 ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
             <summary><strong>Filtering diagnostics</strong><span class="pqx-note">Provider-level details</span></summary>

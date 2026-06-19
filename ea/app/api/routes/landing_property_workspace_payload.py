@@ -2133,7 +2133,7 @@ def property_workspace_payload(
                     {
                         "label": "Providers",
                         "value": str(run_provider_display_total),
-                        "detail": f"{run_source_variant_total} source variants across selected areas.",
+                        "detail": f"{run_source_variant_total} provider checks across selected areas.",
                     }
                     if run_provider_display_total > 0
                     and run_source_variant_total > run_provider_display_total

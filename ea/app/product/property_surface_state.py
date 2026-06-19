@@ -787,7 +787,7 @@ def build_property_run_live_board_snapshot(
     provider_total = _positive_int(summary.get("provider_total"))
     source_variant_total = _positive_int(summary.get("source_variant_total"), default=source_total)
     scan_total_label = (
-        f"{provider_total} providers · {source_variant_total} variants"
+        f"{provider_total} providers · {source_variant_total} checks"
         if provider_total and source_variant_total > provider_total
         else f"{source_total} provider checks"
     )
@@ -1172,12 +1172,12 @@ def build_property_empty_outcome_summary(
         stopped_context = "This page will move to the replacement run when it has a usable update."
     elif status_value == "failed":
         if source_total or listing_total:
-            completed_label = f"{source_completed}/{source_total} source variants" if source_total else "Source variants"
+            completed_label = f"{source_completed}/{source_total} provider checks" if source_total else "Provider checks"
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open:
-                happened = "Repair is retrying the interrupted source variants."
+                happened = "Repair is retrying the interrupted provider checks."
             elif repair_step_label or repair_status_label:
-                happened = "Repair is queued for the interrupted source variants."
+                happened = "Repair is queued for the interrupted provider checks."
             else:
                 happened = "The search stopped before a stable shortlist was ready."
             stopped_context = f"The interrupted pass stopped after {completed_label.lower()} and {listing_label} inspected."
@@ -1198,12 +1198,12 @@ def build_property_empty_outcome_summary(
         still_worked = "The brief and repair receipt were saved; the replacement run is now the active check."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{source_total} source variant{'s' if source_total != 1 else ''} checked "
+            f"{source_total} provider check{'s' if source_total != 1 else ''} scanned "
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''}."
         )
     else:
         still_worked = (
-            f"{source_total} source variant{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"{source_total} provider check{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
             if source_total or listing_total
             else "The brief, providers, and run receipts were still recorded."
         )
@@ -1228,7 +1228,7 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         eta_feedback = stopped_context
     elif source_total:
-        eta_feedback = f"{source_completed}/{source_total} source variants completed."
+        eta_feedback = f"{source_completed}/{source_total} provider checks completed."
     elif status_value == "failed":
         eta_feedback = "Repair has the run queued; this page checks quietly every 10s and will switch when a usable rerun is ready."
     else:
