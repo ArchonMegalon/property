@@ -5505,6 +5505,15 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert "Best next move" not in response.text
 
 
+def test_propertyquarry_empty_completed_run_uses_premium_no_match_copy() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "No strong matches found yet." in body
+    assert "No shortlist yet." not in body
+
+
 def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatch) -> None:
     principal_id = "pq-provider-count-regression"
     client = build_property_client(principal_id=principal_id)

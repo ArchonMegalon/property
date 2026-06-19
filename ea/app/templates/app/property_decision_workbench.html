@@ -6321,7 +6321,7 @@
               {% if run_status == 'failed' %}
                 {% if run_reliability.get('repair_step_label') %}Repairing search.{% else %}Search stopped before ranking.{% endif %}
               {% else %}
-                {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
+                {{ empty_outcome.get('happened') or 'No strong matches found yet.' }}
               {% endif %}
             </h1>
             <div class="pqx-note" data-pqx-run-summary>
