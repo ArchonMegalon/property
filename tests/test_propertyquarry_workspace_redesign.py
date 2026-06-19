@@ -5071,12 +5071,15 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
 def test_property_live_run_has_no_manual_refresh_controls() -> None:
     body = _read_workbench_bundle()
     running_panel = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_running_panel.html").read_text(encoding="utf-8")
+    service = (Path(__file__).resolve().parents[1] / "ea/app/product/service.py").read_text(encoding="utf-8")
 
     assert "data-pqx-refresh-status" not in body
     assert "data-pqx-refresh-status" not in running_panel
     assert "Refresh status" not in body
     assert ">Refresh<" not in running_panel
     assert "Stop and remove" in running_panel
+    assert "Refreshing this page will continue to show the completed result desk" not in service
+    assert "The completed result desk is ready." in service
 
 
 def test_property_live_ranked_candidates_filter_repair_and_false_positive_rows() -> None:
