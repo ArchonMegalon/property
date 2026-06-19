@@ -26,7 +26,7 @@
 {% set has_mobile_property_panel = has_results or run_visible or run_terminal_no_results %}
 {% set has_mobile_brief_panel = setup_mode %}
 {% set mobile_panel_count = (1 if has_mobile_results_panel else 0) + (1 if has_mobile_property_panel else 0) + (1 if has_mobile_brief_panel else 0) %}
-{% set mobile_primary = setup_mobile_primary if setup_mode else ('property' if run_visible or run_terminal_no_results else 'results') %}
+{% set mobile_primary = setup_mobile_primary if setup_mode else ('property' if run_visible and not run_terminal_no_results else 'results') %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
