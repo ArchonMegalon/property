@@ -14,8 +14,8 @@ from pathlib import Path
 from browseract_ui_media import compose_slideshow_video, transcode_video_webm
 
 
-DEFAULT_OUTPUT_DIR = Path("/docker/fleet/state/public_property_tours")
-DEFAULT_PUBLIC_BASE_URL = str(os.environ.get("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")).strip().rstrip("/")
+DEFAULT_OUTPUT_DIR = Path("/docker/property/state/public_property_tours/crezlo")
+DEFAULT_PUBLIC_BASE_URL = str(os.environ.get("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")).strip().rstrip("/")
 VARIANT_ORDER = {
     "layout_first": 0,
     "light_and_view": 1,
@@ -28,7 +28,7 @@ def load_json(path: Path) -> object:
 
 
 def download_bytes(url: str) -> tuple[bytes, str]:
-    request = urllib.request.Request(url, headers={"User-Agent": "EA-Crezlo-Public-Tour/1.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "PropertyQuarry-Crezlo-Public-Tour/1.0"})
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             return response.read(), str(response.headers.get("Content-Type") or "").strip()

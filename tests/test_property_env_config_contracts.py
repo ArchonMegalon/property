@@ -54,10 +54,22 @@ def test_env_example_keeps_property_source_cache_inside_property_repo() -> None:
 def test_property_public_tour_scripts_default_to_property_state() -> None:
     backfill = (ROOT / "scripts/backfill_public_tour_research_snapshots.py").read_text(encoding="utf-8")
     comparison = (ROOT / "scripts/build_comparison_dossiers.py").read_text(encoding="utf-8")
+    crezlo_publish = (ROOT / "scripts/publish_crezlo_property_tours.py").read_text(encoding="utf-8")
+    crezlo_public = (ROOT / "scripts/publish_crezlo_public_tours.py").read_text(encoding="utf-8")
+    crezlo_worker = (ROOT / "scripts/crezlo_property_tour_worker.py").read_text(encoding="utf-8")
 
-    for body in (backfill, comparison):
+    for body in (backfill, comparison, crezlo_publish, crezlo_public):
         assert "/docker/property/state/public_property_tours" in body
         assert "/docker/fleet/state/public_property_tours" not in body
+    for body in (crezlo_publish, crezlo_public, crezlo_worker):
+        assert "PropertyQuarry-Crezlo" in body
+        assert "EA-Crezlo" not in body
+    assert "PROPERTYQUARRY_CREZLO_PLAYWRIGHT_IMAGE" in crezlo_worker
+    assert "PROPERTYQUARRY_CREZLO_WORKSPACE_DOMAIN" in crezlo_worker
+    assert "propertyquarry-tours.crezlotours.com" in crezlo_worker
+    assert "ea-property-tours" not in crezlo_worker
+    assert "PropertyQuarry-hosted" in crezlo_publish
+    assert "EA-hosted" not in crezlo_publish
 
 
 def test_env_example_keeps_external_investment_feeds_fail_closed_and_durable() -> None:

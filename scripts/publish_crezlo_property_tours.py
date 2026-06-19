@@ -12,8 +12,8 @@ import urllib.request
 from pathlib import Path
 
 
-DEFAULT_OUTPUT_DIR = Path("/docker/fleet/state/public_browseract_results")
-DEFAULT_PUBLIC_BASE_URL = str(os.environ.get("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")).strip().rstrip("/")
+DEFAULT_OUTPUT_DIR = Path("/docker/property/state/public_property_tours/crezlo")
+DEFAULT_PUBLIC_BASE_URL = str(os.environ.get("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")).strip().rstrip("/")
 
 
 def slugify(value: str) -> str:
@@ -22,7 +22,7 @@ def slugify(value: str) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Publish Crezlo property tours as EA-hosted browser-openable tour pages.")
+    parser = argparse.ArgumentParser(description="Publish Crezlo property tours as PropertyQuarry-hosted browser-openable tour pages.")
     parser.add_argument("--input", action="append", required=True, help="Path to one or more property-tour run JSON files.")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--public-base-url", default=DEFAULT_PUBLIC_BASE_URL)
@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def download_bytes(url: str) -> tuple[bytes, str]:
-    request = urllib.request.Request(url, headers={"User-Agent": "EA-Crezlo-Tour-Publisher/1.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "PropertyQuarry-Crezlo-Tour-Publisher/1.0"})
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             return response.read(), str(response.headers.get("Content-Type") or "").strip()
@@ -297,7 +297,7 @@ def main() -> int:
             if property_url:
                 break
         summary = str(detail.get("display_title") or workflow_output.get("tour_title") or title).strip() or title
-        notes = "Original Crezlo public link currently redirects to login. This EA-hosted tour mirrors the published scene order and media so the result opens directly in the browser."
+        notes = "Original Crezlo public link currently redirects to login. This PropertyQuarry-hosted tour mirrors the published scene order and media so the result opens directly in the browser."
         editor_url = str(workflow_output.get("editor_url") or structured.get("editor_url") or output_json.get("editor_url") or "").strip()
         public_url = str(workflow_output.get("public_url") or structured.get("public_url") or output_json.get("public_url") or "").strip()
         hosted_url = f"{str(args.public_base_url).rstrip('/')}/{slug}"

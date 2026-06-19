@@ -14,13 +14,18 @@ import uuid
 from pathlib import Path
 
 
-USER_AGENT = "EA-Crezlo-Property-Tour/1.0"
-PLAYWRIGHT_IMAGE = os.environ.get("EA_CREZLO_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-SHARED_TEMP_ROOT = str(os.environ.get("EA_CREZLO_SHARED_TEMP_ROOT") or "").strip()
+USER_AGENT = "PropertyQuarry-Crezlo-Property-Tour/1.0"
+PLAYWRIGHT_IMAGE = (
+    os.environ.get("PROPERTYQUARRY_CREZLO_PLAYWRIGHT_IMAGE")
+    or os.environ.get("EA_CREZLO_PLAYWRIGHT_IMAGE")
+    or "propertyquarry-playwright:local"
+).strip() or "propertyquarry-playwright:local"
+SHARED_TEMP_ROOT = str(os.environ.get("PROPERTYQUARRY_CREZLO_SHARED_TEMP_ROOT") or os.environ.get("EA_CREZLO_SHARED_TEMP_ROOT") or "").strip()
 DEFAULT_WORKSPACE_DOMAIN = (
-    os.environ.get("EA_CREZLO_WORKSPACE_DOMAIN", "").strip()
+    os.environ.get("PROPERTYQUARRY_CREZLO_WORKSPACE_DOMAIN", "").strip()
+    or os.environ.get("EA_CREZLO_WORKSPACE_DOMAIN", "").strip()
     or os.environ.get("CREZLO_WORKSPACE_DOMAIN", "").strip()
-    or "ea-property-tours-20260320.crezlotours.com"
+    or "propertyquarry-tours.crezlotours.com"
 )
 
 
