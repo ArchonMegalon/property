@@ -2566,12 +2566,14 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
 def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1.18fr) minmax(340px, 0.92fr);" in body
+    assert "grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.96fr);" in body
     assert "grid-template-columns: 1fr;" in body
-    assert "min-height: clamp(250px, 38vh, 380px);" in body
-    assert "max-height: min(calc(100vh - 300px), 400px);" in body
-    assert "min-height: clamp(270px, 40vh, 400px);" in body
-    assert "grid-template-columns: 84px minmax(0, 1fr);" in body
+    assert "min-height: clamp(210px, 32vh, 320px);" in body
+    assert "max-height: min(calc(100vh - 340px), 340px);" in body
+    assert "min-height: clamp(230px, 34vh, 340px);" in body
+    assert "grid-template-columns: 76px minmax(0, 1fr);" in body
+    assert 'data-pqx-screenfit-target="research-detail-hero"' in body
+    assert "prd-hero-gallery" in body
     assert "-webkit-line-clamp: 2;" in body
     assert "min-height: min(56vh, 520px);" not in body
     assert body.index("data-object-media-stage") < body.index("At a glance")

@@ -1405,10 +1405,12 @@ def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
 def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
-    context = _new_context(browser, mobile=False)
+    context = _new_context(browser, mobile=False, width=1440, height=900)
     page: Page = context.new_page()
+    screenshot_path = tmp_path / "property_research_detail_first_screen.png"
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
@@ -1422,11 +1424,43 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         assert response is not None and response.ok
         assert page.locator(".prd-media-frame").is_visible()
         assert "Open the space before you read the rest" not in page.content()
-        _assert_research_packet_360_first(page, min_stage_height=250, max_stage_height=430)
+        _assert_research_packet_360_first(page, min_stage_height=220, max_stage_height=380)
         body_box = page.locator(".prd-body").first.bounding_box()
         assert body_box is not None
         viewport_height = page.viewport_size["height"] if page.viewport_size else 900
         assert body_box["y"] < viewport_height
+        first_screen = page.evaluate(
+            """
+            () => {
+              const hero = document.querySelector('[data-pqx-screenfit-target="research-detail-hero"]');
+              const body = document.querySelector('.prd-body');
+              const media = document.querySelector('.prd-media-frame');
+              const actions = document.querySelector('.prd-actions');
+              const gallery = document.querySelector('.prd-hero-gallery');
+              const heroRect = hero ? hero.getBoundingClientRect() : null;
+              const bodyRect = body ? body.getBoundingClientRect() : null;
+              const mediaRect = media ? media.getBoundingClientRect() : null;
+              const actionsRect = actions ? actions.getBoundingClientRect() : null;
+              const galleryRect = gallery ? gallery.getBoundingClientRect() : null;
+              return {
+                viewportHeight: window.innerHeight,
+                heroBottom: heroRect ? Math.round(heroRect.bottom) : 0,
+                bodyTop: bodyRect ? Math.round(bodyRect.top) : 0,
+                mediaHeight: mediaRect ? Math.round(mediaRect.height) : 0,
+                actionsBottom: actionsRect ? Math.round(actionsRect.bottom) : 0,
+                galleryBottom: galleryRect ? Math.round(galleryRect.bottom) : 0,
+              };
+            }
+            """
+        )
+        assert first_screen["heroBottom"] <= first_screen["viewportHeight"] + 1
+        assert first_screen["bodyTop"] <= first_screen["viewportHeight"] - 32
+        assert first_screen["mediaHeight"] <= 380
+        assert first_screen["actionsBottom"] <= first_screen["viewportHeight"] + 1
+        if first_screen["galleryBottom"]:
+            assert first_screen["galleryBottom"] <= first_screen["viewportHeight"] + 1
+        page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
+        assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
         assert page.get_by_text("At a glance").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
