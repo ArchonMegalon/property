@@ -4524,8 +4524,10 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     assert "root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]')" in script
+    assert "event.preventDefault();" in script
     assert "setSearchLaunchBusy(true);" in script
     assert "searchLaunchInFlight" in script
+    assert "root.querySelector('[data-pqx-launch-top]')?.addEventListener('click'" not in script
     assert "const stepNav = form.querySelector('[data-property-step-nav]');" in script
     assert "stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });" in script
     assert "const showPreviewFallback = () => {" not in script

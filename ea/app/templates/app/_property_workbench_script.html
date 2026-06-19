@@ -2759,7 +2759,10 @@
       }
     });
     root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]').forEach((button) => {
-      button.addEventListener('click', startSearch);
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        startSearch();
+      });
     });
     const updateSearchAgent = async (agentId, action, patch = {}) => {
       const template = String(meta.search_agent_update_endpoint_template || '/v1/onboarding/property-search/agents/__AGENT_ID__');
@@ -3127,11 +3130,6 @@
         });
       }
     }
-    root.querySelector('[data-pqx-launch-top]')?.addEventListener('click', () => {
-      const lastStep = [...root.querySelectorAll('[data-property-step-trigger]')].at(-1);
-      lastStep?.click();
-      setMode('brief');
-    });
     root.querySelectorAll('[data-pqx-delete-run]').forEach((button) => {
       button.addEventListener('click', async () => {
         const runId = String(button.getAttribute('data-pqx-delete-run') || '').trim();
