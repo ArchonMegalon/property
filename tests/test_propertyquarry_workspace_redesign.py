@@ -170,6 +170,51 @@ def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_co
     assert "Source: DER STANDARD Immobilien | Austria | Rent | 1010 Vienna" not in message
 
 
+def test_property_postal_parser_is_generic_but_not_price_hungry() -> None:
+    names = landing_property_workspace_helpers._property_postal_names_from_text(
+        "Wohnung mieten in 5020 Salzburg | 60 m2 | EUR 1.090"
+    )
+    assert names == ("5020 Salzburg",)
+    assert landing_property_workspace_helpers._property_postal_names_from_text(
+        "Expat flat beim Prater EUR 1.598 77 m2 2 rooms"
+    ) == ()
+    assert landing_property_workspace_helpers._property_postal_codes_from_text(
+        "Expat flat beim Prater EUR 1.598 77 m2 2 rooms",
+        require_locality=True,
+    ) == ()
+    assert landing_property_workspace_helpers._property_postal_codes_from_text(
+        "4784 Schärding",
+        require_locality=True,
+    ) == ("4784",)
+
+
+def test_property_orientation_preview_derives_non_vienna_postal_location_from_listing_copy(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_boundary_preview(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "image_url": "/app/api/property/map-previews/" + ("c" * 40) + ".png",
+            "preview_kind": "osm_point_fallback",
+            "summary": str(kwargs.get("normalized_query") or ""),
+        }
+
+    monkeypatch.setattr(landing_view_models, "_build_scope_boundary_preview", _fake_boundary_preview)
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda label: None)
+
+    preview = landing_property_workspace_helpers._property_candidate_orientation_preview(
+        {
+            "title": "Moderne Wohnung in 5020 Salzburg | 60 m2 | EUR 1.090",
+            "summary": "Balkon und Lift.",
+            "property_facts_json": {},
+        }
+    )
+
+    assert captured["normalized_query"] == "5020 Salzburg"
+    assert preview["title"] == "5020 Salzburg"
+    assert preview["caption"] == "5020 Salzburg"
+
+
 def test_propertyquarry_shortlist_does_not_surface_willhaben_tracking_endpoint_as_provider_360() -> None:
     body = _read_workbench_bundle()
     assert "api.willhaben.at/restapi/v2/logevent" not in body
@@ -1855,13 +1900,21 @@ def test_property_scope_preview_map_only_rejects_local_layout_thumbnail_pipeline
     monkeypatch.setattr(
         landing_view_models,
         "_property_scope_preview",
-        lambda country_code, region_code, location_query: {
+        lambda country_code, region_code, location_query: (_ for _ in ()).throw(
+            AssertionError("automation thumbnails must not call the generic local thumbnail pipeline")
+        ),
+    )
+    monkeypatch.setattr(
+        landing_view_models,
+        "_build_scope_boundary_preview",
+        lambda **kwargs: {
             "image_url": "data:image/svg+xml;charset=utf-8,local-layout",
-            "summary": location_query,
+            "summary": kwargs.get("normalized_query"),
             "preview_kind": "local_district_layout",
             "has_district_overlay": False,
         },
     )
+    monkeypatch.setattr(landing_view_models, "_property_scope_point_preview", lambda **kwargs: {})
 
     preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna")
 
@@ -3893,18 +3946,19 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-thumbnail" in template
     assert ".pqx-automation-delete" in template
     assert ".pqx-automation-card" in template
-    assert 'pqx-automation-scope-empty--fallback' in template
+    assert 'pqx-automation-scope-empty--fallback' not in template
+    assert "Map preview unavailable" not in template
     assert "object-position: center 44%;" in template
     assert 'transform: scale(2.18);' in template
     assert 'transform: scale(3.05);' in template
     assert ".pqx-automation-scope-empty::after" in template
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
-    assert "const showPreviewFallback = () => {" in script
-    assert "img.complete && img.naturalWidth === 0" in script
-    assert "thumb.classList.add('is-preview-error')" in script
-    assert "fallback.hidden = false" in script
-    assert "fallback.style.display = 'grid'" in script
+    assert "const showPreviewFallback = () => {" not in script
+    assert "img.complete && img.naturalWidth === 0" not in script
+    assert "thumb.classList.add('is-preview-error')" not in script
+    assert "fallback.hidden = false" not in script
+    assert "fallback.style.display = 'grid'" not in script
     assert "grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);" in template
     assert ".pqx-automation-table" not in template
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch' in template

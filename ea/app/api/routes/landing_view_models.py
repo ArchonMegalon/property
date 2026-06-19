@@ -1299,15 +1299,49 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
     normalized_query = str(location_query or "").strip()
     market_label_parts = [part for part in (normalized_region.replace("_", " ").title(), normalized_country) if part]
     market_label = " · ".join(market_label_parts) or "Search area"
-    selected_labels = _csv_values(normalized_query)
+    option_rows = _property_location_options(normalized_country, normalized_region)
+    selected_values = _csv_values(normalized_query)
+    option_lookup = {
+        str(option.get("value") or "").strip().lower(): str(option.get("label") or option.get("value") or "").strip()
+        for option in option_rows
+        if str(option.get("value") or "").strip()
+    }
+    selected_labels = [
+        option_lookup.get(value.lower(), value)
+        for value in selected_values
+        if str(value or "").strip()
+    ]
     try:
-        preview = _property_scope_preview(normalized_country, normalized_region, normalized_query)
+        boundary_preview = _build_scope_boundary_preview(
+            country_code=normalized_country,
+            region_code=normalized_region,
+            normalized_query=normalized_query,
+            selected_labels=selected_labels,
+            selected_values=selected_values,
+            option_lookup=option_lookup,
+            market_label=market_label,
+        )
     except Exception:
-        preview = {}
-    preview_kind = str(dict(preview or {}).get("preview_kind") or "").strip()
-    image_url = str(dict(preview or {}).get("image_url") or "").strip()
-    if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
-        return dict(preview)
+        boundary_preview = {}
+    if boundary_preview:
+        image_url = str(dict(boundary_preview).get("image_url") or "").strip()
+        preview_kind = str(dict(boundary_preview).get("preview_kind") or "").strip()
+        if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
+            return dict(boundary_preview)
+    try:
+        point_preview = _property_scope_point_preview(
+            country_code=normalized_country,
+            region_code=normalized_region,
+            normalized_query=normalized_query,
+            market_label=market_label,
+        )
+    except Exception:
+        point_preview = {}
+    if point_preview:
+        image_url = str(dict(point_preview).get("image_url") or "").strip()
+        preview_kind = str(dict(point_preview).get("preview_kind") or "").strip()
+        if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
+            return dict(point_preview)
     return _property_scope_map_pending_preview(
         normalized_query=normalized_query,
         market_label=market_label,

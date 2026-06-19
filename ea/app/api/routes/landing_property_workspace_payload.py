@@ -29,6 +29,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_preview_image,
     _property_candidate_route_evidence,
     _property_candidate_display_facts,
+    _property_postal_codes_from_text,
     _property_counterfactual_rows,
     _property_family_filters_active,
     _property_market_filter_capabilities,
@@ -1399,7 +1400,11 @@ def property_workspace_payload(
         *,
         selected_locations: list[str],
     ) -> bool:
-        requested_postal_codes = {code for value in selected_locations for code in re.findall(r"\b\d{4}\b", str(value or ""))}
+        requested_postal_codes = {
+            code
+            for value in selected_locations
+            for code in _property_postal_codes_from_text(value, require_locality=False)
+        }
         if not requested_postal_codes:
             return True
         listing_text = " ".join(
@@ -1408,7 +1413,7 @@ def property_workspace_payload(
                 str(candidate.get("summary") or "").strip(),
             ) if part
         )
-        listing_postal_codes = set(re.findall(r"\b\d{4}\b", listing_text))
+        listing_postal_codes = set(_property_postal_codes_from_text(listing_text, require_locality=True))
         if listing_postal_codes:
             return bool(listing_postal_codes & requested_postal_codes)
         concrete_text = " ".join(
@@ -1422,7 +1427,7 @@ def property_workspace_payload(
                 str(facts.get("exact_address") or "").strip(),
             ) if part
         )
-        found_postal_codes = set(re.findall(r"\b\d{4}\b", concrete_text))
+        found_postal_codes = set(_property_postal_codes_from_text(concrete_text, require_locality=False))
         if not found_postal_codes:
             return True
         return bool(found_postal_codes & requested_postal_codes)
@@ -1444,7 +1449,7 @@ def property_workspace_payload(
             )
             if part
         )
-        return bool(re.search(r"\b\d{4}\b", text))
+        return bool(_property_postal_codes_from_text(text, require_locality=True))
 
     def _candidate_is_shortlist_admissible(
         candidate: dict[str, object],

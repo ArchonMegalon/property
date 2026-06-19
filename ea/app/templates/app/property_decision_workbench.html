@@ -2948,16 +2948,6 @@
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_point_fallback"] img {
       transform: scale(3.05);
     }
-    .pqx-automation-thumbnail.is-preview-error img {
-      display: none;
-    }
-    .pqx-automation-thumbnail.is-preview-error .pqx-automation-scope-empty {
-      display: grid;
-    }
-    .pqx-automation-thumbnail.is-preview-error .pqx-automation-scope-empty--fallback {
-      display: grid;
-      justify-items: start;
-    }
     .pqx-automation-thumbnail-action {
       position: absolute;
       right: 7px;
@@ -3057,23 +3047,6 @@
       border-radius: 42% 58% 48% 52%;
       transform: rotate(-12deg) scale(1.12);
       filter: drop-shadow(0 8px 16px rgba(58, 49, 40, 0.08));
-    }
-    .pqx-automation-scope-empty--fallback {
-      display: none;
-      color: var(--pq-ink);
-      background:
-        linear-gradient(140deg, rgba(184, 72, 58, 0.18) 0 18%, transparent 18% 100%),
-        linear-gradient(28deg, transparent 0 42%, rgba(184, 72, 58, 0.18) 42% 50%, transparent 50% 100%),
-        linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px),
-        linear-gradient(0deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px),
-        #fffaf0;
-    }
-    .pqx-automation-scope-empty--fallback small {
-      color: var(--pq-ink);
-    }
-    .pqx-automation-thumbnail.is-preview-error {
-      border-color: rgba(184, 72, 58, 0.36);
-      background: #fff8f3;
     }
     .pqx-automation-scope-empty small {
       color: var(--pq-muted);

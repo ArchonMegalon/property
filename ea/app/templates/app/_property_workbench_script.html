@@ -2774,31 +2774,6 @@
       }
       if (status) status.textContent = 'Saved search ready to edit. Tweak the filters or run it again.';
     };
-    const initializeAutomationThumbnailFallbacks = () => {
-      root.querySelectorAll('.pqx-automation-thumbnail img').forEach((img) => {
-        if (img.dataset.pqxAutomationPreviewFallback === '1') return;
-        img.dataset.pqxAutomationPreviewFallback = '1';
-        const showPreviewFallback = () => {
-          if (img.dataset.pqxAutomationPreviewLoaded === '1') return;
-          const thumb = img.closest('.pqx-automation-thumbnail');
-          const fallback = thumb?.querySelector('.pqx-automation-scope-empty--fallback');
-          if (!fallback || !thumb) return;
-          img.dataset.pqxAutomationPreviewLoaded = '1';
-          img.style.display = 'none';
-          thumb.classList.add('is-preview-error');
-          fallback.hidden = false;
-          fallback.style.display = 'grid';
-          if (!thumb.title) {
-            thumb.title = 'Map preview unavailable';
-          }
-        };
-        img.addEventListener('error', showPreviewFallback);
-        if (img.complete && img.naturalWidth === 0) {
-          showPreviewFallback();
-        }
-      });
-    };
-    initializeAutomationThumbnailFallbacks();
     root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
       button.addEventListener('click', async () => {
         const action = String(button.getAttribute('data-search-agent-action') || '').trim();

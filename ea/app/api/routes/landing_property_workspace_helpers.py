@@ -10,6 +10,49 @@ from app.product.property_surface_state import build_property_run_reliability_sn
 from app.services.property_artifact_contracts import required_artifact_receipt_rows
 
 
+_PROPERTY_POSTAL_LOCALITY_PATTERN = re.compile(
+    r"\b(?P<code>[1-9]\d{3,4})\s+(?P<locality>[A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-/]{1,60})",
+    flags=re.IGNORECASE,
+)
+_PROPERTY_POSTAL_LOCALITY_STOPWORDS = re.compile(
+    r"\s+(?:m(?:²|2)|sqm|zimmer|rooms?|eur|€|usd|gbp|chf|der\s+standard|willhaben|immobilien|real\s+estate)\b.*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _property_postal_names_from_text(text: object) -> tuple[str, ...]:
+    normalized_text = re.sub(r"\s+", " ", str(text or "").strip())
+    if not normalized_text:
+        return ()
+    names: list[str] = []
+    seen: set[str] = set()
+    for match in _PROPERTY_POSTAL_LOCALITY_PATTERN.finditer(normalized_text):
+        code = str(match.group("code") or "").strip()
+        locality = _PROPERTY_POSTAL_LOCALITY_STOPWORDS.sub("", str(match.group("locality") or "").strip()).strip(" ,.;:-")
+        if not code or not locality:
+            continue
+        label = f"{code} {locality}"
+        key = label.casefold()
+        if key not in seen:
+            names.append(label)
+            seen.add(key)
+    return tuple(names)
+
+
+def _property_postal_codes_from_text(text: object, *, require_locality: bool = True) -> tuple[str, ...]:
+    if require_locality:
+        return tuple(name.split(" ", 1)[0] for name in _property_postal_names_from_text(text))
+    normalized_text = str(text or "")
+    codes: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"\b[1-9]\d{3,4}\b", normalized_text):
+        code = match.group(0)
+        if code not in seen:
+            codes.append(code)
+            seen.add(code)
+    return tuple(codes)
+
+
 def _property_candidate_is_rankable(candidate: dict[str, object]) -> bool:
     status_fields = (
         "status",
@@ -87,23 +130,8 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
         )
         if part
     )
-    listing_postal_name = ""
-    listing_postal_code = ""
-    postal_match = re.search(
-        r"\b(?P<code>[1-9]\d{3})\s+(?P<locality>[A-ZÄÖÜ][A-Za-zÄÖÜäöüß' .\-/]{1,60})",
-        listing_text,
-        flags=re.IGNORECASE,
-    )
-    if postal_match:
-        listing_postal_code = str(postal_match.group("code") or "").strip()
-        locality = re.sub(
-            r"\s+(?:m(?:²|2)|sqm|zimmer|rooms?|eur|€|usd|der\s+standard|willhaben|immobilien)\b.*$",
-            "",
-            str(postal_match.group("locality") or "").strip(),
-            flags=re.IGNORECASE,
-        ).strip(" ,.;:-")
-        if locality:
-            listing_postal_name = f"{listing_postal_code} {locality}"
+    listing_postal_name = next(iter(_property_postal_names_from_text(listing_text)), "")
+    listing_postal_code = listing_postal_name.split(" ", 1)[0] if listing_postal_name else ""
     if listing_postal_name and (
         not str(merged.get("postal_name") or "").strip()
         or _normalized(merged.get("postal_name")) in source_scope_candidates
@@ -584,10 +612,10 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
     summary = str(candidate.get("summary") or "").strip()
     combined_text = " | ".join(part for part in (title, summary) if part)
     if not any(str(facts.get(key) or "").strip() for key in ("postal_name", "district", "city", "address", "street_address", "exact_address")):
-        postal_match = re.search(r"\b(1\d{3})\s+W(?:ien|ien)\b", combined_text, flags=re.IGNORECASE)
-        if postal_match:
-            facts["postal_name"] = f"{postal_match.group(1)} Wien"
-            facts.setdefault("address", f"{postal_match.group(1)} Wien")
+        postal_name = next(iter(_property_postal_names_from_text(combined_text)), "")
+        if postal_name:
+            facts["postal_name"] = postal_name
+            facts.setdefault("address", postal_name)
     label = str(
         facts.get("district")
         or facts.get("postal_name")
