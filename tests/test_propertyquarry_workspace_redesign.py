@@ -5199,6 +5199,57 @@ def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_miss
     assert "run-active-42" in live.text
 
 
+def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkeypatch) -> None:
+    principal_id = "pq-empty-outcome-fallback"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Empty Outcome Fallback")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-empty-outcome-fallback"
+        assert run_id == "run-empty-outcome"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "failed",
+            "progress": 100,
+            "message": "",
+            "summary": {
+                "status": "failed",
+                "sources_total": 0,
+                "listing_total": 0,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "build_property_empty_outcome_summary",
+        lambda **kwargs: {
+            "happened": "   ",
+            "still_worked": " ",
+            "active_rule": "\n",
+            "next_move": "\t",
+        },
+    )
+
+    response = client.get("/app/properties", params={"run_id": "run-empty-outcome"}, headers=headers)
+
+    assert response.status_code == 200
+    assert "What happened" in response.text
+    assert "The search stopped before a stable shortlist was ready." in response.text
+    assert "What still worked" in response.text
+    assert "The brief and latest source receipts are still available." in response.text
+    assert "Main blocker" in response.text
+    assert "Provider-check health and repair blocked the run before a stable shortlist formed." in response.text
+    assert "Best next move" in response.text
+    assert "Restart the same brief and let repair retry the failed provider checks." in response.text
+
+
 def test_propertyquarry_properties_route_redirects_terminal_partial_run_to_shortlist(monkeypatch) -> None:
     principal_id = "pq-terminal-partial-shortlist"
     client = build_property_client(principal_id=principal_id)
