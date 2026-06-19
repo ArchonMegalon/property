@@ -163,7 +163,6 @@ PRICING_TIERS = (
 DOC_LINKS = (
     {"title": "Docs", "href": "/docs", "body": "Product and runtime references for teams that want the detailed operating model."},
     {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery lanes."},
-    {"title": "API schema", "href": "/openapi.json", "body": "The machine-readable contract for product and runtime integrations."},
     {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/property/blob/main/ARCHITECTURE_MAP.md", "body": "Route and system documentation for operators and developers."},
 )
 

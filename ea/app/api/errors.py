@@ -22,6 +22,7 @@ _LOG = logging.getLogger(__name__)
 
 _BROWSER_MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _BROWSER_MUTATION_PATH_PREFIXES = ("/app/", "/admin/")
+_PROPERTYQUARRY_RAW_API_DOC_PATHS = {"/openapi.json", "/api/docs", "/api/redoc"}
 
 _DEFAULT_BROWSER_SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -143,6 +144,20 @@ def _request_origin(request: Request) -> str:
     return f"{scheme}://{host}".rstrip("/")
 
 
+def _request_is_propertyquarry_host(request: Request) -> bool:
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").strip()
+    raw_host = forwarded_host.split(",", 1)[0].strip() if forwarded_host else str(request.headers.get("host") or request.url.netloc or "").strip()
+    hostname = raw_host.rsplit("@", 1)[-1].split(":", 1)[0].strip().lower()
+    return hostname in {"propertyquarry.com", "www.propertyquarry.com"}
+
+
+def _propertyquarry_raw_api_docs_request(request: Request) -> bool:
+    if not _request_is_propertyquarry_host(request):
+        return False
+    path = str(request.url.path or "").strip()
+    return path in _PROPERTYQUARRY_RAW_API_DOC_PATHS
+
+
 def _origin_of_url(raw_value: str) -> str:
     normalized = str(raw_value or "").strip()
     if not normalized:
@@ -185,6 +200,18 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.middleware("http")
     async def correlation_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         request.state.correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
+        if _propertyquarry_raw_api_docs_request(request):
+            response = _error_payload(
+                request=request,
+                status_code=404,
+                code="propertyquarry_api_schema_not_public",
+                message="raw runtime API schema is not public on the PropertyQuarry customer surface",
+                details="Use the public docs and support pages for customer-facing product information.",
+            )
+            response.headers["x-correlation-id"] = _correlation_id(request)
+            response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+            _apply_default_browser_security_headers(request, response)
+            return response
         if _browser_mutation_request_is_cross_site(request):
             response = _error_payload(
                 request=request,

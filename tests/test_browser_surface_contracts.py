@@ -136,6 +136,28 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         assert resolved.status_code in {200, 303, 307}, href
 
 
+def test_propertyquarry_public_host_blocks_raw_runtime_api_docs() -> None:
+    client = _client(principal_id="exec-property-openapi-public")
+    for path in ("/openapi.json", "/api/docs", "/api/redoc"):
+        response = client.get(path, headers={"host": "propertyquarry.com"}, follow_redirects=False)
+        assert response.status_code == 404, path
+        assert response.json()["error"]["code"] == "propertyquarry_api_schema_not_public"
+        assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive, nosnippet"
+
+    internal_schema = client.get("/openapi.json", follow_redirects=False)
+    assert internal_schema.status_code == 200
+    assert internal_schema.headers["content-type"].startswith("application/json")
+
+
+def test_propertyquarry_public_docs_do_not_link_raw_openapi_schema() -> None:
+    client = _client(principal_id="exec-property-docs-no-openapi")
+    for path in ("/", "/product", "/docs"):
+        response = client.get(path, headers={"host": "propertyquarry.com"})
+        assert response.status_code == 200, path
+        assert "/openapi.json" not in response.text
+        assert "API schema" not in response.text
+
+
 def test_experimental_routes_are_unavailable_in_product_mode_by_default() -> None:
     client = _client()
     for path in ("/tours/example-tour", "/results/example-result"):
