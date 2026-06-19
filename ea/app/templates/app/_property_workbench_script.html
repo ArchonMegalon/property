@@ -1813,7 +1813,6 @@
     const startQuietFailedRepairPolling = (statusUrl) => {
       const normalizedUrl = String(statusUrl || '').trim();
       if (!normalizedUrl) return;
-      const statusNode = root.querySelector('[data-pqx-auto-refresh-status]');
       let lastSignature = [
         String(data.run?.status || '').trim(),
         String(data.run?.current_step || '').trim(),
@@ -1844,10 +1843,6 @@
           }
           if (signature !== lastSignature) {
             lastSignature = signature;
-            if (statusNode) {
-              const checkedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              statusNode.textContent = `Repair status checked at ${checkedAt}; still waiting for a usable retry.`;
-            }
           }
         } catch (_error) {
           // Keep the repair card stable; the next interval can try again.

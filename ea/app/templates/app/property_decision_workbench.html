@@ -6292,7 +6292,7 @@
               {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
               <div class="pqx-pref-list">
                 <div class="pqx-pref-row"><div><strong>Status</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}{% if empty_eta_feedback %} {{ empty_eta_feedback }}{% endif %}</small></div></div>
-                <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed provider checks.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed source variants.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
               </div>
             </div>
             <div class="pqx-actions">
@@ -6301,9 +6301,6 @@
               <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
               {% endif %}
             </div>
-            {% if run_failed_no_results %}
-            <div class="pqx-small" data-pqx-auto-refresh-status>Checking repair status automatically every 10s.</div>
-            {% endif %}
             {% if not run_failed_no_results and (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) %}
             {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}
             <div class="pqx-decision-status" data-pqx-counterfactual-status></div>

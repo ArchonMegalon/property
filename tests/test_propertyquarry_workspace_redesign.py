@@ -5383,7 +5383,7 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert "Status" in response.text
     assert "The search stopped before a stable shortlist was ready." in response.text
     assert "Next" in response.text
-    assert "Restart the same brief and let repair retry the failed provider checks." in response.text
+    assert "Restart the same brief and let repair retry the failed source variants." in response.text
     assert "What happened" not in response.text
     assert "What still worked" not in response.text
     assert "Main blocker" not in response.text
@@ -6589,12 +6589,13 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     hero_note = re.search(r'<div class="pqx-note">\s*(.*?)\s*</div>', page.text, re.S)
     assert hero_note is not None
     assert "<strong>" not in hero_note.group(1)
-    assert "Auto-repair is queued and will retry the interrupted provider checks." in page.text
+    assert "Auto-repair is queued and will retry the interrupted source variants." in page.text
     assert "Best matches" not in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Open to relax one rule and rerun the search." not in page.text
     assert "New search" in page.text
-    assert "Checking repair status automatically every 10s." in page.text
+    assert "Checking repair status automatically every 10s." not in page.text
+    assert "Repair status checked at" not in page.text
     assert "Check repair status" not in page.text
     assert "Refresh delivery" not in page.text
     assert "Search progress" not in page.text

@@ -1158,12 +1158,12 @@ def build_property_empty_outcome_summary(
         active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
     if status_value == "failed":
         if source_total or listing_total:
-            completed_label = f"{source_completed}/{source_total} provider checks" if source_total else "Provider checks"
+            completed_label = f"{source_completed}/{source_total} source variants" if source_total else "Source variants"
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open:
-                happened = "A repair task is open in the fleet and will retry the interrupted provider checks."
+                happened = "A repair task is open in the fleet and will retry the interrupted source variants."
             elif repair_step_label or repair_status_label:
-                happened = "Auto-repair is queued and will retry the interrupted provider checks."
+                happened = "Auto-repair is queued and will retry the interrupted source variants."
             else:
                 happened = "The search stopped before a stable shortlist was ready."
             stopped_context = f"The interrupted pass stopped after {completed_label.lower()} and {listing_label} inspected."
