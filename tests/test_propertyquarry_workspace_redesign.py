@@ -281,6 +281,27 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
         assert marker not in page.text
 
 
+def test_propertyquarry_plan_page_uses_property_plan_language() -> None:
+    client = build_property_client(principal_id="exec-property-plan-copy")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    page = client.get("/app/settings/plan", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert "PropertyQuarry plan" in page.text
+    assert "Collaborator seats" in page.text
+    assert "market update, review queue, follow-up ledger, draft review" in page.text
+    assert "PropertyQuarry pilot with one account owner and one collaborator." in page.text
+    forbidden_copy = (
+        "morning memo",
+        "commitment ledger",
+        "Google-first pilot with one executive and one operator.",
+        "Operator seats",
+    )
+    for marker in forbidden_copy:
+        assert marker not in page.text
+
+
 def test_propertyquarry_search_shell_prewarm_builds_search_payload(monkeypatch) -> None:
     calls: list[tuple[str, object]] = []
 

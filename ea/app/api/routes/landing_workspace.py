@@ -155,6 +155,15 @@ def _positive_int(value: object) -> int:
 def _propertyquarry_copy(value: object, *, fallback: str = "") -> str:
     text = str(value or fallback or "").strip()
     replacements = {
+        "morning memo": "market update",
+        "Morning memo": "Market update",
+        "decision queue": "review queue",
+        "Decision queue": "Review queue",
+        "commitment ledger": "follow-up ledger",
+        "Commitment ledger": "Follow-up ledger",
+        "draft queue": "draft review",
+        "Draft queue": "Draft review",
+        "Google-first pilot with one executive and one operator.": "PropertyQuarry pilot with one account owner and one collaborator.",
         "office loop": "property workflow",
         "Office loop": "Property workflow",
         "memo": "update",
@@ -424,8 +433,12 @@ def settings_plan_detail(
     operators = dict(diagnostics.get("operators") or {})
     commercial = dict(diagnostics.get("commercial") or {})
     selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
-    feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
-    warnings = [str(value) for value in (commercial.get("warnings") or []) if str(value).strip()]
+    feature_flags = [
+        _propertyquarry_copy(str(value).replace("_", " "))
+        for value in (entitlements.get("feature_flags") or [])
+        if str(value).strip()
+    ]
+    warnings = [_propertyquarry_copy(value) for value in (commercial.get("warnings") or []) if str(value).strip()]
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -433,10 +446,10 @@ def settings_plan_detail(
         page_title="PropertyQuarry plan",
         current_nav="settings",
         console_title="Plan",
-        console_summary="Plan unit, billing posture, messaging scope, and seat boundaries for this office.",
+        console_summary="Plan unit, billing posture, messaging scope, and collaborator boundaries for this account.",
         object_kind="Commercial boundary",
         object_title=str(plan.get("display_name") or "Pilot"),
-        object_summary=str(billing.get("contract_note") or "Commercial posture is not yet set."),
+        object_summary=_propertyquarry_copy(billing.get("contract_note"), fallback="Commercial posture is not yet set."),
         object_meta=[
             {"label": "Plan unit", "value": str(plan.get("unit_of_sale") or "workspace")},
             {"label": "Billing state", "value": str(billing.get("billing_state") or "unknown")},
@@ -446,7 +459,7 @@ def settings_plan_detail(
             {"label": "Rules", "value": "Open settings"},
         ],
         object_sidebar_title="Why this boundary matters",
-        object_sidebar_copy="Commercial scope explains what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong.",
+        object_sidebar_copy="Commercial scope explains what the account may connect, how many collaborators can help, and what support posture applies when something goes wrong.",
         object_sidebar_rows=[
             _object_detail_row("Channels", ", ".join(selected_channels) or "Google-first path", "Channels"),
             _object_detail_row("Messaging scope", "Included" if entitlements.get("messaging_channels_enabled") else "Upgrade required for messaging channels", "Entitlement"),
@@ -464,7 +477,7 @@ def settings_plan_detail(
                     _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
                     _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown"), "Billing"),
                     _object_detail_row("Renewal owner", str(billing.get("renewal_owner_role") or "principal").replace("_", " ").title(), "Billing"),
-                    _object_detail_row("Contract note", str(billing.get("contract_note") or "No contract note recorded."), "Contract"),
+                    _object_detail_row("Contract note", _propertyquarry_copy(billing.get("contract_note"), fallback="No contract note recorded."), "Contract"),
                 ],
             },
             {
@@ -472,7 +485,7 @@ def settings_plan_detail(
                 "title": "What is included",
                 "items": [
                     _object_detail_row("Principal seats", str(entitlements.get("principal_seats") or 0), "Seats"),
-                    _object_detail_row("Operator seats", str(entitlements.get("operator_seats") or 0), "Seats"),
+                    _object_detail_row("Collaborator seats", str(entitlements.get("operator_seats") or 0), "Seats"),
                     _object_detail_row("Audit retention", str(entitlements.get("audit_retention") or "standard"), "Retention"),
                     _object_detail_row("Feature flags", ", ".join(feature_flags) or "No enabled features", "Flags"),
                 ],
@@ -486,7 +499,7 @@ def settings_plan_detail(
                     _object_detail_row("Renewal window", str(billing.get("renewal_window_label") or "Not recorded"), "Billing"),
                     _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Portal"),
                     _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
-                    _object_detail_row("Blocked action message", str(commercial.get("blocked_action_message") or "No current commercial blocks."), "Commercial"),
+                    _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), "Commercial"),
                 ],
             },
         ],
