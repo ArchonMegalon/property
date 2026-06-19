@@ -2166,7 +2166,7 @@ def test_property_map_preview_route_fallback_to_placeholder_for_missing_cached_p
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
-    assert response.headers["cache-control"] == "private, max-age=86400"
+    assert response.headers["cache-control"] == "no-store, max-age=0"
     assert response.headers["x-robots-tag"] == "noindex, nofollow"
     assert response.content.startswith(b"\x89PNG")
 
