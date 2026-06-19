@@ -248,6 +248,21 @@ def test_propertyquarry_shortlist_does_not_surface_willhaben_tracking_endpoint_a
     assert "api.willhaben.at/restapi/v2/logevent" not in body
 
 
+def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> None:
+    body = _read_workbench_bundle()
+    research_detail = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
+    ).read_text(encoding="utf-8")
+
+    assert "auto_deliver: false" in body
+    assert "allow_floorplan_only: true" in body
+    assert "keepButtonDisabled = true" in body
+    assert "button.disabled = keepButtonDisabled" in body
+    assert "data-pw-visual-ready-url" in body
+    assert "['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextState)" in research_detail
+    assert "button.disabled = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(currentState)" in research_detail
+
+
 def test_propertyquarry_register_surface_uses_property_search_language() -> None:
     client = build_property_client(principal_id="pq-register-copy")
 

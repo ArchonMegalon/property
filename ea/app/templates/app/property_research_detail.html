@@ -1441,6 +1441,14 @@
     } else {
       button.removeAttribute('data-pw-visual-href');
     }
+    const isWaiting = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextState);
+    button.disabled = isWaiting;
+    button.classList.toggle('is-processing', isWaiting);
+    if (isWaiting) {
+      button.setAttribute('aria-disabled', 'true');
+    } else {
+      button.removeAttribute('aria-disabled');
+    }
   };
   const syncVisualButtons = (requestKind, payload) => {
     const kind = String(requestKind || '').trim().toLowerCase();
@@ -1521,7 +1529,8 @@
       } catch (error) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
       } finally {
-        button.disabled = false;
+        const currentState = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
+        button.disabled = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(currentState);
         if (!requestSucceeded && !String(button.getAttribute('data-pw-visual-href') || '').trim()) {
           button.textContent = original;
         }

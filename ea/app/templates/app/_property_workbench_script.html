@@ -581,6 +581,7 @@
           : 'Requesting a 3D tour from the available source material...';
       }
       let requestSucceeded = false;
+      let keepButtonDisabled = false;
       try {
         const response = await fetch('/app/api/signals/willhaben/property-tour', {
           method: 'POST',
@@ -656,6 +657,19 @@
           } else {
             button.textContent = candidate.tour?.label || (nextTourUrl ? 'Open 3D tour' : '3D tour queued');
           }
+          if (nextFlythroughUrl || nextTourUrl) {
+            button.setAttribute('data-pw-visual-ready-url', nextFlythroughUrl || nextTourUrl);
+          }
+          if (
+            nextFlythroughUrl
+            || nextTourUrl
+            || ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
+            || ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextTourStatus)
+          ) {
+            keepButtonDisabled = true;
+            button.classList.add('is-processing');
+            button.setAttribute('aria-disabled', 'true');
+          }
         }
         if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
           const selectedNode = root.querySelector(`[data-candidate-ref="${CSS.escape(String(candidate.candidate_ref || '').trim())}"]`);
@@ -665,8 +679,12 @@
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
       } finally {
         if (button) {
-          button.disabled = false;
-          if (!requestSucceeded) button.textContent = original;
+          button.disabled = keepButtonDisabled;
+          if (!requestSucceeded) {
+            button.textContent = original;
+            button.classList.remove('is-processing');
+            button.removeAttribute('aria-disabled');
+          }
         }
       }
     };
