@@ -1026,6 +1026,10 @@
       });
     }
     bindWorkbenchRows(root);
+    const initialRowsPanel = root.querySelector('[data-workbench-row]')?.closest('[data-pqx-mobile-panel]');
+    if (initialRowsPanel) {
+      setMode(initialRowsPanel.getAttribute('data-pqx-mobile-panel') || 'results');
+    }
     root.addEventListener('click', (event) => {
       const button = event.target?.closest?.('[data-fliplink-packet]');
       if (!button) return;

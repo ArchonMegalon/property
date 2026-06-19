@@ -27,7 +27,7 @@
 {% set has_mobile_property_panel = has_results or run_visible or (run_terminal_no_results and not run_failed_no_results) %}
 {% set has_mobile_brief_panel = setup_mode %}
 {% set mobile_panel_count = (1 if has_mobile_results_panel else 0) + (1 if has_mobile_property_panel else 0) + (1 if has_mobile_brief_panel else 0) %}
-{% set mobile_primary = setup_mobile_primary if setup_mode else ('property' if run_visible and not run_terminal_no_results else 'results') %}
+{% set mobile_primary = setup_mobile_primary if setup_mode else ('results' if has_results or run_terminal_no_results else 'property') %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
@@ -5158,6 +5158,14 @@
       .pqx-run-hero[data-pqx-mobile-panel]:not(.active) {
         display: none;
       }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-panel[data-pqx-mobile-panel],
+      .pqx-shell[data-pqx-surface="properties"] .pqx-result-panel[data-pqx-mobile-panel] {
+        display: grid;
+      }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-panel[data-pqx-mobile-panel],
+      .pqx-shell[data-pqx-surface="properties"] .pqx-panel[data-pqx-mobile-panel] {
+        display: grid;
+      }
       .pqx-mobile-property-panel {
         display: grid;
         position: static;
@@ -6306,7 +6314,7 @@
       {% elif run_terminal_no_results %}
       {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
-        <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results">
+        <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results" data-pqx-screenfit-target="run-progress">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
@@ -6316,6 +6324,9 @@
                 {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
               {% endif %}
             </h1>
+            <div class="pqx-note" data-pqx-run-summary>
+              {{ empty_outcome.get('eta_feedback') or empty_outcome.get('happened') or ('Repair is checking the run.' if run_status == 'failed' else 'No strong matches cleared the current brief.') }}
+            </div>
             {% if run_status == 'failed' and (run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label')) %}
             <div class="pqx-note">
               {% if run_failed_no_results %}

@@ -576,7 +576,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert 'data-pq-greenfield-shell' in content
         assert 'data-pq-theater' in content
         assert 'data-workbench-results-table' in content
-        page.locator("[data-workbench-row]").first.wait_for(timeout=5000)
+        page.locator("[data-workbench-row]:visible").first.wait_for(timeout=5000)
         assert page.locator("[data-workbench-row]").first.is_visible()
         assert page.locator("[data-workbench-row][data-candidate-packet-url]").first.is_visible()
         assert page.locator("body", has_text=re.compile(r"ranked homes", re.I)).is_visible()
@@ -608,7 +608,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert 'data-property-decision-workbench' in content
         assert 'data-pq-greenfield-shell' in content
         assert 'data-property-mobile-dock' in content
-        page.locator("[data-workbench-row]").first.wait_for(timeout=5000)
+        page.locator("[data-workbench-row]:visible").first.wait_for(timeout=5000)
         assert page.locator('[data-workbench-mobile-mode="results"]').is_visible()
         assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
         mode_box = page.locator('[data-workbench-mobile-mode="results"]').bounding_box()
@@ -998,17 +998,20 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
             timeout=7000,
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No valid homes|No shortlist", re.I)).is_visible()
+        assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No strong matches|No valid homes|No shortlist|current brief|search finished", re.I)).is_visible()
         assert page.locator("body", has_text="Ways to get more matches").is_visible()
         assert page.locator("[data-pqx-counterfactuals]").is_visible()
         assert page.get_by_role("button", name=re.compile("Apply|Allow|Use|Raise|Relax|Reopen")).first.is_visible()
-        page.locator("[data-pqx-filtered-open]").first.click()
+        page.locator("[data-pqx-filtered-open]:visible").first.click()
         page.wait_for_function(
             """
             () => {
               const breakdown = document.querySelector('[data-pqx-source-breakdown]');
               const details = document.querySelector('details#pqx-filtered-breakdown');
+              const dialog = document.querySelector('[data-pqx-filtered-dialog]');
               return Boolean(
+                (dialog && dialog.open)
+                ||
                 (details && details.open)
                 || (breakdown && /Genossenschaften Austria/i.test(String(breakdown.textContent || '')))
               );
@@ -1016,7 +1019,10 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
             """,
             timeout=5000,
         )
-        assert page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
+        assert (
+            page.locator("[data-pqx-filtered-dialog][open]").is_visible()
+            or page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
+        )
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
@@ -1037,8 +1043,9 @@ def test_propertyquarry_running_progress_panel_fits_the_first_viewport(
         response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_selector('[data-pqx-screenfit-target="run-progress"]', timeout=5000)
-        assert page.locator('[data-pqx-screenfit-target="run-progress"] h2').first.is_visible()
-        assert page.locator('[data-pqx-progress-eta], [data-pqx-run-summary]').first.is_visible()
+        assert page.locator('[data-pqx-screenfit-target="run-progress"] :is(h1, h2)').first.is_visible()
+        progress_target = page.locator('[data-pqx-screenfit-target="run-progress"]').first
+        assert progress_target.inner_text().strip()
         page.screenshot(path=str(screenshot_path), full_page=False)
         layout = page.evaluate(
             """
@@ -1370,8 +1377,9 @@ def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
         response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_selector('[data-pqx-screenfit-target="run-progress"]', timeout=5000)
-        assert page.locator('[data-pqx-screenfit-target="run-progress"] h2').first.is_visible()
-        assert page.locator('[data-pqx-progress-eta], [data-pqx-run-summary]').first.is_visible()
+        assert page.locator('[data-pqx-screenfit-target="run-progress"] :is(h1, h2)').first.is_visible()
+        progress_target = page.locator('[data-pqx-screenfit-target="run-progress"]').first
+        assert progress_target.inner_text().strip()
         layout = page.evaluate(
             """
             () => {

@@ -3728,7 +3728,7 @@ def test_property_search_progress_copy_names_providers_not_generic_sources() -> 
     assert "provider_total = _property_search_provider_total(specs)" in service_source
     assert "provider_group_total = _property_search_provider_group_total(specs)" in service_source
     assert 'else "Sources"' not in view_model_source
-    assert 'else "Provider checks"' in view_model_source
+    assert '"label": "Provider checks"' in view_model_source
 
 
 def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:
@@ -3967,7 +3967,8 @@ def test_property_search_agents_can_load_saved_filters_into_form() -> None:
     assert '{% include "app/_property_search_agents_panel.html" %}' in body
     assert "data-search-agent-payload" in agents_body
     assert 'class="pqx-automation-thumbnail"' in agents_body
-    assert 'data-search-agent-action="load"' in agents_body
+    assert "agent_load_href = '/app/search?load_agent='" in agents_body
+    assert '<a class="pqx-automation-thumbnail" href="{{ agent_load_href }}"' in agents_body
     assert 'class="pqx-automation-thumbnail-action">Edit</span>' in agents_body
     assert 'data-search-agent-action="delete"' in agents_body
     assert ">Edit</button>" not in agents_body
@@ -4553,7 +4554,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "pqx-automation-table" not in page.text
     assert 'class="pqx-automation-card' in page.text
     assert 'class="pqx-automation-thumbnail"' in page.text
-    assert 'data-search-agent-action="load"' in page.text
+    assert 'href="/app/search?load_agent=agent-vienna"' in page.text
+    assert 'href="/app/search?load_agent=agent-monteverde"' in page.text
     assert 'data-search-agent-action="delete"' in page.text
     assert 'title="Delete saved search"' in page.text
     assert "Selected watch, delivery, repair" not in page.text

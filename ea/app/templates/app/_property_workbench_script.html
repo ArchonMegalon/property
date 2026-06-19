@@ -1763,6 +1763,8 @@
         rankedNode.outerHTML = renderRankedCandidates(rankedCandidates, runPayload);
         if (rankedCandidates.length) {
           replaceCandidates(rankedCandidates);
+          const rankedPanel = root.querySelector('[data-pqx-ranked-candidates]')?.closest('[data-pqx-mobile-panel]');
+          setMode(rankedPanel?.getAttribute('data-pqx-mobile-panel') || 'results');
           const panel = root.querySelector('[data-pqx-empty-results] .pqx-panel.pqx-command');
           const helperHeading = panel?.querySelector('.pqx-section-head h2');
           if (helperHeading && /ways to get more matches/i.test(String(helperHeading.textContent || ''))) {
