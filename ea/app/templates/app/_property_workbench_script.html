@@ -990,12 +990,35 @@
       if (text.length > 20) text = `${text.slice(0, 17).trimEnd()}...`;
       return text || 'Provider';
     };
+    const providerDisplayTotalForRun = (runPayload, summary = null) => {
+      const runSummary = summary && typeof summary === 'object' ? summary : (runPayload?.summary || {});
+      const explicitProviderTotal = Math.max(0, Number(runSummary.provider_total || 0));
+      const selectedPlatforms = Array.isArray(runPayload?.selected_platforms)
+        ? runPayload.selected_platforms
+        : (Array.isArray(runPayload?.brief?.providers)
+          ? runPayload.brief.providers
+          : (Array.isArray(data?.brief?.providers) ? data.brief.providers : []));
+      const selectedProviderTotal = selectedPlatforms
+        .map((value) => String(value || '').trim())
+        .filter(Boolean).length;
+      const sourceProviders = new Set();
+      (Array.isArray(runSummary.sources) ? runSummary.sources : []).forEach((source) => {
+        if (!source || typeof source !== 'object') return;
+        const platform = String(source.platform || source.provider_key || '').trim().toLowerCase();
+        if (platform) {
+          sourceProviders.add(platform);
+          return;
+        }
+        const label = String(source.source_label || source.label || '').trim();
+        const baseLabel = label.split('|')[0].trim().toLowerCase();
+        if (baseLabel) sourceProviders.add(baseLabel);
+      });
+      return Math.max(explicitProviderTotal, selectedProviderTotal, sourceProviders.size);
+    };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
-      const providerTotal = Number(summary.provider_total || 0);
-      const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;
-      const providerDisplayTotal = Math.max(providerTotal, selectedProviderTotal);
+      const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const scanLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
         ? `${providerDisplayTotal} providers · ${sourceVariantTotal} checks`
@@ -1276,9 +1299,7 @@
       const status = String(runPayload?.status || summary.status || 'queued');
       const sources = Number(summary.sources_total || 0);
       const completedSources = Array.isArray(summary.sources) ? summary.sources.length : 0;
-      const providerTotal = Number(summary.provider_total || 0);
-      const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;
-      const providerDisplayTotal = Math.max(providerTotal, selectedProviderTotal);
+      const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const scanCountLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
         ? `${providerDisplayTotal} providers · ${sourceVariantTotal} checks`

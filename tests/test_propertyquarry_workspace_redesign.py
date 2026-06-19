@@ -5565,6 +5565,18 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Filtered by rules: Filtering diagnostics" not in response.text
 
 
+def test_propertyquarry_live_progress_derives_provider_count_before_source_variants() -> None:
+    script = _read_workbench_bundle()
+
+    assert "const providerDisplayTotalForRun = (runPayload, summary = null) =>" in script
+    assert "Array.isArray(runPayload?.brief?.providers)" in script
+    assert "Array.isArray(data?.brief?.providers)" in script
+    assert "sourceProviders.add(platform);" in script
+    assert "const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);" in script
+    assert "const providerTotal = Number(summary.provider_total || 0);" not in script
+    assert "const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;" not in script
+
+
 def test_propertyquarry_raw_ranked_fallback_excludes_maybe_false_candidates(monkeypatch) -> None:
     principal_id = "pq-raw-ranked-rankable"
     client = build_property_client(principal_id=principal_id)
