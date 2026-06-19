@@ -5308,6 +5308,58 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Queued a generic provider repair." in response.text
 
 
+def test_propertyquarry_raw_ranked_fallback_excludes_maybe_false_candidates(monkeypatch) -> None:
+    principal_id = "pq-raw-ranked-rankable"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Raw Ranked Rankable")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-raw-ranked-rankable"
+        assert run_id == "run-raw-ranked"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "failed",
+            "progress": 100,
+            "message": "Search interrupted after repair queued a partial shortlist.",
+            "summary": {
+                "status": "failed",
+                "sources_total": 2,
+                "listing_total": 2,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "good-1",
+                        "title": "Real shortlist survivor",
+                        "fit_score": 72,
+                        "property_url": "https://example.test/good",
+                        "property_facts": {"postal_name": "1010 Wien", "price_display": "EUR 1,200"},
+                    },
+                    {
+                        "candidate_ref": "bad-1",
+                        "title": "Maybe false candidate",
+                        "fit_score": 95,
+                        "maybe_false": True,
+                        "status": "maybe_false",
+                        "property_url": "https://example.test/bad",
+                        "property_facts": {"postal_name": "Salzburg", "price_display": "EUR 1,000"},
+                    },
+                ],
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-raw-ranked"}, headers=headers)
+
+    assert response.status_code == 200
+    assert "Real shortlist survivor" in response.text
+    assert "Maybe false candidate" not in response.text
+
+
 def test_propertyquarry_properties_route_redirects_terminal_partial_run_to_shortlist(monkeypatch) -> None:
     principal_id = "pq-terminal-partial-shortlist"
     client = build_property_client(principal_id=principal_id)

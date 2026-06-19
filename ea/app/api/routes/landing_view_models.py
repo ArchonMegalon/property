@@ -189,11 +189,55 @@ def _property_customer_source_summary(source: dict[str, object]) -> dict[str, ob
     }
 
 
+def _property_customer_candidate_is_rankable(candidate: dict[str, object]) -> bool:
+    blocked_statuses = {
+        "dismissed",
+        "filtered",
+        "filtered_out",
+        "hard_filtered",
+        "maybe_false",
+        "maybe_false_positive",
+        "false_positive",
+        "not_a_listing",
+        "repair_only",
+        "queued_for_repair",
+        "suppressed",
+    }
+    for field in ("status", "review_status", "candidate_status", "filter_status", "repair_status"):
+        if str(candidate.get(field) or "").strip().lower() in blocked_statuses:
+            return False
+    for flag in (
+        "maybe_false",
+        "maybe_false_positive",
+        "false_positive",
+        "flagged_for_repair",
+        "repair_only",
+        "filtered_out",
+        "hard_filtered",
+        "not_a_listing",
+    ):
+        value = candidate.get(flag)
+        if isinstance(value, bool) and value:
+            return False
+        if isinstance(value, (int, float)) and value != 0:
+            return False
+        if str(value or "").strip().lower() in {"1", "true", "yes", "on", "y"}:
+            return False
+    if str(candidate.get("hard_filter_reason") or candidate.get("filter_reason") or "").strip():
+        return False
+    return True
+
+
 def _property_customer_run_summary(summary: dict[str, object]) -> dict[str, object]:
     source_rows = [
         _property_customer_source_summary(row)
         for row in list(dict(summary or {}).get("sources") or [])
         if isinstance(row, dict)
+    ]
+    ranked_candidates = [
+        dict(row)
+        for row in list(dict(summary or {}).get("ranked_candidates") or [])
+        if isinstance(row, dict) and _property_customer_candidate_is_rankable(row)
     ]
     clean = {
         key: value
@@ -203,9 +247,11 @@ def _property_customer_run_summary(summary: dict[str, object]) -> dict[str, obje
             "sources",
             "research_tasks",
             "provider_quality",
+            "ranked_candidates",
         }
     }
     clean["sources"] = source_rows
+    clean["ranked_candidates"] = ranked_candidates
     return clean
 
 
@@ -2285,6 +2331,8 @@ def app_section_payload(
     property_state = dict(property_context or {})
     surface_scope = PropertySurfaceScope.for_section(str(property_state.get("surface_mode") or "properties"))
     property_run = dict(property_state.get("run") or {})
+    if isinstance(property_run.get("summary"), dict):
+        property_run["summary"] = _property_customer_run_summary(dict(property_run.get("summary") or {}))
     property_run_preferences = (
         dict(property_run.get("property_search_preferences") or property_run.get("preferences") or {})
         if isinstance(property_run.get("property_search_preferences") or property_run.get("preferences"), dict)

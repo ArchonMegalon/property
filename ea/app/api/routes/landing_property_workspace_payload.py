@@ -190,6 +190,7 @@ def property_workspace_payload(
     run_events = list(run_payload.get("events") or [])
     raw_run_summary = dict(run_payload.get("summary") or {})
     run_summary = _property_customer_run_summary(raw_run_summary)
+    run_payload = {**run_payload, "summary": run_summary}
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
     if not shortlist_candidates:
@@ -197,6 +198,7 @@ def property_workspace_payload(
             dict(candidate)
             for candidate in list(raw_run_summary.get("ranked_candidates") or [])
             if isinstance(candidate, dict)
+            and _property_candidate_is_rankable(candidate)
         ]
         if ranked_candidates:
             shortlist_candidates = ranked_candidates
