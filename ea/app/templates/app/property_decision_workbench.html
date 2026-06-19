@@ -32,13 +32,17 @@
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
 {% set empty_outcome = workbench.get('empty_outcome') or {} %}
-{% macro suppression_panel(rows, actions=[]) -%}
+{% macro suppression_panel(rows, actions=[], total_override=None) -%}
 {% if rows %}
 {% set trigger_rows = actions if actions else rows %}
 {% set ns = namespace(total=0) %}
+{% if total_override is not none and (total_override|int) > 0 %}
+  {% set ns.total = total_override|int %}
+{% else %}
 {% for row in trigger_rows[:4] %}
   {% set ns.total = ns.total + ((row.get('affected_total') or 0)|int) %}
 {% endfor %}
+{% endif %}
           <div class="pqx-suppression-panel" data-pqx-filtered-breakdown data-pqx-suppression-summary>
   <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
     <span class="pqx-suppression-trigger-copy">
@@ -6499,7 +6503,7 @@
             </button>
           </div>
           {% endif %}
-          {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}
+          {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or [], run_summary.get('filtered_total') or run_summary.get('held_back_total') or None) }}
           </div>
           {{ filtered_recovery_dialog(workbench.get('counterfactual_rows') or [], workbench.get('suppression_rows') or []) }}
           {% if not ranked_candidates %}
