@@ -3183,6 +3183,67 @@ def property_provider_search_ready(platform_key: object) -> bool:
     return bool(provider.search_ready)
 
 
+def selectable_property_platform_keys(
+    *,
+    country_code: object,
+    listing_mode: object | None = None,
+    include_distressed_sale_signals: object = False,
+) -> tuple[str, ...]:
+    normalized_country = normalize_country_code(country_code)
+    normalized_mode = normalize_listing_mode(listing_mode) if listing_mode is not None else ""
+    allow_distressed_fallback = (
+        include_distressed_sale_signals is True
+        or str(include_distressed_sale_signals or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+    )
+    rows: list[str] = []
+    for provider in PROVIDERS:
+        if provider.country_code != normalized_country:
+            continue
+        if not provider.search_ready:
+            continue
+        if normalized_mode and normalized_mode not in provider.supported_listing_modes and not allow_distressed_fallback:
+            continue
+        rows.append(provider.key)
+    return tuple(rows)
+
+
+def filter_selectable_property_platforms(
+    selected_platforms: object,
+    *,
+    country_code: object,
+    listing_mode: object | None = None,
+    include_distressed_sale_signals: object = False,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    selectable = set(
+        selectable_property_platform_keys(
+            country_code=country_code,
+            listing_mode=listing_mode,
+            include_distressed_sale_signals=include_distressed_sale_signals,
+        )
+    )
+    kept: list[str] = []
+    removed: list[str] = []
+    if isinstance(selected_platforms, (list, tuple, set)):
+        candidates = tuple(selected_platforms)
+    elif selected_platforms is None:
+        candidates = ()
+    else:
+        candidates = (selected_platforms,)
+    for item in candidates:
+        current = normalize_property_platform(item)
+        if not current or current == "all":
+            if current and current not in removed:
+                removed.append(current)
+            continue
+        if current in selectable:
+            if current not in kept:
+                kept.append(current)
+            continue
+        if current not in removed:
+            removed.append(current)
+    return tuple(kept), tuple(removed)
+
+
 def evidence_source_options(*, country_code: str | None = None) -> list[dict[str, str]]:
     normalized_country = normalize_country_code(country_code, default="AT") if country_code else ""
     rows: list[dict[str, str]] = []
@@ -3240,7 +3301,9 @@ def default_platforms_for_country(country_code: object) -> tuple[str, ...]:
     if normalized_country in {"AT", "DE"}:
         return default_platforms_for_country_listing_mode(normalized_country, "rent")
     country = _COUNTRY_INDEX.get(normalized_country)
-    return tuple(country.featured_platforms if country is not None else _COUNTRY_INDEX["AT"].featured_platforms)
+    defaults = tuple(country.featured_platforms if country is not None else _COUNTRY_INDEX["AT"].featured_platforms)
+    kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country)
+    return kept
 
 
 def default_platforms_for_country_listing_mode(
@@ -3255,15 +3318,25 @@ def default_platforms_for_country_listing_mode(
     if normalized_country == "AT":
         if normalized_mode == "buy":
             if normalized_type == "land":
-                return ("willhaben", "immmo", "immoscout_at", "broker_direct_at")
-            return ("willhaben", "immmo", "immoscout_at", "derstandard_at", "broker_direct_at", "developer_projects_at")
-        return ("willhaben", "immmo", "immoscout_at", "derstandard_at", "public_housing_at", "genossenschaften_at")
+                defaults = ("willhaben", "immmo", "immoscout_at", "broker_direct_at")
+            else:
+                defaults = ("willhaben", "immmo", "immoscout_at", "derstandard_at", "broker_direct_at", "developer_projects_at")
+            kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
+            return kept
+        defaults = ("willhaben", "immmo", "immoscout_at", "derstandard_at", "public_housing_at", "genossenschaften_at")
+        kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
+        return kept
     if normalized_country == "DE":
         if normalized_mode == "buy":
             if normalized_type == "land":
-                return ("core_portals_de", "broker_direct_de", "new_build_de")
-            return ("core_portals_de", "new_build_de", "broker_direct_de")
-        return ("core_portals_de", "corporate_landlords_de", "municipal_housing_de", "broker_direct_de")
+                defaults = ("core_portals_de", "broker_direct_de", "new_build_de")
+            else:
+                defaults = ("core_portals_de", "new_build_de", "broker_direct_de")
+            kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
+            return kept
+        defaults = ("core_portals_de", "corporate_landlords_de", "municipal_housing_de", "broker_direct_de")
+        kept, _removed = filter_selectable_property_platforms(defaults, country_code=normalized_country, listing_mode=normalized_mode)
+        return kept
     return default_platforms_for_country(normalized_country)
 
 
@@ -3594,15 +3667,22 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         single_channel = str(raw_alert_channels or "").strip().lower()
         alert_channels = [single_channel] if single_channel in ALERT_CHANNEL_KEYS else []
     payload["alert_channels"] = alert_channels or ["telegram"]
-    payload["selected_platforms"] = [
-        current
-        for current in dict.fromkeys(
-            normalize_property_platform(item)
-            for item in (payload.get("selected_platforms") or [])
-            if normalize_property_platform(item) and normalize_property_platform(item) != "all"
-        )
-        if current in _PROVIDER_INDEX
-    ]
+    selected_platforms, removed_platforms = filter_selectable_property_platforms(
+        tuple(
+            dict.fromkeys(
+                normalize_property_platform(item)
+                for item in (payload.get("selected_platforms") or [])
+                if normalize_property_platform(item) and normalize_property_platform(item) != "all"
+            )
+        ),
+        country_code=payload.get("country_code"),
+        listing_mode=payload.get("listing_mode"),
+        include_distressed_sale_signals=payload.get("include_distressed_sale_signals"),
+    )
+    payload["selected_platforms"] = list(selected_platforms)
+    if removed_platforms:
+        payload["provider_selection_filter_applied"] = True
+        payload["provider_selection_filter_removed"] = list(removed_platforms)
     for numeric_key in (
         "min_price_eur",
         "max_price_eur",

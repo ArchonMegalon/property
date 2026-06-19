@@ -7,6 +7,7 @@ from app.services.property_market_catalog import (
     default_platforms_for_country,
     default_platforms_for_country_listing_mode,
     evidence_source_options,
+    filter_selectable_property_platforms,
     generated_source_specs,
     is_supported_country_code,
     language_label,
@@ -17,6 +18,7 @@ from app.services.property_market_catalog import (
     property_type_options,
     provider_options,
     provider_governance,
+    property_provider_search_ready,
     property_provider_for_platform,
     provider_quality_labels,
     provider_listing_markers_for_host,
@@ -126,6 +128,31 @@ def test_normalize_property_search_preferences_keeps_whatsapp_alert_channel() ->
     )
 
     assert payload["alert_channels"] == ["whatsapp", "telegram"]
+
+
+def test_normalize_property_search_preferences_filters_unselectable_providers() -> None:
+    payload = normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "selected_platforms": ["willhaben", "community_signals_at", "rightmove", "all"],
+        }
+    )
+
+    assert payload["selected_platforms"] == ["willhaben"]
+    assert payload["provider_selection_filter_applied"] is True
+    assert payload["provider_selection_filter_removed"] == ["community_signals_at", "rightmove"]
+
+
+def test_filter_selectable_property_platforms_honors_mode_country_and_readiness() -> None:
+    kept, removed = filter_selectable_property_platforms(
+        ("willhaben", "community_signals_at", "rightmove", "corporate_landlords_de"),
+        country_code="DE",
+        listing_mode="buy",
+    )
+
+    assert kept == ()
+    assert removed == ("willhaben", "community_signals_at", "rightmove", "corporate_landlords_de")
 
 
 def test_normalize_property_search_preferences_investment_goal_forces_buy_without_forcing_underwriting_on() -> None:
@@ -490,6 +517,7 @@ def test_germany_buy_defaults_drop_dead_corporate_landlord_lane() -> None:
     buy_defaults = default_platforms_for_country_listing_mode("DE", "buy")
 
     assert buy_defaults == ("core_portals_de", "new_build_de", "broker_direct_de")
+    assert all(property_provider_search_ready(platform) for platform in buy_defaults)
 
 
 def test_germany_buy_provider_markers_only_accept_real_listing_routes() -> None:

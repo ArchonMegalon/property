@@ -33,6 +33,7 @@ except ImportError:
 from app.services.memory_runtime import MemoryRuntimeService
 from app.services.property_billing import normalize_property_commercial, property_commercial_snapshot
 from app.services.property_market_catalog import (
+    filter_selectable_property_platforms,
     normalize_country_code,
     normalize_language_code,
     normalize_listing_mode,
@@ -1433,6 +1434,12 @@ class OnboardingService(AssistantOnboardingService):
         language_code = normalize_language_code(raw.get("language_code"), country_code=country_code)
         listing_mode = normalize_listing_mode(raw.get("listing_mode"))
         property_type = normalize_property_type_values(raw.get("property_type"))
+        selected_platforms, removed_platforms = filter_selectable_property_platforms(
+            selected_platforms,
+            country_code=country_code,
+            listing_mode=listing_mode,
+            include_distressed_sale_signals=raw.get("include_distressed_sale_signals"),
+        )
 
         max_results_per_source = raw.get("max_results_per_source")
         try:
@@ -1601,6 +1608,9 @@ class OnboardingService(AssistantOnboardingService):
             **promoted_lists,
             **promoted_flags,
         }
+        if removed_platforms:
+            normalized_preferences["provider_selection_filter_applied"] = True
+            normalized_preferences["provider_selection_filter_removed"] = list(removed_platforms)
         normalized_preferences["active_search_agent_id"] = str(raw.get("active_search_agent_id") or "").strip()
         explicit_agents = isinstance(raw.get("search_agents"), (list, tuple))
         if explicit_agents:

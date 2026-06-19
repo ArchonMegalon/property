@@ -6965,8 +6965,66 @@ def test_property_search_run_drops_saved_providers_from_wrong_country(monkeypatc
     assert "encuentra24_cr" not in observed["selected_platforms"]
     assert set(observed["selected_platforms"]) >= {"willhaben", "immmo", "immoscout_at"}
     preferences = observed["property_search_preferences"]
-    assert preferences["provider_country_filter_applied"] is True
-    assert set(preferences["provider_country_filter_removed"]) == {"re_cr_mls", "encuentra24_cr"}
+    assert preferences["provider_selection_filter_applied"] is True
+    assert set(preferences["provider_selection_filter_removed"]) == {"re_cr_mls", "encuentra24_cr"}
+
+
+def test_property_search_run_drops_saved_unready_and_mode_mismatched_providers(monkeypatch) -> None:
+    principal_id = "exec-property-search-provider-readiness-guard"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Provider Readiness Guard")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "DE",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Berlin",
+            "selected_platforms": ["core_portals_de", "corporate_landlords_de", "community_signals_at"],
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["selected_platforms"] = tuple(selected_platforms)
+        observed["property_search_preferences"] = dict(property_search_preferences or {})
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post("/app/api/signals/property/search/run", json={"property_preferences": {}})
+    assert started.status_code == 200, started.text
+    assert observed["selected_platforms"] == ("core_portals_de",)
+    preferences = observed["property_search_preferences"]
+    assert preferences["provider_selection_filter_applied"] is True
+    assert set(preferences["provider_selection_filter_removed"]) == {"corporate_landlords_de", "community_signals_at"}
 
 
 def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(monkeypatch) -> None:

@@ -261,6 +261,7 @@ from app.services.property_market_catalog import (
     country_label,
     default_platforms_for_country,
     default_platforms_for_country_listing_mode,
+    filter_selectable_property_platforms,
     generated_source_specs as generated_property_source_specs,
     is_supported_country_code,
     is_known_property_platform,
@@ -706,24 +707,16 @@ def _property_search_platforms_with_family_toggles(
 def _property_search_platforms_for_country(
     selected_platforms: tuple[str, ...],
     country_code: object,
+    *,
+    listing_mode: object | None = None,
+    include_distressed_sale_signals: object = False,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    normalized_country = normalize_country_code(resolve_country_code(country_code) or country_code)
-    if not normalized_country:
-        return selected_platforms, ()
-    kept: list[str] = []
-    removed: list[str] = []
-    for platform in _normalize_property_search_platform_inputs(selected_platforms):
-        if platform == "all":
-            removed.append(platform)
-            continue
-        provider = property_provider_for_platform(platform)
-        provider_country = normalize_country_code(getattr(provider, "country_code", "") or "")
-        if provider_country and provider_country != normalized_country:
-            removed.append(platform)
-            continue
-        if platform not in kept:
-            kept.append(platform)
-    return tuple(kept), tuple(removed)
+    return filter_selectable_property_platforms(
+        _normalize_property_search_platform_inputs(selected_platforms),
+        country_code=normalize_country_code(resolve_country_code(country_code) or country_code),
+        listing_mode=listing_mode,
+        include_distressed_sale_signals=include_distressed_sale_signals,
+    )
 
 
 def _property_search_single_country_for_platforms(selected_platforms: tuple[str, ...]) -> str:
@@ -28543,6 +28536,8 @@ class ProductService:
         normalized_platforms, removed_platforms = _property_search_platforms_for_country(
             normalized_platforms,
             merged_preferences.get("country_code"),
+            listing_mode=merged_preferences.get("listing_mode"),
+            include_distressed_sale_signals=merged_preferences.get("include_distressed_sale_signals"),
         )
         if not normalized_platforms:
             fallback_platforms = _property_search_platforms_with_family_toggles(
@@ -28558,6 +28553,8 @@ class ProductService:
             normalized_platforms, fallback_removed = _property_search_platforms_for_country(
                 fallback_platforms,
                 merged_preferences.get("country_code"),
+                listing_mode=merged_preferences.get("listing_mode"),
+                include_distressed_sale_signals=merged_preferences.get("include_distressed_sale_signals"),
             )
             removed_platforms = tuple(dict.fromkeys((*removed_platforms, *fallback_removed)))
         if removed_platforms:
