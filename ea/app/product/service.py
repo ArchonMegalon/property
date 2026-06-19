@@ -24474,9 +24474,7 @@ class ProductService:
                 and str(value or "").strip()
             }
         source_scope_location = str(candidate_facts.get("source_scope_location") or diagnostics.get("source_scope_location") or "").strip()
-        repair_location_hints = location_hints
-        if not repair_location_hints and source_scope_location:
-            repair_location_hints = (source_scope_location,)
+        repair_location_hints = (source_scope_location,) if source_scope_location else location_hints
         resolution = ""
         reason = ""
         if filter_key == "source_fetch":

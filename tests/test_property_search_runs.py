@@ -2948,6 +2948,44 @@ def test_property_provider_repair_auto_resolves_generic_listing_scope_from_diagn
     assert opened["resolution"] == "suppressed_location_scope"
 
 
+def test_property_provider_repair_uses_task_scope_over_current_preferences() -> None:
+    principal_id = "exec-property-provider-task-scope-over-current"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Task Scope Repair Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1220 Vienna",
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://www.oesw.at/immobilienangebot/projektdetail/mhimmo/anzeigen/Wohnhaus/1220-wien-berresgasse.html",
+        title="ProjektDetail",
+        source_url="https://www.oesw.at/immobilienangebot/projektdetail/mhimmo/anzeigen/Wohnhaus/1220-wien-berresgasse.html",
+        source_label="Genossenschaften | Austria | Rent | 1010 Vienna | ÖSW Sofort verfügbar",
+        source_platform="oesw",
+        source_family="housing_coop",
+        filter_key="generic_listing_page",
+        diagnostics={
+            "title": "ProjektDetail",
+            "source_scope_location": "1010 Vienna",
+            "provider_host": "www.oesw.at",
+        },
+        source_ref="property-scout:oesw:generic-listing-page",
+    )
+
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+    assert opened["resolution"] == "suppressed_location_scope"
+
+
 def test_property_provider_repair_auto_resolves_stale_run_without_claiming_patch() -> None:
     principal_id = "exec-property-provider-stale-run-fallback"
     client = build_property_client(principal_id=principal_id)
