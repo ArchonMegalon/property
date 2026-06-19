@@ -1230,6 +1230,33 @@ def test_generated_source_specs_use_selected_districts_over_broad_location_query
     assert specs[0]["provider_filter_pushdown"]["applied"]["location_query"] == "1010 Vienna"
 
 
+def test_generated_source_specs_skip_region_incompatible_austria_grouped_sources() -> None:
+    specs = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "property_type": ["apartment"],
+            "min_area_m2": 60,
+        },
+        selected_platforms=("genossenschaften_at", "salzburg_wohnbau_at", "ooe_wohnbau_at", "wag_at"),
+        principal_id="exec-property-region-compatible-source-scope",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    labels = [str(row.get("label") or "") for row in specs]
+    joined = "\n".join(labels)
+    assert labels
+    assert all("1010 Vienna" in label for label in labels)
+    assert "Salzburg Wohnbau" not in joined
+    assert "OÖ Wohnbau" not in joined
+    assert "WAG Wohngebiete" not in joined
+
+
 def test_austria_generated_source_defaults_use_broker_and_project_lanes_for_buy() -> None:
     specs = property_market_catalog.generated_source_specs(
         preferences={

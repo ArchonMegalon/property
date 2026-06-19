@@ -61,6 +61,7 @@ class PropertyProviderSpec:
     requests_per_hour: int = 60
     operator_owner: str = "property-market-codex"
     last_rights_reviewed_at: str = ""
+    supported_region_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -364,6 +365,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="weak",
         official_source_quality="municipal_primary",
+        supported_region_codes=("vienna",),
     ),
     PropertyProviderSpec(
         key="wiener_wohnen",
@@ -385,6 +387,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="weak",
         official_source_quality="municipal_primary",
+        supported_region_codes=("vienna",),
     ),
     PropertyProviderSpec(
         key="gesiba_at",
@@ -406,6 +409,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("vienna",),
     ),
     PropertyProviderSpec(
         key="oesw_at",
@@ -427,6 +431,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("upper_austria", "lower_austria", "salzburg", "styria"),
     ),
     PropertyProviderSpec(
         key="egw_at",
@@ -448,6 +453,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("vienna",),
     ),
     PropertyProviderSpec(
         key="wag_at",
@@ -469,6 +475,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("upper_austria",),
     ),
     PropertyProviderSpec(
         key="heimat_oesterreich_at",
@@ -490,6 +497,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("salzburg",),
     ),
     PropertyProviderSpec(
         key="bwsg_at",
@@ -511,6 +519,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("upper_austria",),
     ),
     PropertyProviderSpec(
         key="wiensued_at",
@@ -532,6 +541,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("salzburg",),
     ),
     PropertyProviderSpec(
         key="ebg_wohnen_at",
@@ -574,6 +584,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("upper_austria",),
     ),
     PropertyProviderSpec(
         key="salzburg_wohnbau_at",
@@ -595,6 +606,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="cooperative_primary",
+        supported_region_codes=("salzburg",),
     ),
     PropertyProviderSpec(
         key="oevw_at",
@@ -688,6 +700,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="developer_primary",
+        supported_region_codes=("vienna", "lower_austria"),
     ),
     PropertyProviderSpec(
         key="leitgoeb_wohnbau_at",
@@ -709,6 +722,7 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         scan_reliability="standard",
         filter_pushdown_strength="partial",
         official_source_quality="developer_primary",
+        supported_region_codes=("salzburg", "upper_austria"),
     ),
     PropertyProviderSpec(
         key="viktoria_wohnbau_at",
@@ -2617,7 +2631,7 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
 }
 
 
-GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
+GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, object], ...]] = {
     "genossenschaften_at": (
         {
             "label": "GESIBA Wohnungen",
@@ -2673,6 +2687,7 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
             "label": "WAG Wohngebiete",
             "rent_url": "https://www.wag.at/",
             "buy_url": "https://www.wag.at/",
+            "supported_region_codes": ("upper_austria", "lower_austria", "salzburg", "styria"),
         },
         {
             "label": "Heimat Österreich",
@@ -2698,11 +2713,13 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
             "label": "OÖ Wohnbau",
             "rent_url": "https://ooewohnbau.at/",
             "buy_url": "https://ooewohnbau.at/",
+            "supported_region_codes": ("upper_austria",),
         },
         {
             "label": "Salzburg Wohnbau Projekte",
             "rent_url": "https://www.salzburg-wohnbau.at/wohnbau-projekte/",
             "buy_url": "https://www.salzburg-wohnbau.at/wohnbau-projekte/",
+            "supported_region_codes": ("salzburg",),
         },
         {
             "label": "ÖVW",
@@ -2742,16 +2759,19 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
             "label": "ARWAG Projekte",
             "rent_url": "https://www.arwag.at/",
             "buy_url": "https://www.arwag.at/",
+            "supported_region_codes": ("vienna",),
         },
         {
             "label": "Raiffeisen WohnBau Projekte",
             "rent_url": "https://www.raiffeisen-wohnbau.at/en/projects/overview/",
             "buy_url": "https://www.raiffeisen-wohnbau.at/en/projects/overview/",
+            "supported_region_codes": ("vienna", "lower_austria"),
         },
         {
             "label": "Leitgöb Wohnbau",
             "rent_url": "https://www.leitgoeb-wohnbau.at/",
             "buy_url": "https://www.leitgoeb-wohnbau.at/",
+            "supported_region_codes": ("salzburg", "upper_austria"),
         },
         {
             "label": "Viktoria Wohnbau",
@@ -4367,6 +4387,34 @@ def _explicit_location_query_variants(preferences: dict[str, object]) -> tuple[s
     return ()
 
 
+def _region_code_matches_supported(value: object, supported_region_codes: object) -> bool:
+    normalized_region = str(value or "").strip().lower()
+    supported = tuple(
+        str(item or "").strip().lower()
+        for item in list(supported_region_codes or ())
+        if str(item or "").strip()
+    )
+    if not normalized_region or not supported:
+        return True
+    aliases = {
+        "wien": "vienna",
+        "vienna": "vienna",
+        "oberoesterreich": "upper_austria",
+        "oberösterreich": "upper_austria",
+        "ooe": "upper_austria",
+        "oö": "upper_austria",
+        "niederoesterreich": "lower_austria",
+        "niederösterreich": "lower_austria",
+        "noe": "lower_austria",
+        "nö": "lower_austria",
+        "steiermark": "styria",
+        "styria": "styria",
+        "salzburg": "salzburg",
+    }
+    canonical_region = aliases.get(normalized_region, normalized_region)
+    return canonical_region in supported
+
+
 def _provider_property_type_segment(property_type: str) -> str:
     normalized = normalize_property_type(property_type)
     if normalized == "apartment":
@@ -4814,6 +4862,7 @@ def generated_source_specs(
     country_code = str(normalized_preferences.get("country_code") or "AT").strip().upper() or "AT"
     listing_mode = str(normalized_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
     location_query = str(normalized_preferences.get("location_query") or "").strip()
+    region_code = str(normalized_preferences.get("region_code") or "").strip().lower()
     keywords = _provider_discovery_keywords(normalized_preferences)
     normalized_property_types = normalize_property_type_values(normalized_preferences.get("property_type"))
     property_type = normalize_property_type(normalized_property_types)
@@ -4839,6 +4888,8 @@ def generated_source_specs(
             continue
         if not provider.search_ready:
             continue
+        if not _region_code_matches_supported(region_code, provider.supported_region_codes):
+            continue
         if listing_mode not in provider.supported_listing_modes:
             if not bool(normalized_preferences.get("include_distressed_sale_signals")):
                 continue
@@ -4863,6 +4914,8 @@ def generated_source_specs(
                 if location_variant:
                     detail_parts.append(location_variant)
                 for source_index, grouped_source in enumerate(grouped_sources, start=1):
+                    if not _region_code_matches_supported(region_code, grouped_source.get("supported_region_codes")):
+                        continue
                     base_group_url = str(grouped_source.get(f"{provider_mode}_url") or "").strip()
                     if not base_group_url:
                         continue
