@@ -259,6 +259,7 @@ from app.services.heyy_whatsapp_service import (
 )
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.property_market_catalog import (
+    adjacent_location_query_variants,
     country_label,
     currency_code_for_country,
     default_platforms_for_country,
@@ -6177,6 +6178,16 @@ def _property_search_adjacent_area_radius_m(preferences: dict[str, object] | Non
     return max(0, int(round(unit_value * multiplier)))
 
 
+def _property_search_adjacent_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
+    payload = dict(preferences or {})
+    if _property_search_adjacent_area_radius_m(payload) <= 0:
+        return ()
+    try:
+        return adjacent_location_query_variants(payload)
+    except Exception:
+        return ()
+
+
 def _property_candidate_point(property_facts: dict[str, object] | None) -> tuple[float, float] | None:
     facts = dict(property_facts or {})
     try:
@@ -6330,6 +6341,17 @@ def _property_candidate_matches_search_area(
     effective_region_code = str(preferences.get("region_code") or "").strip()
     if _property_candidate_matches_requested_location(
         location_hints=location_hints,
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+        country_code=effective_country_code,
+        region_code=effective_region_code,
+    ):
+        return True
+    adjacent_location_hints = _property_search_adjacent_location_hints(preferences)
+    if adjacent_location_hints and _property_candidate_matches_requested_location(
+        location_hints=adjacent_location_hints,
         property_url=property_url,
         title=title,
         summary=summary,

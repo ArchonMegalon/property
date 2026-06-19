@@ -4463,11 +4463,24 @@ def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[s
     selected_variants = _explicit_location_query_variants(preferences)
     if not selected_variants:
         return ()
-    rows = _location_options_for_country_region_with_metadata(
-        preferences.get("country_code"),
-        preferences.get("region_code"),
-    )
+    country_code = preferences.get("country_code")
+    region_code = preferences.get("region_code")
+    normalized_country = normalize_country_code(country_code)
+    rows = _location_options_for_country_region_with_metadata(country_code, region_code)
+    fallback_rows: list[dict[str, object]] = []
+    if not rows:
+        rows = []
+        for item in _generic_country_location_options(normalized_country):
+            if isinstance(item, dict):
+                fallback_rows.append(
+                    {
+                        "value": item.get("value", ""),
+                        "label": item.get("label", ""),
+                        "detail": item.get("detail", ""),
+                    }
+                )
     by_key: dict[str, dict[str, object]] = {}
+
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -4478,6 +4491,49 @@ def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[s
         postal_match = re.search(r"\b([1-9]\d{3})\b", str(row.get("value") or ""))
         if postal_match:
             by_key.setdefault(postal_match.group(1), row)
+        region_label = str(row.get("detail") or "").strip()
+        if region_label:
+            by_key.setdefault(_normalized_location_option_key(region_label), row)
+        region_value = str(row.get("region") or "").strip()
+        if region_value:
+            by_key.setdefault(_normalized_location_option_key(region_value), row)
+    for row in fallback_rows:
+        if not isinstance(row, dict):
+            continue
+        rows.append(row)
+
+    def _fallback_region_match_row(
+        *, selected_key: str, selected_postal: str | None
+    ) -> dict[str, object] | None:
+        normalized_country_code = normalized_country
+        if not normalized_country_code:
+            return None
+        for region_option in region_options_for_country(normalized_country_code):
+            region_value = region_option.get("value")
+            if not region_value:
+                continue
+            for candidate in _location_options_for_country_region_with_metadata(country_code, region_value):
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_value = str(candidate.get("value") or "")
+                candidate_label = str(candidate.get("label") or "")
+                candidate_detail = str(candidate.get("detail") or "")
+                if selected_postal:
+                    candidate_postal_match = re.search(r"\b([1-9]\d{3})\b", candidate_value)
+                    if candidate_postal_match and candidate_postal_match.group(1) == selected_postal:
+                        return candidate
+                if selected_key and (
+                    _normalized_location_option_key(candidate_value) == selected_key
+                    or _normalized_location_option_key(candidate_label) == selected_key
+                    or _normalized_location_option_key(candidate_detail) == selected_key
+                ):
+                    return candidate
+                if selected_key in {
+                    _normalized_location_option_key(candidate_value),
+                    _normalized_location_option_key(candidate_label),
+                }:
+                    return candidate
+        return None
     selected_keys = {_normalized_location_option_key(value) for value in selected_variants}
     adjacent: list[str] = []
     for selected in selected_variants:
@@ -4486,6 +4542,12 @@ def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[s
         if row is None:
             postal_match = re.search(r"\b([1-9]\d{3})\b", str(selected or ""))
             row = by_key.get(postal_match.group(1)) if postal_match else None
+            if row is None:
+                selected_postal = postal_match.group(1) if postal_match else None
+                row = _fallback_region_match_row(
+                    selected_key=selected_key,
+                    selected_postal=selected_postal,
+                )
         if row is None:
             continue
         for adjacent_value in list(row.get("adjacent_values") or []):
@@ -4494,6 +4556,10 @@ def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[s
                 continue
             adjacent.append(str(adjacent_value or "").strip())
     return tuple(dict.fromkeys(value for value in adjacent if value))
+
+
+def adjacent_location_query_variants(preferences: dict[str, object] | None) -> tuple[str, ...]:
+    return _adjacent_location_query_variants(dict(preferences or {}))
 
 
 def _region_code_matches_supported(value: object, supported_region_codes: object) -> bool:

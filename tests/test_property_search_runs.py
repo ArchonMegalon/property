@@ -990,6 +990,57 @@ def test_property_search_location_matching_rejects_unselected_vienna_districts()
     ) is True
 
 
+def test_property_search_area_accepts_adjacent_districts_for_fuzzy_scope_only() -> None:
+    strict_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "location_query": "Wien",
+        "selected_districts": ["1010 Vienna"],
+    }
+    fuzzy_preferences = {
+        **strict_preferences,
+        "adjacent_area_radius_m": 750,
+    }
+    hints = _property_search_location_hints(strict_preferences)
+
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences=strict_preferences,
+        source_spec={"country_code": "AT"},
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/fuzzy-adjacent/",
+        title="Wohnung mieten in 1020 Wien | 70 m² | 3 Zimmer",
+        summary="Concrete listing evidence says Leopoldstadt.",
+        property_facts={"postal_name": "1020 Wien"},
+    ) is False
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences=fuzzy_preferences,
+        source_spec={"country_code": "AT"},
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/fuzzy-adjacent/",
+        title="Wohnung mieten in 1020 Wien | 70 m² | 3 Zimmer",
+        summary="Concrete listing evidence says Leopoldstadt.",
+        property_facts={"postal_name": "1020 Wien"},
+    ) is True
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences=fuzzy_preferences,
+        source_spec={"country_code": "AT"},
+        property_url="https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien",
+        title="Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer",
+        summary="Concrete listing evidence says Donaustadt.",
+        property_facts={"postal_name": "1220 Wien"},
+    ) is False
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences=fuzzy_preferences,
+        source_spec={"country_code": "AT"},
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/fuzzy-far/",
+        title="Moderne Zwei-Zimmer Wohnung mit Terrasse in Salzburg",
+        summary="Concrete listing evidence says Salzburg.",
+        property_facts={"postal_name": "5020 Salzburg"},
+    ) is False
+
+
 def test_property_search_location_hints_prefer_selected_districts_over_broad_location_query() -> None:
     assert _property_search_location_hints(
         {
