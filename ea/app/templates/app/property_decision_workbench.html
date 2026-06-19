@@ -6297,9 +6297,6 @@
             </div>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
-              {% if not run_failed_no_results %}
-              <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
-              {% endif %}
             </div>
             {% if not run_failed_no_results and (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) %}
             {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}

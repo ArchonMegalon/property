@@ -18,7 +18,7 @@ import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
 from app.product.service import ProductService
-from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_search_location_hints
+from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_location_probe, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
 from app.services.property_billing import property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
@@ -2057,6 +2057,36 @@ def test_property_location_match_rejects_reported_off_scope_austrian_hits(
         title=title,
         summary=summary,
         property_facts=dirty_scope_facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+
+
+def test_property_url_location_probe_rejects_off_scope_willhaben_detail_paths() -> None:
+    salzburg_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/"
+    vienna_1220_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-donaustadt/demo-1631373932/"
+    vienna_1010_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/demo-1631373932/"
+    opaque_url = "https://www.willhaben.at/iad/object?adId=1631373932"
+
+    assert _property_candidate_url_has_location_probe(salzburg_url)
+    assert _property_candidate_url_has_location_probe(vienna_1220_url)
+    assert _property_candidate_url_has_location_probe(vienna_1010_url)
+    assert not _property_candidate_url_has_location_probe(opaque_url)
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url=salzburg_url,
+        country_code="AT",
+        region_code="vienna",
+    )
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url=vienna_1220_url,
+        country_code="AT",
+        region_code="vienna",
+    )
+    assert _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url=vienna_1010_url,
         country_code="AT",
         region_code="vienna",
     )

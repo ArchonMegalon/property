@@ -1161,9 +1161,9 @@ def build_property_empty_outcome_summary(
             completed_label = f"{source_completed}/{source_total} source variants" if source_total else "Source variants"
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open:
-                happened = "A repair task is open in the fleet and will retry the interrupted source variants."
+                happened = "Repair is retrying the interrupted source variants."
             elif repair_step_label or repair_status_label:
-                happened = "Auto-repair is queued and will retry the interrupted source variants."
+                happened = "Repair is queued for the interrupted source variants."
             else:
                 happened = "The search stopped before a stable shortlist was ready."
             stopped_context = f"The interrupted pass stopped after {completed_label.lower()} and {listing_label} inspected."
@@ -1175,7 +1175,7 @@ def build_property_empty_outcome_summary(
     else:
         happened = "The search finished without a candidate clearing the current shortlist."
     still_worked = (
-        f"{source_total} provider check{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+        f"{source_total} source variant{'s' if source_total != 1 else ''} covered {listing_total} listing{'s' if listing_total != 1 else ''}."
         if source_total or listing_total
         else "The brief, providers, and run receipts were still recorded."
     )
@@ -1194,7 +1194,7 @@ def build_property_empty_outcome_summary(
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
         eta_feedback = f"Estimated remaining time: {eta_label}."
     elif source_total:
-        eta_feedback = f"{source_completed}/{source_total} provider checks completed."
+        eta_feedback = f"{source_completed}/{source_total} source variants completed."
     elif status_value == "failed":
         eta_feedback = "Repair has the run queued; refresh this page or open the rerun when it appears."
     else:

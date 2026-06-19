@@ -6589,7 +6589,8 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     hero_note = re.search(r'<div class="pqx-note">\s*(.*?)\s*</div>', page.text, re.S)
     assert hero_note is not None
     assert "<strong>" not in hero_note.group(1)
-    assert "Auto-repair is queued and will retry the interrupted source variants." in page.text
+    assert "Repair is queued for the interrupted source variants." in page.text
+    assert "Auto-repair is queued and will retry" not in page.text
     assert "Best matches" not in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Open to relax one rule and rerun the search." not in page.text

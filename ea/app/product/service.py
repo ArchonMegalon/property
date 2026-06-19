@@ -6317,6 +6317,38 @@ def _property_candidate_matches_search_area(
     )
 
 
+def _property_candidate_url_has_location_probe(property_url: str) -> bool:
+    parsed = urllib.parse.urlparse(str(property_url or "").strip())
+    host = str(parsed.netloc or "").strip().lower()
+    path = urllib.parse.unquote(str(parsed.path or "").strip().lower())
+    if not host or not path:
+        return False
+    if "willhaben.at" in host:
+        return "/iad/immobilien/d/" in path
+    return bool(
+        re.search(r"\b\d{4,5}\b", path)
+        or any(
+            marker in path
+            for marker in (
+                "/wien/",
+                "wien-",
+                "vienna",
+                "salzburg",
+                "steiermark",
+                "oberoesterreich",
+                "oberösterreich",
+                "niederoesterreich",
+                "niederösterreich",
+                "burgenland",
+                "kaernten",
+                "kärnten",
+                "tirol",
+                "vorarlberg",
+            )
+        )
+    )
+
+
 def _property_candidate_notification_price_signal(
     facts: dict[str, object],
     *,
@@ -30518,6 +30550,30 @@ class ProductService:
             preliminary_rows: list[dict[str, object]] = []
             provider_preview_started_at = time.perf_counter()
             for ordinal, property_url in enumerate(listing_urls, start=1):
+                if (
+                    source_location_hints
+                    and _property_candidate_url_has_location_probe(property_url)
+                    and not _property_candidate_matches_search_area(
+                        location_hints=source_location_hints,
+                        request_preferences=request_preferences,
+                        source_spec=source_spec,
+                        property_url=property_url,
+                        title="",
+                        summary="",
+                        property_facts={},
+                    )
+                ):
+                    filtered_area_total += 1
+                    filtered_area_for_source += 1
+                    if ordinal == 1 or ordinal == len(listing_urls) or ordinal % 10 == 0:
+                        _report(
+                            step="source_location_filter",
+                            message=f"Skipped candidate {ordinal} of {len(listing_urls)} outside the selected district for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={"filtered_area_total": filtered_area_total},
+                        )
+                    continue
                 _report(
                     step="source_previewing",
                     message=f"Reviewing candidate {ordinal} of {len(listing_urls)} for {source_label}.",
