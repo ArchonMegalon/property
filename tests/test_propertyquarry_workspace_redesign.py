@@ -5587,6 +5587,8 @@ def test_propertyquarry_live_progress_derives_provider_count_before_source_varia
     assert "const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);" in script
     assert "const providerTotal = Number(summary.provider_total || 0);" not in script
     assert "const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;" not in script
+    assert "progress || 12" not in script
+    assert "statusLabel === 'Starting' ? Math.max(3, Math.min(progress || 3, 6))" in script
 
 
 def test_propertyquarry_raw_ranked_fallback_excludes_maybe_false_candidates(monkeypatch) -> None:

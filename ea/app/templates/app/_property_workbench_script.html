@@ -1444,7 +1444,7 @@
           provider,
           shardCount,
           statusLabel,
-          progressPct: source ? progressPct : (statusLabel === 'Starting' ? Math.max(8, Math.min(progress || 12, 24)) : progressPct),
+          progressPct: source ? progressPct : (statusLabel === 'Starting' ? Math.max(3, Math.min(progress || 3, 6)) : progressPct),
           tone,
         };
       });
