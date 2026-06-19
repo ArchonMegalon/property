@@ -604,7 +604,8 @@ def test_propertyquarry_shortlist_without_run_id_prefers_latest_terminal_run_wit
     client = build_property_client(principal_id="pq-shortlist-latest-results")
     start_workspace(client, mode="personal", workspace_name="Shortlist Latest Results Office")
 
-    def _fake_runs(self, *, principal_id: str, limit: int = 8):
+    def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        assert hydrate is False
         return [
             {
                 "run_id": "run-empty-terminal",
@@ -5297,8 +5298,9 @@ def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_miss
     )
     assert stored.status_code == 200, stored.text
 
-    def _fake_list_runs(self, *, principal_id: str, limit: int = 8):
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
         assert principal_id == "pq-live-run-auto-open"
+        assert hydrate is True
         return [
             {"run_id": "run-active-42", "status": "in_progress", "summary": {"status": "in_progress"}},
             {"run_id": "run-finished-1", "status": "processed", "summary": {"status": "processed"}},

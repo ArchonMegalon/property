@@ -29307,6 +29307,7 @@ class ProductService:
         *,
         principal_id: str,
         limit: int = 8,
+        hydrate: bool = True,
     ) -> list[dict[str, object]]:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
@@ -29324,11 +29325,14 @@ class ProductService:
             if not run_id or run_id in seen:
                 continue
             seen.add(run_id)
-            try:
-                snapshot = self.get_property_search_run_status(principal_id=normalized_principal, run_id=run_id)
-            except Exception:
-                snapshot = None
-            runs.append(dict(snapshot or record))
+            if hydrate:
+                try:
+                    snapshot = self.get_property_search_run_status(principal_id=normalized_principal, run_id=run_id)
+                except Exception:
+                    snapshot = None
+                runs.append(dict(snapshot or record))
+            else:
+                runs.append(dict(record))
             if len(runs) >= max(int(limit or 0), 1):
                 break
         return runs

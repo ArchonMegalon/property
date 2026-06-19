@@ -1176,7 +1176,11 @@ def _property_console_context(
         try:
             recent_search_runs = [
                 normalize_property_search_run_snapshot(dict(row))
-                for row in product.list_property_search_runs(principal_id=principal_id, limit=8)
+                for row in product.list_property_search_runs(
+                    principal_id=principal_id,
+                    limit=8,
+                    hydrate=surface_scope.section != "shortlist",
+                )
                 if isinstance(row, dict)
             ]
         except Exception:
