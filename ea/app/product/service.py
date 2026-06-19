@@ -23963,6 +23963,7 @@ class ProductService:
             "location_scope",
             "missing_location",
             "missing_price",
+            "run_interrupted_stale",
             "source_fetch",
         }
         task_priority = "urgent" if normalized_filter_key in urgent_filter_keys else "high"
@@ -27430,6 +27431,56 @@ class ProductService:
             )
             with _PROPERTY_SEARCH_RUN_LOCK:
                 state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or state)
+            repair_task = self._open_property_search_run_interruption_repair(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+                state=dict(state),
+                stale_seconds=stale_seconds,
+            )
+            if repair_task:
+                task_status = str(repair_task.get("status") or "").strip().lower()
+                human_task_ref = str(repair_task.get("queue_item_ref") or repair_task.get("human_task_id") or "").strip()
+                force_status = str(stale_failure.get("force_status") or "failed").strip().lower()
+                has_partial_results = force_status == "completed_partial"
+                repair_summary_updates: dict[str, object] = {
+                    "repair_status": (
+                        "degraded"
+                        if has_partial_results
+                        else ("repairing" if task_status in {"opened", "existing"} else "degraded")
+                    ),
+                    "repair_status_label": (
+                        "Partial coverage"
+                        if has_partial_results
+                        else ("Repairing" if task_status in {"opened", "existing"} else "Repair needed")
+                    ),
+                    "repair_step_label": "Queued a generic repair for the interrupted search run.",
+                    "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
+                    "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
+                    "provider_repair_tasks": [
+                        {
+                            "status": task_status or "queued",
+                            "filter_key": "run_interrupted_stale",
+                            "human_task_id": human_task_ref,
+                            "queue_item_ref": human_task_ref,
+                            "source_label": str(repair_task.get("source_label") or "Property search run").strip(),
+                            "repair_owner": "ea_one_manager",
+                            "repair_workflow": "ea_provider_ooda",
+                        }
+                    ],
+                    "can_auto_repair": True,
+                }
+                self._record_property_search_run_event(
+                    run_id=normalized_run_id,
+                    principal_id=normalized_principal,
+                    step="run_repair_queued",
+                    message="Queued a generic provider repair because the search stopped updating before it could finish.",
+                    status=str(stale_failure.get("status") or "failed"),
+                    steps_delta=0,
+                    summary_updates=repair_summary_updates,
+                    force_status=str(stale_failure.get("force_status") or "failed"),
+                )
+                with _PROPERTY_SEARCH_RUN_LOCK:
+                    state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or state)
         state = self._maybe_advance_property_search_run_finalization(
             principal_id=normalized_principal,
             run_id=normalized_run_id,
@@ -27519,6 +27570,86 @@ class ProductService:
             _store_property_search_run_record(persisted_state)
         except Exception:
             pass
+
+    def _open_property_search_run_interruption_repair(
+        self,
+        *,
+        run_id: str,
+        principal_id: str,
+        state: dict[str, object],
+        stale_seconds: int,
+    ) -> dict[str, object]:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_run_id or not normalized_principal:
+            return {}
+        events = [dict(row) for row in list(state.get("events") or []) if isinstance(row, dict)]
+        if any(str(event.get("step") or "").strip() == "run_repair_queued" for event in events):
+            return {}
+        summary = dict(state.get("summary") or {})
+        source_label = str(summary.get("current_source_label") or "").strip()
+        source_url = str(summary.get("current_source_url") or "").strip()
+        source_platform = str(summary.get("current_source_platform") or "").strip().lower()
+        source_family = str(summary.get("current_source_family") or "").strip().lower()
+        last_event: dict[str, object] = {}
+        for event in reversed(events):
+            message = str(event.get("message") or "").strip()
+            if not last_event and message:
+                last_event = event
+            if not source_label and " for " in message:
+                match = re.search(r"\bfor\s+(.+?)(?:\.\s*)?$", message)
+                if match:
+                    source_label = str(match.group(1) or "").strip()
+            if source_label and last_event:
+                break
+        if not source_label:
+            sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+            for source in reversed(sources):
+                source_label = str(source.get("source_label") or source.get("platform") or "").strip()
+                source_url = str(source.get("source_url") or "").strip()
+                source_platform = str(source.get("platform") or "").strip().lower()
+                source_family = str(source.get("provider_family") or "").strip().lower()
+                if source_label or source_url:
+                    break
+        source_label = compact_text(source_label, fallback="Property search run", limit=120)
+        last_message = compact_text(str(last_event.get("message") or state.get("message") or ""), fallback="", limit=260)
+        provider_filter_pushdown = (
+            dict(summary.get("provider_filter_pushdown") or {})
+            if isinstance(summary.get("provider_filter_pushdown"), dict)
+            else {}
+        )
+        if not source_platform:
+            source_platform = str(provider_filter_pushdown.get("provider") or source_label.split("|", 1)[0]).strip().lower()
+        if not source_family:
+            source_family = "property_search_run"
+        repair_source_url = source_url or f"propertyquarry://search-run/{normalized_run_id}"
+        diagnostics = {
+            "run_id": normalized_run_id,
+            "failure_class": "run_interrupted_stale",
+            "stale_after_seconds": int(stale_seconds or 0),
+            "last_step": str(last_event.get("step") or state.get("current_step") or "").strip(),
+            "last_message": last_message,
+            "progress": int(float(state.get("progress") or summary.get("progress") or 0)),
+            "sources_total": int(summary.get("sources_total") or 0),
+            "raw_listing_total": int(summary.get("raw_listing_total") or summary.get("listing_total") or 0),
+            "current_source_reviewed_total": int(summary.get("current_source_reviewed_total") or 0),
+            "current_source_candidate_total": int(summary.get("current_source_candidate_total") or 0),
+            "filtered_generic_page_total": int(summary.get("filtered_generic_page_total") or 0),
+            "provider_filter_pushdown": provider_filter_pushdown,
+        }
+        return self._open_property_provider_repair_task(
+            principal_id=normalized_principal,
+            property_url=f"propertyquarry://search-run/{normalized_run_id}",
+            title=f"Interrupted property search run {normalized_run_id[:8]}",
+            source_url=repair_source_url,
+            source_label=source_label,
+            source_platform=source_platform,
+            source_family=source_family,
+            filter_key="run_interrupted_stale",
+            diagnostics=diagnostics,
+            source_ref=f"property-search-run:{normalized_run_id}",
+            run_id=normalized_run_id,
+        )
 
     def _merged_raw_property_search_preferences(
         self,

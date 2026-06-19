@@ -1307,7 +1307,7 @@ def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain
     return str(fallback or "this domain").strip() or "this domain"
 
 
-def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
+def _public_tour_payload_needs_defensive_redaction(payload: dict[str, object]) -> bool:
     if any(
         key in payload
         for key in (
@@ -1320,6 +1320,25 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             "external_id",
         )
     ):
+        return True
+    facts = payload.get("facts")
+    if isinstance(facts, dict):
+        if any(str(key or "").strip() in _PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS for key in facts):
+            return True
+        if any(_public_tour_key_is_private(str(key or "")) for key in facts):
+            return True
+    for scene in list(payload.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        if any(_public_tour_key_is_private(str(key or "")) for key in scene):
+            return True
+        if any(str(key or "").strip() in {"source_url", "property_url", "listing_url"} for key in scene):
+            return True
+    return False
+
+
+def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
+    if _public_tour_payload_needs_defensive_redaction(payload):
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         for runtime_key in (
             "_feedback_enabled",

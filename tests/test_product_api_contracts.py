@@ -21005,7 +21005,16 @@ def test_public_tour_landing_renderer_redacts_private_payload_fields() -> None:
                 "map_lat": 48.22,
                 "map_lng": 16.39,
             },
-            "scenes": [{"name": "Living", "asset_relpath": "living.jpg", "role": "photo"}],
+            "scenes": [
+                {
+                    "name": "Living",
+                    "asset_relpath": "living.jpg",
+                    "role": "photo",
+                    "source_url": "https://private.example.test/source-image.jpg",
+                    "property_url": "https://broker.example.test/private-scene",
+                    "source_ref": "private-scene-ref",
+                }
+            ],
         },
         hostname="propertyquarry.com",
         path="/tours/direct-private-render-test",
@@ -21015,6 +21024,8 @@ def test_public_tour_landing_renderer_redacts_private_payload_fields() -> None:
     assert "Tour Brief" not in html
     assert "willhaben.at/iad/private-listing" not in html
     assert "broker.example.test" not in html
+    assert "private.example.test" not in html
+    assert "private-scene-ref" not in html
     assert "Private Street" not in html
     assert "viewer@example.com" not in html
 
