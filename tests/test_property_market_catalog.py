@@ -5,6 +5,7 @@ import urllib.parse
 from app.services.property_market_catalog import (
     currency_code_for_country,
     currency_symbol_for_country,
+    default_timezone_for_country,
     default_language_for_country,
     default_platforms_for_country,
     default_platforms_for_country_listing_mode,
@@ -25,6 +26,7 @@ from app.services.property_market_catalog import (
     provider_quality_labels,
     provider_listing_markers_for_host,
     normalize_listing_mode,
+    supported_currency_codes,
 )
 
 
@@ -787,7 +789,11 @@ def test_default_platforms_for_country_are_stable() -> None:
     assert default_language_for_country("CR") == "es"
     assert currency_code_for_country("UK") == "GBP"
     assert currency_symbol_for_country("US") == "USD"
+    assert default_timezone_for_country("UK") == "Europe/London"
+    assert default_timezone_for_country("US") == "America/New_York"
     assert currency_code_for_country("not-a-country") == "EUR"
+    assert default_timezone_for_country("not-a-country") == "Europe/Vienna"
+    assert {"EUR", "GBP", "USD", "CAD", "AUD", "CRC", "SEK", "PLN", "CHF"}.issubset(set(supported_currency_codes()))
 
 
 def test_workspace_location_options_follow_supported_country_codes() -> None:

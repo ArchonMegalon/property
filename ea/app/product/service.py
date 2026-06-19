@@ -278,6 +278,7 @@ from app.services.property_market_catalog import (
     property_provider_for_platform,
     provider_host_markers,
     provider_listing_markers_for_host,
+    supported_currency_codes,
 )
 from app.settings import resolve_signing_secret
 
@@ -6333,9 +6334,10 @@ def _property_candidate_notification_price_signal(
     title_text = " ".join(str(title or "").split()).strip()
     if not title_text:
         return ""
+    currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
     for pattern in (
         r"(€\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?\s*,-?)",
-        r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+        rf"((?:{currency_pattern})\s?[0-9][0-9\.,\s]*)",
     ):
         match = re.search(pattern, title_text, flags=re.IGNORECASE)
         if match:

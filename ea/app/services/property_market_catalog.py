@@ -19,6 +19,7 @@ class PropertyCountrySpec:
     currency_symbol: str
     location_placeholder: str
     featured_platforms: tuple[str, ...]
+    default_timezone: str = "UTC"
 
 
 @dataclass(frozen=True)
@@ -83,9 +84,10 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
         "EUR",
         "Vienna, Graz, Linz",
         ("willhaben", "immmo", "immoscout_at", "derstandard_at", "public_housing_at", "genossenschaften_at"),
+        "Europe/Vienna",
     ),
-    PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
-    PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
+    PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo"), "Europe/Brussels"),
+    PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca"), "America/Toronto"),
     PropertyCountrySpec(
         "CR",
         "Costa Rica",
@@ -105,6 +107,7 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
             "twocostaricarealestate_cr",
             "tierraverde_cr",
         ),
+        "America/Costa_Rica",
     ),
     PropertyCountrySpec(
         "DE",
@@ -121,19 +124,20 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
             "new_build_de",
             "auctions_de",
         ),
+        "Europe/Berlin",
     ),
-    PropertyCountrySpec("CH", "Switzerland", "de", "CHF", "CHF", "Zurich, Geneva, Basel", ("homegate", "newhome", "immoscout_ch")),
-    PropertyCountrySpec("IE", "Ireland", "en", "EUR", "EUR", "Dublin, Cork, Galway", ("daft_ie", "myhome_ie")),
-    PropertyCountrySpec("UK", "United Kingdom", "en", "GBP", "GBP", "London, Manchester, Bristol", ("rightmove", "zoopla", "onthemarket")),
-    PropertyCountrySpec("AU", "Australia", "en", "AUD", "AUD", "Sydney, Melbourne, Brisbane", ("realestate_au", "domain_au", "flatmates_au")),
-    PropertyCountrySpec("ES", "Spain", "es", "EUR", "EUR", "Barcelona, Madrid, Valencia", ("idealista_es", "fotocasa", "habitaclia")),
-    PropertyCountrySpec("IT", "Italy", "it", "EUR", "EUR", "Milan, Rome, Bologna", ("immobiliare", "idealista_it", "casa_it")),
-    PropertyCountrySpec("FR", "France", "fr", "EUR", "EUR", "Paris, Lyon, Marseille", ("seloger", "bienici", "leboncoin_immo")),
-    PropertyCountrySpec("NL", "Netherlands", "nl", "EUR", "EUR", "Amsterdam, Rotterdam, Utrecht", ("funda", "pararius")),
-    PropertyCountrySpec("PT", "Portugal", "pt", "EUR", "EUR", "Lisbon, Porto, Faro", ("idealista_pt", "imovirtual", "casa_sapo")),
-    PropertyCountrySpec("PL", "Poland", "pl", "PLN", "PLN", "Warsaw, Krakow, Wroclaw", ("otodom", "olx_pl_nieruchomosci")),
-    PropertyCountrySpec("SE", "Sweden", "sv", "SEK", "SEK", "Stockholm, Gothenburg, Malmo", ("hemnet", "booli")),
-    PropertyCountrySpec("US", "United States", "en", "USD", "USD", "Brooklyn, Austin, Seattle", ("zillow", "realtor", "apartments")),
+    PropertyCountrySpec("CH", "Switzerland", "de", "CHF", "CHF", "Zurich, Geneva, Basel", ("homegate", "newhome", "immoscout_ch"), "Europe/Zurich"),
+    PropertyCountrySpec("IE", "Ireland", "en", "EUR", "EUR", "Dublin, Cork, Galway", ("daft_ie", "myhome_ie"), "Europe/Dublin"),
+    PropertyCountrySpec("UK", "United Kingdom", "en", "GBP", "GBP", "London, Manchester, Bristol", ("rightmove", "zoopla", "onthemarket"), "Europe/London"),
+    PropertyCountrySpec("AU", "Australia", "en", "AUD", "AUD", "Sydney, Melbourne, Brisbane", ("realestate_au", "domain_au", "flatmates_au"), "Australia/Sydney"),
+    PropertyCountrySpec("ES", "Spain", "es", "EUR", "EUR", "Barcelona, Madrid, Valencia", ("idealista_es", "fotocasa", "habitaclia"), "Europe/Madrid"),
+    PropertyCountrySpec("IT", "Italy", "it", "EUR", "EUR", "Milan, Rome, Bologna", ("immobiliare", "idealista_it", "casa_it"), "Europe/Rome"),
+    PropertyCountrySpec("FR", "France", "fr", "EUR", "EUR", "Paris, Lyon, Marseille", ("seloger", "bienici", "leboncoin_immo"), "Europe/Paris"),
+    PropertyCountrySpec("NL", "Netherlands", "nl", "EUR", "EUR", "Amsterdam, Rotterdam, Utrecht", ("funda", "pararius"), "Europe/Amsterdam"),
+    PropertyCountrySpec("PT", "Portugal", "pt", "EUR", "EUR", "Lisbon, Porto, Faro", ("idealista_pt", "imovirtual", "casa_sapo"), "Europe/Lisbon"),
+    PropertyCountrySpec("PL", "Poland", "pl", "PLN", "PLN", "Warsaw, Krakow, Wroclaw", ("otodom", "olx_pl_nieruchomosci"), "Europe/Warsaw"),
+    PropertyCountrySpec("SE", "Sweden", "sv", "SEK", "SEK", "Stockholm, Gothenburg, Malmo", ("hemnet", "booli"), "Europe/Stockholm"),
+    PropertyCountrySpec("US", "United States", "en", "USD", "USD", "Brooklyn, Austin, Seattle", ("zillow", "realtor", "apartments"), "America/New_York"),
 )
 
 
@@ -3368,6 +3372,14 @@ def currency_code_for_country(country_code: object) -> str:
 
 def currency_symbol_for_country(country_code: object) -> str:
     return _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"]).currency_symbol
+
+
+def default_timezone_for_country(country_code: object) -> str:
+    return _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"]).default_timezone
+
+
+def supported_currency_codes() -> tuple[str, ...]:
+    return tuple(sorted({str(country.currency_code or "").strip().upper() for country in COUNTRIES if str(country.currency_code or "").strip()}))
 
 
 def _property_location_catalog_path() -> Path:

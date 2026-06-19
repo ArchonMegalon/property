@@ -1232,6 +1232,31 @@ def test_property_surface_state_previous_run_summary_uses_status_copy() -> None:
     assert summary["is_finished"] is True
 
 
+def test_property_surface_state_previous_run_price_fallback_uses_catalog_currencies() -> None:
+    summary = property_surface_state.build_property_previous_run_summary(
+        {
+            "run_id": "run-cad",
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "title": "Detached home in Toronto | CAD 825,000 | 140 m2",
+                        "property_facts": {"postal_name": "Toronto", "area_sqm": 140},
+                    }
+                ]
+            },
+            "preferences": {"country_code": "CA", "location_query": "Toronto", "listing_mode": "buy"},
+        },
+        include_scope_preview=False,
+        scope_preview_builder=lambda country, region, location: {"summary": f"{country}:{region}:{location}"},
+        compact_provider_label=lambda label: label,
+        candidate_maps_url_builder=lambda candidate: "",
+    )
+
+    assert summary["top_price_display"] == "CAD 825,000"
+    assert summary["top_candidates"][0]["price_display"] == "CAD 825,000"
+
+
 def test_property_surface_state_builds_shortlist_snapshot_and_preserves_rank_order() -> None:
     snapshot = property_surface_state.build_property_shortlist_snapshot(
         [
@@ -2252,6 +2277,115 @@ def test_property_workspace_payload_excludes_dirty_source_scope_when_listing_tex
     assert payload["decision_workbench"]["results"] == []
 
 
+def test_property_workspace_payload_uses_market_timezone_when_account_has_no_timezone() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "account",
+        status={"workspace": {"name": "London buyer"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {"country_code": "UK", "location_query": "London", "listing_mode": "buy"},
+        },
+    )
+
+    account_rows = [
+        item
+        for card in payload["primary_cards"]
+        for item in list(card.get("items") or [])
+        if isinstance(item, dict)
+    ]
+    assert any(row.get("title") == "Timezone" and row.get("detail") == "Europe/London" for row in account_rows)
+
+
+def test_property_workspace_payload_parses_non_eur_market_price_from_title() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "UK",
+                "listing_mode": "buy",
+                "search_goal": "home",
+                "location_query": "London",
+            },
+            "run": {
+                "run_id": "run-gbp-title-price",
+                "property_search_preferences": {
+                    "country_code": "UK",
+                    "listing_mode": "buy",
+                    "search_goal": "home",
+                    "location_query": "London",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-gbp",
+                            "title": "Two-bedroom flat in London | GBP 725,000 | 70 m2",
+                            "property_url": "https://example.test/london-flat",
+                            "fit_score": 80,
+                            "property_facts": {"postal_name": "London", "area_sqm": 70, "rooms": 2},
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    assert payload["decision_workbench"]["results"][0]["price_display"] == "GBP 725,000"
+
+
+def test_property_workspace_payload_does_not_embed_external_branded_tour_host(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1020 Vienna",
+            },
+            "run": {
+                "run_id": "run-legacy-tour-host",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1020 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-tour",
+                            "title": "Apartment with live tour",
+                            "property_url": "https://example.test/tour-flat",
+                            "fit_score": 80,
+                            "tour_url": "https://myexternalbrain.com/tours/live-flat",
+                            "property_facts": {
+                                "postal_name": "1020 Wien",
+                                "rent_display": "EUR 1,200",
+                                "area_sqm": 70,
+                                "rooms": 2,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    tour = payload["decision_workbench"]["results"][0]["tour"]
+    assert tour["url"] == "https://myexternalbrain.com/tours/live-flat"
+    assert tour["embed_url"] == ""
+
+
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
@@ -3207,7 +3341,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
     assert billing.status_code == 200
     assert "Billing" in billing.text
-    assert "Plan and limits" in billing.text
+    assert "Your plan" in billing.text
+    assert "Billing truth" not in billing.text
+    assert "Commercial truth" not in billing.text
+    assert "Plan and limits" not in billing.text
 
 
 def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:

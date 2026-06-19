@@ -127,6 +127,7 @@ from app.services.property_market_catalog import (
     provider_options as property_provider_options,
     search_goal_label as property_search_goal_label,
     search_goal_options as property_search_goal_options,
+    supported_currency_codes,
 )
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import (
@@ -340,9 +341,10 @@ def _property_title_price_fallback(title: object) -> str:
     text = " ".join(str(title or "").split()).strip()
     if not text:
         return ""
+    currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
     for pattern in (
         r"(€\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?\s*,-?)",
-        r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+        rf"((?:{currency_pattern})\s?[0-9][0-9\.,\s]*)",
     ):
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:

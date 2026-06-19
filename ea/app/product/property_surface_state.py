@@ -4,6 +4,8 @@ import re
 import urllib.parse
 from typing import Callable
 
+from app.services.property_market_catalog import supported_currency_codes
+
 from app.product.models import (
     PropertyBillingTruthSnapshot,
     PropertyPreferenceManagerSnapshot,
@@ -841,9 +843,10 @@ def _previous_run_price_text(candidate: dict[str, object]) -> str:
     title_text = " ".join(str(candidate.get("title") or "").split()).strip()
     if not title_text:
         return ""
+    currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
     for pattern in (
         r"(€\s?[0-9][0-9\.\s]*(?:,\d{1,2})?\s*,-?)",
-        r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+        rf"((?:{currency_pattern})\s?[0-9][0-9\.,\s]*)",
     ):
         match = re.search(pattern, title_text, flags=re.IGNORECASE)
         if match:

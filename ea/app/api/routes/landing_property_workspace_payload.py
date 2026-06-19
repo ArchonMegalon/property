@@ -73,7 +73,11 @@ def property_workspace_payload(
         row_item,
         string_rows,
     )
-    from app.services.property_market_catalog import currency_code_for_country
+    from app.services.property_market_catalog import (
+        currency_code_for_country,
+        default_timezone_for_country,
+        supported_currency_codes,
+    )
 
     surface_scope = PropertySurfaceScope.for_section(section)
     normalized_section = surface_scope.section
@@ -240,6 +244,9 @@ def property_workspace_payload(
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
     selected_country_code = str(property_preferences.get("country_code") or property_state.get("country_code") or "AT").strip().upper() or "AT"
     workspace_currency_code = currency_code_for_country(selected_country_code) or "EUR"
+    workspace_timezone = str(workspace.get("timezone") or default_timezone_for_country(selected_country_code) or "UTC").strip() or "UTC"
+    supported_currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
+    supported_currency_strip_pattern = re.compile(rf"\b(?:{supported_currency_pattern})\b", flags=re.IGNORECASE)
     run_has_explicit_listing_context = bool(
         run_property_preferences
         or str(raw_run_summary.get("listing_mode") or "").strip()
@@ -1059,7 +1066,17 @@ def property_workspace_payload(
                     "embed_url": "",
                     "eta_label": "A real hosted 3D tour is not available for this listing yet.",
                 }
-            embed_url = "" if "myexternalbrain.com" in tour_url.lower() else tour_url
+            embed_url = tour_url
+            try:
+                from app.product import property_tour_hosting
+
+                parsed_tour = urllib.parse.urlparse(tour_url)
+                tour_host = str(parsed_tour.netloc or "").strip().lower()
+                property_host = urllib.parse.urlparse(property_tour_hosting._property_public_app_base_url()).netloc.strip().lower()  # type: ignore[attr-defined]
+                if property_tour_hosting._is_branded_public_tour_url(tour_url) and tour_host and property_host and tour_host != property_host:  # type: ignore[attr-defined]
+                    embed_url = ""
+            except Exception:
+                embed_url = tour_url
             return {"status": "ready", "label": "360 ready", "url": tour_url, "embed_url": embed_url, "eta_label": ""}
         if provider_tour_url:
             return {
@@ -1139,7 +1156,7 @@ def property_workspace_payload(
 
     def _normalized_money_text(text: str) -> str:
         upper_text = text.upper()
-        currency = next((code for code in ("EUR", "USD", "CHF", "GBP", "CAD", "AUD", "CRC", "SEK", "PLN") if code in upper_text), "")
+        currency = next((code for code in supported_currency_codes() if code in upper_text), "")
         if not currency and "€" in text:
             currency = "EUR"
         money_match = re.search(r"[0-9][0-9\.\,\s]*(?:[,.][0-9]{1,2})?", text)
@@ -1172,8 +1189,7 @@ def property_workspace_payload(
             text = value.strip()
             if not text:
                 return ""
-            lowered = text.lower()
-            if "eur" in lowered or "€" in text:
+            if supported_currency_strip_pattern.search(text) or "€" in text:
                 return _normalized_money_text(text)
             try:
                 value = float(text.replace(",", "."))
@@ -1197,8 +1213,8 @@ def property_workspace_payload(
         text = str(value or "").strip()
         if not text:
             return None
-        normalized = _normalized_money_text(text) if ("eur" in text.lower() or "€" in text) else text
-        cleaned = normalized.replace("EUR", "").replace(",", "").strip()
+        normalized = _normalized_money_text(text) if (supported_currency_strip_pattern.search(text) or "€" in text) else text
+        cleaned = supported_currency_strip_pattern.sub("", normalized).replace("€", "").replace(",", "").strip()
         try:
             amount = float(cleaned)
         except Exception:
@@ -1269,7 +1285,7 @@ def property_workspace_payload(
             return ""
         patterns = [
             r"(€\s?[0-9][0-9\.\s]*(?:,[0-9]{1,2})?\s*,-?)",
-            r"((?:EUR|USD|CHF)\s?[0-9][0-9\.,\s]*)",
+            rf"((?:{supported_currency_pattern})\s?[0-9][0-9\.,\s]*)",
         ]
         for pattern in patterns:
             match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -1796,7 +1812,7 @@ def property_workspace_payload(
         ],
         "settings": [
             {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
-            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": str(workspace.get("timezone") or "Europe/Vienna"), "href": "/app/account#profile"},
+            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": workspace_timezone, "href": "/app/account#profile"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/profile{run_suffix}"},
         ],
@@ -1814,7 +1830,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Timezone",
-            str(workspace.get("timezone") or "Europe/Vienna"),
+            workspace_timezone,
             "Preference",
         ),
         row_item(
@@ -2314,8 +2330,8 @@ def property_workspace_payload(
             "title": "Billing",
             "summary": "Use one billing surface for plan state, checkout path, entitlements, and verified plan limits.",
             "hero_kicker": "Billing",
-            "hero_title": "Plan and limits.",
-            "hero_summary": "Plan and limits.",
+            "hero_title": "Your plan.",
+            "hero_summary": "Current access, checkout status, and search capacity.",
             "hero_actions": hero_actions["billing"],
             "hero_highlights": hero_highlights["billing"],
             "primary_cards": [

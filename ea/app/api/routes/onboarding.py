@@ -19,6 +19,7 @@ from app.services.google_oauth import (
     complete_google_oauth_callback,
     GOOGLE_PROVIDER_KEY,
 )
+from app.services.property_market_catalog import default_timezone_for_country
 from app.services.registration_email import send_registration_email
 
 router = APIRouter(prefix="/v1/onboarding", tags=["onboarding"])
@@ -304,10 +305,10 @@ class OnboardingPropertySearchAgentUpdateIn(BaseModel):
 class OnboardingFlagshipStartIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     workspace_name: str = Field(default="PropertyQuarry account", min_length=1, max_length=200)
-    workspace_mode: str = Field(default="executive_ops", min_length=1, max_length=50)
+    workspace_mode: str = Field(default="property_search", min_length=1, max_length=50)
     region: str = Field(default="AT", max_length=80)
     language: str = Field(default="en", max_length=80)
-    timezone: str = Field(default="Europe/Vienna", max_length=80)
+    timezone: str = Field(default=default_timezone_for_country("AT"), max_length=80)
     selected_channels: list[str] = Field(default_factory=lambda: ["google", "telegram", "whatsapp"])
     scope_bundle: str = Field(default="identity", min_length=1, max_length=50)
     telegram_ref: str = Field(default="", max_length=200)
@@ -451,7 +452,7 @@ def register_start(
         magic_link_url=magic_link_url,
         expires_at=expires_at,
         workspace_name=_workspace_name_from_email(email),
-        suggested_timezone="Europe/Vienna",
+        suggested_timezone=default_timezone_for_country("AT"),
         suggested_language="en",
         email_delivery_status=email_delivery_status,
         email_delivery_provider=email_delivery_provider,
@@ -480,7 +481,7 @@ def register_verify(
     principal_id = _registration_principal_id(email)
     workspace_name = str(body.workspace_name or "").strip() or _workspace_name_from_email(email)
     language = str(body.language or "").strip() or "en"
-    timezone = str(body.timezone or "").strip() or "Europe/Vienna"
+    timezone = str(body.timezone or "").strip() or default_timezone_for_country("AT")
     status = container.onboarding.start_workspace(
         principal_id=principal_id,
         workspace_name=workspace_name,
