@@ -270,26 +270,36 @@ PUBLIC_TRUST_PAGES = {
         "nav": "imprint",
         "title": "Imprint",
         "kicker": "Company information",
-        "summary": "This page is the public contact and responsible-party surface for PropertyQuarry. Replace placeholder company details before commercial launch.",
+        "summary": "Public contact, responsible-party, and escalation information for PropertyQuarry.",
         "band": (
             {
                 "title": "Responsible operator",
-                "body": "PropertyQuarry is operated by the account or company identified in the production imprint configuration.",
+                "body": "PropertyQuarry is operated from the published PropertyQuarry workspace and is responsible for this public product surface.",
             },
             {
                 "title": "Contact",
-                "body": "Use the support page for product questions, security reports, billing questions, and shared-link or deletion requests.",
+                "body": "Use Support for product questions, security reports, billing questions, public sharing requests, deletion requests, and wrong-area search reports.",
             },
         ),
         "sections": (
             {
-                "eyebrow": "Launch gate",
-                "title": "Required production details",
-                "body": "Before public paid launch, the imprint should include reviewed legal entity, address, registration, tax, and contact details required in the served markets.",
+                "eyebrow": "Responsible party",
+                "title": "How to reach PropertyQuarry",
+                "body": "PropertyQuarry keeps the public contact path intentionally narrow so requests land in the product support queue with a traceable run, account, or shared-link reference.",
                 "items": (
-                    "Company or operator name",
-                    "Postal address and official contact email",
-                    "Registration, VAT, and supervisory information where required",
+                    "Product, billing, and account requests: /support",
+                    "Security, privacy, deletion, and shared-link revocation: /support",
+                    "Search repair reports: include the run ID, listing URL, provider, and the expected district or listing mode",
+                ),
+            },
+            {
+                "eyebrow": "Market posture",
+                "title": "Jurisdiction and provider boundaries",
+                "body": "PropertyQuarry is a property research and decision-support product. Provider content, public data, generated media, and investment views stay bound to their source, observation date, and disclosure limits.",
+                "items": (
+                    "Generated tours and summaries are screening aids, not measured surveys.",
+                    "Scores rank fit against the current brief; they are not legal, financial, valuation, or safety advice.",
+                    "Provider rights, availability, and market readiness can limit which sources appear in a search.",
                 ),
             },
         ),
@@ -297,6 +307,10 @@ PUBLIC_TRUST_PAGES = {
             {
                 "question": "Why is this page explicit?",
                 "answer": "A paid property product needs a visible responsible-party surface, especially when it handles household preferences and shared artifacts.",
+            },
+            {
+                "question": "Where should urgent data or wrong-area issues go?",
+                "answer": "Use Support and include the affected URL or run ID. That gives the repair workflow enough evidence to reproduce the issue.",
             },
         ),
     },

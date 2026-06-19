@@ -2632,7 +2632,7 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
         "/privacy": ("Privacy", "Public tours should use a narrow public manifest"),
         "/terms": ("Terms", "Generated or embedded tours help screening"),
         "/support": ("Support", "wrong-area matches"),
-        "/imprint": ("Imprint", "Required production details"),
+        "/imprint": ("Imprint", "How to reach PropertyQuarry"),
         "/cookies": ("Cookies and Analytics", "essential cookies"),
         "/subprocessors": ("Subprocessors", "Vendor control plane"),
         "/refunds": ("Refunds and Cancellation", "failed payment recovery"),
@@ -2644,6 +2644,8 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
         assert page.headers.get("X-Robots-Tag") == "index, follow, max-image-preview:large"
         for snippet in snippets:
             assert snippet in page.text
+        assert "Replace placeholder" not in page.text
+        assert "Before public paid launch" not in page.text
 
 
 def test_public_guide_and_market_pages_render_editorial_seo_surface() -> None:
