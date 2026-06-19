@@ -20931,6 +20931,49 @@ def test_public_tour_landing_links_magicfit_with_route_coverage_proof() -> None:
     assert "Open 3D Control" not in html
 
 
+def test_public_tour_landing_uses_listing_currency_for_costs() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_html(
+        {
+            "slug": "gbp-public-tour",
+            "display_title": "GBP Public Tour",
+            "facts": {
+                "currency_code": "GBP",
+                "total_rent_eur": 1598.0,
+                "parking_monthly_eur": 120.0,
+                "area_sqm": 77,
+                "rooms": 2,
+            },
+            "scenes": [{"name": "Living", "asset_relpath": "living.jpg", "role": "photo"}],
+        }
+    )
+
+    assert "GBP 1.598,00" in html
+    assert "GBP 120,00" in html
+    assert "EUR 1.598,00" not in html
+    assert "EUR 120" not in html
+
+
+def test_public_tour_shortlist_comparison_uses_listing_currency() -> None:
+    from app.api.routes import public_tours
+
+    assert public_tours._shortlist_metric_display(  # type: ignore[attr-defined]
+        "total_rent_eur",
+        2200.0,
+        currency_code="CAD",
+    ) == "CAD 2.200,00"
+    delta_text, delta_tone = public_tours._shortlist_metric_delta(  # type: ignore[attr-defined]
+        "total_rent_eur",
+        baseline=2200.0,
+        candidate=2400.0,
+        currency_code="CAD",
+    )
+
+    assert delta_text == "+CAD 200,00 (9%)"
+    assert delta_tone == "worse"
+
+
 def test_public_tour_control_rejects_internal_walkable_by_default(monkeypatch) -> None:
     from app.api.routes import public_tours
 

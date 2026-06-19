@@ -54,6 +54,7 @@ from app.api.routes.public_tour_payloads import (
 )
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname, request_path
+from app.services.property_market_catalog import currency_code_for_country, supported_currency_codes
 
 router = APIRouter(tags=["public-tours"])
 
@@ -408,10 +409,26 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     return candidate
 
 
-def _money(value: object) -> str:
+def _public_tour_currency_code(facts: dict[str, object] | None = None) -> str:
+    normalized_facts = dict(facts or {})
+    supported = set(supported_currency_codes())
+    for key in ("price_currency", "currency_code", "currency"):
+        currency = str(normalized_facts.get(key) or "").strip().upper()
+        if currency in supported:
+            return currency
+    country_code = str(normalized_facts.get("country_code") or normalized_facts.get("market_country_code") or "").strip()
+    if country_code:
+        return currency_code_for_country(country_code)
+    return "EUR"
+
+
+def _money(value: object, *, currency_code: object = "EUR") -> str:
+    currency = str(currency_code or "").strip().upper()
+    if currency not in set(supported_currency_codes()):
+        currency = "EUR"
     if isinstance(value, (int, float)):
-        return f"EUR {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return "EUR ?"
+        return f"{currency} {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{currency} ?"
 
 
 def _safe_live_360_url(value: object) -> str:
@@ -826,13 +843,13 @@ def _shortlist_as_float(value: object) -> float | None:
         normalized = (
             str(value)
             .replace("€", "")
-            .replace("EUR", "")
-            .replace("eur", "")
             .replace(" ", "")
             .replace("m²", "")
             .replace("sqm", "")
             .replace("m", "")
         )
+        for currency_code in supported_currency_codes():
+            normalized = re.sub(rf"\b{re.escape(currency_code)}\b", "", normalized, flags=re.IGNORECASE)
         normalized = re.sub(r"[^0-9.,\-]", "", normalized)
         if not normalized or normalized in {"-", "+", ".", ","}:
             return None
@@ -1028,12 +1045,12 @@ def _shortlist_metric_labels() -> tuple[tuple[str, str, str], ...]:
     )
 
 
-def _shortlist_metric_display(metric_key: str, value: object) -> str:
+def _shortlist_metric_display(metric_key: str, value: object, *, currency_code: object = "EUR") -> str:
     if value is None:
         return "Not available"
     if metric_key == "total_rent_eur":
         if isinstance(value, (int, float)):
-            return f"EUR {value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+            return _money(value, currency_code=currency_code)
         return str(value)
     if metric_key == "area_sqm":
         if isinstance(value, (int, float)):
@@ -1049,7 +1066,7 @@ def _shortlist_metric_display(metric_key: str, value: object) -> str:
     return str(value or "Not available")
 
 
-def _shortlist_metric_delta(metric_key: str, *, baseline: object, candidate: object) -> tuple[str, str]:
+def _shortlist_metric_delta(metric_key: str, *, baseline: object, candidate: object, currency_code: object = "EUR") -> tuple[str, str]:
     if candidate is None or baseline is None:
         return "No comparison", "neutral"
     if metric_key.endswith("_m") or metric_key in {"total_rent_eur", "area_sqm", "rooms"}:
@@ -1066,7 +1083,7 @@ def _shortlist_metric_delta(metric_key: str, *, baseline: object, candidate: obj
         prefix = "+" if difference > 0 else "-"
         delta = abs(difference)
         if metric_key == "total_rent_eur":
-            delta_text = f"{prefix}EUR {delta:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+            delta_text = f"{prefix}{_money(delta, currency_code=currency_code)}"
         elif metric_key in {"area_sqm", "rooms"}:
             delta_text = f"{prefix}{abs(difference):.0f}"
         else:
@@ -1425,6 +1442,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         raise HTTPException(status_code=500, detail="tour_scenes_missing")
     facts, researched_facts = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
     facts.pop("public_preference_snapshot", None)
+    display_currency_code = _public_tour_currency_code(facts)
     feedback_suggestions = dict(payload.get("_feedback_suggestions") or {}) if isinstance(payload.get("_feedback_suggestions"), dict) else {}
     learning_summary = dict(payload.get("_learning_summary") or {}) if isinstance(payload.get("_learning_summary"), dict) else {}
     filter_context = _filter_panel_context(facts=facts)
@@ -1637,7 +1655,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             rows.append(f"The lease is limited to about {int(lease_term)} years, which matters if long-term stability is important.")
         parking_monthly = facts.get("parking_monthly_eur")
         if isinstance(parking_monthly, (int, float)) and parking_monthly > 0:
-            rows.append(f"The garage space is optional but adds about EUR {int(parking_monthly):d} per month.")
+            rows.append(f"The garage space is optional but adds about {_money(parking_monthly, currency_code=display_currency_code)} per month.")
         if _fact_bool("air_quality_risk"):
             rows.append("Air quality still needs explicit validation for pollution burden and respiratory comfort.")
         if _fact_bool("crime_risk"):
@@ -1751,8 +1769,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             rows.append(("District", district_value))
         price_value = facts.get("total_rent_eur")
         if isinstance(price_value, (int, float)):
-            rows.append(("Price", _money(price_value)))
-        elif rent != "EUR ?":
+            rows.append(("Price", _money(price_value, currency_code=display_currency_code)))
+        elif rent != f"{display_currency_code} ?":
             rows.append(("Price", rent))
         area_value = _fact_text("area_label")
         if not area_value:
@@ -1849,8 +1867,11 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     rooms = html.escape(_rooms_display())
     area_display = _fact_text("area_sqm", "area_m2", "living_area_m2")
     area = html.escape(area_display or "Area under research")
-    rent_value = _money(facts.get("total_rent_eur") or facts.get("price_eur") or facts.get("purchase_price_eur"))
-    rent = html.escape("" if rent_value == "EUR ?" else rent_value)
+    rent_value = _money(
+        facts.get("total_rent_eur") or facts.get("price_eur") or facts.get("purchase_price_eur"),
+        currency_code=display_currency_code,
+    )
+    rent = html.escape("" if rent_value == f"{display_currency_code} ?" else rent_value)
     availability = html.escape(_fact_text("availability", "availability_text") or "Availability under research")
     teaser = " · ".join(html.escape(str(value)) for value in (facts.get("teaser_attributes") or []))
     creative_brief = html.escape(str(brief.get("creative_brief") or "").strip())
@@ -2038,7 +2059,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if rent_chip:
             cost_rows.append(("Base rent", rent_chip))
         if isinstance(facts.get("parking_monthly_eur"), (int, float)) and float(facts.get("parking_monthly_eur") or 0.0) > 0:
-            cost_rows.append(("Parking option", f"EUR {int(float(facts.get('parking_monthly_eur') or 0.0))}/month"))
+            cost_rows.append(
+                (
+                    "Parking option",
+                    f"{_money(float(facts.get('parking_monthly_eur') or 0.0), currency_code=display_currency_code)}/month",
+                )
+            )
         heating_value = _fact_text("heating", "heating_type")
         if heating_value:
             cost_rows.append(("Heating system", heating_value))
@@ -2189,7 +2215,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 row_cells: list[str] = [f"<th class=\"shortlist-metric-label\">{html.escape(metric_label)}</th>"]
                 for index, row in enumerate(shortlist_rows):
                     metrics = dict(row.get("metrics") or {})
-                    value = _shortlist_metric_display(metric_key, metrics.get(metric_key))
+                    row_facts = dict(row.get("facts") or {}) if isinstance(row.get("facts"), dict) else facts
+                    row_currency_code = _public_tour_currency_code(row_facts)
+                    value = _shortlist_metric_display(metric_key, metrics.get(metric_key), currency_code=row_currency_code)
                     if index == 0:
                         row_cells.append(f"<td><span class=\"shortlist-value\">{html.escape(value)}</span></td>")
                         continue
@@ -2197,6 +2225,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                         metric_key,
                         baseline=baseline.get(metric_key),
                         candidate=metrics.get(metric_key),
+                        currency_code=row_currency_code,
                     )
                     row_cells.append(
                         "<td>"
