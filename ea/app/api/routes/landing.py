@@ -3141,6 +3141,13 @@ def app_shell(
         "automations": "/app/settings",
     }
     property_legacy_redirects = {
+        "today": "/app/properties",
+        "queue": "/app/shortlist",
+        "commitments": "/app/account",
+        "people": "/app/account",
+        "evidence": "/app/account",
+        "activity": "/app/account",
+        "channel-loop": "/app/account",
         "automation": "/app/agents",
         "automations": "/app/agents",
         "channels": "/app/account#delivery",

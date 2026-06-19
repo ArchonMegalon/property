@@ -49,6 +49,16 @@ PROPERTY_SETTINGS_ALIAS_REDIRECTS = {
     "/app/plan": "/app/settings/plan",
 }
 
+PROPERTY_LEGACY_APP_SURFACE_REDIRECTS = {
+    "/app/today": "/app/properties",
+    "/app/queue": "/app/shortlist",
+    "/app/commitments": "/app/account",
+    "/app/people": "/app/account",
+    "/app/evidence": "/app/account",
+    "/app/activity": "/app/account",
+    "/app/channel-loop": "/app/account",
+}
+
 
 def _client(*, principal_id: str = "exec-browser-contract") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -200,6 +210,21 @@ def test_propertyquarry_settings_detail_aliases_redirect_to_property_pages() -> 
         text = _visible_text(page.text)
         assert "memo items" not in text
         assert "commitments" not in text
+        assert "handoffs" not in text
+
+
+def test_propertyquarry_legacy_app_surfaces_redirect_to_property_surfaces() -> None:
+    client = _client(principal_id="exec-property-legacy-surfaces")
+    for source, target in PROPERTY_LEGACY_APP_SURFACE_REDIRECTS.items():
+        response = client.get(source, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=False)
+        assert response.status_code == 307, source
+        assert response.headers["location"] == target
+        page = client.get(target, headers={"host": "propertyquarry.com", "accept": "text/html"}, follow_redirects=True)
+        assert page.status_code == 200, target
+        text = _visible_text(page.text)
+        assert "current office loop" not in text
+        assert "memo items" not in text
+        assert "commitment ledger" not in text
         assert "handoffs" not in text
 
 
