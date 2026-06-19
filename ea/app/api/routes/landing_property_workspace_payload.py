@@ -51,6 +51,29 @@ from app.product.property_surface_state import (
     property_mode_visibility_label,
 )
 
+
+def _property_workbench_lightweight_image_url(value: object, *, max_data_url_chars: int = 4096) -> str:
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    if url.lower().startswith("data:") and len(url) > max_data_url_chars:
+        return ""
+    return url
+
+
+def _property_workbench_lightweight_orientation_preview(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    preview = dict(value)
+    for key in ("image_url", "thumb_image_url", "preview_image_url"):
+        cleaned = _property_workbench_lightweight_image_url(preview.get(key))
+        if cleaned:
+            preview[key] = cleaned
+        else:
+            preview.pop(key, None)
+    return preview
+
+
 def property_workspace_payload(
     section: str,
     *,
@@ -150,11 +173,12 @@ def property_workspace_payload(
         for candidate in list(property_meta.get("shortlist_candidates") or [])
         if isinstance(candidate, dict)
     ]
-    if normalized_section in {"properties", "search", "agents", "account", "settings", "billing"}:
+    if normalized_section in {"properties", "search", "shortlist", "agents", "account", "settings", "billing"}:
         trimmed_meta = dict(property_meta)
-        if normalized_section in {"properties", "search", "account", "settings", "billing"}:
+        if normalized_section in {"properties", "search", "shortlist", "account", "settings", "billing"}:
             trimmed_meta.pop("search_agent", None)
             trimmed_meta.pop("search_agents", None)
+        trimmed_meta.pop("initial_run", None)
         trimmed_meta.pop("shortlist_candidates", None)
         property_form["meta"] = trimmed_meta
         property_meta = trimmed_meta
@@ -163,12 +187,15 @@ def property_workspace_payload(
     property_preferences = {**saved_property_preferences, **run_property_preferences}
     preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
     brief_preferences_payload = dict(property_preferences)
-    if normalized_section == "search":
-        brief_preferences_payload.pop("saved_shortlist_candidates", None)
-        brief_preferences_payload.pop("raw_preferences", None)
-        brief_preferences_payload.pop("search_agents", None)
-        brief_preferences_payload.pop("property_commercial", None)
-    elif normalized_section in {"agents", "account", "settings", "billing"}:
+    for heavy_key in (
+        "raw_preferences",
+        "saved_shortlist_candidates",
+        "search_agents",
+        "property_commercial",
+        "preference_bundle",
+    ):
+        brief_preferences_payload.pop(heavy_key, None)
+    if normalized_section in {"agents", "account", "settings", "billing"}:
         static_brief_keys = {
             "country_code",
             "region_code",
@@ -1664,7 +1691,9 @@ def property_workspace_payload(
             "reasons": [str(item).strip() for item in list(candidate_investment.get("reasons") or []) if str(item).strip()][:3],
             "blockers": [str(item).strip() for item in list(candidate_investment.get("blockers") or []) if str(item).strip()][:3],
         }
-        orientation_preview = _property_candidate_orientation_preview(candidate)
+        orientation_preview = _property_workbench_lightweight_orientation_preview(
+            _property_candidate_orientation_preview(candidate)
+        )
         repair_flag_label, repair_flag_detail = _candidate_repair_flag(
             candidate,
             facts,
@@ -1678,7 +1707,9 @@ def property_workspace_payload(
                 title=_property_result_title_display(candidate.get("title") or "Candidate"),
                 recovered_by_filter=bool(candidate.get("recovered_by_filter") or candidate.get("counterfactual_recovered")),
                 relaxed_filter_label=str(candidate.get("relaxed_filter_label") or candidate.get("counterfactual_label") or "").strip(),
-                preview_image_url=str(candidate.get("preview_image_url") or _property_candidate_preview_image(candidate) or "").strip(),
+                preview_image_url=_property_workbench_lightweight_image_url(
+                    candidate.get("preview_image_url") or _property_candidate_preview_image(candidate)
+                ),
                 source_label=_compact_provider_label(candidate.get("source_label") or ""),
                 location_label=str(facts.get("district") or facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
                 price_display=price_line,

@@ -189,6 +189,35 @@ def _property_customer_source_summary(source: dict[str, object]) -> dict[str, ob
     }
 
 
+def _property_customer_lightweight_image_url(value: object, *, max_data_url_chars: int = 4096) -> str:
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    if url.lower().startswith("data:") and len(url) > max_data_url_chars:
+        return ""
+    return url
+
+
+def _property_customer_candidate_summary(candidate: dict[str, object]) -> dict[str, object]:
+    row = dict(candidate or {})
+    for key in ("preview_image_url", "image_url", "thumb_image_url"):
+        cleaned = _property_customer_lightweight_image_url(row.get(key))
+        if cleaned:
+            row[key] = cleaned
+        else:
+            row.pop(key, None)
+    if isinstance(row.get("orientation_preview"), dict):
+        preview = dict(row.get("orientation_preview") or {})
+        for key in ("image_url", "thumb_image_url", "preview_image_url"):
+            cleaned = _property_customer_lightweight_image_url(preview.get(key))
+            if cleaned:
+                preview[key] = cleaned
+            else:
+                preview.pop(key, None)
+        row["orientation_preview"] = preview
+    return row
+
+
 def _property_customer_candidate_is_rankable(candidate: dict[str, object]) -> bool:
     blocked_statuses = {
         "dismissed",
@@ -235,7 +264,7 @@ def _property_customer_run_summary(summary: dict[str, object]) -> dict[str, obje
         if isinstance(row, dict)
     ]
     ranked_candidates = [
-        dict(row)
+        _property_customer_candidate_summary(row)
         for row in list(dict(summary or {}).get("ranked_candidates") or [])
         if isinstance(row, dict) and _property_customer_candidate_is_rankable(row)
     ]

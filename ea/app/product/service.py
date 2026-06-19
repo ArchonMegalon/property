@@ -146,6 +146,7 @@ from app.product.property_tour_hosting import (
 from app.product.property_search_storage import (
     _delete_property_search_run_record as _delete_property_search_run_record_storage,
     _list_property_search_run_records as _list_property_search_run_records_storage,
+    _load_property_search_run_compact_record as _load_property_search_run_compact_record_storage,
     _load_property_search_run_record as _load_property_search_run_record_storage,
     _property_search_run_database_url,
     _property_source_listing_cache_get as _property_source_listing_cache_get_storage,
@@ -2225,6 +2226,7 @@ def _list_property_search_run_records(
     statuses: tuple[str, ...] = (),
     principal_id: str = "",
     admin: bool = False,
+    lightweight: bool = False,
 ) -> tuple[dict[str, object], ...]:
     with _PROPERTY_SEARCH_RUN_LOCK:
         registry_snapshot = {
@@ -2237,12 +2239,17 @@ def _list_property_search_run_records(
         statuses=statuses,
         principal_id=principal_id,
         admin=admin,
+        lightweight=lightweight,
         registry=registry_snapshot,
     )
 
 
 def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
     return _load_property_search_run_record_storage(run_id=run_id, principal_id=principal_id)
+
+
+def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+    return _load_property_search_run_compact_record_storage(run_id=run_id, principal_id=principal_id)
 
 
 def _delete_property_search_run_record(*, run_id: str, principal_id: str) -> bool:
@@ -29439,7 +29446,12 @@ class ProductService:
         *,
         principal_id: str,
         run_id: str,
+        lightweight: bool = False,
     ) -> dict[str, object] | None:
+        if lightweight:
+            compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
+            if isinstance(compact_snapshot, dict) and compact_snapshot:
+                return compact_snapshot
         snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
         if not isinstance(snapshot, dict):
             return snapshot
@@ -29607,6 +29619,7 @@ class ProductService:
         records = _list_property_search_run_records(
             limit=max(int(limit or 0) * 3, int(limit or 0), 1),
             principal_id=normalized_principal,
+            lightweight=not hydrate,
         )
         runs: list[dict[str, object]] = []
         seen: set[str] = set()
@@ -29641,6 +29654,7 @@ class ProductService:
         records = _list_property_search_run_records(
             limit=max(int(limit or 0) * 2, int(limit or 0), 1),
             principal_id=normalized_principal,
+            lightweight=True,
         )
         terminal_statuses = set(_PROPERTY_SEARCH_TERMINAL_STATUSES) | {"not started"}
         for record in records:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import html
 from pathlib import Path
 
 from app.api.routes import landing as landing_routes
@@ -968,6 +969,64 @@ def test_propertyquarry_search_route_trims_heavy_workbench_state() -> None:
     assert payload.get("search_agent") == {}
     assert payload.get("previous_search_runs") == []
     assert "https://propertyquarry.com/" not in response.text
+
+
+def test_propertyquarry_properties_route_does_not_duplicate_heavy_run_payload(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-heavy-run")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    heavy_blob = "x" * 5000
+
+    def _fake_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "progress": 34,
+            "property_search_preferences": {
+                "country_code": "AT",
+                "location_query": "1010 Vienna",
+                "raw_preferences": {"huge": heavy_blob},
+                "saved_shortlist_candidates": [{"candidate_ref": "saved", "detail": heavy_blob}],
+                "search_agents": [{"id": "agent", "detail": heavy_blob}],
+            },
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 1,
+                "listing_total": 4,
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "status": "in_progress",
+                        "listing_total": 4,
+                        "source_html": heavy_blob,
+                        "raw_payload": {"html": heavy_blob},
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    response = client.get("/app/properties?run_id=run-heavy", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "source_html" not in response.text
+    assert heavy_blob not in response.text
+    workbench_match = re.search(
+        r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
+        response.text,
+        re.S,
+    )
+    assert workbench_match
+    workbench_payload = json.loads(html.unescape(workbench_match.group(1)))
+    assert "source_html" not in json.dumps(workbench_payload)
+    assert "raw_preferences" not in workbench_payload["brief_preferences"]
+    assert "saved_shortlist_candidates" not in workbench_payload["brief_preferences"]
+    assert "search_agents" not in workbench_payload["brief_preferences"]
+    meta_match = re.search(r"<div hidden data-property-workspace-meta='(.*?)'></div>", response.text, re.S)
+    assert meta_match
+    property_meta = json.loads(html.unescape(meta_match.group(1)))
+    assert "initial_run" not in property_meta
 
 
 def test_propertyquarry_search_route_exposes_theme_toggle() -> None:
@@ -2339,6 +2398,54 @@ def test_property_workspace_payload_excludes_ranked_candidates_without_concrete_
     )
 
     assert payload["decision_workbench"]["results"] == []
+
+
+def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:
+    oversized_preview = "data:image/png;base64," + ("a" * 10000)
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1020 Vienna",
+            },
+            "run": {
+                "run_id": "run-inline-preview",
+                "property_search_preferences": {
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1020 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-inline-preview",
+                            "title": "Real 1020 apartment",
+                            "property_url": "https://example.test/good",
+                            "preview_image_url": oversized_preview,
+                            "fit_score": 72,
+                            "property_facts": {
+                                "postal_name": "1020 Wien",
+                                "rent_display": "EUR 1,200",
+                                "total_rent_eur": 1200,
+                                "area_sqm": 72,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+    assert result["preview_image_url"] == ""
+    assert json.dumps(payload).find(oversized_preview) == -1
 
 
 def test_property_workspace_payload_source_fallback_excludes_false_positive_and_repair_rows() -> None:

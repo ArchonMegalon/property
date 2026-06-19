@@ -523,6 +523,19 @@ def _property_lookup_candidate_across_runs(
     return None, ""
 
 
+def _property_compact_preference_overlay(payload: dict[str, object]) -> dict[str, object]:
+    preferences = dict(payload or {})
+    for heavy_key in (
+        "raw_preferences",
+        "saved_shortlist_candidates",
+        "search_agents",
+        "property_commercial",
+        "preference_bundle",
+    ):
+        preferences.pop(heavy_key, None)
+    return preferences
+
+
 def _property_lookup_candidate_in_saved_shortlist(
     product: Any,
     *,
@@ -1179,7 +1192,7 @@ def _property_console_context(
                 for row in product.list_property_search_runs(
                     principal_id=principal_id,
                     limit=8,
-                    hydrate=surface_scope.section != "shortlist",
+                    hydrate=surface_scope.section not in {"properties", "shortlist"},
                 )
                 if isinstance(row, dict)
             ]
@@ -1233,13 +1246,26 @@ def _property_console_context(
             should_hydrate_run_status = False
         if should_hydrate_run_status:
             try:
+                lightweight_run_status = surface_scope.section == "properties"
                 run_payload = dict(
                     product.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=normalized_run_id,
+                        lightweight=lightweight_run_status,
                     )
                     or {}
                 )
+            except TypeError:
+                try:
+                    run_payload = dict(
+                        product.get_property_search_run_status(
+                            principal_id=principal_id,
+                            run_id=normalized_run_id,
+                        )
+                        or {}
+                    )
+                except Exception:
+                    run_payload = active_run if isinstance(active_run, dict) else {}
             except Exception:
                 run_payload = active_run if isinstance(active_run, dict) else {}
         else:
@@ -1251,7 +1277,9 @@ def _property_console_context(
             else {}
         )
         if run_preferences_payload:
-            preferences = normalize_property_search_preferences({**preferences, **run_preferences_payload})
+            preferences = normalize_property_search_preferences(
+                {**preferences, **_property_compact_preference_overlay(run_preferences_payload)}
+            )
             selected_country = normalize_country_code(preferences.get("country_code"))
             commercial = property_commercial_snapshot(preferences)
             selected_platforms = {

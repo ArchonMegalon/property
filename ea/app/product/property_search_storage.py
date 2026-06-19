@@ -26,6 +26,78 @@ _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
 _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = False
 
+_PROPERTY_SEARCH_RUN_COMPACT_TOP_LEVEL_KEYS = (
+    "run_id",
+    "principal_id",
+    "status",
+    "progress",
+    "stage",
+    "stage_label",
+    "message",
+    "created_at",
+    "updated_at",
+    "generated_at",
+    "active_search_agent_id",
+    "selected_platforms",
+    "property_search_preferences",
+    "preferences",
+)
+
+_PROPERTY_SEARCH_RUN_COMPACT_PREFERENCE_DROP_KEYS = (
+    "raw_preferences",
+    "saved_shortlist_candidates",
+    "search_agents",
+    "property_commercial",
+    "preference_bundle",
+)
+
+_PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
+    "status",
+    "message",
+    "progress",
+    "stage",
+    "stage_label",
+    "sources_total",
+    "source_total",
+    "source_variant_total",
+    "sources_completed",
+    "sources_failed",
+    "source_variant_completed_total",
+    "source_variant_failed_total",
+    "listing_total",
+    "raw_listing_total",
+    "reviewed_listing_total",
+    "ranked_total",
+    "ranked_candidate_total",
+    "results_total",
+    "survivor_total",
+    "filtered_total",
+    "held_back_total",
+    "filtered_out_total",
+    "filtered_area_total",
+    "filtered_location_total",
+    "filtered_floorplan_total",
+    "filtered_property_type_total",
+    "filtered_availability_total",
+    "filtered_generic_page_total",
+    "filtered_listing_mode_total",
+    "location_mismatch_total",
+    "min_score",
+    "eta_label",
+    "eta_confidence_label",
+    "started_at",
+    "completed_at",
+    "updated_at",
+    "ranked_candidates",
+    "results",
+    "top_candidates",
+    "filtered_breakdown",
+    "relaxation_suggestions",
+    "repair_status",
+    "repair_status_label",
+    "repair_outcome_summary",
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -46,6 +118,69 @@ def _property_search_run_connect():  # type: ignore[no-untyped-def]
 
 def _quote_pg_identifier(value: str) -> str:
     return '"' + str(value or "").replace('"', '""') + '"'
+
+
+def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, object]:
+    payload = dict(record or {})
+    compact = {
+        key: payload[key]
+        for key in _PROPERTY_SEARCH_RUN_COMPACT_TOP_LEVEL_KEYS
+        if key in payload
+    }
+    for preference_key in ("property_search_preferences", "preferences"):
+        if isinstance(compact.get(preference_key), dict):
+            preferences = dict(compact[preference_key])
+            for drop_key in _PROPERTY_SEARCH_RUN_COMPACT_PREFERENCE_DROP_KEYS:
+                preferences.pop(drop_key, None)
+            compact[preference_key] = preferences
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    if summary:
+        compact_summary = {
+            key: summary[key]
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS
+            if key in summary
+        }
+        if compact_summary:
+            compact["summary"] = compact_summary
+    if "run_id" not in compact and payload.get("run_id"):
+        compact["run_id"] = payload.get("run_id")
+    if "principal_id" not in compact and payload.get("principal_id"):
+        compact["principal_id"] = payload.get("principal_id")
+    if "status" not in compact and summary.get("status"):
+        compact["status"] = summary.get("status")
+    return compact
+
+
+def _compact_property_search_run_json_sql() -> str:
+    preference_drop_sql = " ".join(
+        f"- '{key}'"
+        for key in _PROPERTY_SEARCH_RUN_COMPACT_PREFERENCE_DROP_KEYS
+    )
+    top_entries = ",\n                        ".join(
+        (
+            f"'{key}', (payload_json -> '{key}') {preference_drop_sql}"
+            if key in {"property_search_preferences", "preferences"}
+            else f"'{key}', payload_json -> '{key}'"
+        )
+        for key in _PROPERTY_SEARCH_RUN_COMPACT_TOP_LEVEL_KEYS
+    )
+    summary_entries = ",\n                                ".join(
+        f"'{key}', payload_json #> '{{summary,{key}}}'"
+        for key in _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS
+    )
+    return f"""
+                    jsonb_strip_nulls(
+                        jsonb_build_object(
+                            {top_entries},
+                            'summary',
+                            jsonb_strip_nulls(
+                                jsonb_build_object(
+                                    {summary_entries}
+                                )
+                            )
+                        )
+                    )
+                """
 
 
 def _property_search_run_primary_key_columns(cur) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
@@ -110,12 +245,16 @@ def _ensure_property_search_run_schema() -> None:
                         principal_id TEXT NOT NULL,
                         run_id TEXT NOT NULL,
                         payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        status TEXT,
+                        compact_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                         created_at TIMESTAMPTZ NOT NULL,
                         updated_at TIMESTAMPTZ NOT NULL,
                         PRIMARY KEY (principal_id, run_id)
                     )
                     """
                 )
+                cur.execute("ALTER TABLE property_search_runs ADD COLUMN IF NOT EXISTS status TEXT")
+                cur.execute("ALTER TABLE property_search_runs ADD COLUMN IF NOT EXISTS compact_json JSONB NOT NULL DEFAULT '{}'::jsonb")
                 _ensure_property_search_run_primary_key(cur)
                 cur.execute(
                     """
@@ -127,6 +266,16 @@ def _ensure_property_search_run_schema() -> None:
                     """
                     CREATE INDEX IF NOT EXISTS idx_property_search_runs_principal_updated
                     ON property_search_runs(principal_id, updated_at DESC)
+                    """
+                )
+                cur.execute(
+                    f"""
+                    UPDATE property_search_runs
+                    SET status = COALESCE(status, payload_json->>'status', payload_json#>>'{{summary,status}}'),
+                        compact_json = {_compact_property_search_run_json_sql()}
+                    WHERE compact_json = '{{}}'::jsonb
+                       OR compact_json IS NULL
+                       OR status IS NULL
                     """
                 )
         _PROPERTY_SEARCH_RUN_SCHEMA_READY = True
@@ -142,20 +291,26 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
         return
     from psycopg.types.json import Json
 
+    compact_record = _compact_property_search_run_record(record)
+    status_value = str(compact_record.get("status") or "").strip() or None
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO property_search_runs (run_id, principal_id, payload_json, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO property_search_runs (run_id, principal_id, payload_json, status, compact_json, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (principal_id, run_id) DO UPDATE
                 SET payload_json = EXCLUDED.payload_json,
+                    status = EXCLUDED.status,
+                    compact_json = EXCLUDED.compact_json,
                     updated_at = EXCLUDED.updated_at
                 """,
                 (
                     run_id,
                     principal_id,
                     Json(record),
+                    status_value,
+                    Json(compact_record),
                     str(record.get("created_at") or _now_iso()).strip() or _now_iso(),
                     str(record.get("updated_at") or _now_iso()).strip() or _now_iso(),
                 ),
@@ -182,12 +337,46 @@ def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[
     return dict(row[0] or {}) if isinstance(row[0], dict) else None
 
 
+def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+    if not _property_search_run_database_url():
+        return None
+    _ensure_property_search_run_schema()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_principal_id = str(principal_id or "").strip()
+    if not normalized_run_id or not normalized_principal_id:
+        return None
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(
+                    NULLIF(compact_json, '{}'::jsonb),
+                    jsonb_build_object(
+                        'run_id', to_jsonb(run_id),
+                        'principal_id', to_jsonb(principal_id),
+                        'status', to_jsonb(status),
+                        'created_at', to_jsonb(created_at),
+                        'updated_at', to_jsonb(updated_at)
+                    )
+                )
+                FROM property_search_runs
+                WHERE run_id = %s AND principal_id = %s
+                """,
+                (normalized_run_id, normalized_principal_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    return dict(row[0] or {}) if isinstance(row[0], dict) else None
+
+
 def _list_property_search_run_records(
     *,
     limit: int = 20,
     statuses: tuple[str, ...] = (),
     principal_id: str = "",
     admin: bool = False,
+    lightweight: bool = False,
     registry: dict[str, dict[str, object]] | None = None,
 ) -> tuple[dict[str, object], ...]:
     normalized_limit = max(int(limit or 0), 1)
@@ -204,16 +393,34 @@ def _list_property_search_run_records(
         if normalized_statuses:
             rows = [row for row in rows if str(row.get("status") or "").strip().lower() in normalized_statuses]
         rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+        if lightweight:
+            rows = [_compact_property_search_run_record(row) for row in rows]
         return tuple(rows[:normalized_limit])
     _ensure_property_search_run_schema()
-    query = "SELECT payload_json FROM property_search_runs"
+    query = (
+        """
+        SELECT COALESCE(
+            NULLIF(compact_json, '{}'::jsonb),
+            jsonb_build_object(
+                'run_id', to_jsonb(run_id),
+                'principal_id', to_jsonb(principal_id),
+                'status', to_jsonb(status),
+                'created_at', to_jsonb(created_at),
+                'updated_at', to_jsonb(updated_at)
+            )
+        )
+        FROM property_search_runs
+        """
+        if lightweight
+        else "SELECT payload_json FROM property_search_runs"
+    )
     params: list[object] = []
     where_clauses: list[str] = []
     if normalized_principal_id:
         where_clauses.append("principal_id = %s")
         params.append(normalized_principal_id)
     if normalized_statuses:
-        where_clauses.append("(payload_json->>'status') = ANY(%s)")
+        where_clauses.append("status = ANY(%s)" if lightweight else "(payload_json->>'status') = ANY(%s)")
         params.append(list(normalized_statuses))
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)

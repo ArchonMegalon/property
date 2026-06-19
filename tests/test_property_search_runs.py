@@ -8059,6 +8059,60 @@ def test_property_search_run_listing_requires_principal_unless_admin(monkeypatch
     assert [row["run_id"] for row in admin_rows] == ["run-2", "run-1"]
 
 
+def test_property_search_run_lightweight_listing_strips_source_payloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    registry = {
+        "run-compact": {
+            "run_id": "run-compact",
+            "principal_id": "principal-a",
+            "status": "completed_partial",
+            "updated_at": "2026-06-18T00:00:00+00:00",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "location_query": "1010 Vienna",
+                "raw_preferences": {"huge": "x" * 1000},
+                "saved_shortlist_candidates": [{"candidate_ref": "saved"}],
+                "search_agents": [{"id": "agent"}],
+            },
+            "summary": {
+                "status": "completed_partial",
+                "sources_total": 104,
+                "listing_total": 304,
+                "ranked_total": 2,
+                "filtered_total": 270,
+                "ranked_candidates": [{"candidate_ref": "ranked-1", "title": "Kept"}],
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "source_html": "<html>" + ("x" * 1000) + "</html>",
+                        "top_candidates": [{"candidate_ref": "source-cand"}],
+                    }
+                ],
+                "events": [{"message": "large diagnostic"}],
+            },
+        }
+    }
+
+    rows = property_search_storage._list_property_search_run_records(
+        limit=10,
+        principal_id="principal-a",
+        lightweight=True,
+        registry=registry,
+    )
+
+    assert len(rows) == 1
+    summary = rows[0]["summary"]
+    assert rows[0]["run_id"] == "run-compact"
+    assert rows[0]["property_search_preferences"]["location_query"] == "1010 Vienna"
+    assert "raw_preferences" not in rows[0]["property_search_preferences"]
+    assert "saved_shortlist_candidates" not in rows[0]["property_search_preferences"]
+    assert "search_agents" not in rows[0]["property_search_preferences"]
+    assert summary["sources_total"] == 104
+    assert summary["ranked_candidates"] == [{"candidate_ref": "ranked-1", "title": "Kept"}]
+    assert "sources" not in summary
+    assert "events" not in summary
+
+
 def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
     source = Path(property_search_storage.__file__).read_text(encoding="utf-8")
 
