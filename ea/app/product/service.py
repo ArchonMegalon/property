@@ -9320,8 +9320,8 @@ def _property_alert_next_action_text(
     has_listing = bool(str(property_url or "").strip())
     if recommendation == "shortlist" or fit_score >= 80.0:
         if has_listing:
-            return "Next: open the listing and generate a tour."
-        return "Next: open the strongest listing from the alert and generate a tour."
+            return "Next: open the listing, then request a 3D tour if it is worth deeper screening."
+        return "Next: open the strongest listing, then request a 3D tour if it is worth deeper screening."
     if recommendation in {"mention", "view_if_compelling"} or fit_score >= 60.0:
         if has_listing:
             return "Next: review the listing and compare it against the shortlist."

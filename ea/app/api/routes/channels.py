@@ -4730,7 +4730,7 @@ def _telegram_scout_update_turn_decision(ctx: TelegramTurnContext) -> TelegramTu
         return TelegramTurnDecision(
             reply_text=(
                 "Scout update needs the listing link. Send: /scout_update <property link> and "
-                "I will generate the 3D tour, fly-through, dossier PDF, preview image, and open-buttons in one reply."
+                "I will prepare the review, dossier, preview, and the buttons to request 3D or walkthrough media."
             )
         )
     async_text = normalized

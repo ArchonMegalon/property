@@ -8730,7 +8730,8 @@ def test_property_alert_review_telegram_text_includes_top_candidate_summary() ->
     assert "Top candidate: Personal fit 91/100" in text
     assert "Top listing: use the button below." in text
     assert "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-1" not in text
-    assert "Next: open the listing and generate a tour." in text
+    assert "Next: open the listing, then request a 3D tour if it is worth deeper screening." in text
+    assert "generate a tour" not in text
 
 
 def test_property_alert_fit_summary_does_not_lead_with_360_when_stronger_reason_exists() -> None:
