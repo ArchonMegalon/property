@@ -7,7 +7,6 @@
       </div>
       <div class="pqx-inline-actions">
         {% if run_active %}
-        <button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>
         {% if run.get('run_id') %}
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop and remove this live search?">Stop and remove</button>
         {% endif %}

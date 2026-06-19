@@ -3405,6 +3405,33 @@
       padding: 16px;
       box-shadow: 0 18px 42px rgba(74, 61, 44, 0.12);
     }
+    .pqx-empty-results-completed .pqx-run-hero {
+      gap: 10px;
+      padding: 12px;
+      box-shadow: 0 12px 28px rgba(74, 61, 44, 0.08);
+    }
+    .pqx-empty-results-completed .pqx-title {
+      display: grid;
+      gap: 3px;
+    }
+    .pqx-empty-results-completed .pqx-title h1,
+    .pqx-empty-results-completed .pqx-run-head .pqx-title h1 {
+      max-width: none;
+      font-size: clamp(1.2rem, 1.6vw, 1.55rem);
+      line-height: 1.12;
+    }
+    .pqx-empty-results-completed .pqx-fact-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-empty-results-completed .pqx-fact {
+      min-height: 46px;
+      padding: 8px 10px;
+    }
+    .pqx-empty-results-completed .pqx-empty-outcome-summary {
+      margin-top: 0 !important;
+      padding: 10px;
+    }
     .pqx-empty-results-failed .pqx-title {
       display: grid;
       gap: 4px;
@@ -5314,8 +5341,8 @@
         <button class="pqx-button subtle" type="button" data-pqx-theme-toggle aria-pressed="false">Dark mode</button>
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
         <span class="pqx-context-actions" data-pw-top-actions></span>
-        {% if run_active %}
-        <button class="pqx-button primary" type="button" data-pqx-refresh-status>Refresh status</button>
+        {% if run_active and run.get('run_id') %}
+        <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop and remove this live search?">Stop and remove</button>
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% elif setup_mode %}
@@ -5600,8 +5627,8 @@
             <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
-                  <strong>Widen one rule</strong>
-                  <div class="pqx-note">Choose one change.</div>
+                  <strong>Recover filtered homes</strong>
+                  <div class="pqx-note">Choose one small change, then rerun.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
@@ -5612,11 +5639,25 @@
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true" data-pqx-filter-impact>+{{ row.get('affected_total') }}</span>{% endif %}
                   <strong>{{ row.get('title') }}</strong>
                   <span class="pqx-note">{{ row.get('detail') }}</span>
-                  {% if row.get('tag') == 'Area' %}
+                  {% set slider = row.get('slider') or {} %}
+                  {% if slider %}
                   <label class="pqx-filter-radius-control">
-                    <span>Nearby radius <b data-pqx-filter-radius-value>750 m</b></span>
-                    <input type="range" min="250" max="2000" step="250" value="750" data-pqx-filter-radius data-pqx-filter-max="{{ row.get('affected_total') or 0 }}">
-                    <span class="pqx-small">Estimated recovery changes as the radius grows.</span>
+                    <span>{{ slider.get('label') or 'Adjustment' }} <b data-pqx-filter-slider-value>{{ slider.get('value') }}{% if slider.get('unit') %} {{ slider.get('unit') }}{% endif %}</b></span>
+                    <input
+                      type="range"
+                      min="{{ slider.get('min') or 0 }}"
+                      max="{{ slider.get('max') or slider.get('value') or 0 }}"
+                      step="{{ slider.get('step') or 1 }}"
+                      value="{{ slider.get('value') or slider.get('min') or 0 }}"
+                      data-pqx-filter-slider
+                      data-pqx-filter-field="{{ slider.get('field') or '' }}"
+                      data-pqx-filter-kind="{{ slider.get('kind') or '' }}"
+                      data-pqx-filter-unit="{{ slider.get('unit') or '' }}"
+                      data-pqx-filter-base="{{ slider.get('min') or 0 }}"
+                      data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
+                      data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
+                    >
+                    <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes changes as the slider moves.</span>
                   </label>
                   {% endif %}
                   <div class="pqx-actions">
@@ -5647,11 +5688,24 @@
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
                   <strong>{{ row.get('title') or 'Filtered matches' }}</strong>
                   <span class="pqx-note">{{ row.get('detail') or 'Some candidates stayed outside the shortlist because of the current brief or missing evidence.' }}</span>
-                  {% if row.get('action_label') %}
                   <div class="pqx-actions">
-                    <button class="pqx-button subtle" type="button" data-pqx-filtered-close>{{ row.get('action_label') }}</button>
+                    <a class="pqx-button primary" href="/app/search">{{ row.get('action_label') or 'Adjust search' }}</a>
                   </div>
-                  {% endif %}
+                </div>
+                {% else %}
+                <div class="pqx-filtered-dialog-rule">
+                  <strong>Widen the selected area</strong>
+                  <span class="pqx-note">Keep hard requirements, but add nearby districts or a small radius before rerunning.</span>
+                  <div class="pqx-actions">
+                    <a class="pqx-button primary" href="/app/search">Adjust search</a>
+                  </div>
+                </div>
+                <div class="pqx-filtered-dialog-rule">
+                  <strong>Soften one preference</strong>
+                  <span class="pqx-note">Leave must-haves strict; move nice-to-have rules into scoring so good homes can surface.</span>
+                  <div class="pqx-actions">
+                    <a class="pqx-button subtle" href="/app/search">Review what matters</a>
+                  </div>
                 </div>
                 {% endfor %}
                 {% endif %}
@@ -6244,15 +6298,15 @@
       </section>
       {% elif run_terminal_no_results %}
       {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
-      <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% endif %}" data-pqx-empty-results>
+      <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results">
           <div class="pqx-title">
-            <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Run complete{% endif %}</span>
+            <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
               {% if run_status == 'failed' %}
                 {% if run_reliability.get('repair_step_label') %}Repairing search.{% else %}Search stopped before ranking.{% endif %}
               {% else %}
-                No strong matches found yet.
+                {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
               {% endif %}
             </h1>
             {% if run_status == 'failed' and (run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label')) %}
@@ -6298,10 +6352,6 @@
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
             </div>
-            {% if not run_failed_no_results and (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) %}
-            {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}
-            <div class="pqx-decision-status" data-pqx-counterfactual-status></div>
-            {% endif %}
           </div>
         </aside>
         {% if not run_failed_no_results %}
@@ -6450,7 +6500,7 @@
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>
-            <div class="pqx-note">{% if run_status == 'failed' %}Refresh if the failure looks transient. Otherwise remove one strict rule before starting over.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
+            <div class="pqx-note">{% if run_status == 'failed' %}Repair checks this automatically. Remove one strict rule if the rerun still returns nothing.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
           </section>
           </div>
           {% endif %}

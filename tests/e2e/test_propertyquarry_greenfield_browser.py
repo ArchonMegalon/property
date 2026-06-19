@@ -996,7 +996,7 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
             timeout=7000,
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        assert page.locator("[data-pqx-empty-results]", has_text="No strong matches found yet").is_visible()
+        assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No valid homes|No shortlist", re.I)).is_visible()
         assert page.locator("body", has_text="Ways to get more matches").is_visible()
         assert page.locator("[data-pqx-counterfactuals]").is_visible()
         assert page.get_by_role("button", name=re.compile("Apply|Allow|Use|Raise|Relax|Reopen")).first.is_visible()

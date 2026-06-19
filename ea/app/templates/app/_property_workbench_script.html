@@ -1493,7 +1493,7 @@
       const filteredLabel = filteredTotal > 0 ? `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="${escapeHtml(filteredTotal)} filtered">${escapeHtml(filteredTotal)} filtered</a>` : '';
       const filteredBreakdown = filteredTotal > 0 ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>How this search was filtered</strong></summary>
+            <summary><strong>Filtering diagnostics</strong><span class="pqx-note">Provider-level details</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -1509,7 +1509,7 @@
               </div>
             </div>
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
-              <div class="pqx-empty">No ranked homes are ready yet. Open the filtered breakdown to see what the hard rules held back.</div>
+              <div class="pqx-empty">No ranked homes are ready yet. Open filtered recovery to relax one rule and rerun.</div>
             </div>
             ${filteredBreakdown}
           </section>
@@ -3406,21 +3406,40 @@
     };
     root.addEventListener('click', handleFilteredOpenClick);
     document.addEventListener('click', handleFilteredOpenClick);
-    root.querySelectorAll('[data-pqx-filter-radius]').forEach((slider) => {
+    root.querySelectorAll('[data-pqx-filter-slider]').forEach((slider) => {
       const card = slider.closest('.pqx-filtered-dialog-rule');
-      const radiusLabel = card?.querySelector('[data-pqx-filter-radius-value]');
+      const valueLabel = card?.querySelector('[data-pqx-filter-slider-value]');
       const impactLabel = card?.querySelector('[data-pqx-filter-impact]');
+      const estimateLabel = card?.querySelector('[data-pqx-filter-estimate]');
       const maxImpact = Math.max(0, Number(slider.getAttribute('data-pqx-filter-max') || '0') || 0);
-      const updateRadiusPreview = () => {
-        const radius = Math.max(250, Number(slider.value || '750') || 750);
-        if (radiusLabel) radiusLabel.textContent = `${radius} m`;
-        if (impactLabel && maxImpact) {
-          const ratio = Math.min(1, Math.max(0.18, radius / 2000));
-          impactLabel.textContent = String(Math.max(1, Math.round(maxImpact * ratio)));
+      const minValue = Number(slider.getAttribute('data-pqx-filter-base') || slider.min || '0') || 0;
+      const maxValue = Number(slider.getAttribute('data-pqx-filter-max-value') || slider.max || '0') || 0;
+      const unit = String(slider.getAttribute('data-pqx-filter-unit') || '').trim();
+      const kind = String(slider.getAttribute('data-pqx-filter-kind') || '').trim();
+      const formatSliderValue = (value) => {
+        const amount = Math.max(0, Number(value || 0) || 0);
+        if (kind === 'budget') {
+          const formatted = Math.round(amount).toLocaleString(undefined, { maximumFractionDigits: 0 });
+          return unit ? `${unit} ${formatted}` : formatted;
+        }
+        const formatted = Math.round(amount).toLocaleString(undefined, { maximumFractionDigits: 0 });
+        return unit ? `${formatted} ${unit}` : formatted;
+      };
+      const updateSliderPreview = () => {
+        const selectedValue = Number(slider.value || minValue) || minValue;
+        if (valueLabel) valueLabel.textContent = formatSliderValue(selectedValue);
+        if (maxImpact) {
+          const span = Math.max(1, maxValue - minValue);
+          const ratio = Math.min(1, Math.max(0.08, (selectedValue - minValue) / span));
+          const estimate = Math.max(1, Math.round(maxImpact * ratio));
+          if (impactLabel) impactLabel.textContent = `+${estimate}`;
+          if (estimateLabel) estimateLabel.textContent = `${estimate} estimated newly ranked homes after rerun.`;
+        } else if (estimateLabel) {
+          estimateLabel.textContent = 'Rerun to see how many homes recover.';
         }
       };
-      slider.addEventListener('input', updateRadiusPreview);
-      updateRadiusPreview();
+      slider.addEventListener('input', updateSliderPreview);
+      updateSliderPreview();
     });
     root.querySelectorAll('[data-pqx-counterfactual]').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -3432,9 +3451,10 @@
           adjustments = {};
         }
         if (!adjustments || typeof adjustments !== 'object' || Array.isArray(adjustments)) adjustments = {};
-        const radiusSlider = button.closest('.pqx-filtered-dialog-rule')?.querySelector('[data-pqx-filter-radius]');
-        if (radiusSlider) {
-          adjustments.adjacent_area_radius_m = Math.max(250, Number(radiusSlider.value || '750') || 750);
+        const slider = button.closest('.pqx-filtered-dialog-rule')?.querySelector('[data-pqx-filter-slider]');
+        if (slider) {
+          const fieldName = String(slider.getAttribute('data-pqx-filter-field') || '').trim();
+          if (fieldName) adjustments[fieldName] = Math.max(0, Number(slider.value || '0') || 0);
         }
         if (localStatusNode) localStatusNode.textContent = 'Applying broader search...';
         try {
@@ -3443,12 +3463,6 @@
         } catch (error) {
           if (localStatusNode) localStatusNode.textContent = error instanceof Error ? error.message : 'Could not apply the broader search.';
         }
-      });
-    });
-    root.querySelectorAll('[data-pqx-refresh-status]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const statusUrl = String(data.run?.status_url || '').trim();
-        if (statusUrl) pollRun(statusUrl);
       });
     });
     root.querySelectorAll('[data-fliplink-packet]').forEach((button) => {

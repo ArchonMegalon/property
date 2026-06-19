@@ -3745,6 +3745,16 @@ def test_property_counterfactual_budget_action_uses_market_currency() -> None:
 
     budget_row = next(row for row in rows if row.get("tag") == "Budget")
     assert budget_row["action_label"] == "Raise to GBP 550,000"
+    assert budget_row["slider"] == {
+        "kind": "budget",
+        "field": "max_price_eur",
+        "label": "Budget ceiling",
+        "min": 500000,
+        "max": 675000,
+        "step": 5000,
+        "value": 550000,
+        "unit": "GBP",
+    }
     assert "EUR" not in str(budget_row["action_label"])
 
 
@@ -5048,12 +5058,25 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "filtered" in body
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "if (opened) {\n        return;\n      }\n      const fallbackOpened = openFilteredFallbackPanel();" in body
-    assert "if (opened || fallbackOpened)" not in body
-    assert "[data-pqx-source-breakdown]" in body
+    assert "Recover filtered homes" in body
+    assert "estimated newly ranked homes after rerun" in body
+    assert "data-pqx-filter-slider" in body
+    assert "data-pqx-filter-field" in body
+    assert "adjustments[fieldName]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
-    assert "No ranked homes are ready yet. Open the filtered breakdown" in body
+    assert "No ranked homes are ready yet. Open filtered recovery" in body
     assert "Best homes first" not in body
+
+
+def test_property_live_run_has_no_manual_refresh_controls() -> None:
+    body = _read_workbench_bundle()
+    running_panel = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_running_panel.html").read_text(encoding="utf-8")
+
+    assert "data-pqx-refresh-status" not in body
+    assert "data-pqx-refresh-status" not in running_panel
+    assert "Refresh status" not in body
+    assert ">Refresh<" not in running_panel
+    assert "Stop and remove" in running_panel
 
 
 def test_property_live_ranked_candidates_filter_repair_and_false_positive_rows() -> None:
@@ -5447,8 +5470,8 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Status" in response.text
     assert "Timing" not in response.text
     assert "Queued a generic provider repair." in response.text
-    assert response.text.count("How this search was filtered") == 1
-    assert "Filtered by rules: How this search was filtered" not in response.text
+    assert response.text.count("Filtering diagnostics") == 1
+    assert "Filtered by rules: Filtering diagnostics" not in response.text
 
 
 def test_propertyquarry_raw_ranked_fallback_excludes_maybe_false_candidates(monkeypatch) -> None:

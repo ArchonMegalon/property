@@ -29396,6 +29396,37 @@ class ProductService:
                 summary["ranked_candidates"] = ranked_candidates
         if sources:
             summary["sources"] = sources
+            def _source_positive_int(source: dict[str, object], *keys: str) -> int:
+                for key in keys:
+                    try:
+                        value = source.get(key)
+                        if value not in (None, ""):
+                            return max(0, int(float(value)))
+                    except Exception:
+                        continue
+                return 0
+
+            raw_listing_total = sum(
+                _source_positive_int(source, "raw_listing_total")
+                for source in sources
+                if isinstance(source, dict)
+            )
+            scanned_listing_total = sum(
+                _source_positive_int(source, "scanned_listing_total", "reviewed_listing_total")
+                for source in sources
+                if isinstance(source, dict)
+            )
+            location_mismatch_total = sum(
+                _source_positive_int(source, "location_mismatch_candidate_total")
+                for source in sources
+                if isinstance(source, dict)
+            )
+            if raw_listing_total > 0:
+                summary["raw_listing_total"] = raw_listing_total
+            if scanned_listing_total > 0:
+                summary["scanned_listing_total"] = scanned_listing_total
+            if location_mismatch_total > 0:
+                summary["location_mismatch_candidate_total"] = location_mismatch_total
         summary = self._apply_property_search_run_repair_receipts(summary=summary)
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
         held_back_total = int(
@@ -31808,18 +31839,23 @@ class ProductService:
                             }
                     filtered_low_fit_total += 1
                     filtered_low_fit_for_source += 1
-                    ranked_rows.pop()
+                    ranked_rows[-1]["score_demoted"] = True
+                    ranked_rows[-1]["below_match_threshold"] = True
+                    ranked_rows[-1]["score_demotion_reason"] = (
+                        f"Below the current {int(min_match_score)}/100 match bar; kept for ranking instead of filtering."
+                    )
+                    detailed_facts["score_demoted_by_match_threshold"] = True
+                    detailed_facts["score_demotion_reason"] = ranked_rows[-1]["score_demotion_reason"]
                     _report(
-                        step="source_low_fit_filter",
+                        step="source_low_fit_demoted",
                         message=(
-                            f"Skipped candidate below {int(min_match_score)}/100 "
-                            f"for {source_label}."
+                            f"Demoted candidate below {int(min_match_score)}/100 for {source_label}; "
+                            "kept in ranking."
                         ),
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
                     )
-                    continue
                 if ordinal == 1 or ordinal == enrichment_limit or ordinal % 2 == 0:
                     _report(
                         step="source_ranking",
@@ -32147,6 +32183,9 @@ class ProductService:
                         "ranking_score": ranking_score,
                         "investment_score": investment_score,
                         "assessment_fit_score": assessment_fit_score,
+                        "score_demoted": bool(row.get("score_demoted")),
+                        "below_match_threshold": bool(row.get("below_match_threshold")),
+                        "score_demotion_reason": str(row.get("score_demotion_reason") or "").strip(),
                         "fit_summary": _property_alert_fit_summary(assessment),
                         "recommendation": str(assessment.get("recommendation") or "").strip(),
                         "source_platform": str(source_spec.get("platform") or "").strip().lower(),

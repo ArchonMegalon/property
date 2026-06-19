@@ -1408,6 +1408,16 @@ def _property_counterfactual_rows(
                 "tag": "Area",
                 "action_label": "Set nearby radius",
                 "adjustments": {"full_region_scope": True, "location_query": region_label, "custom_location_query": "", "adjacent_area_radius_m": 750},
+                "slider": {
+                    "kind": "radius",
+                    "field": "adjacent_area_radius_m",
+                    "label": "Nearby radius",
+                    "min": 250,
+                    "max": 2000,
+                    "step": 250,
+                    "value": 750,
+                    "unit": "m",
+                },
                 "affected_total": outside_selected_area_total,
             }
         )
@@ -1442,6 +1452,7 @@ def _property_counterfactual_rows(
     explicit_budget = _has_explicit_numeric_filter(raw_preferences, "max_price_eur")
     if current_budget > 0 and explicit_budget:
         next_budget = current_budget + max(25000, int(round(current_budget * 0.1)))
+        max_budget = current_budget + max(100000, int(round(current_budget * 0.35)))
         budget_currency = str(currency_code or "EUR").strip().upper() or "EUR"
         rows.append(
             {
@@ -1450,6 +1461,16 @@ def _property_counterfactual_rows(
                 "tag": "Budget",
                 "action_label": f"Raise to {budget_currency} {next_budget:,}",
                 "adjustments": {"max_price_eur": next_budget},
+                "slider": {
+                    "kind": "budget",
+                    "field": "max_price_eur",
+                    "label": "Budget ceiling",
+                    "min": current_budget,
+                    "max": max_budget,
+                    "step": 5000,
+                    "value": next_budget,
+                    "unit": budget_currency,
+                },
                 "affected_total": outside_area_or_size_total,
             }
         )

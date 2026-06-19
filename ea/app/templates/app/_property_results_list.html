@@ -188,7 +188,7 @@
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/search">Adjust search</a>
         {% if filtered_total %}
-        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Open filtered breakdown</button>
+        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Recover filtered homes</button>
         {% endif %}
       </span>
       {% endif %}
@@ -197,7 +197,7 @@
   </div>
   {% if filtered_total %}
   <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-    <summary><strong>How this search was filtered</strong></summary>
+    <summary><strong>Filtering diagnostics</strong><span class="pqx-note">Provider-level details</span></summary>
     <div class="pqx-source-list" data-pqx-source-breakdown>
       {% for source in run_sources[:8] %}
       <article class="pqx-source-card">
