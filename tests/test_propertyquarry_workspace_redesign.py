@@ -3314,7 +3314,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                     ],
                 },
             "events": [
-                {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
+                {"step": "sources_resolved", "message": "Resolved 2 provider(s) for scanning.", "status": "in_progress"},
                 {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
             ],
         }
@@ -3681,6 +3681,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Billing truth" not in billing.text
     assert "Commercial truth" not in billing.text
     assert "Plan and limits" not in billing.text
+
+
+def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    service_source = (repo_root / "ea/app/product/service.py").read_text(encoding="utf-8")
+
+    assert "Resolved {source_variant_total} source(s) for scanning." not in service_source
+    assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." in service_source
 
 
 def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:

@@ -166,7 +166,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
                     ],
                 },
             "events": [
-                {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
+                {"step": "sources_resolved", "message": "Resolved 2 provider(s) for scanning.", "status": "in_progress"},
                 {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
             ],
         }

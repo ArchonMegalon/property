@@ -4927,7 +4927,7 @@ def test_property_search_run_progress_records_sources_completed_and_eta_summary(
             "selected_platforms": ["immowelt_at"],
             "progress": 0,
             "current_step": "sources_resolved",
-            "message": "Resolved 6 source(s) for scanning.",
+            "message": "Resolved 6 provider(s) for scanning.",
             "stages_total": 120,
             "steps_completed": 2,
             "summary": {

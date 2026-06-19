@@ -242,7 +242,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                 ],
             },
             "events": [
-                {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
+                {"step": "sources_resolved", "message": "Resolved 2 provider(s) for scanning.", "status": "in_progress"},
                 {
                     "step": "completed" if processed else "provider_scan",
                     "message": "No strong matches met the selected threshold." if processed else "Scanning cooperative providers.",
@@ -339,7 +339,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                 ],
             },
             "events": [
-                {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
+                {"step": "sources_resolved", "message": "Resolved 2 provider(s) for scanning.", "status": "in_progress"},
                 {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
             ],
         }
