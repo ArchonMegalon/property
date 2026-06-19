@@ -6584,8 +6584,9 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert page.status_code == 200
     assert 'data-pqx-state="empty_results"' in page.text
     assert "The search could not finish." not in page.text
-    assert "Repair is checking this run." in page.text
+    assert "Repairing search." in page.text
     assert "Retrying Willhaben provider check" in page.text
+    assert "Auto-repair is queued and will retry the interrupted provider checks." in page.text
     assert "Best matches" not in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Open to relax one rule and rerun the search." not in page.text
