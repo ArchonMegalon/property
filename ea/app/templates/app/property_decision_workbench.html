@@ -6248,7 +6248,7 @@
               <a class="pqx-link-button primary" href="/app/search">New search</a>
               <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
             </div>
-            {% if workbench.get('counterfactual_rows') or workbench.get('suppression_rows') %}
+            {% if not run_failed_no_results and (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) %}
             {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or []) }}
             <div class="pqx-decision-status" data-pqx-counterfactual-status></div>
             {% endif %}
