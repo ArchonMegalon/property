@@ -4806,25 +4806,27 @@ def test_property_scout_generic_provider_pages_never_enter_ranked_candidates(mon
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Generic Page Gate Office")
     candidate_url = "https://heimat-oesterreich.example/ausschreibungen/architekturwettbewerbe"
+    second_candidate_url = "https://heimat-oesterreich.example/ausschreibungen/architekturwettbewerbe?page=2"
+    source_url = "https://heimat-oesterreich.example/search?q=1010+Vienna"
     monkeypatch.setattr(
         product_service,
         "generated_property_source_specs",
         lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
             {
-                "url": "https://heimat-oesterreich.example/search?q=1010+Vienna",
+                "url": source_url,
                 "label": "Genossenschaften | Austria | Rent | 1010 Vienna | Heimat Österreich",
                 "platform": "derstandard_at",
                 "provider_family": "housing_coop",
                 "principal_id": principal_id,
                 "preference_person_id": default_person_id,
                 "notify_telegram": True,
-                "max_results": 1,
+                "max_results": 2,
                 "country_code": "AT",
             },
         ),
     )
     monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
-    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url,))
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (candidate_url, second_candidate_url))
     monkeypatch.setattr(
         product_service,
         "_property_scout_page_preview",
@@ -4872,15 +4874,16 @@ def test_property_scout_generic_provider_pages_never_enter_ranked_candidates(mon
                 "active_until": "2999-01-01T00:00:00+00:00",
             },
         },
-        max_results_per_source=1,
+        max_results_per_source=2,
         force_refresh=True,
     )
 
     assert result["listing_total"] == 0
     assert result["ranked_candidates"] == []
-    assert result["filtered_generic_page_total"] == 1
+    assert result["filtered_generic_page_total"] == 2
     assert result["provider_repair_task_opened_total"] == 1
-    assert result["sources"][0]["filtered_generic_page_total"] == 1
+    assert result["sources"][0]["filtered_generic_page_total"] == 2
+    assert result["sources"][0]["provider_repair_task_opened_total"] == 1
     assert result["sources"][0]["top_candidates"] == []
     assert result["sources"][0]["research_candidates"] == []
     repair_tasks = [
@@ -4892,8 +4895,11 @@ def test_property_scout_generic_provider_pages_never_enter_ranked_candidates(mon
         )
         if task.task_type == "property_provider_repair_ooda"
     ]
-    assert repair_tasks
-    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "generic_listing_page"
+    assert len(repair_tasks) == 1
+    repair_input = dict(repair_tasks[0].input_json or {})
+    assert repair_input.get("filter_key") == "generic_listing_page"
+    assert repair_input.get("property_url") == source_url
+    assert repair_input.get("diagnostics", {}).get("example_property_url") == candidate_url
 
 
 def test_property_scout_listing_mode_mismatch_never_enters_ranked_candidates(monkeypatch) -> None:
