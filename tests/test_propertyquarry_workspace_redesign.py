@@ -634,28 +634,7 @@ def test_propertyquarry_shortlist_without_run_id_prefers_latest_terminal_run_wit
         ]
 
     def _fake_run_status(self, *, principal_id: str, run_id: str):
-        assert run_id == "run-ranked-terminal"
-        return {
-            "run_id": run_id,
-            "principal_id": principal_id,
-            "status": "completed_partial",
-            "status_label": "Partial coverage",
-            "progress": 100,
-            "message": "Current shortlist is still available.",
-            "summary": {
-                "status": "completed_partial",
-                "ranked_candidates": [
-                    {
-                        "title": "Praterstrasse flat",
-                        "fit_score": 54.0,
-                        "packet_url": "/app/research/prater-flat?run_id=run-ranked-terminal",
-                        "property_url": "https://www.willhaben.at/iad/object?adId=1134225012",
-                        "property_facts": {"postal_name": "1020 Wien", "price_display": "€ 1.598"},
-                    }
-                ],
-                "sources": [],
-            },
-        }
+        raise AssertionError("shortlist should use the lightweight run-list snapshot when it already contains ranked candidates")
 
     monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)

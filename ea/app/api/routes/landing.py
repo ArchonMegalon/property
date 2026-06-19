@@ -1162,6 +1162,7 @@ def _property_console_context(
     )
     recent_search_runs: list[dict[str, object]] = []
     lightweight_active_run: dict[str, object] = {}
+    active_run: dict[str, object] | None = None
     should_load_recent_runs = (
         wants_recent_runs
         and not (normalized_run_id and surface_scope.section in {"properties", "shortlist"})
@@ -1214,7 +1215,8 @@ def _property_console_context(
         if isinstance(active_run, dict):
             normalized_run_id = str(active_run.get("run_id") or "").strip()
     if wants_run_state and normalized_run_id:
-        active_summary = dict(run_payload.get("summary") or {})
+        active_summary_source = run_payload if run_payload else (active_run if isinstance(active_run, dict) else {})
+        active_summary = dict(active_summary_source.get("summary") or {}) if isinstance(active_summary_source.get("summary"), dict) else {}
         should_hydrate_run_status = True
         if surface_scope.section == "search" and not active_summary.get("ranked_candidates"):
             should_hydrate_run_status = (
@@ -1223,6 +1225,8 @@ def _property_console_context(
                 and not active_summary.get("reviewed_listing_total")
                 and not active_summary.get("listing_total")
             )
+        if surface_scope.section == "shortlist" and active_summary.get("ranked_candidates"):
+            should_hydrate_run_status = False
         if should_hydrate_run_status:
             try:
                 run_payload = dict(

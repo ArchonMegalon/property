@@ -37,10 +37,10 @@ class PropertySurfaceScope:
             section=normalized,  # type: ignore[arg-type]
             wants_run_state=normalized in {"properties", "search", "shortlist", "agents"},
             wants_recent_runs=normalized in {"properties", "search", "shortlist"},
-            wants_recent_matches=normalized in {"shortlist"},
+            wants_recent_matches=False,
             wants_preference_profile=normalized in {"account"},
             wants_learning_summary=False,
-            wants_search_runs=normalized in {"search", "shortlist"},
+            wants_search_runs=normalized in {"search"},
             wants_agent_views=normalized == "agents",
             wants_credit_digest=normalized in {"billing"},
             wants_run_views=normalized in {"properties", "search", "shortlist", "agents"},
