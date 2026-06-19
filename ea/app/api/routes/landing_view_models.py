@@ -60,6 +60,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _group_property_provider_options,
     _official_risk_posture_rows,
     _property_candidate_directions_url,
+    _property_candidate_is_rankable,
     _property_candidate_maps_url,
     _property_candidate_orientation_preview,
     _property_candidate_preview_image,
@@ -2664,6 +2665,8 @@ def app_section_payload(
                         if not isinstance(candidate, dict):
                             continue
                         candidate_row = dict(candidate)
+                        if not _property_candidate_is_rankable(candidate_row):
+                            continue
                         candidate_key = str(candidate_row.get("source_ref") or candidate_row.get("property_url") or candidate_row.get("listing_id") or "").strip()
                         if candidate_key and candidate_key in seen_candidates:
                             continue

@@ -10,6 +10,53 @@ from app.product.property_surface_state import build_property_run_reliability_sn
 from app.services.property_artifact_contracts import required_artifact_receipt_rows
 
 
+def _property_candidate_is_rankable(candidate: dict[str, object]) -> bool:
+    status_fields = (
+        "status",
+        "review_status",
+        "candidate_status",
+        "filter_status",
+        "repair_status",
+    )
+    blocked_statuses = {
+        "dismissed",
+        "filtered",
+        "filtered_out",
+        "hard_filtered",
+        "maybe_false",
+        "maybe_false_positive",
+        "false_positive",
+        "not_a_listing",
+        "repair_only",
+        "queued_for_repair",
+        "suppressed",
+    }
+    for field in status_fields:
+        if str(candidate.get(field) or "").strip().lower() in blocked_statuses:
+            return False
+    blocked_flags = (
+        "maybe_false",
+        "maybe_false_positive",
+        "false_positive",
+        "flagged_for_repair",
+        "repair_only",
+        "filtered_out",
+        "hard_filtered",
+        "not_a_listing",
+    )
+    for flag in blocked_flags:
+        value = candidate.get(flag)
+        if isinstance(value, bool) and value:
+            return False
+        if isinstance(value, (int, float)) and value != 0:
+            return False
+        if str(value or "").strip().lower() in {"1", "true", "yes", "on", "y"}:
+            return False
+    if str(candidate.get("hard_filter_reason") or candidate.get("filter_reason") or "").strip():
+        return False
+    return True
+
+
 def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str, object]:
     top_level_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     if isinstance(candidate.get("property_facts_json"), dict):

@@ -25,6 +25,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_directions_url,
     _property_candidate_maps_url,
     _property_candidate_orientation_preview,
+    _property_candidate_is_rankable,
     _property_candidate_preview_image,
     _property_candidate_route_evidence,
     _property_candidate_display_facts,
@@ -198,6 +199,8 @@ def property_workspace_payload(
             for source in raw_run_sources:
                 source_label = str(source.get("source_label") or source.get("label") or "").strip()
                 for candidate in [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]:
+                    if not _property_candidate_is_rankable(candidate):
+                        continue
                     candidate.setdefault("source_label", source_label)
                     synthesized_candidates.append(candidate)
             synthesized_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)

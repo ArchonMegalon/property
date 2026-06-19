@@ -2049,6 +2049,80 @@ def test_property_workspace_payload_excludes_ranked_candidates_without_concrete_
     assert payload["decision_workbench"]["results"] == []
 
 
+def test_property_workspace_payload_source_fallback_excludes_false_positive_and_repair_rows() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1020 Vienna",
+            },
+            "run": {
+                "run_id": "run-source-only-fallback",
+                "property_search_preferences": {
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1020 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [],
+                    "sources": [
+                        {
+                            "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                            "top_candidates": [
+                                {
+                                    "candidate_ref": "good",
+                                    "title": "Real 1020 apartment",
+                                    "property_url": "https://example.test/good",
+                                    "fit_score": 72,
+                                    "property_facts": {
+                                        "postal_name": "1020 Wien",
+                                        "rent_display": "EUR 1,200",
+                                        "total_rent_eur": 1200,
+                                        "area_sqm": 72,
+                                        "rooms": 3,
+                                    },
+                                },
+                                {
+                                    "candidate_ref": "maybe-false",
+                                    "title": "Maybe false",
+                                    "property_url": "https://example.test/maybe",
+                                    "fit_score": 99,
+                                    "maybe_false": True,
+                                    "property_facts": {"postal_name": "1020 Wien", "price_display": "EUR 1,100", "area_sqm": 70},
+                                },
+                                {
+                                    "candidate_ref": "repair-only",
+                                    "title": "Repair only",
+                                    "property_url": "https://example.test/repair",
+                                    "fit_score": 98,
+                                    "flagged_for_repair": True,
+                                    "property_facts": {"postal_name": "1020 Wien", "price_display": "EUR 1,100", "area_sqm": 70},
+                                },
+                                {
+                                    "candidate_ref": "hard-filtered",
+                                    "title": "Wrong area",
+                                    "property_url": "https://example.test/filter",
+                                    "fit_score": 97,
+                                    "hard_filter_reason": "area_mismatch",
+                                    "property_facts": {"postal_name": "1200 Wien", "price_display": "EUR 1,100", "area_sqm": 70},
+                                },
+                            ],
+                        }
+                    ],
+                },
+            },
+        },
+    )
+
+    titles = [str(row.get("title") or "") for row in payload["decision_workbench"]["results"]]
+    assert titles == ["Real 1020 apartment"]
+
+
 def test_property_workspace_payload_excludes_dirty_source_scope_when_listing_text_has_other_postal() -> None:
     payload = landing_property_workspace_payload.property_workspace_payload(
         "shortlist",
@@ -4116,6 +4190,8 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
 
 def test_property_live_ranked_candidates_filter_repair_and_false_positive_rows() -> None:
     body = _read_workbench_bundle()
+    view_model = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
+    payload_builder = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
 
     assert "const isRankableCandidate = (candidate) => {" in body
     assert "candidate.maybe_false || candidate.maybe_false_positive || candidate.false_positive || candidate.flagged_for_repair" in body
@@ -4123,6 +4199,8 @@ def test_property_live_ranked_candidates_filter_repair_and_false_positive_rows()
     assert "topCandidates.forEach((candidate) => {" in body
     assert "if (!isRankableCandidate(candidate)) return;" in body
     assert "Number(right?.ranking_score || right?.investment_score || right?.fit_score || 0)" in body
+    assert "_property_candidate_is_rankable(candidate_row)" in view_model
+    assert "_property_candidate_is_rankable(candidate)" in payload_builder
 
 
 def test_property_decision_save_uses_canonical_endpoint_and_renders_consequences() -> None:
