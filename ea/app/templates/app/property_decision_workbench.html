@@ -122,7 +122,9 @@
 {% set source_completed = run_sources|length %}
 {% set source_variant_total = (summary.get('source_variant_total') or summary.get('sources_total') or source_total or 0)|int %}
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
-{% set scan_count_label = (provider_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' variants') if provider_total > 0 and source_variant_total > provider_total else (source_completed|string ~ '/' ~ source_total|string ~ ' provider checks') %}
+{% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
+{% set provider_display_total = provider_total if provider_total > 0 else selected_provider_total %}
+{% set scan_count_label = (provider_display_total|string ~ ' providers · ' ~ source_variant_total|string ~ ' variants') if provider_display_total > 0 and source_variant_total > provider_display_total else (source_completed|string ~ '/' ~ source_total|string ~ ' provider checks') %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
 {% set layout_unverified = (summary.get('filtered_floorplan_total') or 0)|int %}
 {% set run_progress = (run.get('progress') or summary.get('progress') or 0)|int %}
@@ -6214,10 +6216,15 @@
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
+              {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
+              {% set provider_display_total = (run_summary.get('provider_total') or 0)|int if (run_summary.get('provider_total') or 0)|int > 0 else selected_provider_total %}
+              {% set variant_display_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
-              <div class="pqx-fact"><span>Providers</span><strong>{{ run_summary.get('provider_total') or run_summary.get('sources_total') or run_sources|length or 0 }}</strong></div>
-              {% if (run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0)|int > (run_summary.get('provider_total') or 0)|int and (run_summary.get('provider_total') or 0)|int > 0 %}
-              <div class="pqx-fact"><span>Source variants</span><strong>{{ run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0 }}</strong></div>
+              <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
+              {% if variant_display_total > provider_display_total and provider_display_total > 0 %}
+              <div class="pqx-fact"><span>Source variants</span><strong>{{ variant_display_total }}</strong></div>
+              {% elif variant_display_total > 0 and provider_display_total == 0 %}
+              <div class="pqx-fact"><span>Provider checks</span><strong>{{ variant_display_total }}</strong></div>
               {% endif %}
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
@@ -6227,10 +6234,12 @@
               {% set empty_still_worked = (empty_outcome.get('still_worked') or '')|trim %}
               {% set empty_active_rule = (empty_outcome.get('active_rule') or '')|trim %}
               {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
+              {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
               <div class="pqx-pref-list">
                 <div class="pqx-pref-row"><div><strong>What happened</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>What still worked</strong><small>{{ empty_still_worked or 'The brief and latest source receipts are still available.' }}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>Main blocker</strong><small>{{ empty_active_rule or ('Provider-check health and repair blocked the run before a stable shortlist formed.' if run_status == 'failed' else 'The current shortlist rules stayed stricter than the available market evidence.') }}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>Timing</strong><small>{{ empty_eta_feedback or ('Repair has the run queued; refresh this page or open the rerun when it appears.' if run_status == 'failed' else 'The run is complete; rerun after changing one rule to get a fresh ETA.') }}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>Best next move</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the failed provider checks.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
               </div>
             </div>
@@ -6255,10 +6264,13 @@
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
               <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>
-                {% if (run_summary.get('provider_total') or 0)|int > 0 and (run_summary.get('source_variant_total') or run_summary.get('sources_total') or 0)|int > (run_summary.get('provider_total') or 0)|int %}
-                {{ run_summary.get('provider_total') }} providers · {{ run_summary.get('source_variant_total') or run_summary.get('sources_total') }} variants · {{ run_summary.get('listing_total') or 0 }} homes checked
+                {% set selected_provider_total = (run.get('selected_platforms') or brief.get('providers') or [])|length %}
+                {% set provider_display_total = (run_summary.get('provider_total') or 0)|int if (run_summary.get('provider_total') or 0)|int > 0 else selected_provider_total %}
+                {% set variant_display_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
+                {% if provider_display_total > 0 and variant_display_total > provider_display_total %}
+                {{ provider_display_total }} providers · {{ variant_display_total }} variants · {{ run_summary.get('listing_total') or 0 }} homes checked
                 {% else %}
-                {{ run_summary.get('sources_total') or run_sources|length or 0 }} provider checks · {{ run_summary.get('listing_total') or 0 }} homes checked
+                {{ variant_display_total }} provider checks · {{ run_summary.get('listing_total') or 0 }} homes checked
                 {% endif %}
               </span>
             </div>

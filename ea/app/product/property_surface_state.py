@@ -1132,8 +1132,22 @@ def build_property_empty_outcome_summary(
 ) -> dict[str, str]:
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
     source_total = int(run_summary.get("sources_total") or len(run_sources) or 0)
+    source_completed = int(
+        run_summary.get("sources_completed")
+        or len(
+            [
+                row
+                for row in (run_sources or [])
+                if str(row.get("status") or "").strip().lower() in {"completed", "processed", "ok"}
+            ]
+        )
+        or 0
+    )
     listing_total = int(run_summary.get("listing_total") or 0)
     status_value = str(run_status_value or "").strip().lower()
+    eta_label = str(run_summary.get("eta_label") or "").strip()
+    repair_step_label = str(run_summary.get("repair_step_label") or "").strip()
+    repair_status_label = str(run_summary.get("repair_status_label") or run_summary.get("repair_status") or "").strip()
     strongest_relax = next((row for row in (counterfactual_rows or []) if row.get("adjustments")), {})
     active_rule = ""
     if strongest_relax:
@@ -1157,11 +1171,24 @@ def build_property_empty_outcome_summary(
         or ("Restart the same brief and let auto-repair retry the failed provider checks." if status_value == "failed" else "")
         or "Widen one rule first, then rerun."
     )
+    if status_value == "failed" and repair_step_label:
+        eta_feedback = repair_step_label
+    elif status_value == "failed" and repair_status_label:
+        eta_feedback = f"Repair status: {repair_status_label}."
+    elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
+        eta_feedback = f"Estimated remaining time: {eta_label}."
+    elif source_total:
+        eta_feedback = f"{source_completed}/{source_total} provider checks completed."
+    elif status_value == "failed":
+        eta_feedback = "Repair has the run queued; refresh this page or open the rerun when it appears."
+    else:
+        eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
     return {
         "happened": happened,
         "still_worked": still_worked,
         "next_move": next_move,
         "active_rule": active_rule,
+        "eta_feedback": eta_feedback,
     }
 
 

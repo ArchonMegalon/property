@@ -5250,6 +5250,63 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     assert "Restart the same brief and let repair retry the failed provider checks." in response.text
 
 
+def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatch) -> None:
+    principal_id = "pq-provider-count-regression"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Provider Count Regression")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben", "derstandard_at", "kalandra"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-provider-count-regression"
+        assert run_id == "run-variant-heavy"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "failed",
+            "progress": 100,
+            "message": "The search stopped before a stable shortlist was ready.",
+            "summary": {
+                "status": "failed",
+                "sources_total": 156,
+                "source_variant_total": 156,
+                "provider_total": 0,
+                "sources_completed": 153,
+                "listing_total": 2160,
+                "ranked_candidates": [],
+                "eta_label": "about 8 hr",
+                "repair_status_label": "Repairing",
+                "repair_step_label": "Queued a generic provider repair.",
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-variant-heavy"}, headers=headers)
+
+    assert response.status_code == 200
+    assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
+    assert "<span>Providers</span><strong>156</strong>" not in response.text
+    assert "156 variants" in response.text
+    assert "Timing" in response.text
+    assert "Queued a generic provider repair." in response.text
+
+
 def test_propertyquarry_properties_route_redirects_terminal_partial_run_to_shortlist(monkeypatch) -> None:
     principal_id = "pq-terminal-partial-shortlist"
     client = build_property_client(principal_id=principal_id)
