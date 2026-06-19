@@ -3196,6 +3196,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-start-top' in setup.text
     assert setup.text.index('data-property-start-top') < setup.text.index('data-property-step-nav')
     assert 'data-property-step-nav' in setup.text
+    template = _read_workbench_bundle()
+    assert "padding: 4px 4px 10px;" in template
+    assert "padding: 3px 3px 9px;" in template
+    assert "padding: 0 0 12px;" in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
     assert "Select sources" in setup.text
@@ -4315,16 +4319,20 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert ".pqx-automation-card" in template
     assert 'pqx-automation-scope-empty--fallback' not in template
     assert "Map preview unavailable" not in template
-    assert "object-position: center 44%;" in template
-    assert 'transform: scale(2.18);' in template
+    assert "object-position: center 44%;" not in template
+    assert 'transform: scale(2.18);' not in template
     assert 'transform: scale(3.05);' not in template
     assert '.pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img' in template
     assert "object-fit: contain;" in template
     assert "transform: none;" in template
+    assert '.pqx-button[data-pqx-loading="true"]::before' in template
+    assert "@keyframes pqxSpin" in template
     assert ".pqx-automation-scope-empty::after" in template
     assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
-    assert "root.querySelector('[data-property-start-top]')?.addEventListener('click', startSearch);" in script
+    assert "root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]')" in script
+    assert "setSearchLaunchBusy(true);" in script
+    assert "searchLaunchInFlight" in script
     assert "const stepNav = form.querySelector('[data-property-step-nav]');" in script
     assert "stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });" in script
     assert "const showPreviewFallback = () => {" not in script

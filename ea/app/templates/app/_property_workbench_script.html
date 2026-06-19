@@ -2474,14 +2474,36 @@
       status.textContent = 'Saved.';
       return body;
     };
+    let searchLaunchInFlight = false;
+    const launchButtons = () => [
+      ...root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]'),
+    ];
+    const setSearchLaunchBusy = (busy) => {
+      launchButtons().forEach((button) => {
+        if (!button) return;
+        const isBusy = Boolean(busy);
+        if (!button.dataset.pqxIdleLabel) {
+          button.dataset.pqxIdleLabel = String(button.textContent || '').trim() || 'Launch search';
+        }
+        button.toggleAttribute('disabled', isBusy);
+        button.setAttribute('aria-disabled', isBusy ? 'true' : 'false');
+        button.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+        button.dataset.pqxLoading = isBusy ? 'true' : 'false';
+        button.textContent = isBusy ? 'Launching...' : button.dataset.pqxIdleLabel;
+      });
+    };
     const startSearch = async () => {
       if (!form) return;
+      if (searchLaunchInFlight) return;
       const status = root.querySelector('[data-property-inline-status]');
       const error = root.querySelector('[data-property-inline-error]');
       try {
+        searchLaunchInFlight = true;
+        setSearchLaunchBusy(true);
         status.textContent = 'Starting search...';
         error.textContent = '';
         const body = await savePreferences();
+        status.textContent = 'Launching search...';
         const runResponse = await fetch(String(meta.start_endpoint || data.endpoints?.start || ''), {
           method: 'POST',
           credentials: 'same-origin',
@@ -2501,6 +2523,8 @@
         renderRun(runBody);
         if (runBody.bootstrap_required) {
           status.textContent = readableErrorDetail(runBody.message || `Initialization required for ${runBody.bootstrap_country_label || runBody.bootstrap_country_code || 'this market'}.`, 'Market initialization is required before this search can run.');
+          searchLaunchInFlight = false;
+          setSearchLaunchBusy(false);
           return;
         }
         if (runBody.run_id) {
@@ -2511,6 +2535,8 @@
       } catch (err) {
         error.textContent = err.message || 'Could not start property search.';
         status.textContent = '';
+        searchLaunchInFlight = false;
+        setSearchLaunchBusy(false);
       }
     };
     root.querySelector('[data-property-save]')?.addEventListener('click', async () => {
@@ -2518,8 +2544,9 @@
         root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the search.';
       }
     });
-    root.querySelector('[data-property-start]')?.addEventListener('click', startSearch);
-    root.querySelector('[data-property-start-top]')?.addEventListener('click', startSearch);
+    root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]').forEach((button) => {
+      button.addEventListener('click', startSearch);
+    });
     const updateSearchAgent = async (agentId, action, patch = {}) => {
       const template = String(meta.search_agent_update_endpoint_template || '/v1/onboarding/property-search/agents/__AGENT_ID__');
       const resolvedAgentId = encodeURIComponent(String(agentId || 'current').trim() || 'current');

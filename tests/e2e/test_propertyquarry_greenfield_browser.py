@@ -1951,14 +1951,15 @@ def test_propertyquarry_start_failure_explains_backend_reason(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        page.route(
-            "**/app/api/property/search-runs",
-            lambda route: route.fulfill(
+        def _delayed_failure(route):
+            time.sleep(0.35)
+            route.fulfill(
                 status=409,
                 content_type="application/json",
                 body=json.dumps({"detail": "property_plan_upgrade_required:plus"}),
-            ),
-        )
+            )
+
+        page.route("**/app/api/property/search-runs", _delayed_failure)
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         page.select_option('select[name="country_code"]', "AT")
@@ -1968,10 +1969,15 @@ def test_propertyquarry_start_failure_explains_backend_reason(
             "data-property-active-step",
             "providers",
         )
-        page.locator("[data-property-start]").click()
+        start_button = page.locator("[data-property-start]")
+        page.locator("[data-pqx-launch-top]").click()
+        expect(start_button).to_have_attribute("aria-busy", "true")
+        expect(start_button).to_have_attribute("data-pqx-loading", "true")
+        expect(start_button).to_contain_text("Launching...")
         inline_error = page.locator("[data-property-inline-error]")
         expect(inline_error).to_contain_text("Upgrade required for this run")
         expect(inline_error).to_contain_text("plus plan")
+        expect(start_button).to_have_attribute("aria-busy", "false")
     finally:
         context.close()
 

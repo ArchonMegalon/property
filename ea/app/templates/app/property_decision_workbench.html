@@ -517,6 +517,22 @@
       background: color-mix(in srgb, var(--pq-charcoal) 92%, white);
       border-color: color-mix(in srgb, var(--pq-charcoal) 92%, white);
     }
+    .pqx-button[disabled],
+    .pqx-button[aria-disabled="true"] {
+      cursor: progress;
+      opacity: 0.78;
+      transform: none;
+      box-shadow: none;
+    }
+    .pqx-button[data-pqx-loading="true"]::before {
+      content: "";
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 999px;
+      animation: pqxSpin 760ms linear infinite;
+    }
     .pqx-account-menu {
       grid-area: account;
       position: relative;
@@ -673,6 +689,9 @@
     @keyframes pqxFadeUp {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pqxSpin {
+      to { transform: rotate(360deg); }
     }
     @keyframes pqxRevealRow {
       from { opacity: 0; transform: translateY(-4px); }
@@ -1752,7 +1771,7 @@
     }
     .pqx-surface-search .pqx-workflow {
       gap: 4px;
-      padding: 4px;
+      padding: 4px 4px 10px;
     }
     .pqx-workflow legend { display: none; }
     .pqx-workflow-step {
@@ -2326,7 +2345,7 @@
       }
       .pqx-surface-search .pqx-workflow {
         gap: 3px;
-        padding: 3px;
+        padding: 3px 3px 9px;
       }
       .pqx-surface-search .pqx-workflow-step {
         padding: 3px 5px;
@@ -2950,11 +2969,10 @@
       width: 100%;
       height: 100%;
       min-height: 132px;
-      object-fit: cover;
-      object-position: center 44%;
-      transition: transform 180ms ease;
-      transform-origin: center center;
-      transform: scale(2.18);
+      object-fit: contain;
+      object-position: center center;
+      transition: filter 180ms ease;
+      transform: none;
     }
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img,
     .pqx-automation-thumbnail[data-scope-preview-kind="osm_point_fallback"] img {
@@ -4912,7 +4930,7 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 5px;
         overflow: visible;
-        padding: 0 0 8px;
+        padding: 0 0 12px;
       }
       .pqx-workflow-step,
       .pqx-surface-search .pqx-workflow-step {
