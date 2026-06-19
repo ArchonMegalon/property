@@ -30144,6 +30144,8 @@ class ProductService:
             filter_near_misses_for_source: list[dict[str, object]] = []
             provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
             detailed_location_miss_count = 0
+            preliminary_before_location_count = 0
+            preliminary_location_miss_count = 0
 
             if source_repair_memory:
                 failed_total += 1
@@ -30565,6 +30567,8 @@ class ProductService:
                 ):
                     filtered_area_total += 1
                     filtered_area_for_source += 1
+                    preliminary_before_location_count += 1
+                    preliminary_location_miss_count += 1
                     if ordinal == 1 or ordinal == len(listing_urls) or ordinal % 10 == 0:
                         _report(
                             step="source_location_filter",
@@ -31152,11 +31156,10 @@ class ProductService:
                     )
 
             preliminary_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
-            preliminary_before_location_count = len(preliminary_rows)
-            preliminary_location_miss_count = 0
+            preliminary_before_location_count += len(preliminary_rows)
             if source_location_hints:
                 preliminary_matching_rows = [row for row in preliminary_rows if bool(row.get("location_match"))]
-                preliminary_location_miss_count = max(0, preliminary_before_location_count - len(preliminary_matching_rows))
+                preliminary_location_miss_count += max(0, len(preliminary_rows) - len(preliminary_matching_rows))
                 preliminary_rows = preliminary_matching_rows
             analysis_limit = len(preliminary_rows)
             enrichment_limit = _property_search_analysis_cap_per_source(

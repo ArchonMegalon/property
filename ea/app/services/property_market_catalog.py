@@ -4347,6 +4347,26 @@ def _location_query_variants(value: str) -> tuple[str, ...]:
     return variants or (str(value or "").strip(),)
 
 
+def _explicit_location_query_variants(preferences: dict[str, object]) -> tuple[str, ...]:
+    for key in ("selected_location_values", "selected_districts"):
+        raw_values = preferences.get(key)
+        if not isinstance(raw_values, (list, tuple, set)):
+            continue
+        variants = tuple(
+            dict.fromkeys(
+                str(item or "").strip()
+                for item in raw_values
+                if str(item or "").strip()
+            )
+        )
+        if variants:
+            return variants
+    raw_preferences = preferences.get("raw_preferences")
+    if isinstance(raw_preferences, dict):
+        return _explicit_location_query_variants(dict(raw_preferences))
+    return ()
+
+
 def _provider_property_type_segment(property_type: str) -> str:
     normalized = normalize_property_type(property_type)
     if normalized == "apartment":
@@ -4811,7 +4831,7 @@ def generated_source_specs(
                 property_type=property_type,
             )
         )
-    location_queries = _location_query_variants(location_query)
+    location_queries = _explicit_location_query_variants(normalized_preferences) or _location_query_variants(location_query)
     rows: list[dict[str, object]] = []
     for provider_key in effective_platforms:
         provider = _PROVIDER_INDEX.get(provider_key)

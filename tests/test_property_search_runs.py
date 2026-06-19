@@ -1201,6 +1201,35 @@ def test_austria_generated_source_defaults_use_public_and_cooperative_lanes_for_
     assert "genossenschaften_at" in platforms
 
 
+def test_generated_source_specs_use_selected_districts_over_broad_location_query() -> None:
+    specs = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna, 1190 Vienna, 1200 Vienna, 1220 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "property_type": ["apartment"],
+            "max_price_eur": 1000,
+            "min_rooms": 2,
+            "min_area_m2": 60,
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-selected-district-source-scope",
+        default_person_id="self",
+        max_results=4,
+    )
+
+    labels = [str(row.get("label") or "") for row in specs]
+    urls = [str(row.get("url") or "") for row in specs]
+    assert labels == ["Willhaben | Austria | Rent | 1010 Vienna"]
+    assert len(urls) == 1
+    assert "q=1010+Vienna" in urls[0]
+    assert "1020" not in urls[0]
+    assert specs[0]["provider_filter_pushdown"]["applied"]["location_query"] == "1010 Vienna"
+
+
 def test_austria_generated_source_defaults_use_broker_and_project_lanes_for_buy() -> None:
     specs = property_market_catalog.generated_source_specs(
         preferences={
