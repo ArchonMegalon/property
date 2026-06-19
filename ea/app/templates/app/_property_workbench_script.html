@@ -814,6 +814,78 @@
         const routeLabel = normalized.includes('kindergarten') ? 'Way to kindergarten' : 'Way to school';
         return `${routeLabel} looked risky for candidate ${ordinal} (score impact only)`;
       }
+      const discoveryMatch = text.match(/despite\s+a\s+(.+?)\s+miss/i);
+      if (discoveryMatch) {
+        const rawLabel = String(discoveryMatch[1] || '').trim();
+        const label = rawLabel ? `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}` : 'Preference';
+        return `${label} missed the preference for candidate ${ordinal} (score impact only)`;
+      }
+      if (normalized.includes('duplicate') || normalized.includes('already seen') || normalized.includes('same listing')) {
+        return `Duplicate check linked candidate ${ordinal} to existing property memory`;
+      }
+      if (['stale', 'removed', 'expired', 'no longer available'].some((token) => normalized.includes(token))) {
+        return `Listing freshness check flagged candidate ${ordinal} for repair`;
+      }
+      if (['repair', 'extractor', 'fetch failed', 'provider patch'].some((token) => normalized.includes(token))) {
+        return `Provider repair lane picked up candidate ${ordinal}`;
+      }
+      if (['price per sqm', 'price per square', '€/m2', 'eur/m2', 'eur per m2'].some((token) => normalized.includes(token))) {
+        if (['below', 'under', 'cheaper', 'discount', 'stronger than benchmark'].some((token) => normalized.includes(token))) {
+          return `Price-per-m2 benchmark improved the score for candidate ${ordinal}`;
+        }
+        if (['above', 'over', 'expensive', 'premium', 'higher than benchmark'].some((token) => normalized.includes(token))) {
+          return `Price-per-m2 benchmark reduced the score for candidate ${ordinal} (score impact only)`;
+        }
+        return `Price-per-m2 benchmark was checked for candidate ${ordinal}`;
+      }
+      if (['total monthly', 'all-in cost', 'warm rent', 'monthly total'].some((token) => normalized.includes(token))) {
+        if (['within', 'fits', 'fit', 'under budget', 'inside budget'].some((token) => normalized.includes(token))) {
+          return `Total monthly cost fit the budget for candidate ${ordinal} (score upgraded)`;
+        }
+        if (['above', 'over', 'exceeds', 'outside budget'].some((token) => normalized.includes(token))) {
+          return `Total monthly cost exceeded the budget for candidate ${ordinal} (hard budget rule)`;
+        }
+      }
+      if (['rooms', 'room count', 'layout shape', 'floor plan shape', 'floorplan shape'].some((token) => normalized.includes(token))) {
+        if (['fits', 'fit', 'matches', 'matched', 'usable'].some((token) => normalized.includes(token))) {
+          return `Room layout matched the home shape for candidate ${ordinal} (score upgraded)`;
+        }
+        if (['awkward', 'unclear', 'inefficient', 'needs verification'].some((token) => normalized.includes(token))) {
+          return `Room layout needs a closer check for candidate ${ordinal} (score impact only)`;
+        }
+      }
+      if (['bike route', 'cycling', 'bicycle'].some((token) => normalized.includes(token))) {
+        if (['safe', 'protected', 'direct', 'calm'].some((token) => normalized.includes(token))) {
+          return `Bike route looked practical for candidate ${ordinal} (score upgraded)`;
+        }
+        if (['unsafe', 'traffic', 'risky', 'indirect'].some((token) => normalized.includes(token))) {
+          return `Bike route looked weak for candidate ${ordinal} (score impact only)`;
+        }
+      }
+      if (['noise', 'quiet', 'street exposure'].some((token) => normalized.includes(token))) {
+        if (['low', 'quiet', 'calm', 'shielded'].some((token) => normalized.includes(token))) {
+          return `Noise context improved the score for candidate ${ordinal}`;
+        }
+        if (['high', 'loud', 'exposed', 'risk'].some((token) => normalized.includes(token))) {
+          return `Noise context reduced the score for candidate ${ordinal} (score impact only)`;
+        }
+      }
+      if (['flood', 'water', 'groundwater'].some((token) => normalized.includes(token))) {
+        if (['clear', 'low', 'outside', 'not in'].some((token) => normalized.includes(token))) {
+          return `Water-risk evidence looked clear for candidate ${ordinal} (score upgraded)`;
+        }
+        if (['risk', 'burden', 'inside', 'unclear'].some((token) => normalized.includes(token))) {
+          return `Water-risk evidence needs review for candidate ${ordinal} (score impact only)`;
+        }
+      }
+      if (['document', 'energy certificate', 'operating-cost statement', 'betriebskosten statement'].some((token) => normalized.includes(token))) {
+        if (['found', 'available', 'attached', 'confirmed'].some((token) => normalized.includes(token))) {
+          return `Document evidence improved confidence for candidate ${ordinal}`;
+        }
+        if (['missing', 'not attached', 'unavailable'].some((token) => normalized.includes(token))) {
+          return `Document evidence is still missing for candidate ${ordinal} (score impact only)`;
+        }
+      }
       if (
         (normalized.includes('school') || normalized.includes('kindergarten'))
         && ['close enough', 'within', 'near', 'nearby', 'fit', 'matches', 'matched'].some((token) => normalized.includes(token))
@@ -866,12 +938,6 @@
       }
       if (normalized.includes('layout verification') || normalized.includes('floorplan')) {
         return `Layout still needs verification for candidate ${ordinal}`;
-      }
-      const discoveryMatch = text.match(/despite\s+a\s+(.+?)\s+miss/i);
-      if (discoveryMatch) {
-        const rawLabel = String(discoveryMatch[1] || '').trim();
-        const label = rawLabel ? `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}` : 'Preference';
-        return `${label} missed the preference for candidate ${ordinal} (score impact only)`;
       }
       return '';
     };

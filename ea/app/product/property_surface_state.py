@@ -523,6 +523,53 @@ def _property_run_candidate_reason_label(value: object) -> str:
     ):
         route_label = "Way to kindergarten" if "kindergarten" in normalized else "Way to school"
         return f"{route_label} looked risky for candidate {ordinal} (score impact only)"
+    discovery_match = re.search(r"despite\s+a\s+(.+?)\s+miss", text, flags=re.IGNORECASE)
+    if discovery_match:
+        label = str(discovery_match.group(1) or "").strip()
+        label = label[:1].upper() + label[1:] if label else "Preference"
+        return f"{label} missed the preference for candidate {ordinal} (score impact only)"
+    if "duplicate" in normalized or "already seen" in normalized or "same listing" in normalized:
+        return f"Duplicate check linked candidate {ordinal} to existing property memory"
+    if any(token in normalized for token in ("stale", "removed", "expired", "no longer available")):
+        return f"Listing freshness check flagged candidate {ordinal} for repair"
+    if any(token in normalized for token in ("repair", "extractor", "fetch failed", "provider patch")):
+        return f"Provider repair lane picked up candidate {ordinal}"
+    if any(token in normalized for token in ("price per sqm", "price per square", "€/m2", "eur/m2", "eur per m2")):
+        if any(token in normalized for token in ("below", "under", "cheaper", "discount", "stronger than benchmark")):
+            return f"Price-per-m2 benchmark improved the score for candidate {ordinal}"
+        if any(token in normalized for token in ("above", "over", "expensive", "premium", "higher than benchmark")):
+            return f"Price-per-m2 benchmark reduced the score for candidate {ordinal} (score impact only)"
+        return f"Price-per-m2 benchmark was checked for candidate {ordinal}"
+    if any(token in normalized for token in ("total monthly", "all-in cost", "warm rent", "monthly total")):
+        if any(token in normalized for token in ("within", "fits", "fit", "under budget", "inside budget")):
+            return f"Total monthly cost fit the budget for candidate {ordinal} (score upgraded)"
+        if any(token in normalized for token in ("above", "over", "exceeds", "outside budget")):
+            return f"Total monthly cost exceeded the budget for candidate {ordinal} (hard budget rule)"
+    if any(token in normalized for token in ("rooms", "room count", "layout shape", "floor plan shape", "floorplan shape")):
+        if any(token in normalized for token in ("fits", "fit", "matches", "matched", "usable")):
+            return f"Room layout matched the home shape for candidate {ordinal} (score upgraded)"
+        if any(token in normalized for token in ("awkward", "unclear", "inefficient", "needs verification")):
+            return f"Room layout needs a closer check for candidate {ordinal} (score impact only)"
+    if any(token in normalized for token in ("bike route", "cycling", "bicycle")):
+        if any(token in normalized for token in ("safe", "protected", "direct", "calm")):
+            return f"Bike route looked practical for candidate {ordinal} (score upgraded)"
+        if any(token in normalized for token in ("unsafe", "traffic", "risky", "indirect")):
+            return f"Bike route looked weak for candidate {ordinal} (score impact only)"
+    if any(token in normalized for token in ("noise", "quiet", "street exposure")):
+        if any(token in normalized for token in ("low", "quiet", "calm", "shielded")):
+            return f"Noise context improved the score for candidate {ordinal}"
+        if any(token in normalized for token in ("high", "loud", "exposed", "risk")):
+            return f"Noise context reduced the score for candidate {ordinal} (score impact only)"
+    if any(token in normalized for token in ("flood", "water", "groundwater")):
+        if any(token in normalized for token in ("clear", "low", "outside", "not in")):
+            return f"Water-risk evidence looked clear for candidate {ordinal} (score upgraded)"
+        if any(token in normalized for token in ("risk", "burden", "inside", "unclear")):
+            return f"Water-risk evidence needs review for candidate {ordinal} (score impact only)"
+    if any(token in normalized for token in ("document", "energy certificate", "operating-cost statement", "betriebskosten statement")):
+        if any(token in normalized for token in ("found", "available", "attached", "confirmed")):
+            return f"Document evidence improved confidence for candidate {ordinal}"
+        if any(token in normalized for token in ("missing", "not attached", "unavailable")):
+            return f"Document evidence is still missing for candidate {ordinal} (score impact only)"
     if ("school" in normalized or "kindergarten" in normalized) and any(
         token in normalized for token in ("close enough", "within", "near", "nearby", "fit", "matches", "matched")
     ):
@@ -564,11 +611,6 @@ def _property_run_candidate_reason_label(value: object) -> str:
         return f"Candidate {ordinal} was a generic listing page"
     if "layout verification" in normalized or "floorplan" in normalized:
         return f"Layout still needs verification for candidate {ordinal}"
-    discovery_match = re.search(r"despite\s+a\s+(.+?)\s+miss", text, flags=re.IGNORECASE)
-    if discovery_match:
-        label = str(discovery_match.group(1) or "").strip()
-        label = label[:1].upper() + label[1:] if label else "Preference"
-        return f"{label} missed the preference for candidate {ordinal} (score impact only)"
     return ""
 
 

@@ -2852,6 +2852,54 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
             "South-facing orientation evidence confirmed for candidate 23 of 60.",
             "Light and orientation evidence improved the score for candidate 23/60 (score upgraded)",
         ),
+        (
+            "Duplicate candidate 24 of 60 already seen on another provider.",
+            "Duplicate check linked candidate 24/60 to existing property memory",
+        ),
+        (
+            "Listing freshness check found candidate 25 of 60 is stale and no longer available.",
+            "Listing freshness check flagged candidate 25/60 for repair",
+        ),
+        (
+            "Provider repair opened for candidate 26 of 60 after fetch failed in extractor.",
+            "Provider repair lane picked up candidate 26/60",
+        ),
+        (
+            "Price per sqm is below benchmark for candidate 27 of 60.",
+            "Price-per-m2 benchmark improved the score for candidate 27/60",
+        ),
+        (
+            "Price per sqm is above benchmark for candidate 28 of 60.",
+            "Price-per-m2 benchmark reduced the score for candidate 28/60 (score impact only)",
+        ),
+        (
+            "Total monthly cost fits inside budget for candidate 29 of 60.",
+            "Total monthly cost fit the budget for candidate 29/60 (score upgraded)",
+        ),
+        (
+            "Total monthly cost exceeds budget for candidate 30 of 60.",
+            "Total monthly cost exceeded the budget for candidate 30/60 (hard budget rule)",
+        ),
+        (
+            "Room count and layout shape matched for candidate 31 of 60.",
+            "Room layout matched the home shape for candidate 31/60 (score upgraded)",
+        ),
+        (
+            "Bike route looked protected and direct for candidate 32 of 60.",
+            "Bike route looked practical for candidate 32/60 (score upgraded)",
+        ),
+        (
+            "Noise context is low and quiet for candidate 33 of 60.",
+            "Noise context improved the score for candidate 33/60",
+        ),
+        (
+            "Flood and groundwater evidence is clear for candidate 34 of 60.",
+            "Water-risk evidence looked clear for candidate 34/60 (score upgraded)",
+        ),
+        (
+            "Operating-cost statement is missing for candidate 35 of 60.",
+            "Document evidence is still missing for candidate 35/60 (score impact only)",
+        ),
     ]
     for message, expected in cases:
         snapshot = property_surface_state.build_property_run_live_board_snapshot(
