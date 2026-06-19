@@ -2899,6 +2899,29 @@ def test_property_alert_email_url_extraction_skips_willhaben_campaign_links() ->
     assert first == "https://www.willhaben.at/iad/object?adId=2021345821&searchAgentQueryString=1"
 
 
+def test_property_scout_extract_listing_urls_prefers_willhaben_detail_urls_over_object_duplicates() -> None:
+    html = """
+    <script>
+      {"url":"/iad/object?adId=955662182"}
+      {"url":"/iad/immobilien/d/mietwohnungen/steiermark/graz/demo-955662182/"}
+      {"url":"/iad/object?adId=1663640700"}
+      {"url":"/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/demo-1663640700/"}
+      {"url":"/iad/object?adId=777777777"}
+    </script>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1010+Vienna",
+        html=html,
+    )
+
+    assert urls == (
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/steiermark/graz/demo-955662182/",
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/demo-1663640700/",
+        "https://www.willhaben.at/iad/object?adId=777777777",
+    )
+
+
 def test_property_scout_extract_listing_urls_reads_script_paths_for_js_heavy_search_pages() -> None:
     html = """
     <script type="application/json">

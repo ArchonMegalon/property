@@ -251,6 +251,50 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
         return True
     return False
 
+
+def _willhaben_ad_id_from_url(url: str) -> str:
+    normalized = _property_scout_clean_url(url)
+    parsed = urllib.parse.urlparse(normalized)
+    query = urllib.parse.parse_qs(parsed.query)
+    for key in ("adId", "adid"):
+        value = str((query.get(key) or [""])[0] or "").strip()
+        if value:
+            return value
+    matches = re.findall(r"(\d{6,})(?:/)?$", urllib.parse.unquote(parsed.path or ""))
+    return str(matches[-1] or "").strip() if matches else ""
+
+
+def _property_scout_prefer_willhaben_detail_urls(urls: list[str]) -> tuple[str, ...]:
+    detail_by_ad_id: dict[str, str] = {}
+    detail_without_ad_id: list[str] = []
+    object_urls: list[str] = []
+    for url in urls:
+        parsed = urllib.parse.urlparse(url)
+        path = urllib.parse.unquote(parsed.path or "").lower()
+        if "/iad/immobilien/d/" in path:
+            ad_id = _willhaben_ad_id_from_url(url)
+            if ad_id:
+                detail_by_ad_id.setdefault(ad_id, url)
+            else:
+                detail_without_ad_id.append(url)
+            continue
+        object_urls.append(url)
+    rows: list[str] = []
+    seen: set[str] = set()
+    for url in (*detail_by_ad_id.values(), *detail_without_ad_id):
+        if url and url not in seen:
+            seen.add(url)
+            rows.append(url)
+    for url in object_urls:
+        ad_id = _willhaben_ad_id_from_url(url)
+        if ad_id and ad_id in detail_by_ad_id:
+            continue
+        if url and url not in seen:
+            seen.add(url)
+            rows.append(url)
+    return tuple(rows)
+
+
 def _property_scout_source_requested_min_area_m2(source_spec: dict[str, object] | None) -> float:
     payload = dict(source_spec or {})
     pushdown = dict(payload.get("provider_filter_pushdown") or {}) if isinstance(payload.get("provider_filter_pushdown"), dict) else {}
@@ -478,6 +522,8 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_s
                 continue
         seen.add(normalized)
         candidates.append(normalized)
+    if "willhaben.at" in source_host:
+        return _property_scout_prefer_willhaben_detail_urls(candidates)
     return tuple(candidates)
 
 def _property_scout_extract_meta_content(html: str, property_name: str) -> str:
