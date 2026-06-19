@@ -2566,9 +2566,13 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
 def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1.42fr) minmax(360px, 0.82fr);" in body
+    assert "grid-template-columns: minmax(0, 1.18fr) minmax(340px, 0.92fr);" in body
     assert "grid-template-columns: 1fr;" in body
-    assert "min-height: clamp(330px, calc(100vh - 260px), 520px);" in body
+    assert "min-height: clamp(250px, 38vh, 380px);" in body
+    assert "max-height: min(calc(100vh - 300px), 400px);" in body
+    assert "min-height: clamp(270px, 40vh, 400px);" in body
+    assert "grid-template-columns: 84px minmax(0, 1fr);" in body
+    assert "-webkit-line-clamp: 2;" in body
     assert "min-height: min(56vh, 520px);" not in body
     assert body.index("data-object-media-stage") < body.index("At a glance")
 

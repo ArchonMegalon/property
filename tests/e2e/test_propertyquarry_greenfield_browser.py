@@ -544,7 +544,7 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
     assert offenders == []
 
 
-def _assert_research_packet_360_first(page: Page, *, min_stage_height: int) -> None:
+def _assert_research_packet_360_first(page: Page, *, min_stage_height: int, max_stage_height: int | None = None) -> None:
     media = page.locator("[data-object-media-stage]").first
     ooda = page.get_by_text("Property details").first
     assert media.is_visible()
@@ -555,6 +555,8 @@ def _assert_research_packet_360_first(page: Page, *, min_stage_height: int) -> N
     assert ooda_box is not None
     assert media_box["y"] < ooda_box["y"]
     assert media_box["height"] >= min_stage_height
+    if max_stage_height is not None:
+        assert media_box["height"] <= max_stage_height
 
 
 def test_propertyquarry_greenfield_workspace_in_real_browser(
@@ -1420,7 +1422,11 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         assert response is not None and response.ok
         assert page.locator(".prd-media-frame").is_visible()
         assert "Open the space before you read the rest" not in page.content()
-        _assert_research_packet_360_first(page, min_stage_height=380)
+        _assert_research_packet_360_first(page, min_stage_height=250, max_stage_height=430)
+        body_box = page.locator(".prd-body").first.bounding_box()
+        assert body_box is not None
+        viewport_height = page.viewport_size["height"] if page.viewport_size else 900
+        assert body_box["y"] < viewport_height
         assert page.get_by_text("At a glance").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
@@ -1952,14 +1958,22 @@ def test_propertyquarry_start_failure_explains_backend_reason(
     page: Page = context.new_page()
     try:
         def _delayed_failure(route):
-            time.sleep(0.35)
+            time.sleep(1.2)
             route.fulfill(
                 status=409,
                 content_type="application/json",
                 body=json.dumps({"detail": "property_plan_upgrade_required:plus"}),
             )
 
-        page.route("**/app/api/property/search-runs", _delayed_failure)
+        page.route(
+            "**/v1/onboarding/property-search/preferences",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"status": "saved"}),
+            ),
+        )
+        page.route("**/app/api/property/search-runs**", _delayed_failure)
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         page.select_option('select[name="country_code"]', "AT")
@@ -1970,10 +1984,20 @@ def test_propertyquarry_start_failure_explains_backend_reason(
             "providers",
         )
         start_button = page.locator("[data-property-start]")
-        page.locator("[data-pqx-launch-top]").click()
-        expect(start_button).to_have_attribute("aria-busy", "true")
-        expect(start_button).to_have_attribute("data-pqx-loading", "true")
-        expect(start_button).to_contain_text("Launching...")
+        page.locator("[data-property-start-top]").click()
+        page.wait_for_function(
+            """
+            () => {
+              const button = document.querySelector('[data-property-start]');
+              return Boolean(
+                button
+                && button.getAttribute('aria-busy') === 'true'
+                && button.getAttribute('data-pqx-loading') === 'true'
+                && String(button.textContent || '').includes('Launching...')
+              );
+            }
+            """
+        )
         inline_error = page.locator("[data-property-inline-error]")
         expect(inline_error).to_contain_text("Upgrade required for this run")
         expect(inline_error).to_contain_text("plus plan")
