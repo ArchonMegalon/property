@@ -23990,13 +23990,13 @@ class ProductService:
             role_required="operator",
             authority_required="ea_one_manager",
             brief=compact_text(
-                f"EA Provider OODA: repair {source_label or provider_host or source_platform} {normalized_filter_key}",
-                fallback="EA Provider OODA: repair property provider extraction",
+                f"PropertyQuarry provider repair: {source_label or provider_host or source_platform} {normalized_filter_key}",
+                fallback="PropertyQuarry provider repair",
                 limit=140,
             ),
             why_human=(
                 "A provider page changed or exposed floorplan evidence in a shape the current extractor did not trust. "
-                "EA must inspect the provider HTML/media/document structure, patch the extractor, add a regression test, "
+                "PropertyQuarry must inspect the provider HTML/media/document structure, patch the extractor, add a regression test, "
                 "rerun release gates, and deploy without sending the repair task to OpenAI."
             ),
             priority=task_priority,
@@ -24024,7 +24024,7 @@ class ProductService:
                 "provider_host": provider_host,
                 "filter_key": normalized_filter_key,
                 "diagnostics": diagnostics_payload,
-                "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
+                "next_action": "Inspect provider HTML/media/document shape, patch the extractor, add a regression test, and rerun PropertyQuarry gates.",
             },
             desired_output_json={
                 "status": "completed",
@@ -30741,7 +30741,7 @@ class ProductService:
                             "repair_task": dict(repair_task),
                             "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
                             "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
-                            "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
+                            "next_action": "Inspect provider HTML/media/document shape, patch the extractor, add a regression test, and rerun PropertyQuarry gates.",
                         },
                         source_id=f"property-provider-floorplan-recovery:{property_url}",
                         dedupe_key=f"{principal_id}|{property_url}|property-provider-floorplan-recovery-needed",
@@ -31340,7 +31340,7 @@ class ProductService:
                             "repair_task": dict(repair_task),
                             "human_task_id": str(repair_task.get("human_task_id") or "").strip(),
                             "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
-                            "next_action": "EA Provider OODA: inspect provider HTML/media/document shape, patch extractor, add regression test, rerun gates.",
+                            "next_action": "Inspect provider HTML/media/document shape, patch the extractor, add a regression test, and rerun PropertyQuarry gates.",
                         },
                         source_id=f"property-provider-floorplan-recovery:{property_url}",
                         dedupe_key=f"{principal_id}|{property_url}|property-provider-floorplan-recovery-needed",
@@ -31440,6 +31440,7 @@ class ProductService:
                             "repair_owner": "ea_one_manager",
                             "repair_workflow": "ea_provider_ooda",
                             "repair_task": dict(repair_task),
+                            "next_action": "Inspect provider listing-mode evidence, patch the extractor or filter guard, add a regression test, and rerun PropertyQuarry gates.",
                         },
                         source_id=f"property-provider-listing-mode:{property_url}",
                         dedupe_key=f"{principal_id}|{property_url}|property-provider-listing-mode-mismatch|{listing_mode}",

@@ -4205,7 +4205,8 @@ def test_property_scout_floorplan_filter_records_provider_recovery_ooda_event(mo
     assert payload["repair_owner"] == "ea_one_manager"
     assert payload["repair_workflow"] == "ea_provider_ooda"
     assert str(payload["queue_item_ref"]).startswith("human_task:")
-    assert "EA Provider OODA" in payload["next_action"]
+    assert "PropertyQuarry gates" in payload["next_action"]
+    assert "EA Provider OODA" not in payload["next_action"]
     tasks = client.app.state.container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=20)
     repair_tasks = [task for task in tasks if str(getattr(task, "task_type", "") or "") == "property_provider_repair_ooda"]
     assert len(repair_tasks) == 1

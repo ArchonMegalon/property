@@ -2686,6 +2686,60 @@ def test_property_provider_repair_task_dedupes_across_transient_source_refs() ->
     assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
 
 
+def test_property_provider_repair_copy_uses_propertyquarry_language() -> None:
+    principal_id = "exec-property-provider-repair-copy"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Repair Copy Office")
+    service = ProductService(client.app.state.container)
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://www.gesiba.at/wohnen/demo",
+        title="GESIBA demo listing",
+        source_url="https://www.gesiba.at/wohnen/demo",
+        source_label="GESIBA",
+        source_platform="gesiba",
+        source_family="housing_coop",
+        filter_key="require_floorplan",
+        diagnostics={"provider_host": "www.gesiba.at"},
+        source_ref="property-scout:copy-guard",
+    )
+
+    assert opened["status"] == "opened"
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(repair_tasks) == 1
+    task = repair_tasks[0]
+    task_text = json.dumps(
+        {
+            "brief": task.brief,
+            "why_human": task.why_human,
+            "input_json": task.input_json,
+        },
+        ensure_ascii=False,
+    )
+    assert "PropertyQuarry provider repair" in task_text
+    assert "EA Provider OODA" not in task_text
+
+    events = [
+        row
+        for row in client.app.state.container.channel_runtime.list_recent_observations(
+            limit=20,
+            principal_id=principal_id,
+        )
+        if row.event_type == "property_provider_repair_task_created"
+    ]
+    assert len(events) == 1
+    assert "EA Provider OODA" not in json.dumps(events[0].payload or {}, ensure_ascii=False)
+
+
 def test_existing_returned_provider_repair_records_receipt_for_new_run() -> None:
     principal_id = "exec-property-provider-repair-existing-receipt"
     client = build_property_client(principal_id=principal_id)
