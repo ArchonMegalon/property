@@ -1841,6 +1841,11 @@
             window.location.href = `${target}${runId ? `?run_id=${runId}` : ''}`;
             return;
           }
+          const replacementRunId = encodeURIComponent(String(payload.summary?.repair_replacement_run_id || '').trim());
+          if (status === 'failed' && replacementRunId) {
+            window.location.href = `/app/properties?run_id=${replacementRunId}`;
+            return;
+          }
           if (signature !== lastSignature) {
             lastSignature = signature;
           }

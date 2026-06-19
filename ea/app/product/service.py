@@ -24094,6 +24094,8 @@ class ProductService:
                     "reason": str(auto_resolution_result.get("reason") or "").strip(),
                 }
             )
+            if str(auto_resolution_result.get("replacement_run_id") or "").strip():
+                payload["replacement_run_id"] = str(auto_resolution_result.get("replacement_run_id") or "").strip()
         self._record_product_event(
             principal_id=principal_id,
             event_type="property_provider_repair_task_created",
@@ -24274,6 +24276,11 @@ class ProductService:
         if not normalized_principal:
             return
         input_json = dict(task.input_json or {})
+        returned_payload = (
+            dict(getattr(task, "returned_payload_json", {}) or {})
+            if isinstance(getattr(task, "returned_payload_json", None), dict)
+            else {}
+        )
         source_url = str(input_json.get("source_url") or input_json.get("property_url") or "").strip()
         source_label = str(input_json.get("source_label") or input_json.get("title") or source_url or "Source").strip()
         filter_key = str(input_json.get("filter_key") or "").strip().lower()
@@ -24290,6 +24297,10 @@ class ProductService:
             "human_task_id": human_task_ref,
             "repair_workflow": str(input_json.get("repair_workflow") or "ea_provider_ooda").strip() or "ea_provider_ooda",
         }
+        replacement_run_id = str(returned_payload.get("replacement_run_id") or "").strip()
+        if replacement_run_id:
+            receipt["replacement_run_id"] = replacement_run_id
+            receipt["replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
         with _PROPERTY_SEARCH_RUN_LOCK:
             state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
             if not isinstance(state, dict):
@@ -24341,6 +24352,11 @@ class ProductService:
             summary["repair_receipts"] = receipts[-25:]
             summary["repair_resolved_total"] = max(int(summary.get("repair_resolved_total") or 0), len(summary["repair_receipts"]))
             summary["repair_last_updated_at"] = receipt["at"]
+            if replacement_run_id:
+                summary["repair_replacement_run_id"] = replacement_run_id
+                summary["repair_replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
+                summary["repair_step_label"] = "Started a replacement search run from the saved brief."
+                summary["customer_status_message"] = "A replacement search run is now checking the saved brief."
             if str(state.get("status") or "").strip().lower() == "failed" and list(summary.get("ranked_candidates") or []):
                 state["status"] = "completed_partial"
                 state["progress"] = 100
@@ -24494,6 +24510,7 @@ class ProductService:
         repair_location_hints = (source_scope_location,) if source_scope_location else location_hints
         resolution = ""
         reason = ""
+        replacement_run_id = ""
         if filter_key == "source_fetch":
             if "403" in diagnostics_error or "forbidden" in diagnostics_error:
                 resolution = "suppressed_source_fetch_forbidden"
@@ -24508,7 +24525,45 @@ class ProductService:
                 return {"status": "deferred", "reason": "manual_provider_patch_required"}
         elif filter_key == "run_interrupted_stale":
             resolution = "stale_run_restart_required"
-            reason = "search run stopped updating before a durable checkpoint could complete; launch a fresh bounded run from the saved brief"
+            reason = "search run stopped updating before a durable checkpoint could complete; started a fresh bounded run from the saved brief"
+            parent_run_id = str(input_json.get("run_id") or diagnostics.get("run_id") or "").strip()
+            parent_state: dict[str, object] = {}
+            if parent_run_id:
+                with _PROPERTY_SEARCH_RUN_LOCK:
+                    parent_state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(parent_run_id) or {})
+                if not parent_state:
+                    loaded_parent = _load_property_search_run_record(run_id=parent_run_id, principal_id=principal_id)
+                    parent_state = dict(loaded_parent or {}) if isinstance(loaded_parent, dict) else {}
+            parent_summary = dict(parent_state.get("summary") or {}) if isinstance(parent_state, dict) else {}
+            replacement_run_id = str(parent_summary.get("repair_replacement_run_id") or "").strip()
+            if not replacement_run_id and parent_state:
+                parent_preferences = (
+                    dict(parent_state.get("property_search_preferences") or {})
+                    if isinstance(parent_state.get("property_search_preferences"), dict)
+                    else dict(current_preferences)
+                )
+                parent_preferences.pop("__property_search_run_id__", None)
+                parent_preferences.pop("__premerged_preferences__", None)
+                parent_preferences["force_refresh"] = True
+                parent_platforms = tuple(
+                    str(item or "").strip()
+                    for item in list(parent_state.get("selected_platforms") or parent_preferences.get("selected_platforms") or ())
+                    if str(item or "").strip()
+                )
+                max_results_value = parent_preferences.get("max_results_per_source") or parent_summary.get("max_results_per_source")
+                try:
+                    repair_max_results = max(1, min(10, int(max_results_value))) if max_results_value else None
+                except Exception:
+                    repair_max_results = None
+                replacement = self._start_property_search_repair_replacement_run(
+                    principal_id=principal_id,
+                    selected_platforms=parent_platforms,
+                    property_search_preferences=parent_preferences,
+                    max_results_per_source=repair_max_results,
+                )
+                replacement_run_id = str(dict(replacement or {}).get("run_id") or "").strip()
+            if parent_state and not replacement_run_id:
+                return {"status": "deferred", "reason": "replacement_run_could_not_start"}
         elif filter_key == "walkthrough_video":
             resolution = "walkthrough_video_auto_generation_disabled"
             reason = "walkthrough renders are not retried automatically; the user must explicitly request a new render"
@@ -24575,6 +24630,7 @@ class ProductService:
                 "reason": reason,
                 "property_url": property_url,
                 "filter_key": filter_key,
+                "replacement_run_id": replacement_run_id,
                 "snapshot_title": candidate_title,
                 "snapshot_facts": candidate_facts,
             },
@@ -24598,6 +24654,7 @@ class ProductService:
                     "filter_key": filter_key,
                     "resolution": resolution,
                     "reason": reason,
+                    "replacement_run_id": replacement_run_id,
                     "actor": str(actor or "ea_one_manager").strip() or "ea_one_manager",
                 },
                 source_id=updated.human_task_id,
@@ -24607,8 +24664,26 @@ class ProductService:
             "status": "resolved" if updated is not None else "failed",
             "resolution": resolution,
             "reason": reason,
+            "replacement_run_id": replacement_run_id,
             "human_task_id": f"human_task:{task.human_task_id}",
         }
+
+    def _start_property_search_repair_replacement_run(
+        self,
+        *,
+        principal_id: str,
+        selected_platforms: tuple[str, ...],
+        property_search_preferences: dict[str, object],
+        max_results_per_source: int | None,
+    ) -> dict[str, object]:
+        return self.start_property_search_run(
+            principal_id=principal_id,
+            actor="property_search_repair",
+            selected_platforms=tuple(selected_platforms or ()),
+            property_search_preferences=dict(property_search_preferences or {}),
+            force_refresh=True,
+            max_results_per_source=max_results_per_source,
+        )
 
     def process_property_provider_repair_tasks(
         self,
@@ -27562,6 +27637,16 @@ class ProductService:
                     ],
                     "can_auto_repair": True,
                 }
+                replacement_run_id = str(repair_task.get("replacement_run_id") or "").strip()
+                if replacement_run_id:
+                    repair_summary_updates.update(
+                        {
+                            "repair_replacement_run_id": replacement_run_id,
+                            "repair_replacement_status_url": f"/app/api/signals/property/search/run/{replacement_run_id}",
+                            "repair_step_label": "Started a replacement search run from the saved brief.",
+                            "customer_status_message": "A replacement search run is now checking the saved brief.",
+                        }
+                    )
                 self._record_property_search_run_event(
                     run_id=normalized_run_id,
                     principal_id=normalized_principal,

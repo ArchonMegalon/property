@@ -6101,6 +6101,12 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
 
     container = client.app.state.container
     service = product_service.build_product_service(container)
+    replacement_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_search_repair_replacement_run",
+        lambda self, **kwargs: replacement_calls.append(dict(kwargs)) or {"run_id": "run-stale-1-repair"},
+    )
     run_id = "run-stale-1"
     state = product_service._new_property_search_run_record(
         run_id=run_id,
@@ -6129,6 +6135,8 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     assert status["summary"]["interrupted"] is True
     assert status["summary"]["repair_status"] == "repairing"
     assert status["summary"]["repair_status_label"] == "Repairing"
+    assert status["summary"]["repair_replacement_run_id"] == "run-stale-1-repair"
+    assert status["summary"]["repair_replacement_status_url"] == "/app/api/signals/property/search/run/run-stale-1-repair"
     assert status["summary"]["provider_repair_task_opened_total"] == 1
     assert any(event["step"] == "run_interrupted" for event in status["events"])
     assert any(event["step"] == "run_repair_queued" for event in status["events"])
@@ -6149,9 +6157,13 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     assert repair_input["run_id"] == run_id
     assert repair_input["source_label"] == "Willhaben | Austria | Rent | 1010 Vienna"
     assert repair_input["diagnostics"]["failure_class"] == "run_interrupted_stale"
+    assert replacement_calls
+    assert replacement_calls[0]["selected_platforms"] == ("willhaben",)
+    assert replacement_calls[0]["property_search_preferences"]["location_query"] == "Vienna"
 
     status_again = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
     assert status_again is not None
+    assert len(replacement_calls) == 1
     tasks_again = [
         task
         for task in container.orchestrator.list_human_tasks(
