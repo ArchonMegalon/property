@@ -6586,6 +6586,9 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "The search could not finish." not in page.text
     assert "Repairing search." in page.text
     assert "Retrying Willhaben provider check" in page.text
+    hero_note = re.search(r'<div class="pqx-note">\s*(.*?)\s*</div>', page.text, re.S)
+    assert hero_note is not None
+    assert "<strong>" not in hero_note.group(1)
     assert "Auto-repair is queued and will retry the interrupted provider checks." in page.text
     assert "Best matches" not in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text

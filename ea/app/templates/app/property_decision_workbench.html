@@ -6257,8 +6257,12 @@
             </h1>
             {% if run_status == 'failed' and (run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label')) %}
             <div class="pqx-note">
+              {% if run_failed_no_results %}
+              <span>{{ run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label') }}</span>
+              {% else %}
               {% if run_reliability.get('repair_step_label') %}<strong>{{ run_reliability.get('repair_step_label') }}</strong>{% endif %}
               {% if run_reliability.get('customer_status_message') %}<span>{{ run_reliability.get('customer_status_message') }}</span>{% endif %}
+              {% endif %}
             </div>
             {% endif %}
           </div>
