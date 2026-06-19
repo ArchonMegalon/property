@@ -5323,13 +5323,13 @@ def _property_facts_with_source_scope(
     scope_location = _property_search_source_scope_location(source_url=source_url, source_label=source_label)
     if not scope_location:
         return enriched
-    enriched.setdefault("source_scope_location", scope_location)
+    enriched["source_scope_location"] = scope_location
     postal_match = re.search(r"\b([1-9]\d{3})\b", scope_location)
     if postal_match:
-        enriched.setdefault("source_postal_code", postal_match.group(1))
+        enriched["source_postal_code"] = postal_match.group(1)
     city = re.sub(r"\b[1-9]\d{3}\b", "", scope_location).strip()
     if city:
-        enriched.setdefault("source_city", city)
+        enriched["source_city"] = city
     return enriched
 
 
@@ -6354,6 +6354,18 @@ def _property_candidate_url_has_location_probe(property_url: str) -> bool:
     )
 
 
+def _property_candidate_url_has_exact_location_probe(property_url: str) -> bool:
+    parsed = urllib.parse.urlparse(str(property_url or "").strip())
+    path = urllib.parse.unquote(str(parsed.path or "").strip().lower())
+    if not path:
+        return False
+    return bool(
+        re.search(r"\b\d{4,5}\b", path)
+        or re.search(r"\bwien-\d{4}\b", path)
+        or re.search(r"\bvienna-\d{4}\b", path)
+    )
+
+
 def _property_candidate_notification_price_signal(
     facts: dict[str, object],
     *,
@@ -6616,7 +6628,14 @@ def _property_candidate_is_generic_listing_page(
             flags=re.IGNORECASE,
         )
     )
-    if search_result_count_marker and not has_identity_or_address_signal:
+    title_text = str(title or "").strip().lower()
+    title_has_postal_signal = bool(re.search(r"\b\d{4,5}\b", title_text))
+    title_has_home_shape_signal = bool(
+        re.search(r"\b\d+(?:[,.]\d+)?\s*(?:m²|m2|qm)\b", title_text)
+        or re.search(r"\b\d+(?:[,.]\d+)?\s*(?:zimmer|room|rooms)\b", title_text)
+    )
+    title_has_concrete_listing_signal = bool(title_has_postal_signal and title_has_home_shape_signal)
+    if search_result_count_marker and not has_identity_or_address_signal and not title_has_concrete_listing_signal:
         return True
     if (
         any(marker in path for marker in ("/d/", "/expose/", "/detail/", "/objekt/", "/object/"))
@@ -30595,7 +30614,7 @@ class ProductService:
             for ordinal, property_url in enumerate(listing_urls, start=1):
                 if (
                     source_location_hints
-                    and _property_candidate_url_has_location_probe(property_url)
+                    and _property_candidate_url_has_exact_location_probe(property_url)
                     and not _property_candidate_matches_search_area(
                         location_hints=source_location_hints,
                         request_preferences=request_preferences,
@@ -30673,19 +30692,81 @@ class ProductService:
                     investment_research_mode=investment_research_mode,
                     available_within_years=available_within_years,
                 )
-                preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
-                preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
+                raw_preview_title = str(preview.get("title_full") or preview.get("title") or property_url).strip() or property_url
+                raw_preview_summary = str(preview.get("summary") or "").strip()
+                preview_title = compact_text(raw_preview_title, fallback=property_url, limit=160)
+                preview_summary = compact_text(raw_preview_summary, fallback="", limit=240)
                 preview_facts = _property_enrich_facts_from_listing_text(
                     facts=preview_facts,
-                    title=preview_title,
-                    summary=preview_summary,
+                    title=raw_preview_title,
+                    summary=raw_preview_summary,
                     listing_mode=listing_mode,
                 )
                 preview["property_facts_json"] = preview_facts
+                if (
+                    source_location_hints
+                    and cached_preview
+                    and not str(preview.get("title_full") or "").strip()
+                    and not _property_candidate_matches_search_area(
+                        location_hints=source_location_hints,
+                        request_preferences=request_preferences,
+                        source_spec=source_spec,
+                        property_url=property_url,
+                        title=raw_preview_title,
+                        summary=raw_preview_summary,
+                        property_facts=preview_facts,
+                    )
+                ):
+                    try:
+                        refreshed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
+                        if isinstance(refreshed_preview, dict) and refreshed_preview:
+                            preview = refreshed_preview
+                            self._property_public_preview_cache_store(
+                                cache_index=public_preview_cache,
+                                property_url=property_url,
+                                preview=preview,
+                            )
+                            public_property_cache_refresh_total += 1
+                            preview_facts = (
+                                dict(preview.get("property_facts_json") or {})
+                                if isinstance(preview.get("property_facts_json"), dict)
+                                else {}
+                            )
+                            preview_facts = _property_facts_with_source_scope(
+                                facts=preview_facts,
+                                source_url=source_url,
+                                source_label=raw_source_label,
+                            )
+                            preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                            preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                            preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                            preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts.setdefault("country_code", str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip().upper())
+                            preview_facts.setdefault("region_code", str(request_preferences.get("region_code") or "").strip().lower())
+                            preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                            preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
+                            preview_facts = _property_enrich_future_change_research(
+                                preview_facts,
+                                investment_research_mode=investment_research_mode,
+                                available_within_years=available_within_years,
+                            )
+                            raw_preview_title = str(preview.get("title_full") or preview.get("title") or property_url).strip() or property_url
+                            raw_preview_summary = str(preview.get("summary") or "").strip()
+                            preview_title = compact_text(raw_preview_title, fallback=property_url, limit=160)
+                            preview_summary = compact_text(raw_preview_summary, fallback="", limit=240)
+                            preview_facts = _property_enrich_facts_from_listing_text(
+                                facts=preview_facts,
+                                title=raw_preview_title,
+                                summary=raw_preview_summary,
+                                listing_mode=listing_mode,
+                            )
+                            preview["property_facts_json"] = preview_facts
+                    except Exception:
+                        pass
                 if _suppress_generic_listing_candidate(
                     property_url=property_url,
-                    title=preview_title,
-                    summary=preview_summary,
+                    title=raw_preview_title,
+                    summary=raw_preview_summary,
                     property_facts=preview_facts,
                     stage="provider_preview",
                     ordinal=ordinal,
@@ -30976,8 +31057,8 @@ class ProductService:
                                     request_preferences=request_preferences,
                                     source_spec=source_spec,
                                     property_url=property_url,
-                                    title=preview_title,
-                                    summary=preview_summary,
+                                    title=raw_preview_title,
+                                    summary=raw_preview_summary,
                                     property_facts=preview_facts,
                                 ),
                                 "floorplan_recovery_diagnostics": recovery_diagnostics,
@@ -31067,8 +31148,8 @@ class ProductService:
                             request_preferences=request_preferences,
                             source_spec=source_spec,
                             property_url=property_url,
-                            title=preview_title,
-                            summary=preview_summary,
+                            title=raw_preview_title,
+                            summary=raw_preview_summary,
                             property_facts=preview_facts,
                         ),
                     }
@@ -31225,7 +31306,10 @@ class ProductService:
             ranked_rows: list[dict[str, object]] = []
             top_watch_candidate_for_source: dict[str, object] | None = None
             for ordinal, row in enumerate(preliminary_rows[:enrichment_limit], start=1):
-                if len(ranked_rows) >= max_results:
+                if (
+                    sum(1 for ranked_row in ranked_rows if not bool(ranked_row.get("below_match_threshold")))
+                    >= max_results
+                ):
                     break
                 property_url = str(row.get("property_url") or "").strip()
                 _report(
@@ -31988,6 +32072,16 @@ class ProductService:
                     seen_listing_fingerprints.add(listing_fingerprint)
                 unique_ranked_rows.append(row)
             ranked_rows = unique_ranked_rows
+            strong_ranked_rows = [
+                row for row in ranked_rows if not bool(row.get("below_match_threshold"))
+            ]
+            fallback_ranked_rows = [
+                row for row in ranked_rows if bool(row.get("below_match_threshold"))
+            ]
+            if strong_ranked_rows:
+                ranked_rows = strong_ranked_rows[:max_results]
+            elif len(fallback_ranked_rows) > max_results:
+                ranked_rows = fallback_ranked_rows[:max_results]
             _report(
                 step="source_shortlist",
                 message=f"Built shortlist of {len(ranked_rows)} listing(s) for {source_label}.",

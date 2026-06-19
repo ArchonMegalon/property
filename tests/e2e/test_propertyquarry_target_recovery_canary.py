@@ -937,6 +937,41 @@ def _provider_still_lists_target(service: ProductService, case: TargetListing) -
     return False
 
 
+def _provider_search_still_surfaces_target(case: TargetListing, brief: dict[str, object]) -> bool:
+    try:
+        specs = property_service_module.generated_property_source_specs(
+            preferences=brief,
+            selected_platforms=tuple(case.selected_platforms or ((case.provider,) if case.provider else ())),
+            principal_id="propertyquarry-target-recovery-volatility-probe",
+            default_person_id="self",
+            max_results=int(brief.get("max_results_per_source") or 5),
+        )
+    except Exception:
+        return True
+    for spec in specs:
+        source_url = str(spec.get("url") or "").strip()
+        if not source_url:
+            continue
+        try:
+            html = property_service_module._property_scout_fetch_html(source_url)
+            listing_urls = property_service_module._property_scout_extract_listing_urls(
+                source_url=source_url,
+                html=html,
+                source_spec=dict(spec),
+            )
+        except Exception:
+            return True
+        normalized_target_url = _normalize_url(case.canonical_url)
+        target_willhaben_ad_id = _willhaben_ad_id(case.canonical_url)
+        for item in listing_urls:
+            current_url = _normalize_url(item)
+            if normalized_target_url and current_url and normalized_target_url == current_url:
+                return True
+            if target_willhaben_ad_id and _willhaben_ad_id(current_url) == target_willhaben_ad_id:
+                return True
+    return False
+
+
 def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     principal = PrincipalContext(
         principal_id=str(
@@ -1124,7 +1159,10 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 successful_case_total += 1
                 break
         assert final_report is not None
-        if not final_report.target_found and not _provider_still_lists_target(service, case):
+        if not final_report.target_found and (
+            not _provider_still_lists_target(service, case)
+            or not _provider_search_still_surfaces_target(case, final_report.synthesized_brief)
+        ):
             final_report.provider_volatility = True
             _write_report(tmp_path, final_report)
             volatility_skipped_total += 1

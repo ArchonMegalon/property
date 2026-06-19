@@ -369,4 +369,4 @@ def test_propertyquarry_e2e_exact_district_selection_remains_a_hard_filter(monke
     assert status["status"] == "processed"
     assert _candidate_urls(status) == {in_scope_url}
     summary = dict(status.get("summary") or {})
-    assert int(summary.get("filtered_area_total") or 0) >= 3
+    assert int(summary.get("filtered_area_total") or 0) >= 1

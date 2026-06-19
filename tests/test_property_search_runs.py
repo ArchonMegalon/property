@@ -18,7 +18,7 @@ import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
 from app.product.service import ProductService
-from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_location_probe, _property_search_location_hints
+from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
 from app.services.property_billing import property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
@@ -2161,6 +2161,10 @@ def test_property_url_location_probe_rejects_off_scope_willhaben_detail_paths() 
     assert _property_candidate_url_has_location_probe(vienna_1220_url)
     assert _property_candidate_url_has_location_probe(vienna_1010_url)
     assert not _property_candidate_url_has_location_probe(opaque_url)
+    assert not _property_candidate_url_has_exact_location_probe(salzburg_url)
+    assert _property_candidate_url_has_exact_location_probe(vienna_1220_url)
+    assert _property_candidate_url_has_exact_location_probe(vienna_1010_url)
+    assert not _property_candidate_url_has_exact_location_probe(opaque_url)
     assert not _property_candidate_matches_requested_location(
         location_hints=("1010 Vienna",),
         property_url=salzburg_url,
@@ -2437,6 +2441,35 @@ def test_property_generic_listing_page_detector_overrides_detail_shaped_url_for_
             "listing_id": "1631373932",
         },
     )
+
+    assert not _property_candidate_is_generic_listing_page(
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-848017019/",
+        title=(
+            "PROVISIONSFREI - MIETE RUHELAGE SALZBURG PARSCH: "
+            "Geräumige 79 m² 3-Zimmer-Wohnung, € 1.398,64, (5020 Salzburg) - willhaben"
+        ),
+        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        property_facts={"rooms": 3, "has_floorplan": True},
+    )
+
+
+def test_property_source_scope_metadata_is_current_run_context_not_cached_listing_truth() -> None:
+    stale_facts = {
+        "source_scope_location": "1010 Vienna",
+        "source_postal_code": "1010",
+        "source_city": "Vienna",
+        "rooms": 2,
+    }
+
+    refreshed = product_service._property_facts_with_source_scope(
+        facts=stale_facts,
+        source_url="https://www.willhaben.at/iad/immobilien/mietwohnungen?isNavigation=true&q=8010+Waltendorf",
+        source_label="Willhaben | Austria | Rent | 8010 Waltendorf",
+    )
+
+    assert refreshed["source_scope_location"] == "8010 Waltendorf"
+    assert refreshed["source_postal_code"] == "8010"
+    assert refreshed["source_city"] == "Waltendorf"
 
 
 def test_property_scout_hit_sender_uses_source_scope_as_notification_location_fallback(monkeypatch) -> None:

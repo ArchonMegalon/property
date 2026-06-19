@@ -2601,7 +2601,7 @@ def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_p
     assert observed_telegram["principal_id"] == principal_id
     assert "Review: use the button below." in str(observed_telegram["text"])
     assert "https://myexternalbrain.com/workspace-access/" not in str(observed_telegram["text"])
-    assert any(label == "Open Review" and str(url).startswith("https://myexternalbrain.com/workspace-access/") for row in list(observed_telegram["url_buttons"] or []) for label, url in row)
+    assert any(label == "Open Review" and str(url).startswith("https://propertyquarry.com/workspace-access/") for row in list(observed_telegram["url_buttons"] or []) for label, url in row)
     assert "Listing: https://www.immobilienscout24.at/expose/telegram-test-property-2" not in str(observed_telegram["text"])
 
     handoffs = client.get("/app/api/handoffs")
@@ -6959,7 +6959,7 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
     assert "Personal fit 37/100" in str(observed_telegram["text"])
     assert "Review: use the button below." in str(observed_telegram["text"])
     assert "https://myexternalbrain.com/workspace-access/" not in str(observed_telegram["text"])
-    assert any(label == "Open Review" and str(url).startswith("https://myexternalbrain.com/workspace-access/") for row in list(observed_telegram["url_buttons"] or []) for label, url in row)
+    assert any(label == "Open Review" and str(url).startswith("https://propertyquarry.com/workspace-access/") for row in list(observed_telegram["url_buttons"] or []) for label, url in row)
     assert f"Listing: {listing_url}" not in str(observed_telegram["text"])
 
 

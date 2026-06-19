@@ -804,6 +804,7 @@ def _property_public_preview_cache_payload(preview: dict[str, object] | None) ->
     return {
         "property_url": urllib.parse.urldefrag(str(payload.get("property_url") or payload.get("listing_id") or "").strip())[0],
         "listing_id": str(payload.get("listing_id") or "").strip(),
+        "title_full": compact_text(str(payload.get("title_full") or payload.get("title") or "").strip(), fallback="", limit=500),
         "title": compact_text(str(payload.get("title") or "").strip(), fallback="", limit=160),
         "summary": compact_text(str(payload.get("summary") or "").strip(), fallback="", limit=400),
         "property_facts_json": facts,
