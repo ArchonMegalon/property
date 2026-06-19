@@ -421,7 +421,7 @@
           body: JSON.stringify({
             property_ref: candidatePropertyRef(candidate),
             property_title: String(candidate.title || ''),
-            property_url: String(candidate.packet_url || candidate.property_url || candidate.source_url || ''),
+            property_url: String(candidate.packet_url || candidate.property_url || candidate.source_url || candidate.listing_url || ''),
             question,
             property_facts: candidate.property_facts || {},
             assessment: candidate.assessment || {},
@@ -735,7 +735,7 @@
           body: JSON.stringify({
             person_id: feedbackPersonId,
             property_slug: String(candidate.candidate_ref || '').trim(),
-            property_url: String(candidate.property_url || candidate.source_url || '').trim(),
+            property_url: String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim(),
             property_title: String(candidate.title || '').trim(),
             property_facts: candidate.property_facts || {},
             reaction: selectedFeedbackReaction,
@@ -1048,7 +1048,7 @@
       event.stopPropagation();
       const kind = String(button.getAttribute('data-pw-visual-request') || 'tour').trim().toLowerCase();
       const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
-      const candidate = candidates.find((row) => String(row.property_url || row.source_url || '').trim() === propertyUrl)
+      const candidate = candidates.find((row) => String(row.property_url || row.source_url || row.listing_url || '').trim() === propertyUrl)
         || candidateByRef.get(selectedFeedbackCandidateRef)
         || candidates[0];
       requestVisualAsset(candidate, kind, button);

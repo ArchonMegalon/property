@@ -1484,14 +1484,15 @@
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
         return;
       }
-      const original = button.textContent || (requestKind === 'flythrough' ? 'Request flythrough' : 'Request 3D tour');
+      const original = button.textContent || (requestKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour');
       button.disabled = true;
-      button.textContent = requestKind === 'flythrough' ? 'Requesting flythrough...' : 'Requesting 3D tour...';
+      button.textContent = requestKind === 'flythrough' ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
       if (visualRequestStatusNode) {
         visualRequestStatusNode.textContent = requestKind === 'flythrough'
-          ? 'Requesting a flythrough from the available source material...'
+          ? 'Requesting a walkthrough from the available source material...'
           : 'Requesting a 3D tour from the available source material...';
       }
+      let requestSucceeded = false;
       try {
         const response = await fetch('/app/api/signals/willhaben/property-tour', {
           method: 'POST',
@@ -1511,11 +1512,12 @@
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(String(payload.detail || payload.error || 'Could not request the visual.'));
         syncVisualButtons(requestKind, payload);
+        requestSucceeded = true;
       } catch (error) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
       } finally {
         button.disabled = false;
-        if (!String(button.getAttribute('data-pw-visual-href') || '').trim()) {
+        if (!requestSucceeded && !String(button.getAttribute('data-pw-visual-href') || '').trim()) {
           button.textContent = original;
         }
       }

@@ -317,6 +317,23 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                                     "postal_name": "Berlin Tiergarten",
                                 },
                             },
+                            {
+                                "title": "Listing URL only loft",
+                                "listing_url": "https://www.immobilienscout24.de/expose/listing-url-only-loft",
+                                "fit_summary": "Personal fit 84/100 · shortlist · Source adapter only supplied listing_url.",
+                                "recommendation": "shortlist",
+                                "review_url": "/app/handoffs/human_task:review-listing-only",
+                                "tour_url": "",
+                                "match_reasons": ["Valid listing URL is available."],
+                                "mismatch_reasons": ["No 360 tour yet."],
+                                "property_facts": {
+                                    "price_display": "EUR 455,000",
+                                    "price_eur": 455000.0,
+                                    "rooms": 3,
+                                    "area_m2": 82,
+                                    "postal_name": "Berlin Charlottenburg",
+                                },
+                            },
                         ],
                     }
                 ],
@@ -2238,6 +2255,69 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         assert payload["allow_floorplan_only"] is True
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/family-tiergarten")
+    finally:
+        context.close()
+
+
+def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+
+    def _capture_visual_request(route) -> None:
+        request = route.request
+        payload = request.post_data_json
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-06-19T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Listing URL only loft",
+                    "request_kind": "flythrough",
+                    "tour_url": "",
+                    "flythrough_url": "",
+                    "flythrough_status": "pending",
+                    "status_label": "Flythrough queued",
+                    "status_detail": "Flythrough is queued after your request.",
+                    "delivery_status": "skipped",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        listing_only_row = page.locator("[data-workbench-row]", has_text="Listing URL only loft").first
+        listing_only_row.wait_for(timeout=5000)
+        assert visual_requests == []
+
+        request_button = listing_only_row.get_by_role("button", name="Request walkthrough")
+        expect(request_button).to_be_visible()
+        assert str(request_button.get_attribute("data-property-url") or "").endswith("/listing-url-only-loft")
+        request_button.click()
+        page.wait_for_timeout(750)
+
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "flythrough"
+        assert payload["auto_deliver"] is False
+        assert payload["allow_floorplan_only"] is True
+        assert payload["run_id"] == "run-42"
+        assert str(payload["property_url"]).endswith("/listing-url-only-loft")
+        assert "Walkthrough queued" in page.locator("body").inner_text()
     finally:
         context.close()
 

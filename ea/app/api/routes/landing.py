@@ -2840,7 +2840,7 @@ def property_research_packet(
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
         hero_actions.append({"kind": "flythrough", "label": "Flythrough rendering", "property_url": property_url, "state": "rendering"})
     elif property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Request flythrough", "property_url": property_url, "state": "idle"})
+        hero_actions.append({"kind": "flythrough", "label": "Request walkthrough", "property_url": property_url, "state": "idle"})
     if str(candidate.get("packet_url") or review_url or "").strip():
         hero_actions.append({"href": str(candidate.get("packet_url") or review_url or "").strip(), "label": "Copy page link", "copy": True})
     visual_status_line = ""

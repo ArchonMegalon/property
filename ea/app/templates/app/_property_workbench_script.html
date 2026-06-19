@@ -206,7 +206,7 @@
         candidate.packet_url ? `<a class="pqx-link-button primary" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="${candidateRef}">Open property page</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="${candidateRef}">Share this home</button>`,
         `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
-          candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="${candidateRef}">Open listing</a>` : '',
+          visualPropertyUrl ? `<a class="pqx-link-button" href="${escapeHtml(visualPropertyUrl)}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="${candidateRef}">Open listing</a>` : '',
           !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${candidateRef}">Request 3D tour</button>` : '',
           !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${candidateRef}">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>`,
@@ -259,6 +259,7 @@
       candidate?.property_url ||
       candidate?.review_url ||
       candidate?.source_url ||
+      candidate?.listing_url ||
       candidate?.title ||
       'property'
     ).trim() || 'property';
@@ -280,8 +281,8 @@
       return {
         title: String(candidate?.title || 'Property candidate').trim(),
         property_title: String(candidate?.title || 'Property candidate').trim(),
-        property_url: absoluteUrl(candidate?.property_url || candidate?.source_url || ''),
-        source_url: absoluteUrl(candidate?.source_url || candidate?.property_url || ''),
+        property_url: absoluteUrl(candidate?.property_url || candidate?.source_url || candidate?.listing_url || ''),
+        source_url: absoluteUrl(candidate?.source_url || candidate?.property_url || candidate?.listing_url || ''),
         source_label: String(candidate?.source_label || '').trim(),
         price_display: String(candidate?.price_display || '').trim(),
         costs_display: String(candidate?.costs_display || '').trim(),
@@ -326,8 +327,8 @@
         recommendation: String(candidate.recommendation || '').trim(),
         compare_reason: String(candidate.compare_reason || candidate.fit_summary || '').trim(),
         fit_summary: String(candidate.fit_summary || '').trim(),
-        property_url: absoluteUrl(candidate.source_url || candidate.property_url || ''),
-        source_url: absoluteUrl(candidate.source_url || candidate.property_url || ''),
+        property_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
+        source_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
         review_url: absoluteUrl(candidate.packet_url || candidate.review_url || ''),
         tour_url: absoluteUrl((candidate.tour && candidate.tour.url) || candidate.tour_url || ''),
         map_url: absoluteUrl(candidate.map_url || ''),
@@ -563,7 +564,7 @@
     };
     const requestVisualAsset = async (candidate, kind, button) => {
       if (!candidate) return;
-      const propertyUrl = String(candidate.property_url || candidate.source_url || '').trim();
+      const propertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
       if (!propertyUrl) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
         return;
@@ -1301,7 +1302,7 @@
           || title
         ).trim();
         const packetUrl = String(candidate?.packet_url || candidate?.review_url || '').trim();
-        const propertyUrl = String(candidate?.property_url || candidate?.source_url || '').trim();
+        const propertyUrl = String(candidate?.property_url || candidate?.source_url || candidate?.listing_url || '').trim();
         const primaryPrice = String(candidate?.price_display || candidate?.costs_display || 'No price published').trim();
         const secondaryPrice = String(candidate?.costs_display || candidate?.price_per_sqm_display || '').trim();
         const layout = String(candidate?.layout_display || '').trim();
