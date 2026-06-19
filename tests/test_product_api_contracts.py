@@ -4605,6 +4605,8 @@ def test_property_scout_rejects_listing_postal_conflict_from_title_before_scorin
     assert result["ranked_candidates"] == []
     assert result["sources"][0]["location_mismatch_candidate_total"] == 1
     assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+    assert result["sources"][0]["source_label"] == "DER STANDARD Immobilien"
+    assert result["sources"][0]["source_scope_label"] == "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna"
 
 
 def test_property_scout_uses_exact_source_scope_as_hard_area_filter(monkeypatch) -> None:
@@ -4685,6 +4687,8 @@ def test_property_scout_uses_exact_source_scope_as_hard_area_filter(monkeypatch)
     assert result["ranked_candidates"] == []
     assert result["sources"][0]["location_mismatch_candidate_total"] == 1
     assert result["sources"][0]["location_mismatch_reason"] == "provider_returned_candidates_outside_selected_location"
+    assert result["sources"][0]["source_label"] == "Willhaben"
+    assert result["sources"][0]["source_scope_label"] == "Willhaben | Austria | Rent | 1010 Vienna"
 
 
 def test_property_scout_source_scope_placeholder_is_not_concrete_listing_location() -> None:
@@ -4885,6 +4889,8 @@ def test_property_scout_generic_provider_pages_never_enter_ranked_candidates(mon
     assert result["provider_repair_task_opened_total"] == 1
     assert result["sources"][0]["filtered_generic_page_total"] == 2
     assert result["sources"][0]["provider_repair_task_opened_total"] == 1
+    assert result["sources"][0]["source_label"] == "Genossenschaften · Heimat Österreich"
+    assert result["sources"][0]["source_scope_label"] == "Genossenschaften | Austria | Rent | 1010 Vienna | Heimat Österreich"
     assert result["sources"][0]["top_candidates"] == []
     assert result["sources"][0]["research_candidates"] == []
     repair_tasks = [
@@ -4900,6 +4906,7 @@ def test_property_scout_generic_provider_pages_never_enter_ranked_candidates(mon
     repair_input = dict(repair_tasks[0].input_json or {})
     assert repair_input.get("filter_key") == "generic_listing_page"
     assert repair_input.get("property_url") == "propertyquarry://provider/derstandard_at/generic-listing-page"
+    assert repair_input.get("source_label") == "Genossenschaften · Heimat Österreich"
     assert repair_input.get("diagnostics", {}).get("source_url") == source_url
     assert repair_input.get("diagnostics", {}).get("example_property_url") == candidate_url
 

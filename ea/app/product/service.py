@@ -29984,10 +29984,11 @@ class ProductService:
             source_started_at = time.perf_counter()
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
             source_key = (str(source_spec.get("platform") or "").strip().lower(), source_url)
-            source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
+            raw_source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=180) or urllib.parse.urlparse(source_url).netloc
+            source_label = _property_source_display_label(raw_source_label) or compact_text(raw_source_label, fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
             source_scope_location_hints = _property_exact_source_scope_location_hints(
                 source_url=source_url,
-                source_label=source_label,
+                source_label=raw_source_label,
             )
             source_location_hints = source_scope_location_hints or location_hints
             source_repair_memory = recent_source_fetch_repair_memory.get(
@@ -30035,6 +30036,7 @@ class ProductService:
                     {
                         "source_url": source_url,
                         "source_label": source_label,
+                        "source_scope_label": raw_source_label,
                         "preference_person_id": source_preference_person_id,
                         "provider_filter_pushdown": provider_filter_pushdown,
                         "provider_cache": {**provider_cache_state, "status": "suppressed"},
@@ -30179,6 +30181,7 @@ class ProductService:
                                 "status": repair_task_status or "queued",
                                 "property_url": f"propertyquarry://provider/{repair_provider_key}/generic-listing-page",
                                 "source_url": source_url,
+                                "source_scope_label": raw_source_label,
                                 "example_property_url": property_url,
                                 "title": title or property_url,
                                 "filter_key": "generic_listing_page",
@@ -30342,6 +30345,7 @@ class ProductService:
                             "status": repair_task_status or "queued",
                             "property_url": source_url,
                             "title": source_label or source_url,
+                            "source_scope_label": raw_source_label,
                             "filter_key": "source_fetch",
                             "diagnostics": {
                                 "provider_host": provider_host,
@@ -30358,6 +30362,7 @@ class ProductService:
                     {
                         "source_url": source_url,
                         "source_label": source_label,
+                        "source_scope_label": raw_source_label,
                         "preference_person_id": source_preference_person_id,
                         "provider_filter_pushdown": provider_filter_pushdown,
                         "provider_cache": {**provider_cache_state, "status": "failed"},
@@ -30467,7 +30472,7 @@ class ProductService:
                 preview_facts = _property_facts_with_source_scope(
                     facts=preview_facts,
                     source_url=source_url,
-                    source_label=source_label,
+                    source_label=raw_source_label,
                 )
                 preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
                 preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
@@ -30564,7 +30569,7 @@ class ProductService:
                             preview_facts = _property_facts_with_source_scope(
                                 facts=preview_facts,
                                 source_url=source_url,
-                                source_label=source_label,
+                                source_label=raw_source_label,
                             )
                             preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
                             preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
@@ -30722,7 +30727,7 @@ class ProductService:
                             preview_facts = _property_facts_with_source_scope(
                                 facts=preview_facts,
                                 source_url=source_url,
-                                source_label=source_label,
+                                source_label=raw_source_label,
                             )
                             preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
                             preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
@@ -30934,7 +30939,7 @@ class ProductService:
                             preview_facts = _property_facts_with_source_scope(
                                 facts=preview_facts,
                                 source_url=source_url,
-                                source_label=source_label,
+                                source_label=raw_source_label,
                             )
                             preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
                             preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
@@ -31075,7 +31080,7 @@ class ProductService:
                 detailed_facts = _property_facts_with_source_scope(
                     facts=detailed_facts,
                     source_url=source_url,
-                    source_label=source_label,
+                    source_label=raw_source_label,
                 )
                 detailed_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
                 detailed_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
@@ -32205,6 +32210,7 @@ class ProductService:
                 {
                     "source_url": source_url,
                     "source_label": source_label,
+                    "source_scope_label": raw_source_label,
                     "platform": str(source_spec.get("platform") or "").strip().lower(),
                     "provider_family": str(source_spec.get("provider_family") or "").strip().lower(),
                     "provider_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
