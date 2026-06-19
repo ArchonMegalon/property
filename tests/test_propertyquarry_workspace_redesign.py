@@ -3470,6 +3470,20 @@ def test_propertyquarry_search_range_controls_use_selected_country_currency() ->
     assert "GBP 2M" in response.text
 
 
+def test_property_research_decision_rows_remove_clarification_noise() -> None:
+    rows = landing_property_research._property_packet_decision_rows(
+        candidate={"recommendation": "ask for clarification"},
+        match_reasons=["Layout fits."],
+        mismatch_reasons=["Operating costs missing."],
+        missing_rows=[{"tag": "important"}],
+    )
+
+    text = " ".join(str(row.get("detail") or row.get("title") or row.get("tag") or "") for row in rows)
+    assert "ask for clarification" not in text.lower()
+    assert "request clarification" not in text.lower()
+    assert "Verify the missing evidence before spending more time on it" in text
+
+
 def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_packets.html"
     body = template_path.read_text(encoding="utf-8")

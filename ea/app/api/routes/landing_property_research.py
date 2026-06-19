@@ -1054,8 +1054,8 @@ def _property_packet_decision_rows(
         "review": "Keep it in review",
         "candidate": "Keep it under review",
         "mention": "Check it after the top homes",
-        "view if compelling": "Only pursue if the missing facts clear up well",
-        "ask for clarification": "Request clarification before spending more time on it",
+        "view if compelling": "Verify the missing evidence before spending more time on it",
+        "ask for clarification": "Verify the missing evidence before spending more time on it",
         "reject": "Drop it unless new evidence changes the file",
         "drop": "Drop it unless new evidence changes the file",
     }.get(recommendation_key, recommendation_key.title() or "Keep it under review")
