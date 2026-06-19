@@ -6164,6 +6164,61 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     assert len(tasks_again) == 1
 
 
+def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypatch) -> None:
+    principal_id = "cf-email:worker.exception@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Worker Exception Repair Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    def _raise_worker_failure(self, **kwargs):
+        raise RuntimeError("provider merge crashed before source rows existed")
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _raise_worker_failure)
+    run = service.start_property_search_run(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+        },
+        force_refresh=True,
+        max_results_per_source=1,
+    )
+
+    status = _poll_property_search_run_status(client, str(run["run_id"]))
+
+    assert status["status"] == "failed"
+    assert status["summary"]["repair_status"] == "repairing"
+    assert status["summary"]["repair_step_label"] == "Queued a generic repair for the failed search run."
+    assert status["summary"]["provider_repair_task_opened_total"] == 1
+    assert any(event["step"] == "run_repair_queued" for event in status["events"])
+    tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(tasks) == 1
+    assert tasks[0].priority == "urgent"
+    assert tasks[0].assigned_operator_id == "ea_one_manager"
+    repair_input = dict(tasks[0].input_json or {})
+    assert repair_input["filter_key"] == "run_worker_exception"
+    assert repair_input["run_id"] == run["run_id"]
+    assert repair_input["diagnostics"]["failure_class"] == "run_worker_exception"
+    assert repair_input["diagnostics"]["error"] == "provider merge crashed before source rows existed"
+    repair_summary = service.process_property_provider_repair_tasks(
+        principal_id=principal_id,
+        actor="test",
+        limit=5,
+    )
+    assert repair_summary["deferred_total"] == 1
+
+
 def test_property_search_run_state_builds_stale_failure_event() -> None:
     event = product_service._state_property_search_run_stale_failure_event(
         {"status": "in_progress"},

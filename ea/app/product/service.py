@@ -23969,6 +23969,7 @@ class ProductService:
             "missing_price",
             "research_packet_missing",
             "run_interrupted_stale",
+            "run_worker_exception",
             "source_fetch",
         }
         task_priority = "urgent" if normalized_filter_key in urgent_filter_keys else "high"
@@ -29076,13 +29077,88 @@ class ProductService:
                     reason="property_search_run_completed",
                 )
             except Exception as exc:
+                error_message = compact_text(str(exc or "search run failed"), fallback="search run failed", limit=320)
+                repair_task: dict[str, object] = {}
+                try:
+                    repair_task = self._open_property_provider_repair_task(
+                        principal_id=normalized_principal,
+                        property_url=f"propertyquarry://search-run/{run_id}",
+                        title=f"Failed property search run {run_id[:8]}",
+                        source_url=f"propertyquarry://search-run/{run_id}",
+                        source_label=compact_text(
+                            " + ".join(str(platform or "").strip() for platform in run_platforms if str(platform or "").strip()),
+                            fallback="Property search run",
+                            limit=120,
+                        ),
+                        source_platform=str(next(iter(run_platforms or ()), "property_search_run") or "property_search_run").strip().lower(),
+                        source_family="property_search_run",
+                        filter_key="run_worker_exception",
+                        diagnostics={
+                            "run_id": run_id,
+                            "failure_class": "run_worker_exception",
+                            "exception_type": exc.__class__.__name__,
+                            "error": error_message,
+                            "selected_platforms": list(run_platforms or ()),
+                            "country_code": str(run_preferences.get("country_code") or "").strip(),
+                            "listing_mode": str(run_preferences.get("listing_mode") or "").strip(),
+                            "location_query": str(run_preferences.get("location_query") or "").strip(),
+                        },
+                        source_ref=f"property-search-run:{run_id}:worker-exception",
+                        run_id=run_id,
+                    )
+                except Exception as repair_exc:
+                    self._record_product_event(
+                        principal_id=normalized_principal,
+                        event_type="property_search_run_repair_queue_failed",
+                        payload={
+                            "run_id": run_id,
+                            "error": compact_text(str(repair_exc or "repair queue failed"), fallback="repair queue failed", limit=280),
+                            "original_error": error_message,
+                        },
+                        source_id=run_id,
+                        dedupe_key=f"{normalized_principal}|{run_id}|property-search-run-repair-queue-failed",
+                    )
+                repair_summary_updates: dict[str, object] = {}
+                if repair_task:
+                    task_status = str(repair_task.get("status") or "").strip().lower()
+                    human_task_ref = str(repair_task.get("queue_item_ref") or repair_task.get("human_task_id") or "").strip()
+                    repair_summary_updates = {
+                        "repair_status": "repairing" if task_status in {"opened", "existing"} else "degraded",
+                        "repair_status_label": "Repairing" if task_status in {"opened", "existing"} else "Repair needed",
+                        "repair_step_label": "Queued a generic repair for the failed search run.",
+                        "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
+                        "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
+                        "provider_repair_tasks": [
+                            {
+                                "status": task_status or "queued",
+                                "filter_key": "run_worker_exception",
+                                "human_task_id": human_task_ref,
+                                "queue_item_ref": human_task_ref,
+                                "source_label": str(repair_task.get("source_label") or "Property search run").strip(),
+                                "repair_owner": "propertyquarry_repair",
+                                "repair_workflow": "property_provider_repair",
+                            }
+                        ],
+                        "can_auto_repair": True,
+                    }
+                    self._record_property_search_run_event(
+                        run_id=run_id,
+                        principal_id=normalized_principal,
+                        step="run_repair_queued",
+                        message="Queued a generic provider repair because the search worker failed before it could finish.",
+                        status="failed",
+                        steps_delta=0,
+                        summary_updates=repair_summary_updates,
+                        force_status="failed",
+                    )
                 self._record_property_search_run_event(
                     run_id=run_id,
                     principal_id=normalized_principal,
                     step="failed",
-                    message=compact_text(str(exc or "search run failed"), fallback="", limit=320),
+                    message=error_message,
                     status="failed",
                     steps_delta=0,
+                    summary_updates=repair_summary_updates or None,
                     force_status="failed",
                 )
                 self._best_effort_propertyquarry_teable_sync(
