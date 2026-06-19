@@ -670,9 +670,13 @@
         }
       }
     };
+{% if surface_mode not in ['agents', 'account', 'billing'] %}
 {% include "app/_property_workbench_feedback_script.html" %}
+{% endif %}
 
+{% if surface_mode not in ['agents', 'account', 'billing'] %}
 {% include "app/_property_workbench_brief_script.html" %}
+{% endif %}
 
     const genericSourceFamilies = new Set([
       'genossenschaften',

@@ -6993,7 +6993,22 @@ def test_propertyquarry_agents_page_trims_saved_search_edit_payloads() -> None:
     assert agents.status_code == 200
     assert "Large saved search" in agents.text
     assert "oversized-agent-payload" not in agents.text
-    assert len(agents.text) < 900_000
+    assert "preferenceProfileEndpoint" not in agents.text
+    assert "Saved durably. Profile now has" not in agents.text
+    assert len(agents.text) < 380_000
+
+
+def test_propertyquarry_static_surfaces_do_not_inline_search_only_scripts() -> None:
+    client = build_property_client(principal_id="pq-static-surface-payload")
+    start_workspace(client, mode="personal", workspace_name="Property Static Payload")
+    headers = {"host": "propertyquarry.com"}
+
+    for route in ("/app/agents", "/app/account", "/app/billing"):
+        response = client.get(route, headers=headers)
+        assert response.status_code == 200
+        assert "preferenceProfileEndpoint" not in response.text
+        assert "Saved durably. Profile now has" not in response.text
+        assert len(response.text) < 420_000, route
 
 
 def test_property_workspace_primary_internal_links_resolve() -> None:
@@ -7023,19 +7038,26 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     ]
     checked: set[str] = set()
     failures: list[str] = []
+    fragment_failures: list[str] = []
     button_failures: list[str] = []
     for page_path in pages:
         page = client.get(page_path, headers=headers, follow_redirects=True)
         assert page.status_code == 200, page.text[:500]
         assert not re.search(r'href="/app/settings(?=[?#"])', page.text), page_path
         for href in re.findall(r'href="([^"]+)"', page.text):
-            if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            if not href or href.startswith(("mailto:", "tel:", "javascript:")):
+                continue
+            if href.startswith("#"):
+                fragment = href[1:].strip()
+                if fragment and f'id="{fragment}"' not in page.text and f"id='{fragment}'" not in page.text:
+                    fragment_failures.append(f"{page_path} offers {href} but no matching id is rendered")
                 continue
             if href.startswith(("http://", "https://", "//")):
                 continue
             if "__" in href or href.startswith("/app/api/"):
                 continue
-            target = href.split("#", 1)[0] or page_path.split("#", 1)[0]
+            target, _, fragment = href.partition("#")
+            target = target or page_path.split("#", 1)[0]
             if not target.startswith("/"):
                 continue
             if target in checked:
@@ -7044,6 +7066,8 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
             response = client.get(target, headers=headers, follow_redirects=True)
             if response.status_code >= 400:
                 failures.append(f"{page_path} offers {href} -> {response.status_code}")
+            elif fragment and f'id="{fragment}"' not in response.text and f"id='{fragment}'" not in response.text:
+                fragment_failures.append(f"{page_path} offers {href} but {target} has no matching id")
         for button_attrs, button_label in re.findall(r"<button([^>]*)>(.*?)</button>", page.text, flags=re.DOTALL):
             attrs = button_attrs.strip()
             if "disabled" in attrs:
@@ -7056,6 +7080,7 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
             label = re.sub(r"\s+", " ", label).strip()
             button_failures.append(f"{page_path} renders inert button {label!r} attrs={attrs!r}")
     assert not failures
+    assert not fragment_failures
     assert not button_failures
     assert "/app/account" in checked
     assert "/app/search" in checked
