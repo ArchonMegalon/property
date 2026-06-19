@@ -29318,6 +29318,25 @@ class ProductService:
         snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
         if not isinstance(snapshot, dict):
             return snapshot
+        stale_result_refresh_copy = "The final results email was sent. Refreshing this page will continue to show the completed result desk."
+        safe_result_ready_copy = "The final results email was sent. The completed result desk is ready."
+
+        def _safe_run_message(value: object) -> str:
+            text = str(value or "")
+            if stale_result_refresh_copy in text:
+                return text.replace(stale_result_refresh_copy, safe_result_ready_copy)
+            return text
+
+        snapshot["message"] = _safe_run_message(snapshot.get("message"))
+        if isinstance(snapshot.get("events"), list):
+            safe_events: list[dict[str, object]] = []
+            for event in list(snapshot.get("events") or []):
+                if not isinstance(event, dict):
+                    continue
+                safe_event = dict(event)
+                safe_event["message"] = _safe_run_message(safe_event.get("message"))
+                safe_events.append(safe_event)
+            snapshot["events"] = safe_events
         summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()

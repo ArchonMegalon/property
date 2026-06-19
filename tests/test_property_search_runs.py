@@ -5060,7 +5060,7 @@ def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_t
             "selected_platforms": ["immoscout_de"],
             "progress": 100,
             "current_step": "completed",
-            "message": "Property scouting run completed.",
+            "message": "The final results email was sent. Refreshing this page will continue to show the completed result desk.",
             "stages_total": 4,
             "steps_completed": 4,
             "summary": {
@@ -5089,13 +5089,21 @@ def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_t
                     }
                 ],
             },
-            "events": [],
+            "events": [
+                {
+                    "step": "results_email_sent",
+                    "message": "The final results email was sent. Refreshing this page will continue to show the completed result desk.",
+                    "status": "processed",
+                }
+            ],
             "property_search_preferences": {},
         }
 
     status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
 
     assert status is not None
+    assert status["message"] == "The final results email was sent. The completed result desk is ready."
+    assert dict(list(status.get("events") or [])[0])["message"] == "The final results email was sent. The completed result desk is ready."
     summary = dict(status.get("summary") or {})
     assert int(summary.get("held_back_total") or 0) == 0
     assert int(summary.get("filtered_total") or 0) == 0
