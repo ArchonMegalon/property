@@ -39,16 +39,16 @@ PRIORITIES = [
         "priority": "P0",
         "area": "Search correctness",
         "title": "Postal-code and district hard filters must never leak wrong areas",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "search-runner/provider-adapters",
         "current_state": (
-            "Live scouting repeatedly surfaced Salzburg, Schaerding, 1200, 1220 and other non-selected "
-            "areas under a 1010 Vienna search label. Area selection is a hard rule, unlike soft lifestyle preferences."
+            "Title, summary and URL postal conflicts are filtered before ranking/notification. Source-scope extraction "
+            "now normalizes all postal URL/label scopes, not only Vienna, and strips URL path tails like `/augasse`."
         ),
         "next_action": (
-            "Normalize postal codes from title, description, URL, provider metadata and address fields; reject hard-area "
-            "violations before ranking or notifications; add provider-check fixtures for all Austrian postal-code cases."
+            "Keep broad live-provider canaries for Austrian postal-code and province slug cases, and expand fixtures as "
+            "new provider-specific location encodings appear."
         ),
         "source": "whole-product audit",
     },

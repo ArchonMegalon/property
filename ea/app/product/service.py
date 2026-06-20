@@ -5294,10 +5294,21 @@ def _property_scout_rank_score(
 
 
 def _property_search_source_scope_location(*, source_url: str = "", source_label: str = "") -> str:
-    text = " ".join(str(part or "").strip() for part in (source_label, source_url) if str(part or "").strip())
+    text_parts = tuple(str(part or "").strip() for part in (source_label, source_url) if str(part or "").strip())
+    text = " ".join(text_parts)
     if not text:
         return ""
+    for part in text_parts:
+        decoded_part = urllib.parse.unquote_plus(part)
+        for row in _property_postal_location_evidence(decoded_part):
+            postal_name = str(row.get("postal_name") or "").strip()
+            if postal_name:
+                return postal_name
     decoded = urllib.parse.unquote_plus(text)
+    for row in _property_postal_location_evidence(decoded):
+        postal_name = str(row.get("postal_name") or "").strip()
+        if postal_name:
+            return postal_name
     match = re.search(r"\b(1\d{3})\s*(?:Vienna|Wien)\b", decoded, flags=re.IGNORECASE)
     if match:
         return f"{match.group(1)} Vienna"
@@ -5413,12 +5424,19 @@ def _property_postal_location_evidence(value: object) -> tuple[dict[str, str], .
     for match in _PROPERTY_POSTAL_LOCATION_RE.finditer(text):
         code = _property_postal_code_core(match.group("code"))
         locality = compact_text(str(match.group("locality") or ""), fallback="", limit=80)
+        locality = re.split(r"[/#?&=]", locality, maxsplit=1)[0]
+        locality = re.split(r"\s+https?\b", locality, maxsplit=1, flags=re.IGNORECASE)[0]
         locality = re.sub(
             r"\s+(?:m(?:²|2)|sqm|zimmer|rooms?|eur|€|usd|der\s+standard|willhaben|immobilien)\b.*$",
             "",
             locality,
             flags=re.IGNORECASE,
         ).strip(" ,.;:-")
+        locality_lower = locality.lower()
+        if locality_lower in {"wien", "vienna"}:
+            locality = "Vienna"
+        elif locality and locality == locality_lower:
+            locality = locality.title()
         if not code or not locality or not re.search(r"[A-Za-zÄÖÜäöüß]", locality):
             continue
         key = (code, locality.casefold())

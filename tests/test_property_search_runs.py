@@ -1255,6 +1255,40 @@ def test_property_exact_source_scope_location_hints_only_use_postal_scopes() -> 
     ) == ()
 
 
+def test_property_source_scope_location_extracts_all_postal_url_scopes_cleanly() -> None:
+    assert product_service._property_search_source_scope_location(
+        source_url="https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70",
+        source_label="Raiffeisen WohnBau | Austria | Rent",
+    ) == "1090 Vienna"
+    assert product_service._property_search_source_scope_location(
+        source_url="https://example.at/search/8055-graz/results",
+        source_label="Provider | Austria | Rent",
+    ) == "8055 Graz"
+    assert product_service._property_search_source_scope_location(
+        source_url="https://example.at/search/5020-salzburg/results",
+        source_label="Provider | Austria | Rent",
+    ) == "5020 Salzburg"
+    assert product_service._property_search_source_scope_location(
+        source_url="https://example.at/search/4780-schaerding/results",
+        source_label="Provider | Austria | Rent",
+    ) == "4780 Schaerding"
+    assert product_service._property_search_source_scope_location(
+        source_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/linz/demo-dirty-scope/",
+        source_label="Willhaben | Austria | Rent | 8055 Graz",
+    ) == "8055 Graz"
+
+
+def test_property_exact_source_scope_hints_strip_url_path_tail_for_all_postals() -> None:
+    assert product_service._property_exact_source_scope_location_hints(
+        source_url="https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70",
+        source_label="Raiffeisen WohnBau | Austria | Rent",
+    ) == ("1090 Vienna",)
+    assert product_service._property_exact_source_scope_location_hints(
+        source_url="https://example.at/search/8055-graz/results",
+        source_label="Provider | Austria | Rent",
+    ) == ("8055 Graz",)
+
+
 def test_property_search_location_matching_rejects_explicit_non_vienna_marker() -> None:
     hints = _property_search_location_hints({"location_query": "Vienna"})
 
