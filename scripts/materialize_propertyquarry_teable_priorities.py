@@ -135,11 +135,12 @@ PRIORITIES = [
         "owner_lane": "frontend/design-system",
         "current_state": (
             "Sign-in provider rows now use compact shared surface/icon/button tokens and no longer show noisy Google?/Facebook? "
-            "help buttons. Broader app-surface light/dark screenshot coverage is still required."
+            "help buttons. Dark-mode shared overrides now cover dynamic event, source, route-preview, result-panel, "
+            "summary-link, textarea, table and action-card surfaces. Broader screenshot coverage is still required."
         ),
         "next_action": (
-            "Replace one-off white panels/buttons with shared surface, border, icon and text tokens; screenshot-test "
-            "landing, sign-in, account, search, results, research, agents, automation and pricing in both themes."
+            "Replace remaining one-off page-specific panels with shared tokens and screenshot-test landing, sign-in, account, "
+            "search, results, research, agents, automation and pricing in both themes."
         ),
         "source": "whole-product audit",
     },

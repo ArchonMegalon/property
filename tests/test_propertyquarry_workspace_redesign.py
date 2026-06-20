@@ -1259,6 +1259,12 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-automation-card',
         'html[data-pq-theme="dark"] .pqx-account-card',
         'html[data-pq-theme="dark"] .pqx-billing-card',
+        'html[data-pq-theme="dark"] .pqx-event-card',
+        'html[data-pq-theme="dark"] .pqx-source-card',
+        'html[data-pq-theme="dark"] .pqx-route-preview-card',
+        'html[data-pq-theme="dark"] .pqx-result-panel',
+        'html[data-pq-theme="dark"] .pqx-results-summary-link',
+        'html[data-pq-theme="dark"] textarea',
         'html[data-pq-theme="dark"] .pqx-research-value',
         'html[data-pq-theme="dark"] .pqx-result[aria-selected="true"]',
     )
@@ -6179,6 +6185,11 @@ def test_propertyquarry_dark_mode_covers_nested_search_controls() -> None:
         ".pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows=\"true\"]",
         ".pqx-automation-kpis span",
         ".pqx-automation-history-link",
+        ".pqx-event-card",
+        ".pqx-source-card",
+        ".pqx-route-preview-card",
+        ".pqx-result-panel",
+        ".pqx-results-summary-link",
     )
 
     for selector in required_selectors:
