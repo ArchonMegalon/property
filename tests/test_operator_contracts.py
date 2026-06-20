@@ -716,6 +716,24 @@ def test_payfunnels_bootstrap_script_help_and_wiring() -> None:
     assert "bootstrap_payfunnels_propertyquarry.py" in readme
 
 
+def test_property_repair_fleet_canary_script_emits_receipt() -> None:
+    result = subprocess.run(
+        ["python3", "scripts/propertyquarry_repair_fleet_canary.py"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["status"] == "pass"
+    assert payload["run_status"] == "completed_partial"
+    assert payload["receipt_resolution"] == "provider_quarantined_retry_budget_exhausted"
+    assert payload["source_repair_status"] == "returned"
+    assert payload["repair_summary"]["resolved_total"] == 1
+    assert payload["repair_summary"]["deferred_total"] == 0
+
+
 def test_emailit_bootstrap_script_help_and_wiring() -> None:
     result = subprocess.run(
         ["python3", "scripts/bootstrap_emailit_propertyquarry.py", "--help"],

@@ -75,17 +75,18 @@ PRIORITIES = [
         "priority": "P0",
         "area": "Reliability",
         "title": "Repair workflow must be executable and durable",
-        "status": "in_progress",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "fleet/job-system",
         "current_state": (
             "Provider repair tasks, stale-run replacement, worker-exception repair, repair receipts and generic "
             "retry-budget quarantine receipts are executable. Compact run snapshots now preserve replacement run links, "
-            "repair receipts, task counts and can-auto-repair state."
+            "repair receipts, task counts and can-auto-repair state. The repair fleet canary now proves a deferred "
+            "source-fetch repair advances to completed_partial with a quarantine receipt instead of stale queued copy."
         ),
         "next_action": (
-            "Add a live canary proving fetch-failed provider lanes advance to replacement, quarantine or completed_partial "
-            "without stale queued copy."
+            "Keep scripts/propertyquarry_repair_fleet_canary.py and the focused repair lifecycle tests in the release gate; "
+            "add provider-specific live canaries when each high-volatility source gets a stable fixture."
         ),
         "source": "whole-product audit",
     },
