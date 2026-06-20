@@ -106,8 +106,18 @@ def _is_willhaben_property_url(value: object) -> bool:
     return bool(host) and any(marker in host for marker in _WILLHABEN_HOST_MARKERS)
 
 
+_PROPERTY_HTML_FRAGMENT_HIDDEN_BLOCK_RE = re.compile(
+    r"<!--[\s\S]*?-->"
+    r"|<\s*script\b(?![^>]*type\s*=\s*['\"]?application/(?:ld\+)?json\b)[\s\S]*?<\s*/\s*script\s*>"
+    r"|<\s*(style|template|noscript)\b[\s\S]*?<\s*/\s*\1\s*>"
+    r"|<(?P<hidden_tag>[a-zA-Z0-9:-]+)\b(?=[^>]*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|aria-hidden\s*=\s*['\"]?true|hidden\b|type\s*=\s*['\"]?hidden))[^>]*>[\s\S]*?<\s*/\s*(?P=hidden_tag)\s*>",
+    flags=re.IGNORECASE,
+)
+
+
 def _property_html_fragment_text(fragment: object) -> str:
-    value = html.unescape(re.sub(r"<[^>]+>", " ", str(fragment or ""), flags=re.IGNORECASE | re.DOTALL))
+    visible_fragment = _PROPERTY_HTML_FRAGMENT_HIDDEN_BLOCK_RE.sub(" ", str(fragment or ""))
+    value = html.unescape(re.sub(r"<[^>]+>", " ", visible_fragment, flags=re.IGNORECASE | re.DOTALL))
     return " ".join(value.split())
 
 
