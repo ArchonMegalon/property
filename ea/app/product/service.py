@@ -28911,7 +28911,6 @@ class ProductService:
             for value in (
                 run_id,
                 candidate_ref,
-                source_ref,
             )
         )
         if (
@@ -32325,7 +32324,11 @@ class ProductService:
                     property_url=property_url,
                     property_facts_json=detailed_facts,
                     listing_id=str(preview.get("listing_id") or property_url).strip(),
-                    use_profile_preferences=use_stored_feedback_preferences,
+                    # Background scout alerts must still evaluate the current
+                    # personal fit profile. The search preference toggle only
+                    # affects discovery/ranking personalization; it must not
+                    # collapse alert eligibility to a neutral 50/100.
+                    use_profile_preferences=True,
                 )
                 ranked_rows.append(
                     {
@@ -32718,7 +32721,7 @@ class ProductService:
                         {
                             "kind": "hit",
                             "priority": 0,
-                            "score": fit_score,
+                            "score": adjusted_fit_score,
                             "source_url": source_url,
                             "source_label": source_label,
                             "source_ref": source_ref,
@@ -32732,7 +32735,7 @@ class ProductService:
                                 "property_url": property_url,
                                 "source_ref": source_ref,
                                 "assessment": assessment,
-                                "fit_score": fit_score,
+                                "fit_score": adjusted_fit_score,
                                 "preference_person_id": source_preference_person_id,
                                 "review_url": str(opened.get("editor_url") or "").strip(),
                                 "tour_result": tour_result,
@@ -36780,6 +36783,10 @@ class ProductService:
             )
         )
         candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
+        candidate_has_notification_location = candidate_has_listing_location_probe or any(
+            str(candidate_facts.get(key) or "").strip()
+            for key in ("postal_name", "district", "location", "source_scope_location")
+        )
         candidate_location_mismatch = bool(
             (candidate_semantic_probe_available or candidate_listing_postal_codes)
             and location_hints
@@ -36807,7 +36814,7 @@ class ProductService:
         elif candidate_location_mismatch:
             suppression_reason = "property_location_conflicts_with_active_search"
             repair_filter_key = "location_scope"
-        elif candidate_semantic_probe_available and not _property_candidate_has_concrete_location(candidate_facts):
+        elif candidate_semantic_probe_available and not candidate_has_notification_location:
             suppression_reason = "property_missing_concrete_location"
             repair_filter_key = "missing_location"
         elif candidate_semantic_probe_available and candidate_price_probe_available and not _property_candidate_notification_price_signal(
@@ -37703,6 +37710,10 @@ class ProductService:
             )
         )
         candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
+        candidate_has_notification_location = candidate_has_listing_location_probe or any(
+            str(candidate_facts.get(key) or "").strip()
+            for key in ("postal_name", "district", "location", "source_scope_location")
+        )
         candidate_location_mismatch = bool(
             (candidate_semantic_probe_available or candidate_listing_postal_codes)
             and location_hints
@@ -37730,7 +37741,7 @@ class ProductService:
         elif candidate_location_mismatch:
             suppression_reason = "property_location_conflicts_with_active_search"
             repair_filter_key = "location_scope"
-        elif candidate_semantic_probe_available and not _property_candidate_has_concrete_location(candidate_facts):
+        elif candidate_semantic_probe_available and not candidate_has_notification_location:
             suppression_reason = "property_missing_concrete_location"
             repair_filter_key = "missing_location"
         elif candidate_semantic_probe_available and candidate_price_probe_available and not _property_candidate_notification_price_signal(
