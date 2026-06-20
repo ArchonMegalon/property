@@ -292,16 +292,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Run progress",
         "title": "Run progress and ETA must feel alive without noise",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "run-state/frontend",
         "current_state": (
-            "Live result pages can show failed/partial states, duplicated repair text, stale queued wording, dead refresh "
-            "buttons, empty detail grids and no useful ETA."
+            "Verified: live run pages auto-poll without manual refresh controls, progress stays at 0 during bootstrap, "
+            "advances only after real source output, ETA is recorded after source progress, repair copy uses compact "
+            "PropertyQuarry language, and empty-result desks open useful recovery actions."
         ),
         "next_action": (
-            "Auto-refresh run state without flicker, remove manual refresh buttons, show compact ETA and current useful "
-            "work, deduplicate repair copy and fill minimal failure/partial summaries with actionable content."
+            "Keep the progress/ETA invariants, no-refresh template test and active-run browser smoke in the release gate; "
+            "extend them for new terminal or repair states."
         ),
         "source": "whole-product audit",
     },
