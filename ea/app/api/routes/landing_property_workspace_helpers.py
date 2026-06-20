@@ -295,8 +295,8 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         progress = _source_progress(source_row) if source_row else (max(8, min(run_progress, 24)) if status_label == "Starting" else 0)
         worker_rows.append(
             {
-                "label": compact_label if source_row else ("Preparing source checks" if status_label == "Starting" else ("Waiting" if active_sources or source_rows else "Ready")),
-                "provider": source_label or ("Preparing source checks" if status_label == "Starting" else ("Waiting for a source check" if active_sources or source_rows else "Ready when you start")),
+                "label": compact_label if source_row else ("Preparing provider scan" if status_label == "Starting" else ("Waiting" if active_sources or source_rows else "Ready")),
+                "provider": source_label or ("Preparing provider scan" if status_label == "Starting" else ("Waiting for a provider scan" if active_sources or source_rows else "Ready when you start")),
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
@@ -317,7 +317,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "configured_workers": configured_workers,
         "workers": worker_rows,
         "upgrade_copy": upgrade_copy,
-        "tooltip": "Search workers are the parallel source checks running this search right now. They are not the same thing as recurring saved searches.",
+        "tooltip": "Search workers are the parallel provider scans running this search right now. They are not the same thing as recurring saved searches.",
     }
 
 

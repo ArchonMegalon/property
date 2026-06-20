@@ -37,6 +37,7 @@ from app.api.routes.public_tour_payloads import (
     _PUBLIC_TOUR_TOP_LEVEL_KEYS,
     public_tour_allowed_asset_paths as _payload_public_tour_allowed_asset_paths,
     public_tour_asset_metadata as _payload_public_tour_asset_metadata,
+    public_tour_canonical_path as _payload_public_tour_canonical_path,
     public_tour_env_truthy as _payload_public_tour_env_truthy,
     public_tour_exact_address_allowed as _payload_public_tour_exact_address_allowed,
     public_tour_external_media_url_allowed as _payload_public_tour_external_media_url_allowed,
@@ -644,7 +645,7 @@ def _public_tour_authenticated_action_required(action: str) -> HTTPException:
     normalized_action = str(action or "").strip()
     if normalized_action not in _PUBLIC_TOUR_ACTIONS:
         normalized_action = "public-tour-action"
-    return HTTPException(status_code=403, detail=f"{normalized_action}_requires_authenticated_workspace")
+    return HTTPException(status_code=403, detail=f"{normalized_action}_requires_authenticated_account")
 
 
 def _feedback_reason_label(reason_key: object) -> str:
@@ -1493,7 +1494,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     title = str(payload.get("title") or payload.get("tour_title") or payload.get("slug") or "Property Tour").strip()
     display_title = str(payload.get("display_title") or title).strip() or title
     listing_url = str(payload.get("listing_url") or "").strip()
-    hosted_url = str(payload.get("hosted_url") or "").strip()
+    hosted_url = _payload_public_tour_canonical_path(slug)
     source_virtual_tour_url = _embedded_live_360_url(payload)
     is_pure_360_cube = str(payload.get("scene_strategy") or "").strip() == "pure_360_cube"
     brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
@@ -2466,13 +2467,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         color: var(--muted);
       }}
       .stat strong {{ font-size: 1rem; font-weight: 600; }}
-      .workspace-grid {{
+      .tour-detail-grid {{
         display: grid;
         grid-template-columns: 1.05fr 0.95fr;
         gap: 18px;
         align-items: start;
       }}
-      .workspace-stack {{ display: grid; gap: 18px; }}
+      .tour-detail-stack {{ display: grid; gap: 18px; }}
       .requirement-table {{
         width: 100%;
         border-collapse: collapse;
@@ -2696,7 +2697,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       }}
       a {{ color: inherit; text-decoration: none; }}
       @media (max-width: 1000px) {{
-        .hero, .section-grid, .workspace-grid, .summary-grid {{ grid-template-columns: 1fr; }}
+        .hero, .section-grid, .tour-detail-grid, .summary-grid {{ grid-template-columns: 1fr; }}
         .stat-grid {{ grid-template-columns: 1fr; }}
         .filter-summary-grid {{ grid-template-columns: 1fr; }}
       }}
@@ -2833,8 +2834,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           </div>
         </aside>
       </section>
-      <div class="workspace-grid">
-        <div class="workspace-stack">
+      <div class="tour-detail-grid">
+        <div class="tour-detail-stack">
           <section id="match" class="panel">
             <div class="eyebrow">Requirement Match</div>
             <h2>Preference-to-Property Matrix</h2>
@@ -2873,7 +2874,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             </div>
           </section>
         </div>
-        <div class="workspace-stack">
+        <div class="tour-detail-stack">
           <section id="risks" class="panel">
             <div class="eyebrow">Risk Register</div>
             <h2>What can still break the decision</h2>
@@ -2963,7 +2964,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             const payload = await response.json();
             if (!response.ok) {{
               feedbackStatus.textContent = payload.status === "not_captured"
-                ? "Feedback could not be saved. Please retry from the signed-in workspace."
+                ? "Feedback could not be saved. Please retry from your signed-in account."
                 : "Could not save feedback right now.";
               return;
             }}
@@ -4501,7 +4502,7 @@ def _render_tour_unavailable_page(
                 "primary_action_href": "/sign-in",
                 "primary_action_label": "Return to sign in",
                 "secondary_action_href": "/register",
-                "secondary_action_label": "Create personal workspace",
+                "secondary_action_label": "Create personal account",
             },
         ),
     )
@@ -4957,7 +4958,7 @@ async def public_tour_feedback(
             {
                 "status": "not_captured",
                 "trust": "untrusted_external",
-                "message": "Feedback could not be saved right now. Please retry from the signed-in workspace.",
+                "message": "Feedback could not be saved right now. Please retry from your signed-in account.",
                 "retryable": True,
                 "error": "public_tour_feedback_persistence_failed",
             },
@@ -5058,7 +5059,7 @@ def public_tour_page(
                 request,
                 status_code=404,
                 title="This tour link is no longer available.",
-                summary="Ask the sender to share a fresh apartment-tour link or return to the workspace for the latest queue and evidence.",
+                summary="Ask the sender to share a fresh apartment-tour link or open PropertyQuarry for the latest property evidence.",
                 status_label="Tour unavailable",
                 rows=[
                     {
@@ -5077,7 +5078,7 @@ def public_tour_page(
             request,
             status_code=max(int(exc.status_code), 500) if int(exc.status_code) >= 500 else 500,
             title="This tour is temporarily unavailable.",
-            summary="The tour link exists, but the published bundle is not ready to render right now. Return to the workspace or ask the sender to republish it.",
+            summary="The tour link exists, but the published bundle is not ready to render right now. Open PropertyQuarry or ask the sender to republish it.",
             status_label="Tour unavailable",
             rows=[
                 {
@@ -5087,8 +5088,8 @@ def public_tour_page(
                 },
                 {
                     "label": "Recovery",
-                    "value": "Reopen the workspace",
-                    "detail": "The office can regenerate or resend the latest branded link from the queue.",
+                    "value": "Open PropertyQuarry",
+                    "detail": "The sender can regenerate or resend the latest branded property-tour link.",
                 },
             ],
         )

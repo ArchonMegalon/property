@@ -80,7 +80,7 @@
   <section class="access-panel">
     <div class="kicker">Sign in</div>
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-    <p class="lead">Use the path that matches how you joined: current session, secure email link, workspace invite, or optional Google identity.</p>
+    <p class="lead">Use the path that matches how you joined: current session, secure email link, workspace invite, or optional Google or Facebook identity.</p>
     <div class="cta-row">
       <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
       <a class="btn" href="/register">{{ brand.create_label }}</a>
@@ -95,6 +95,18 @@
     <div class="access-feedback">
       <strong>Google sign-in could not start.</strong>
       <p class="copy">{{ sign_in_google_error }}</p>
+    </div>
+    {% endif %}
+    <form class="access-form" method="post" action="/sign-in/facebook">
+      <label>Facebook<button class="info-tip" type="button" title="Facebook is optional and uses identity-only access by default." aria-label="Facebook is optional and uses identity-only access by default.">?</button></label>
+      <div class="cta-row">
+        <button class="btn" type="submit">Continue with Facebook</button>
+      </div>
+    </form>
+    {% if sign_in_facebook_error %}
+    <div class="access-feedback">
+      <strong>Facebook sign-in could not start.</strong>
+      <p class="copy">{{ sign_in_facebook_error }}</p>
     </div>
     {% endif %}
     {% if sign_in_link_enabled %}
@@ -147,7 +159,11 @@
       </section>
       <section class="access-card">
         <strong>Google</strong>
-        <p class="copy">Use identity-only return access by default, without widening product permissions.</p>
+        <p class="copy">Google can reopen an existing workspace with identity-only scope.</p>
+      </section>
+      <section class="access-card">
+        <strong>Facebook</strong>
+        <p class="copy">Facebook can reopen an existing workspace with public profile and email only.</p>
       </section>
     </div>
   </section>

@@ -432,6 +432,36 @@ def _new_context(
     )
 
 
+def _issue_browser_workspace_session(
+    *,
+    client: TestClient,
+    context: BrowserContext,
+    base_url: str,
+) -> str:
+    session_response = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "alice@example.com",
+            "role": "principal",
+            "display_name": "Alice",
+            "expires_in_hours": 4,
+        },
+    )
+    assert session_response.status_code == 200, session_response.text
+    access_token = session_response.json().get("access_token", "")
+    assert isinstance(access_token, str) and access_token.strip(), session_response.text
+    context.add_cookies(
+        [
+            {
+                "name": "ea_workspace_session",
+                "value": access_token,
+                "url": base_url,
+            }
+        ]
+    )
+    return access_token
+
+
 def _new_public_context(
     browser: Browser,
     *,
@@ -663,7 +693,7 @@ def test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_un
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
         assert response is not None and response.ok
         investment_mode = page.locator('[data-property-field-name="investment_research_mode"]').first
         listing_mode = page.locator('[data-property-field-name="listing_mode"]').first
@@ -1083,7 +1113,10 @@ def test_propertyquarry_setup_header_stays_minimal_and_single_row(
     tmp_path: Path,
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
     context = _new_context(browser, mobile=False)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
     page: Page = context.new_page()
     screenshot_path = tmp_path / "propertyquarry-setup-header.png"
     try:
@@ -1096,6 +1129,38 @@ def test_propertyquarry_setup_header_stays_minimal_and_single_row(
         assert page.locator(".pqx-account-menu > summary").count() == 1
         assert page.locator(".pqx-account-menu > summary").inner_text().strip() != "Account"
         _assert_property_shell_visual_gates(page, max_appbar_height=84)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_workspace_sign_out_works_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    context = _new_context(browser, mobile=False)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        account_summary = page.locator(".pqx-account-menu > summary")
+        expect(account_summary).to_be_visible()
+
+        account_summary.click()
+        logout_button = page.locator(".pqx-account-menu-form button", has_text="Log out")
+        expect(logout_button).to_be_visible()
+
+        logout_button.click()
+        page.wait_for_load_state("domcontentloaded")
+        assert page.url.startswith(f"{base_url}") or page.url.startswith("http://propertyquarry.com:")
+        assert page.url != f"{base_url}/app/shortlist?run_id=run-42"
+
+        # Signed-out pages should no longer expose the account menu.
+        page.wait_for_timeout(100)
+        assert page.locator(".pqx-account-menu > summary").count() == 0
     finally:
         context.close()
 
@@ -1122,8 +1187,9 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         assert section.locator("select").count() >= 8
         assert section.locator('input[type="checkbox"]').count() == 0
         assert " nearby" not in section.inner_text().lower()
+        expect(desktop_page.locator('[data-property-field-name="use_stored_feedback_preferences"]')).to_have_count(0)
+        expect(desktop_page.locator('[data-property-field-name="preference_person_id"]')).to_have_count(0)
         for field_name in (
-            "use_stored_feedback_preferences",
             "require_school_evidence",
             "school_stage_preferences",
             "max_distance_to_hardware_store_m",

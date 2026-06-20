@@ -1050,6 +1050,11 @@
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
+      const readyUrl = String(button.getAttribute('data-pw-visual-ready-url') || '').trim();
+      if (readyUrl) {
+        window.location.href = readyUrl;
+        return;
+      }
       const kind = String(button.getAttribute('data-pw-visual-request') || 'tour').trim().toLowerCase();
       const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
       const candidate = candidates.find((row) => String(row.property_url || row.source_url || row.listing_url || '').trim() === propertyUrl)

@@ -13,6 +13,11 @@ FORBIDDEN_TRACKED_PREFIXES = (
     "tmp_audit/",
 )
 
+FORBIDDEN_TRACKED_EXACT_PATHS = {
+    ".env",
+    ".env.local",
+}
+
 FORBIDDEN_AUDIT_SUFFIXES = (
     "_audit.py",
     "_desktop.png",
@@ -68,6 +73,9 @@ def main() -> int:
         normalized = rel_path.replace("\\", "/")
         path = ROOT / normalized
         if not path.exists():
+            continue
+        if normalized in FORBIDDEN_TRACKED_EXACT_PATHS:
+            failures.append(f"tracked live env file forbidden: {normalized}")
             continue
         if any(normalized.startswith(prefix) for prefix in FORBIDDEN_TRACKED_PREFIXES):
             failures.append(f"tracked audit scratch path forbidden: {normalized}")

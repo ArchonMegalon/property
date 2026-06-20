@@ -29,18 +29,13 @@
   <div class="pqx-automation-grid" data-property-search-agent-grid>
     {% for agent in search_agents %}
     {% set scope_preview = agent.get('scope_preview') or {} %}
+    {% set scope_image_url = scope_preview.get('image_url') or '/app/api/property/map-previews/0000000000000000000000000000000000000000.png' %}
+    {% set scope_preview_kind = scope_preview.get('preview_kind') or 'osm_map_pending' %}
     {% set agent_load_href = '/app/search?load_agent=' ~ ((agent.get('agent_id') or 'current')|urlencode) %}
     <article class="pqx-automation-card{% if agent.get('is_active') %} is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
       <button class="pqx-automation-delete" type="button" data-search-agent-action="delete" aria-label="Delete {{ agent.get('name') or 'saved search' }}" title="Delete saved search">&times;</button>
-      <a class="pqx-automation-thumbnail" href="{{ agent_load_href }}" data-scope-preview-kind="{{ scope_preview.get('preview_kind') or 'empty' }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}">
-        {% if scope_preview.get('image_url') %}
-        <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy">
-        {% else %}
-        <span class="pqx-automation-scope-empty">
-          <strong>{{ agent.get('area_label') or agent.get('location_query') or 'Search area' }}</strong>
-          <small>{{ scope_preview.get('summary') or agent.get('scope_label') or 'Map preview pending' }}</small>
-        </span>
-        {% endif %}
+      <a class="pqx-automation-thumbnail" href="{{ agent_load_href }}" data-scope-preview-kind="{{ scope_preview_kind }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}">
+        <img src="{{ scope_image_url }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy">
         <span class="pqx-automation-thumbnail-action">Edit</span>
       </a>
       <div class="pqx-automation-meta">

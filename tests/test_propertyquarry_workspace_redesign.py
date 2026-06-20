@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import re
 import html
+import urllib.parse
+from html.parser import HTMLParser
 from pathlib import Path
 
+from app.api.dependencies import RequestContext, get_request_context
 from app.api.routes import landing as landing_routes
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
 from app.api.routes import landing_property_workspace_helpers
@@ -44,6 +47,26 @@ def _read_workbench_bundle() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in paths if path.exists())
 
 
+class _RenderedInteractiveElementParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.elements: list[tuple[str, dict[str, str], str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in {"a", "button"}:
+            return
+        self.elements.append((tag, {key: value or "" for key, value in attrs}, ""))
+
+    def handle_data(self, data: str) -> None:
+        if not self.elements:
+            return
+        text = str(data or "").strip()
+        if not text:
+            return
+        tag, attrs, current = self.elements[-1]
+        self.elements[-1] = (tag, attrs, f"{current} {text}".strip())
+
+
 def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_tokens() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     template_paths = [
@@ -76,6 +99,79 @@ def test_property_results_empty_state_uses_saved_search_language() -> None:
 
     assert "Open saved searches" in body
     assert "Open automation" not in body
+
+
+def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_noise() -> None:
+    client = build_property_client(principal_id="pq-rendered-surface-click-audit")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+    paths = (
+        "/app/search",
+        "/app/properties",
+        "/app/shortlist",
+        "/app/agents",
+        "/app/account",
+        "/app/billing",
+        "/data-deletion",
+    )
+    noisy_phrases = (
+        "Use stored feedback preferences",
+        "Manage feedback preferences",
+        "Preference profile",
+        "Billing truth",
+        "Plan and limits",
+        "Plan unit",
+        "Fleet digest",
+        "Executive Assistant",
+        "memo items",
+        "queue items",
+        "operator load",
+        "EA queued",
+        "Open automation",
+        "office loop",
+        "Refresh delivery",
+        "support tooling",
+        "workspace access links",
+        "workspace access method",
+        "workspace records",
+        "source check",
+        "Everyday preferences, schools, childcare, and local fit that should stay explicit.",
+        "workspace preferences",
+        "generated workflow data",
+        "generated workflow records",
+        "generated drafts",
+        "operational artifacts tied to your workspace",
+        "operational artifacts tied to your account",
+    )
+    for path in paths:
+        response = client.get(path, headers={"host": "propertyquarry.com"})
+        assert response.status_code == 200, path
+        rendered_text = re.sub(
+            r"<script.*?</script>|<style.*?</style>",
+            " ",
+            response.text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        rendered_text = re.sub(r"<[^>]+>", " ", rendered_text)
+        rendered_text = re.sub(r"\s+", " ", rendered_text)
+        for phrase in noisy_phrases:
+            assert phrase.lower() not in rendered_text.lower(), f"{phrase!r} leaked into {path}"
+
+        parser = _RenderedInteractiveElementParser()
+        parser.feed(response.text)
+        for tag, attrs, text in parser.elements:
+            if tag == "a":
+                href = str(attrs.get("href") or "").strip()
+                assert href and href != "#", f"dead link on {path}: {text!r}"
+                assert not href.lower().startswith("javascript:"), f"javascript link on {path}: {text!r}"
+            if tag == "button" and "disabled" not in attrs:
+                button_type = str(attrs.get("type") or "submit").strip().lower() or "submit"
+                has_data_handler = any(key.startswith("data-") for key in attrs)
+                has_form_action = bool(str(attrs.get("formaction") or "").strip())
+                assert (
+                    button_type in {"submit", "reset"}
+                    or has_data_handler
+                    or has_form_action
+                ), f"enabled button without action wiring on {path}: {text!r}"
 
 
 def test_property_result_title_display_cleans_provider_url_garbage() -> None:
@@ -260,6 +356,11 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
     assert "keepButtonDisabled = true" in body
     assert "button.disabled = keepButtonDisabled" in body
     assert "data-pw-visual-ready-url" in body
+    assert "const requestedReadyUrl = requestKind === 'flythrough' ? nextFlythroughUrl : nextTourUrl" in body
+    assert "window.location.href = readyUrl" in body
+    assert "button.setAttribute('data-pw-visual-state', requestedReadyUrl ? 'ready' : requestedStatus)" in body
+    assert "Open walkthrough" in research_detail
+    assert "Open flythrough" not in research_detail
     assert "['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextState)" in research_detail
     assert "button.disabled = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(currentState)" in research_detail
 
@@ -477,7 +578,8 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
     assert "Search runs, provider coverage, ranked homes, filtered homes" in page.text
     assert "Property usage" in page.text
     assert "Ranked homes" in page.text
-    assert "Source checks" in page.text
+    assert "Provider scans" in page.text
+    assert "Source checks" not in page.text
     forbidden_copy = (
         "Current office loop",
         "Queue pressure, memo activity",
@@ -502,7 +604,8 @@ def test_propertyquarry_plan_page_uses_property_plan_language() -> None:
     assert page.status_code == 200
     assert "PropertyQuarry plan" in page.text
     assert "Collaborator seats" in page.text
-    assert "market update, review queue, follow-up ledger, draft review" in page.text
+    assert "market update, review queue, follow-up ledger, review workflow" in page.text
+    assert "draft review" not in page.text
     assert "PropertyQuarry pilot with one account owner and one collaborator." in page.text
     forbidden_copy = (
         "morning memo",
@@ -846,11 +949,10 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
         r'data-property-field-name="max_distance_to_library_m"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
         html,
     )
-    assert 'data-property-field-name="use_stored_feedback_preferences"' in html
-    assert re.search(
-        r'data-property-field-name="use_stored_feedback_preferences"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
-        html,
-    )
+    assert 'data-property-field-name="use_stored_feedback_preferences"' not in html
+    assert 'data-property-field-name="preference_person_id"' not in html
+    assert "Use stored feedback preferences" not in html
+    assert "Manage feedback preferences" not in html
     assert 'Load my what matters' in section_html
     assert 'Save my what matters' in section_html
     assert '>What<' in html
@@ -2265,6 +2367,7 @@ def test_property_map_preview_route_serves_private_cached_png(tmp_path, monkeypa
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     assert response.headers["cache-control"] == "private, max-age=86400"
+    assert response.headers["x-property-map-preview-state"] == "ready"
     assert response.headers["x-robots-tag"] == "noindex, nofollow"
 
     missing = client.get("/app/api/property/map-previews/not-a-preview.png", headers={"host": "propertyquarry.com"})
@@ -2280,6 +2383,7 @@ def test_property_map_preview_route_fallback_to_placeholder_for_missing_cached_p
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert response.headers["x-property-map-preview-state"] == "pending"
     assert response.headers["x-robots-tag"] == "noindex, nofollow"
     assert response.content.startswith(b"\x89PNG")
 
@@ -2964,7 +3068,7 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "28 providers · 156 checks · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "28 providers · 156 scans · Willhaben · 25 / 60"
     assert snapshot["phase_label"] == "Playground was too far away for candidate 23/60 (score impact only)"
     assert snapshot["source_count_label"] == "25 / 60"
 
@@ -3147,8 +3251,8 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Repairing"
-    assert reliability["repair_step_label"] == "Retrying 1 source check"
-    assert reliability["coverage_label"] == "2/4 source checks · 2 still running"
+    assert reliability["repair_step_label"] == "Retrying 1 provider scan"
+    assert reliability["coverage_label"] == "2/4 provider scans · 2 still running"
     assert reliability["result_label"] == "3 ranked results ready"
     assert reliability["filtered_label"] == "7 filtered by active rules"
     assert reliability["repair"]["repair_status"] == "repairing"
@@ -3198,8 +3302,8 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
 
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Repairing"
-    assert repair["repair_step_label"] == "Retrying 1 source check"
-    assert repair["repair_outcome_summary"] == "Some source checks are retrying, but the current shortlist is already usable."
+    assert repair["repair_step_label"] == "Retrying 1 provider scan"
+    assert repair["repair_outcome_summary"] == "Some provider scans are retrying, but the current shortlist is already usable."
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
 
@@ -3223,7 +3327,7 @@ def test_property_surface_state_builds_run_reliability_snapshot() -> None:
     )
 
     assert reliability["health_label"] == "Partial coverage"
-    assert reliability["repair_step_label"] == "Retrying 1 source check"
+    assert reliability["repair_step_label"] == "Retrying 1 provider scan"
     assert reliability["repair"]["repair_status"] == "degraded"
     assert reliability["customer_status_message"] == "One provider stayed degraded."
 
@@ -3897,6 +4001,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Billing truth" not in billing.text
     assert "Commercial truth" not in billing.text
     assert "Plan and limits" not in billing.text
+    assert "Plan unit" not in billing.text
 
 
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
@@ -3906,11 +4011,11 @@ def test_property_search_progress_copy_names_providers_not_generic_sources() -> 
 
     assert "Resolved {source_variant_total} source(s) for scanning." not in service_source
     assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." not in service_source
-    assert "Resolved {source_variant_total} source check(s) for scanning." in service_source
+    assert "Resolved {source_variant_total} provider scan(s)." in service_source
     assert "provider_total = _property_search_provider_total(specs)" in service_source
     assert "provider_group_total = _property_search_provider_group_total(specs)" in service_source
     assert 'else "Sources"' not in view_model_source
-    assert '"label": "Source checks"' in view_model_source
+    assert '"label": "Source checks"' not in view_model_source
 
 
 def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:
@@ -4286,6 +4391,282 @@ def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
 
     signed_out_workspace = client.get("/app/properties")
     assert signed_out_workspace.status_code == 200
+    assert "Signed in" not in signed_out_workspace.text
+
+
+def test_property_workspace_sign_out_clears_cookie_variants() -> None:
+    principal_id = "pq-account-sign-out-variants"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Outlet")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+    access_body = access_session.json()
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_body["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    open_cookie_headers = opened_access.headers.get_list("set-cookie")
+    assert any("ea_workspace_session=" in item and "Domain=.propertyquarry.com" in item for item in open_cookie_headers)
+
+    signed_out = client.post(
+        "/app/actions/sign-out",
+        data={"return_to": "/"},
+        headers={
+            "Host": "www.propertyquarry.com",
+            "Origin": "https://www.propertyquarry.com",
+        },
+        follow_redirects=False,
+    )
+    assert signed_out.status_code == 303
+    clear_cookie_headers = signed_out.headers.get_list("set-cookie")
+    assert len(clear_cookie_headers) >= 4
+    assert any("ea_workspace_session=" in item and "Domain=.propertyquarry.com" in item and "Secure" in item for item in clear_cookie_headers)
+    assert any("ea_workspace_session=" in item and "Domain=.propertyquarry.com" in item and "Secure" not in item for item in clear_cookie_headers)
+    assert any("ea_workspace_session=" in item and "Domain" not in item and "Secure" in item for item in clear_cookie_headers)
+    assert any("ea_workspace_session=" in item and "Domain" not in item and "Secure" not in item for item in clear_cookie_headers)
+    assert any("ea_workspace_session=" in item and "Path=/app" in item and "Secure" not in item for item in clear_cookie_headers)
+    assert not client.cookies.get("ea_workspace_session")
+
+
+def test_property_workspace_sign_out_clears_cookie_on_local_host_without_domain_scope() -> None:
+    principal_id = "pq-account-sign-out-localhost-no-domain"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Outlet Local")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+        headers={"Host": "localhost:8097"},
+    )
+    assert access_session.status_code == 200, access_session.text
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_session.json()["access_url"], headers={"Host": "localhost:8097"}, follow_redirects=False)
+    assert opened_access.status_code == 303
+
+    open_cookie_headers = opened_access.headers.get_list("set-cookie")
+    assert any("ea_workspace_session=" in item for item in open_cookie_headers)
+    assert all("Domain=" not in item for item in open_cookie_headers)
+
+    signed_out = client.post(
+        "/app/actions/sign-out",
+        data={"return_to": "/"},
+        headers={
+            "Host": "localhost:8097",
+            "Origin": "https://localhost:8097",
+        },
+        follow_redirects=False,
+    )
+    assert signed_out.status_code == 303
+    clear_cookie_headers = signed_out.headers.get_list("set-cookie")
+    assert len(clear_cookie_headers) >= 2
+    assert all("Domain=" not in item for item in clear_cookie_headers)
+    assert any("Secure" in item for item in clear_cookie_headers)
+    assert any("Secure" not in item for item in clear_cookie_headers)
+    assert not client.cookies.get("ea_workspace_session")
+
+
+def test_property_workspace_sign_out_removes_signed_in_ui_globally() -> None:
+    principal_id = "pq-account-sign-out-surface-globals"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Global Signed-Out Check")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+    access_body = access_session.json()
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_body["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
+
+    signed_in_properties = client.get("/app/properties")
+    assert signed_in_properties.status_code == 200
+    assert "aria-label=\"Account navigation\"" in signed_in_properties.text
+
+    signed_out = client.post("/app/actions/sign-out", data={"return_to": "/"}, follow_redirects=False)
+    assert signed_out.status_code == 303
+    assert not client.cookies.get("ea_workspace_session")
+
+    anonymous_properties = client.get("/app/properties")
+    assert anonymous_properties.status_code == 200
+    assert "aria-label=\"Account navigation\"" not in anonymous_properties.text
+
+    anonymous_account = client.get("/app/account")
+    assert anonymous_account.status_code == 200
+    assert "aria-label=\"Account navigation\"".lower() not in anonymous_account.text.lower()
+
+
+def test_property_workspace_sign_out_accepts_default_https_port_variants() -> None:
+    principal_id = "pq-account-sign-out-port-normalization"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Port Normalization Office")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_session.json()["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert client.cookies.get("ea_workspace_session")
+
+    signed_out = client.post(
+        "/app/actions/sign-out",
+        data={"return_to": "/"},
+        headers={
+            "Host": "propertyquarry.com:443",
+            "Origin": "https://propertyquarry.com",
+        },
+        follow_redirects=False,
+    )
+    assert signed_out.status_code == 303, signed_out.text
+    assert signed_out.headers["location"] == "/"
+    assert "ea_workspace_session=" in str(signed_out.headers.get("set-cookie") or "")
+    assert not client.cookies.get("ea_workspace_session")
+
+
+def test_property_workspace_sign_out_accepts_www_host_variants() -> None:
+    principal_id = "pq-account-sign-out-www-normalization"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="WWW Host Office")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_session.json()["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert client.cookies.get("ea_workspace_session")
+
+    signed_out = client.post(
+        "/app/actions/sign-out",
+        data={"return_to": "/"},
+        headers={
+            "Host": "www.propertyquarry.com",
+            "Origin": "https://www.propertyquarry.com",
+        },
+        follow_redirects=False,
+    )
+    assert signed_out.status_code == 303, signed_out.text
+    assert signed_out.headers["location"] == "/"
+    assert "ea_workspace_session=" in str(signed_out.headers.get("set-cookie") or "")
+    assert not client.cookies.get("ea_workspace_session")
+
+
+def test_property_workspace_sign_out_clears_secure_cookie_attributes() -> None:
+    principal_id = "pq-account-sign-out-secure"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Secure Cookie Office")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_session.json()["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+
+    signed_out = client.post(
+        "/app/actions/sign-out",
+        data={"return_to": "/"},
+        headers={
+            "Host": "propertyquarry.com",
+            "Origin": "https://propertyquarry.com",
+            "x-forwarded-proto": "https",
+        },
+        follow_redirects=False,
+    )
+    set_cookie = str(signed_out.headers.get("set-cookie") or "")
+    assert signed_out.status_code == 303
+    assert signed_out.headers["location"] == "/"
+    assert "ea_workspace_session=" in set_cookie
+    assert "Max-Age=0" in set_cookie or "expires=" in set_cookie.lower()
+    assert "Secure" in set_cookie
+
+
+def test_property_workspace_sign_out_redirects_cloudflare_access_to_access_logout(monkeypatch) -> None:
+    principal_id = "pq-account-sign-out-cf"
+    monkeypatch.setenv("EA_CF_ACCESS_TEAM_DOMAIN", "demo.cloudflareaccess.com")
+
+    client = build_property_client(principal_id=principal_id)
+    app = client.app
+    app.dependency_overrides[get_request_context] = lambda: RequestContext(
+        principal_id="cf-email:user@example.com",
+        authenticated=True,
+        auth_source="cloudflare_access",
+        access_email="user@example.com",
+        operator_id="",
+    )
+    client.headers.pop("X-EA-Principal-ID", None)
+    try:
+        signed_out = client.post(
+            "/app/actions/sign-out",
+            data={"return_to": "/app/account"},
+            headers={
+                "Host": "propertyquarry.com",
+                "Origin": "https://propertyquarry.com",
+                "x-forwarded-proto": "https",
+            },
+            follow_redirects=False,
+        )
+    finally:
+        app.dependency_overrides.pop(get_request_context, None)
+
+    assert signed_out.status_code == 303
+    location = str(signed_out.headers.get("location") or "")
+    parsed = urllib.parse.urlparse(location)
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "demo.cloudflareaccess.com"
+    assert parsed.path == "/cdn-cgi/access/logout"
+    query = urllib.parse.parse_qs(parsed.query or "")
+    assert "return_to" in query
+    assert query["return_to"][0].endswith("/app/account")
+    assert "ea_workspace_session=" in str(signed_out.headers.get("set-cookie") or "")
 
 
 def test_propertyquarry_workspace_session_root_home_override_stays_public() -> None:
@@ -4768,10 +5149,12 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert '.pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img' in template
     assert "object-fit: contain;" in template
     assert "transform: none;" in template
+    assert "pqx-automation-scope-empty" not in template
+    assert "pqx-automation-scope-empty" not in page.text
+    assert "osm_map_pending" in template
+    assert "/app/api/property/map-previews/0000000000000000000000000000000000000000.png" in template
     assert '.pqx-button[data-pqx-loading="true"]::before' in template
     assert "@keyframes pqxSpin" in template
-    assert ".pqx-automation-scope-empty::after" in template
-    assert "linear-gradient(90deg, rgba(96, 78, 61, 0.08) 1px, transparent 1px)" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     assert "root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]')" in script
     assert "event.preventDefault();" in script
@@ -4782,7 +5165,10 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "data-property-launch-status" in script
     assert "const refreshPendingMapPreviews = () => {" in script
     assert "data-map-preview-refresh-bound" in script
-    assert "?preview=" in script
+    assert "x-property-map-preview-state" in script
+    assert "URL.createObjectURL(blob)" in script
+    assert "data-map-preview-ready" in script
+    assert "?preview=" not in script
     assert "const stepNav = form.querySelector('[data-property-step-nav]');" in script
     assert "stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });" in script
     assert "const showPreviewFallback = () => {" not in script
@@ -5606,7 +5992,7 @@ def test_propertyquarry_properties_auto_opens_latest_active_run_when_run_id_miss
 
     def _fake_list_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
         assert principal_id == "pq-live-run-auto-open"
-        assert hydrate is True
+        assert hydrate is False
         return [
             {"run_id": "run-active-42", "status": "in_progress", "summary": {"status": "in_progress"}},
             {"run_id": "run-finished-1", "status": "processed", "summary": {"status": "processed"}},
@@ -5687,9 +6073,10 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
 
     assert response.status_code == 200
     assert "Status" in response.text
+    assert "<strong>Update</strong>" in response.text
     assert "The search stopped before a stable shortlist was ready." in response.text
     assert "Next" in response.text
-    assert "Restart the same brief and let repair retry the failed source checks." in response.text
+    assert "Restart the same brief and let repair retry the interrupted search." in response.text
     assert "What happened" not in response.text
     assert "What still worked" not in response.text
     assert "Main blocker" not in response.text
@@ -5757,8 +6144,10 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
 
     assert response.status_code == 200
     assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
+    assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
     assert "<span>Providers</span><strong>156</strong>" not in response.text
-    assert re.search(r"<span>Source checks</span><strong>\s*156\s*</strong>", response.text)
+    assert "<span>Source checks</span>" not in response.text
+    assert "The selected sources covered 2160 listings." in response.text
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
@@ -5773,7 +6162,8 @@ def test_propertyquarry_live_progress_derives_provider_count_before_source_varia
     assert "const providerDisplayTotalForRun = (runPayload, summary = null) =>" in script
     assert "Array.isArray(runPayload?.brief?.providers)" in script
     assert "Array.isArray(data?.brief?.providers)" in script
-    assert "sourceProviders.add(platform);" in script
+    assert "const rawProviderSourceKey" in script
+    assert "sourceProviders.add(identity);" in script
     assert "const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);" in script
     assert "const providerTotal = Number(summary.provider_total || 0);" not in script
     assert "const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;" not in script
@@ -6656,8 +7046,10 @@ def test_propertyquarry_workspace_hides_preference_profile_when_stored_feedback_
 
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
-    assert 'data-property-field-name="use_stored_feedback_preferences"' in search.text
-    assert re.search(r'data-property-field-name="preference_person_id"[^>]*hidden', search.text)
+    assert 'data-property-field-name="use_stored_feedback_preferences"' not in search.text
+    assert 'data-property-field-name="preference_person_id"' not in search.text
+    assert "Use stored feedback preferences" not in search.text
+    assert "Manage feedback preferences" not in search.text
 
 
 def test_propertyquarry_brief_script_declares_preference_person_before_payload_use() -> None:
@@ -6887,7 +7279,7 @@ def test_property_workspace_search_controls_have_explicit_click_handlers() -> No
     assert "loadSearchAgentRow(row, true)" in body
 
 
-def test_property_workspace_search_uses_groupboxes_and_default_profile_select() -> None:
+def test_property_workspace_search_uses_groupboxes_without_feedback_profile_noise() -> None:
     template_body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     view_model_body = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
 
@@ -6895,9 +7287,8 @@ def test_property_workspace_search_uses_groupboxes_and_default_profile_select() 
     assert "Neutral by default" in template_body
     assert ">Neutral</option>" in template_body
     assert '"label": "What matters"' in view_model_body
-    assert '"name": "preference_person_id"' in view_model_body
-    assert '"type": "select"' in view_model_body
-    assert '"label": "Default"' in view_model_body
+    assert '"name": "preference_person_id"' not in view_model_body
+    assert '"name": "use_stored_feedback_preferences"' not in view_model_body
 
 
 def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:
@@ -6985,6 +7376,32 @@ def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_co
     assert "interrupted pass stopped" not in combined
 
 
+def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_count() -> None:
+    summary = property_surface_state.build_property_empty_outcome_summary(
+        run_summary={
+            "sources_total": 156,
+            "sources_completed": 0,
+            "listing_total": 0,
+            "repair_status": "repairing",
+            "repair_status_label": "Repairing",
+            "repair_step_label": "Queued a generic provider repair.",
+            "provider_repair_tasks": [{"status": "opened"}],
+        },
+        run_sources=[],
+        run_status_value="failed",
+        run_message="Queued a generic provider repair because the search stopped updating before it could finish.",
+        counterfactual_rows=[],
+        suppression_rows=[],
+    )
+
+    combined = " ".join(str(value) for value in summary.values())
+    assert summary["happened"] == "Repair is retrying the interrupted search."
+    assert "Repair took over before any listing inspection completed." in combined
+    assert "0/156" not in combined
+    assert "source variants" not in combined
+    assert "source checks" not in combined.lower()
+
+
 def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     summary = property_surface_state.build_property_empty_outcome_summary(
         run_summary={
@@ -7012,7 +7429,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "No valid homes survived inside the selected area."
-    assert "31 source checks scanned 361 candidates" in summary["still_worked"]
+    assert "361 candidates returned by the selected sources" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "provider overview pages" in summary["eta_feedback"]
     assert "0/31 source variants" not in " ".join(summary.values())
@@ -7632,10 +8049,19 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
     assert 'action="/app/api/property/search-runs/clear"' in account.text
     assert "Manage access links" in account.text
     assert 'href="/app/settings/access"' in account.text
+    assert "Public packets and tours" in account.text
+    assert 'href="/app/properties/packets"' in account.text
+    assert "Connected services" in account.text
+    assert 'href="/app/settings/google"' in account.text
+    assert "Analytics and learning" in account.text
+    assert 'href="/cookies"' in account.text
+    assert "Delete account data" in account.text
+    assert 'href="/data-deletion"' in account.text
     access_links = client.get("/app/settings/access", headers=headers)
     assert access_links.status_code == 200
     assert "Create an access link" in access_links.text
     assert "Live access links" in access_links.text
+    assert "workspace access links" not in access_links.text
 
     export = client.get("/app/api/property/account/export", headers=headers)
     assert export.status_code == 200

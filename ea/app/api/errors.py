@@ -141,7 +141,7 @@ def _request_origin(request: Request) -> str:
         scheme = "https"
     forwarded_host = str(request.headers.get("x-forwarded-host") or "").strip()
     host = forwarded_host.split(",", 1)[0].strip() if forwarded_host else str(request.headers.get("host") or request.url.netloc or "").strip()
-    return f"{scheme}://{host}".rstrip("/")
+    return _normalize_origin(f"{scheme}://{host}", default_scheme=scheme)
 
 
 def _request_is_propertyquarry_host(request: Request) -> bool:
@@ -158,7 +158,7 @@ def _propertyquarry_raw_api_docs_request(request: Request) -> bool:
     return path in _PROPERTYQUARRY_RAW_API_DOC_PATHS
 
 
-def _origin_of_url(raw_value: str) -> str:
+def _normalize_origin(raw_value: str, *, default_scheme: str = "") -> str:
     normalized = str(raw_value or "").strip()
     if not normalized:
         return ""
@@ -166,9 +166,32 @@ def _origin_of_url(raw_value: str) -> str:
         parsed = urllib.parse.urlsplit(normalized)
     except ValueError:
         return ""
-    if not parsed.scheme or not parsed.netloc:
+    scheme = str(parsed.scheme or "").strip().lower()
+    host = parsed.hostname
+    port = parsed.port
+    if not scheme and not parsed.netloc:
+        fallback = urllib.parse.urlsplit(f"//{parsed.path.split('?', 1)[0]}")
+        if not fallback.hostname:
+            return ""
+        scheme = str(default_scheme or "https").strip().lower()
+        host = fallback.hostname
+        port = fallback.port
+    if not scheme:
+        scheme = str(default_scheme or "https").strip().lower()
+    if not host:
         return ""
-    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}".rstrip("/")
+    if scheme == "wss":
+        scheme = "https"
+    host = str(host).strip().lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if (scheme == "https" and (port == 443)) or (scheme == "http" and (port == 80)) or port is None:
+        return f"{scheme}://{host}"
+    return f"{scheme}://{host}:{port}"
+
+
+def _origin_of_url(raw_value: str) -> str:
+    return _normalize_origin(str(raw_value or ""), default_scheme="https")
 
 
 def _browser_mutation_request_is_cross_site(request: Request) -> bool:

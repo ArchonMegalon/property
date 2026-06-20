@@ -248,7 +248,7 @@ PUBLIC_TRUST_PAGES = {
                 "title": "Service limits",
                 "body": "Search, enrichment, media generation, notifications, and provider repair can be degraded by provider outages, rate limits, source drift, and external services.",
                 "items": (
-                    "A completed-partial run can still be useful, but it must say which source checks failed.",
+                    "A completed-partial run can still be useful, but it must say which providers need another pass.",
                     "Repair attempts should be bounded and visible instead of silently consuming resources.",
                     "Unsupported providers and markets should stay marked as coming soon until verified.",
                 ),
@@ -274,7 +274,7 @@ PUBLIC_TRUST_PAGES = {
         "band": (
             {
                 "title": "Responsible operator",
-                "body": "PropertyQuarry is operated from the published PropertyQuarry workspace and is responsible for this public product surface.",
+                "body": "PropertyQuarry is responsible for this public product surface and the property-research workflows it offers.",
             },
             {
                 "title": "Contact",
@@ -285,7 +285,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Responsible party",
                 "title": "How to reach PropertyQuarry",
-                "body": "PropertyQuarry keeps the public contact path intentionally narrow so requests land in the product support queue with a traceable run, account, or shared-link reference.",
+                "body": "PropertyQuarry keeps the public contact path intentionally narrow so support requests include a traceable run, account, or shared-link reference.",
                 "items": (
                     "Product, billing, and account requests: /support",
                     "Security, privacy, deletion, and shared-link revocation: /support",
@@ -359,7 +359,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "What if a provider keeps failing?",
-                "answer": "Source-check failures should trigger bounded repair attempts and then a visible partial-coverage status if the source check cannot be recovered.",
+                "answer": "Provider failures should trigger bounded repair attempts and then a visible partial-coverage status if that provider cannot be recovered.",
             },
         ),
     },

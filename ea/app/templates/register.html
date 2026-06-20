@@ -535,7 +535,7 @@
       setState();
       setList(briefList, state.preview.brief, ['Your shortlist signals will appear here.']);
       setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
-      buildInline.textContent = 'Workspace ready.';
+      buildInline.textContent = brand.key === 'propertyquarry' ? 'PropertyQuarry ready.' : 'Workspace ready.';
       setStep(5);
     } catch (_error) {
       state.preview = {
@@ -545,7 +545,9 @@
       setState();
       setList(briefList, state.preview.brief, ['Your shortlist signals will appear here.']);
       setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
-      buildInline.textContent = 'Workspace ready. Open the app to continue the first loop.';
+      buildInline.textContent = brand.key === 'propertyquarry'
+        ? 'PropertyQuarry ready. Open the app to continue the first property loop.'
+        : 'Workspace ready. Open the app to continue the first loop.';
       setStep(5);
     } finally {
       buildInFlight = false;

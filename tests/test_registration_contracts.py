@@ -167,7 +167,9 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
 
     assert response.status_code == 200
     assert "Continue with Google" in response.text
+    assert "Continue with Facebook" in response.text
     assert "Google can reopen an existing workspace with identity-only scope." in response.text
+    assert "Facebook can reopen an existing workspace with public profile and email only." in response.text
 
 
 def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,6 +230,65 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
+def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    existing_principal = "user-4a1702ea0e8d9ec5"
+    client.headers.update({"X-EA-Principal-ID": existing_principal})
+    start_workspace(client, mode="personal", workspace_name="Tibor Property Workspace")
+
+    sign_in_start = client.post(
+        "/sign-in/facebook",
+        follow_redirects=False,
+    )
+    assert sign_in_start.status_code == 303
+    auth_url = sign_in_start.headers["location"]
+    assert auth_url.startswith("https://www.facebook.com/v21.0/dialog/oauth")
+    parsed = urllib.parse.urlparse(auth_url)
+    query = urllib.parse.parse_qs(parsed.query)
+    assert query["redirect_uri"][0] == "https://propertyquarry.com/facebook/callback"
+    assert query["scope"][0] == "public_profile,email"
+    assert query["auth_type"][0] == "rerequest"
+
+    from app.services import facebook_oauth as facebook_service
+
+    monkeypatch.setattr(
+        facebook_service,
+        "_exchange_facebook_code_for_token",
+        lambda **kwargs: {
+            "access_token": "facebook-access-token",
+            "scope": "public_profile,email",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        facebook_service,
+        "_fetch_facebook_userinfo",
+        lambda **kwargs: {
+            "id": "facebook-user-signin",
+            "email": "tibor.girschele@gmail.com",
+            "name": "Tibor Girschele",
+        },
+    )
+
+    callback = client.get(
+        "/facebook/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/workspace-access/")
+
+    opened = client.get(callback.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/properties"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+
 def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(monkeypatch)
 
@@ -235,7 +296,9 @@ def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytes
 
     assert response.status_code == 200
     assert 'action="/sign-in/google"' in response.text
+    assert 'action="/sign-in/facebook"' in response.text
     assert "Continue with Google" in response.text
+    assert "Continue with Facebook" in response.text
     assert 'id="google_sign_in_email"' not in response.text
     assert 'placeholder="you@company.com"' not in response.text
 

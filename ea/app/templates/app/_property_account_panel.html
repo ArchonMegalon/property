@@ -44,8 +44,8 @@
     <section class="pqx-account-action-card" id="settings">
       <div>
         <span class="pqx-small">Trust</span>
-        <h2>Security and data posture</h2>
-        <p>Review identity, retention, access, and public sharing controls from one place.</p>
+        <h2>Privacy settings</h2>
+        <p>Review retention, analytics, preference learning, and the rules for public sharing.</p>
       </div>
       <a class="pqx-link-button" href="{{ security_item.value.get('action_href') or '/security' }}">{{ security_item.value.get('action_label') or 'Open security' }}</a>
     </section>
@@ -74,9 +74,45 @@
       <div>
         <span class="pqx-small">Access</span>
         <h2>Access links</h2>
-        <p>Issue or revoke workspace access links from a product page instead of using support tooling.</p>
+        <p>Issue or revoke secure account links without leaving PropertyQuarry.</p>
       </div>
       <a class="pqx-link-button" href="/app/settings/access">Manage access links</a>
+    </section>
+
+    <section class="pqx-account-action-card" id="shared-links">
+      <div>
+        <span class="pqx-small">Sharing</span>
+        <h2>Public packets and tours</h2>
+        <p>Review shared packet pages and archive anything that should no longer be reachable.</p>
+      </div>
+      <a class="pqx-link-button" href="/app/properties/packets">Manage shared links</a>
+    </section>
+
+    <section class="pqx-account-action-card" id="connected-services">
+      <div>
+        <span class="pqx-small">Connections</span>
+        <h2>Connected services</h2>
+        <p>Check Google, delivery, and source permissions used by the workflows you enabled.</p>
+      </div>
+      <a class="pqx-link-button" href="/app/settings/google">Manage connections</a>
+    </section>
+
+    <section class="pqx-account-action-card" id="analytics-preferences">
+      <div>
+        <span class="pqx-small">Measurement</span>
+        <h2>Analytics and learning</h2>
+        <p>Keep product analytics, preference learning, and cross-customer signal boundaries visible.</p>
+      </div>
+      <a class="pqx-link-button" href="/cookies">Review preferences</a>
+    </section>
+
+    <section class="pqx-account-action-card" id="delete-account">
+      <div>
+        <span class="pqx-small">Deletion</span>
+        <h2>Delete account data</h2>
+        <p>Request deletion of account records, saved searches, generated artifacts, and connected metadata.</p>
+      </div>
+      <a class="pqx-link-button danger" href="/data-deletion">Request deletion</a>
     </section>
   </div>
 </section>

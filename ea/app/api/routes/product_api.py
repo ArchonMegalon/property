@@ -1651,12 +1651,20 @@ def get_property_map_preview_file(
         return Response(
             _property_map_preview_missing_png(),
             media_type="image/png",
-            headers={"Cache-Control": "no-store, max-age=0", "X-Robots-Tag": "noindex, nofollow"},
+            headers={
+                "Cache-Control": "no-store, max-age=0",
+                "X-Property-Map-Preview-State": "pending",
+                "X-Robots-Tag": "noindex, nofollow",
+            },
         )
     return FileResponse(
         file_path,
         media_type="image/png",
-        headers={"Cache-Control": "private, max-age=86400", "X-Robots-Tag": "noindex, nofollow"},
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            "X-Property-Map-Preview-State": "ready",
+            "X-Robots-Tag": "noindex, nofollow",
+        },
     )
 
 

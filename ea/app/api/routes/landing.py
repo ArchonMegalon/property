@@ -762,6 +762,32 @@ def _public_app_base_url(request: Request) -> str:
 
 
 
+def _normalize_return_to_for_logout(*, return_to: str, request: Request) -> str:
+    parsed_return_to = urllib.parse.urlparse(return_to)
+    if parsed_return_to.scheme and parsed_return_to.netloc:
+        return return_to
+    if not return_to.startswith("/"):
+        return _public_app_base_url(request)
+    return f"{_public_app_base_url(request).rstrip('/')}{return_to}"
+
+
+def _cloudflare_access_logout_url(
+    request: Request,
+    *,
+    team_domain: str,
+    return_to: str,
+) -> str:
+    normalized_team_domain = str(team_domain or "").strip().rstrip("/").lower()
+    if "://" in normalized_team_domain:
+        parsed_domain = urllib.parse.urlparse(normalized_team_domain)
+        normalized_team_domain = str(parsed_domain.netloc or "").strip().lower().rstrip("/")
+    if not normalized_team_domain:
+        return return_to
+    public_return_to = _normalize_return_to_for_logout(return_to=return_to, request=request)
+    params = urllib.parse.urlencode({"return_to": public_return_to})
+    return f"https://{normalized_team_domain}/cdn-cgi/access/logout?{params}"
+
+
 def _normalize_browser_return_to(raw: str | None, *, default: str) -> str:
     value = str(raw or "").strip()
     if not value:
@@ -790,12 +816,20 @@ def _browser_request_uses_secure_scheme(request: Request) -> bool:
 
 
 def _workspace_session_cookie_kwargs(request: Request, *, expires_at: str = "") -> dict[str, object]:
+    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or str(request.url.hostname or "") or "").strip()
+    host = host.split(",", 1)[0].split(":", 1)[0].strip().lower().rstrip(".")
+    domain = None
+    if host.endswith(".propertyquarry.com") or host == "propertyquarry.com" or host == "www.propertyquarry.com":
+        domain = ".propertyquarry.com"
+
     kwargs: dict[str, object] = {
         "httponly": True,
         "samesite": "lax",
         "path": "/",
         "secure": _browser_request_uses_secure_scheme(request),
     }
+    if domain is not None:
+        kwargs["domain"] = domain
     normalized_expires_at = str(expires_at or "").strip()
     if not normalized_expires_at:
         return kwargs
@@ -809,6 +843,57 @@ def _workspace_session_cookie_kwargs(request: Request, *, expires_at: str = "") 
     kwargs["expires"] = expires_dt
     kwargs["max_age"] = max_age
     return kwargs
+
+
+def _clear_workspace_session_cookie(response: RedirectResponse, request: Request) -> None:
+    base_kwargs = {
+        "path": "/",
+        "httponly": True,
+        "samesite": "lax",
+    }
+    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or str(request.url.hostname or "") or "").strip()
+    host = host.split(",", 1)[0].split(":", 1)[0].strip().lower().rstrip(".")
+    clear_domains = [None]
+    if host.endswith(".propertyquarry.com") or host == "propertyquarry.com" or host == "www.propertyquarry.com":
+        clear_domains.append(".propertyquarry.com")
+
+    for secure in (True, False):
+        for clear_domain in clear_domains:
+            for path in ("/", "/app"):
+                response.delete_cookie(
+                    "ea_workspace_session",
+                    secure=secure,
+                    domain=clear_domain,
+                    path=path,
+                    httponly=base_kwargs["httponly"],
+                    samesite=base_kwargs["samesite"],
+                )
+
+
+def _signed_out_marker_cookie_kwargs(request: Request) -> dict[str, object]:
+    kwargs = _workspace_session_cookie_kwargs(request)
+    kwargs["httponly"] = True
+    kwargs["max_age"] = 60 * 60 * 24 * 7
+    return kwargs
+
+
+def _clear_signed_out_marker_cookie(response: RedirectResponse, request: Request) -> None:
+    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or str(request.url.hostname or "") or "").strip()
+    host = host.split(",", 1)[0].split(":", 1)[0].strip().lower().rstrip(".")
+    clear_domains = [None]
+    if host.endswith(".propertyquarry.com") or host == "propertyquarry.com" or host == "www.propertyquarry.com":
+        clear_domains.append(".propertyquarry.com")
+    for secure in (True, False):
+        for clear_domain in clear_domains:
+            for path in ("/", "/app"):
+                response.delete_cookie(
+                    "ea_workspace_signed_out",
+                    secure=secure,
+                    domain=clear_domain,
+                    path=path,
+                    httponly=True,
+                    samesite="lax",
+                )
 
 
 def _shared_browser_fields(
@@ -973,6 +1058,14 @@ def _workspace_plan(container: AppContainer, *, principal_id: str):
 
 
 def _account_nav_context(*, request: Request, context: RequestContext) -> dict[str, object]:
+    if not context.principal_id:
+        return {}
+    if (
+        str(request.cookies.get("ea_workspace_signed_out") or "").strip() == "1"
+        and context.auth_source not in {"workspace_access_session", "cloudflare_access", "api_token"}
+    ):
+        return {}
+
     brand = request_brand(request)
     account_label = str(context.access_email or "").strip().lower()
     if not account_label:
@@ -980,6 +1073,17 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
     menu_label = str(context.access_email or "").strip()
     if not menu_label:
         menu_label = str(context.operator_id or "").strip() or "Account"
+    raw_sign_out_return_to = str(brand.get("public_base_url") or "/").strip()
+    parsed_sign_out_return_to = urllib.parse.urlparse(raw_sign_out_return_to)
+    sign_out_return_to = "/"
+    if parsed_sign_out_return_to.path:
+        sign_out_return_to = parsed_sign_out_return_to.path.strip() or "/"
+    elif raw_sign_out_return_to.startswith("/"):
+        sign_out_return_to = raw_sign_out_return_to
+    elif not raw_sign_out_return_to:
+        sign_out_return_to = "/"
+    elif raw_sign_out_return_to != "/":
+        sign_out_return_to = "/"
     return {
         "label": account_label,
         "menu_label": menu_label,
@@ -987,7 +1091,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         "billing_href": "/app/billing",
         "settings_href": "/app/account#settings",
         "sign_out_action": "/app/actions/sign-out",
-        "sign_out_return_to": str(brand.get("public_base_url") or "/").strip() or "/",
+        "sign_out_return_to": sign_out_return_to,
     }
 
 
@@ -1744,6 +1848,40 @@ def security_page(
     )
 
 
+@router.get("/data-deletion", response_class=HTMLResponse)
+def data_deletion_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    return _render_public_template(
+        request,
+        "data_deletion.html",
+        **_public_context(
+            request=request,
+            current_nav="security",
+            page_title="PropertyQuarry Data Deletion",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "contact_email": "property@propertyquarry.com",
+                "meta_description": "How to request deletion of account, search, connected-channel, and generated property data held by PropertyQuarry.",
+            },
+        ),
+    )
+
+
+@router.get("/user-data-deletion", response_class=HTMLResponse)
+def user_data_deletion_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return data_deletion_page(request=request, container=container, access_identity=access_identity)
+
+
 @router.get("/pricing", response_class=HTMLResponse)
 def pricing_page(
     request: Request,
@@ -2104,6 +2242,7 @@ def sign_in_page(
     link_email = str(request.query_params.get("link_email") or "").strip()
     link_error = str(request.query_params.get("link_error") or "").strip()
     google_error = str(request.query_params.get("google_error") or "").strip()
+    facebook_error = str(request.query_params.get("facebook_error") or "").strip()
     return _render_public_template(
         request,
         "sign_in.html",
@@ -2121,6 +2260,7 @@ def sign_in_page(
                 "sign_in_link_email": link_email,
                 "sign_in_link_error": link_error,
                 "sign_in_google_error": google_error,
+                "sign_in_facebook_error": facebook_error,
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",
             },
         ),
@@ -2192,6 +2332,33 @@ async def sign_in_google(
             + urllib.parse.urlencode(
                 {
                     "google_error": str(exc or "google_oauth_not_ready"),
+                }
+            ),
+            status_code=303,
+        )
+    return RedirectResponse(str(packet.auth_url), status_code=303)
+
+
+@router.post("/sign-in/facebook")
+async def sign_in_facebook(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> RedirectResponse:
+    from app.services.facebook_oauth import build_facebook_oauth_start
+
+    try:
+        packet = build_facebook_oauth_start(
+            principal_id="",
+            redirect_uri_override=f"{_public_app_base_url(request)}/facebook/callback",
+            return_to="/sign-in?facebook_connected=1",
+            browser_source="sign_in",
+        )
+    except RuntimeError as exc:
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "facebook_error": str(exc or "facebook_oauth_not_ready"),
                 }
             ),
             status_code=303,
@@ -2324,6 +2491,7 @@ def workspace_access_session(
         str(session.get("access_token") or "").strip(),
         **_workspace_session_cookie_kwargs(request, expires_at=str(session.get("expires_at") or "").strip()),
     )
+    _clear_signed_out_marker_cookie(response, request)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
@@ -2352,8 +2520,19 @@ async def app_sign_out(
                 )
             except Exception:
                 pass
+    if (
+        context.auth_source == "cloudflare_access"
+        and str(container.settings.auth.cf_access_team_domain or "").strip()
+    ):
+        return_to = _cloudflare_access_logout_url(
+            request,
+            team_domain=str(container.settings.auth.cf_access_team_domain or "").strip(),
+            return_to=return_to,
+        )
+
     response = RedirectResponse(return_to, status_code=303)
-    response.delete_cookie("ea_workspace_session", path="/")
+    _clear_workspace_session_cookie(response, request)
+    response.set_cookie("ea_workspace_signed_out", "1", **_signed_out_marker_cookie_kwargs(request))
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 

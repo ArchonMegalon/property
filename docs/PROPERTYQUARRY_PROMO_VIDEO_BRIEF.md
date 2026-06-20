@@ -351,9 +351,6 @@ Prefer
 Lift
 Outdoor space
 Transit nearby
-
-Use stored feedback preferences
-On
 ```
 
 ### Market Scan

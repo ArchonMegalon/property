@@ -448,6 +448,15 @@ def test_germany_official_sources_are_evidence_not_listing_providers() -> None:
     assert any(row["value"] == "school_directories_de" and row["evidence_family"] == "school_evidence" for row in sources)
     assert all("Germany" in str(row.get("description") or "") for row in sources)
     assert all("official_public_data" != row["evidence_family"] for row in sources)
+    assert all(str(row.get("license_label") or "").strip() for row in sources)
+    assert all(str(row.get("refresh_cadence") or "").strip() for row in sources)
+    assert all(str(row.get("downstream_use") or "").strip() for row in sources)
+    assert all(str(row.get("geographic_granularity") or "").strip() for row in sources)
+
+    osm = next(row for row in sources if row["value"] == "osm_overpass_de")
+    assert osm["attribution_required"] is True
+    assert "OpenStreetMap" in str(osm["license_label"])
+    assert osm["downstream_use"] == "derived_proximity_evidence_with_attribution"
 
 
 def test_school_quality_is_called_school_evidence_not_quality_score() -> None:
@@ -1072,6 +1081,29 @@ def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_wh
         dict(row["provider_filter_pushdown"])["applied"]["location_query"] == row["location_query"]
         for row in specs
     )
+
+
+def test_generated_source_specs_expand_selected_districts_to_adjacent_sources_without_radius() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "search_mode": "discovery",
+            "keywords": "lift",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-fuzzy-adjacent-districts-default",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    location_queries = [str(row["location_query"]) for row in specs]
+    assert location_queries[0] == "1010 Vienna"
+    assert {"1020 Vienna", "1030 Vienna", "1040 Vienna", "1090 Vienna"}.issubset(set(location_queries))
 
 
 def test_generated_source_specs_do_not_expand_adjacent_districts_for_full_region_scope() -> None:

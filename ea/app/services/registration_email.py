@@ -1208,7 +1208,7 @@ def send_property_search_results_ready_email(
                 {f'<div style="font-size:13px;line-height:1.5;color:#7d7468;margin-top:10px;">{html.escape(best_facts)}</div>' if best_facts else ''}
               </div>
               <div style="padding-top:18px;">
-                {_email_button(href=str(results_url or '').strip(), label="Open shortlist")}
+                {_email_button(href=str(results_url or '').strip(), label="Open full search desk")}
               </div>
             </div>
             <div style="padding:24px 28px 12px;">

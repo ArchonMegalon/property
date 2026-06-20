@@ -564,6 +564,11 @@
     };
     const requestVisualAsset = async (candidate, kind, button) => {
       if (!candidate) return;
+      const existingReadyUrl = String(button?.getAttribute?.('data-pw-visual-ready-url') || '').trim();
+      if (existingReadyUrl) {
+        window.location.href = existingReadyUrl;
+        return;
+      }
       const propertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
       if (!propertyUrl) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
@@ -657,15 +662,20 @@
           } else {
             button.textContent = candidate.tour?.label || (nextTourUrl ? 'Open 3D tour' : '3D tour queued');
           }
-          if (nextFlythroughUrl || nextTourUrl) {
-            button.setAttribute('data-pw-visual-ready-url', nextFlythroughUrl || nextTourUrl);
+          const requestedReadyUrl = requestKind === 'flythrough' ? nextFlythroughUrl : nextTourUrl;
+          const requestedStatus = requestKind === 'flythrough' ? nextFlythroughStatus : nextTourStatus;
+          const requestIsWaiting = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(requestedStatus);
+          button.setAttribute('data-pw-visual-state', requestedReadyUrl ? 'ready' : requestedStatus);
+          if (requestedReadyUrl) {
+            button.setAttribute('data-pw-visual-ready-url', requestedReadyUrl);
+            button.classList.remove('is-processing');
+            button.classList.add('is-ready');
+            button.removeAttribute('aria-disabled');
+          } else {
+            button.removeAttribute('data-pw-visual-ready-url');
+            button.classList.remove('is-ready');
           }
-          if (
-            nextFlythroughUrl
-            || nextTourUrl
-            || ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
-            || ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextTourStatus)
-          ) {
+          if (requestIsWaiting) {
             keepButtonDisabled = true;
             button.classList.add('is-processing');
             button.setAttribute('aria-disabled', 'true');
@@ -997,6 +1007,7 @@
       }
       const runSummary = summary && typeof summary === 'object' ? summary : (runPayload?.summary || {});
       const explicitProviderTotal = Math.max(0, Number(runSummary.provider_total || 0));
+      const sourceVariantTotal = Math.max(0, Number(runSummary.source_variant_total || runSummary.sources_total || 0));
       const selectedPlatforms = Array.isArray(runPayload?.selected_platforms)
         ? runPayload.selected_platforms
         : (Array.isArray(runPayload?.brief?.providers)
@@ -1009,26 +1020,36 @@
       const sourceProviders = new Set();
       (Array.isArray(runSummary.sources) ? runSummary.sources : []).forEach((source) => {
         if (!source || typeof source !== 'object') return;
-        const platform = String(source.platform || source.provider_key || '').trim().toLowerCase();
-        if (platform) {
-          sourceProviders.add(platform);
+        const rawProviderSourceKey = String(source.provider_source_key || source.source_provider_key || '').trim().toLowerCase();
+        const identity = rawProviderSourceKey
+          ? rawProviderSourceKey.split(':')[0].trim()
+          : String(source.provider_key || source.platform || source.provider_family || '').trim().toLowerCase();
+        if (identity) {
+          sourceProviders.add(identity);
           return;
         }
         const label = String(source.source_label || source.label || '').trim();
         const baseLabel = label.split('|')[0].trim().toLowerCase();
         if (baseLabel) sourceProviders.add(baseLabel);
       });
-      return Math.max(explicitProviderTotal, selectedProviderTotal, sourceProviders.size);
+      const inferredProviderTotal = Math.max(selectedProviderTotal, sourceProviders.size);
+      if (inferredProviderTotal > 0 && explicitProviderTotal > inferredProviderTotal) {
+        if (!sourceVariantTotal || explicitProviderTotal >= sourceVariantTotal || explicitProviderTotal > selectedProviderTotal * 3) {
+          return inferredProviderTotal;
+        }
+      }
+      return Math.max(explicitProviderTotal, inferredProviderTotal);
     };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
-      const scanLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} source checks`
-        : `${sources} source checks`;
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
+      const checkedLabel = reviewed > 0 ? `${reviewed} homes reviewed` : 'checking selected sources';
+      const scanLabel = providerDisplayTotal
+        ? `${providerDisplayTotal} providers · ${checkedLabel}`
+        : checkedLabel;
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -1043,7 +1064,7 @@
       if (currentStep === 'source_shortlist' && shortlistReady > 0) {
         return `${scanLabel} · ${shortlistReady} shortlist home${shortlistReady === 1 ? '' : 's'} ready`;
       }
-      return `${scanLabel} · ${reviewed} homes reviewed${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
+      return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
@@ -1306,12 +1327,11 @@
       const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
-      const scanCountLabel = providerDisplayTotal && sourceVariantTotal > providerDisplayTotal
-        ? `${providerDisplayTotal} providers · ${sourceVariantTotal} source checks`
-        : (sourceVariantTotal > 0
-          ? `${sourceVariantTotal} source checks`
-          : (completedSources > 0 ? `${completedSources} source checks` : 'Source checks'));
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
+      const checkedLabel = reviewed > 0 ? `${reviewed} homes checked` : 'Checking selected sources';
+      const scanCountLabel = providerDisplayTotal
+        ? `${providerDisplayTotal} providers · ${checkedLabel}`
+        : (reviewed > 0 ? checkedLabel : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking selected sources' : 'Search warming up'));
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -1327,7 +1347,7 @@
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
       const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
-      const workerTooltip = 'Search workers are the parallel source checks running this search right now. They are separate from recurring saved searches.';
+      const workerTooltip = 'Search workers are the parallel provider scans running this search right now. They are separate from recurring saved searches.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
@@ -1445,9 +1465,9 @@
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing source checks' : (sourceRows.length ? 'Waiting for a source check' : 'Ready when you start')));
+        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing provider scan' : (sourceRows.length ? 'Waiting for a provider scan' : 'Ready when you start')));
         return {
-          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing source checks' : (sourceRows.length ? 'Waiting' : 'Ready')),
+          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing provider scan' : (sourceRows.length ? 'Waiting' : 'Ready')),
           provider,
           shardCount,
           statusLabel,
@@ -2167,9 +2187,6 @@
         form.querySelector('[data-property-field-name="max_commute_minutes_walk"]'),
       ].filter(Boolean);
       const fullRegionScopeField = form.querySelector('input[name="full_region_scope"]');
-      const preferencePersonField = form.querySelector('[name="preference_person_id"]');
-      const useStoredFeedbackPreferencesField = form.querySelector('input[name="use_stored_feedback_preferences"]');
-      const preferencePersonWrap = form.querySelector('[data-property-field-name="preference_person_id"]');
       const searchAgentEnabledField = form.querySelector('input[name="search_agent_enabled"]');
       const saveWhatMattersButton = form.querySelector('[data-pqx-save-what-matters]');
       const loadWhatMattersButton = form.querySelector('[data-pqx-load-what-matters]');
@@ -2382,7 +2399,6 @@
         const investmentResearchEnabled = isInvestment && String(investmentField?.value || 'off').trim().toLowerCase() !== 'off';
         const communitySignalsEnabled = Boolean(form.querySelector('input[name="include_community_signals"]')?.checked);
         const developerProjectSignalsEnabled = Boolean(form.querySelector('input[name="include_developer_project_signals"]')?.checked);
-        const storedFeedbackPreferencesEnabled = false;
         const searchAgentEnabled = Boolean(searchAgentEnabledField?.checked);
         const publicHousingSignalsEnabled = rentMode && Boolean(form.querySelector('input[name="include_public_housing_signals"]')?.checked);
         const distressedSignalsEnabled = buyMode && Boolean(form.querySelector('input[name="include_distressed_sale_signals"]')?.checked);
@@ -2403,7 +2419,6 @@
         developerProjectStageWraps.forEach((wrap) => {
           setConditionalWrapVisibility(wrap, developerProjectSignalsEnabled && activeStep === 'research', 'developer_projects');
         });
-        setConditionalWrapVisibility(preferencePersonWrap, false, 'disabled_preference_profile');
         searchAgentDetailWraps.forEach((wrap) => {
           setConditionalWrapVisibility(wrap, searchAgentEnabled && activeStep === 'providers', 'search_agent');
         });
@@ -2481,9 +2496,6 @@
         if (integerValue(form, 'max_distance_to_supermarket_m') === null) {
           const supermarketImportanceField = form.querySelector('[name="max_distance_to_supermarket_importance"]');
           if (supermarketImportanceField) supermarketImportanceField.value = 'important';
-        }
-        if (!storedFeedbackPreferencesEnabled && preferencePersonField) {
-          preferencePersonField.value = 'self';
         }
         if (!searchAgentEnabled) {
           const searchAgentDurationField = form.querySelector('[name="search_agent_duration_days"]');
@@ -2653,9 +2665,6 @@
         refreshRegionAndLocationChoices();
         syncMarketAwareFields(form, meta);
       });
-      preferencePersonField?.addEventListener('change', applyPreferenceProfile);
-      preferencePersonField?.addEventListener('blur', applyPreferenceProfile);
-      useStoredFeedbackPreferencesField?.addEventListener('change', syncSearchGoalControls);
       regionField?.addEventListener('input', markManualGeographySelection);
       regionField?.addEventListener('change', () => {
         markManualGeographySelection();
@@ -3050,7 +3059,6 @@
         'keywords',
         'custom_location_query',
         'custom_keywords',
-        'preference_person_id',
         'investment_research_mode',
         'min_gross_yield_pct',
         'investment_require_floorplan',
@@ -3278,9 +3286,25 @@
         const baseSrc = String(image.getAttribute('src') || '').split('?')[0];
         if (!baseSrc || image.getAttribute('data-map-preview-refresh-bound') === 'true') return;
         image.setAttribute('data-map-preview-refresh-bound', 'true');
-        retryDelays.forEach((delay, index) => {
-          window.setTimeout(() => {
-            image.setAttribute('src', `${baseSrc}?preview=${index + 1}-${Date.now()}`);
+        retryDelays.forEach((delay) => {
+          window.setTimeout(async () => {
+            if (image.getAttribute('data-map-preview-ready') === 'true') return;
+            try {
+              const response = await fetch(`${baseSrc}?state=${Date.now()}`, {
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { Accept: 'image/png' },
+              });
+              if (!response.ok || response.headers.get('x-property-map-preview-state') !== 'ready') return;
+              const blob = await response.blob();
+              if (!blob || !String(blob.type || '').startsWith('image/')) return;
+              const objectUrl = URL.createObjectURL(blob);
+              image.addEventListener('load', () => URL.revokeObjectURL(objectUrl), { once: true });
+              image.setAttribute('data-map-preview-ready', 'true');
+              image.setAttribute('src', objectUrl);
+            } catch (_err) {
+              // Keep the stable placeholder; the next page view can pick up the cached map.
+            }
           }, delay);
         });
       });

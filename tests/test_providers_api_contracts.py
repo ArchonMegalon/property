@@ -62,6 +62,17 @@ def test_public_tour_security_headers_allow_rybbit_assets() -> None:
     assert "https://js.clickrank.ai" in csp
 
 
+def test_clickrank_only_runs_on_public_marketing_and_editorial_routes() -> None:
+    from app.services.public_clickrank import clickrank_route_allowed
+
+    assert clickrank_route_allowed("/")
+    assert clickrank_route_allowed("/pricing")
+    assert clickrank_route_allowed("/guides/vienna-rental-search")
+    assert not clickrank_route_allowed("/app/search")
+    assert not clickrank_route_allowed("/results/movie-demo")
+    assert not clickrank_route_allowed("/tours/movie-demo")
+
+
 def test_propertyquarry_app_sets_default_browser_security_headers() -> None:
     client = _client(principal_id="exec-browser-security")
 
@@ -7335,6 +7346,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert page.status_code == 200
     assert "Property Tour" in page.text
     assert f"/tours/files/{slug}/scene-01.jpg" in page.text
+    assert "ea.example" not in page.text
     assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" not in page.text
     page_head = client.head(f"/tours/{slug}", follow_redirects=False)
     assert page_head.status_code == 200
@@ -7343,6 +7355,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert payload.status_code == 200
     payload_body = payload.json()
     assert payload_body["slug"] == slug
+    assert payload_body["hosted_url"] == f"/tours/{slug}"
     assert payload_body["tour_privacy_mode"] == "anonymous_public"
     assert payload_body["scenes"][0]["image_url"] == f"/tours/files/{slug}/scene-01.jpg"
     assert payload_body["facts"]["personal_fit_assessment"]["fit_score"] == 81
@@ -7379,6 +7392,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
         "Private Receipt Street",
         "private-secret",
         "private.example.test",
+        "ea.example",
     ):
         assert private_marker not in serialized_payload
 
@@ -7413,6 +7427,8 @@ def test_public_tour_json_never_exposes_listing_or_source_urls(
             {
                 "slug": slug,
                 "display_title": "Public JSON redaction",
+                "hosted_url": "https://private-host.example/tours/private",
+                "public_url": "javascript:alert(1)",
                 "listing_url": "https://portal.example/private-listing",
                 "property_url": "https://broker.example/private-property",
                 "source_url": "https://source.example/private-source",
@@ -7455,6 +7471,8 @@ def test_public_tour_json_never_exposes_listing_or_source_urls(
     assert response.status_code == 200
     body = response.json()
     serialized = json.dumps(body, sort_keys=True)
+    assert body["hosted_url"] == f"/tours/{slug}"
+    assert body["public_url"] == f"/tours/{slug}"
     assert body["facts"] == {"rooms": 3, "area_sqm": 84, "postal_name": "1020 Wien"}
     assert body["scenes"][0]["image_url"] == f"/tours/files/{slug}/scene-01.jpg"
     for private_marker in (
@@ -7479,8 +7497,19 @@ def test_public_tour_json_never_exposes_listing_or_source_urls(
         "map_lat",
         "map_lng",
         "private-original",
+        "private-host.example",
+        "javascript:",
     ):
         assert private_marker not in serialized
+
+
+def test_public_tour_canonical_path_rejects_unsafe_stored_slugs() -> None:
+    from app.api.routes.public_tour_payloads import public_tour_canonical_path
+
+    assert public_tour_canonical_path("kahlenberg-layout-first") == "/tours/kahlenberg-layout-first"
+    assert public_tour_canonical_path("../private-tour") == ""
+    assert public_tour_canonical_path("private/tour") == ""
+    assert public_tour_canonical_path("private\\tour") == ""
 
 
 def test_authenticated_public_tour_revocation_removes_served_manifest_and_assets(
@@ -7780,12 +7809,15 @@ def test_public_results_no_longer_shadow_tour_routes(
     result_page = client.get("/results/movie-demo", headers={"host": "myexternalbrain.com"})
     assert result_page.status_code == 200
     assert "Movie Demo" in result_page.text
-    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in result_page.text
+    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" not in result_page.text
 
     missing_tour = client.get("/tours/movie-demo")
     assert missing_tour.status_code == 404
     assert "This tour link is no longer available." in missing_tour.text
     assert "Request a fresh tour" in missing_tour.text
+    assert "workspace" not in missing_tour.text.lower()
+    assert "queue" not in missing_tour.text.lower()
+    assert "office" not in missing_tour.text.lower()
     missing_tour_payload = client.get("/tours/movie-demo.json")
     assert missing_tour_payload.status_code == 404
     assert missing_tour_payload.json()["error"]["code"] == "tour_not_found"
@@ -8153,7 +8185,7 @@ def test_public_tour_routes_keep_pure_360_white_labeled_when_origin_present(
     assert "Hosted tour page with the original 360 viewer embedded." not in page.text
 
 
-def test_public_tour_request_details_requires_authenticated_workspace(
+def test_public_tour_request_details_requires_authenticated_account(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8195,7 +8227,7 @@ def test_public_tour_request_details_requires_authenticated_workspace(
     client = _client(principal_id="exec-public-tour-request-details")
     unsigned = client.post(f"/tours/{slug}/request-details", headers={"host": "myexternalbrain.com"}, json={})
     assert unsigned.status_code == 403
-    assert unsigned.json()["error"]["code"] == "request-details_requires_authenticated_workspace"
+    assert unsigned.json()["error"]["code"] == "request-details_requires_authenticated_account"
     assert captured == {}
 
     legacy_token_attempt = client.post(
@@ -8204,7 +8236,7 @@ def test_public_tour_request_details_requires_authenticated_workspace(
         json={"action_token": "v1.9999999999.legacy-browser-token"},
     )
     assert legacy_token_attempt.status_code == 403
-    assert legacy_token_attempt.json()["error"]["code"] == "request-details_requires_authenticated_workspace"
+    assert legacy_token_attempt.json()["error"]["code"] == "request-details_requires_authenticated_account"
     assert captured == {}
 
 
@@ -8482,7 +8514,7 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
     assert invalid_reaction.json()["error"]["code"] == "invalid_tour_feedback_reaction"
 
 
-def test_public_tour_filter_update_requires_authenticated_workspace(
+def test_public_tour_filter_update_requires_authenticated_account(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8551,7 +8583,7 @@ def test_public_tour_filter_update_requires_authenticated_workspace(
         json={"filter_key": "avoid_gas_heating", "enabled": True},
     )
     assert unsigned.status_code == 403
-    assert unsigned.json()["error"]["code"] == "filters_requires_authenticated_workspace"
+    assert unsigned.json()["error"]["code"] == "filters_requires_authenticated_account"
 
     legacy_token_attempt = client.post(
         f"/tours/{slug}/filters",
@@ -8563,7 +8595,7 @@ def test_public_tour_filter_update_requires_authenticated_workspace(
         },
     )
     assert legacy_token_attempt.status_code == 403
-    assert legacy_token_attempt.json()["error"]["code"] == "filters_requires_authenticated_workspace"
+    assert legacy_token_attempt.json()["error"]["code"] == "filters_requires_authenticated_account"
 
     second_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
     assert second_page.status_code == 200
@@ -8634,7 +8666,7 @@ def test_public_tour_filter_update_rejects_invalid_payload(
         json={"filter_key": "", "enabled": True},
     )
     assert missing_filter.status_code == 403
-    assert missing_filter.json()["error"]["code"] == "filters_requires_authenticated_workspace"
+    assert missing_filter.json()["error"]["code"] == "filters_requires_authenticated_account"
 
     invalid_filter = client.post(
         f"/tours/{slug}/filters",
@@ -8645,7 +8677,7 @@ def test_public_tour_filter_update_rejects_invalid_payload(
         },
     )
     assert invalid_filter.status_code == 403
-    assert invalid_filter.json()["error"]["code"] == "filters_requires_authenticated_workspace"
+    assert invalid_filter.json()["error"]["code"] == "filters_requires_authenticated_account"
 
     invalid_enabled = client.post(
         f"/tours/{slug}/filters",
@@ -8656,7 +8688,7 @@ def test_public_tour_filter_update_rejects_invalid_payload(
         },
     )
     assert invalid_enabled.status_code == 403
-    assert invalid_enabled.json()["error"]["code"] == "filters_requires_authenticated_workspace"
+    assert invalid_enabled.json()["error"]["code"] == "filters_requires_authenticated_account"
 
     string_false = client.post(
         f"/tours/{slug}/filters",
@@ -8667,7 +8699,7 @@ def test_public_tour_filter_update_rejects_invalid_payload(
         },
     )
     assert string_false.status_code == 403
-    assert string_false.json()["error"]["code"] == "filters_requires_authenticated_workspace"
+    assert string_false.json()["error"]["code"] == "filters_requires_authenticated_account"
 
 
 def test_shortlist_float_parsing_is_locale_aware() -> None:

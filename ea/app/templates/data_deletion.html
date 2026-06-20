@@ -1,0 +1,73 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .deletion-hero,
+  .deletion-card {
+    padding: 18px;
+  }
+  .deletion-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .deletion-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .deletion-card strong {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .deletion-list {
+    margin: 0;
+    padding-left: 18px;
+  }
+  .deletion-list li + li {
+    margin-top: 8px;
+  }
+  @media (max-width: 1080px) {
+    .deletion-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="section panel deletion-hero">
+  <div class="kicker">Data deletion</div>
+  <h1>Request deletion of your PropertyQuarry data.</h1>
+  <p class="lead">PropertyQuarry keeps account and property-search data only for the features you enable. You can ask us to delete account records, saved-search records, connected-channel metadata, and generated property artifacts tied to your account.</p>
+</section>
+
+<section class="section deletion-grid">
+  <section class="deletion-card">
+    <strong>1. Send the request</strong>
+    Email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a> with the subject line "Data deletion request" and the email address or phone number used for the account.
+  </section>
+  <section class="deletion-card">
+    <strong>2. We verify ownership</strong>
+    We may ask you to confirm the request from the same email, sign-in channel, or secure account link before deleting records.
+  </section>
+  <section class="deletion-card">
+    <strong>3. We remove retained data</strong>
+    After verification, we delete or anonymize account, search, channel-connection, and generated property records unless retention is legally required.
+  </section>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="kicker">Scope</div>
+      <h2>What the request covers</h2>
+    </div>
+    <p>Deletion applies to data controlled by PropertyQuarry. Data held by connected providers must also be managed in those providers' own account settings.</p>
+  </div>
+  <ul class="muted-list deletion-list">
+    <li>Account identity records, sign-in metadata, saved search preferences, and saved review settings.</li>
+    <li>Connected-channel metadata and authorization records stored by PropertyQuarry.</li>
+    <li>Generated recommendations, shortlist records, tours, dossiers, and property review files tied to your account.</li>
+    <li>Backups and logs are removed or aged out according to operational retention windows unless legal obligations require longer retention.</li>
+  </ul>
+</section>
+{% endblock %}

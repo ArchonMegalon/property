@@ -74,6 +74,11 @@ class PropertyEvidenceSourceSpec:
     source_type: str = "official_public_data"
     confidence: str = "medium"
     last_verified: str = "2026-06-13"
+    license_label: str = "source-specific public-data terms"
+    refresh_cadence: str = "source-dependent"
+    attribution_required: bool = True
+    downstream_use: str = "evidence_only_no_raw_republication"
+    geographic_granularity: str = "source_defined"
 
 
 COUNTRIES: tuple[PropertyCountrySpec, ...] = (
@@ -2288,6 +2293,10 @@ EVIDENCE_SOURCES: tuple[PropertyEvidenceSourceSpec, ...] = (
         description="Germany point-of-interest and local proximity evidence for schools, parks, pharmacies, and transit stops.",
         source_type="public_open_data",
         confidence="medium",
+        license_label="Open Database License / OpenStreetMap attribution",
+        refresh_cadence="community-edited; snapshot before use",
+        downstream_use="derived_proximity_evidence_with_attribution",
+        geographic_granularity="poi_or_way",
     ),
     PropertyEvidenceSourceSpec(
         key="mobilithek_gtfs_de",
@@ -3268,9 +3277,9 @@ def filter_selectable_property_platforms(
     return tuple(kept), tuple(removed)
 
 
-def evidence_source_options(*, country_code: str | None = None) -> list[dict[str, str]]:
+def evidence_source_options(*, country_code: str | None = None) -> list[dict[str, object]]:
     normalized_country = normalize_country_code(country_code, default="AT") if country_code else ""
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, object]] = []
     for source in EVIDENCE_SOURCES:
         if normalized_country and source.country_code != normalized_country:
             continue
@@ -3290,6 +3299,11 @@ def evidence_source_options(*, country_code: str | None = None) -> list[dict[str
                 "source_type": source.source_type,
                 "confidence": source.confidence,
                 "last_verified": source.last_verified,
+                "license_label": source.license_label,
+                "refresh_cadence": source.refresh_cadence,
+                "attribution_required": bool(source.attribution_required),
+                "downstream_use": source.downstream_use,
+                "geographic_granularity": source.geographic_granularity,
             }
         )
     return rows
@@ -4458,7 +4472,15 @@ def _normalized_location_option_key(value: object) -> str:
 def _adjacent_location_query_variants(preferences: dict[str, object]) -> tuple[str, ...]:
     if bool(preferences.get("full_region_scope")):
         return ()
-    if _adjacent_area_radius_m_from_preferences(preferences) <= 0:
+    has_postal_scope = bool(
+        any(
+            re.search(r"\b[1-9]\d{3,4}\b", str(value or ""))
+            for value in _explicit_location_query_variants(preferences)
+        )
+    )
+    if _adjacent_area_radius_m_from_preferences(preferences) <= 0 and not (
+        has_postal_scope and str(preferences.get("search_mode") or "").strip().lower() == "discovery"
+    ):
         return ()
     selected_variants = _explicit_location_query_variants(preferences)
     if not selected_variants:

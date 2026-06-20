@@ -945,6 +945,86 @@ def test_property_search_interleave_by_provider_group_spreads_same_provider_shar
     ]
 
 
+def test_property_search_provider_total_collapses_source_variants() -> None:
+    provider_specs = [
+        {"provider_source_key": "willhaben:vienna", "platform": "kalandra"},
+        {"provider_source_key": "willhaben:salzburg", "provider_key": "WILLHABEN"},
+        {"provider_key": "kalandra", "label": "Kalandra | Vienna"},
+        {"source_provider_key": "derstandard:vienna", "platform": "derstandard_at"},
+        {"source_provider_key": "derstandard:1220", "provider_family": "cooperative"},
+    ]
+
+    assert product_service._property_search_provider_total(provider_specs) == 3
+
+
+def test_property_search_run_status_fixes_provider_total_from_source_variants() -> None:
+    principal_id = "exec-property-run-provider-count-fix"
+    client = build_product_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"provider-total-fix-{uuid.uuid4().hex}"
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "selected_platforms": ["willhaben", "kalandra", "wiener_wohnen"],
+            "summary": {
+                "provider_total": 156,
+                "source_variant_total": 156,
+                "sources": [
+                    {
+                        "provider_source_key": "willhaben:vienna",
+                        "source_label": "Willhaben | Vienna",
+                    },
+                    {
+                        "provider_source_key": "willhaben:salzburg",
+                        "source_label": "Willhaben | Salzburg",
+                    },
+                    {
+                        "source_provider_key": "wiener_wohnen:wien",
+                        "source_label": "Wiener Wohnen",
+                    },
+                    {
+                        "source_provider_key": "kalandra:wien",
+                        "source_label": "Kalandra Wien",
+                    },
+                ],
+            },
+        }
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert int(dict(status.get("summary") or {}).get("provider_total") or 0) == 3
+    assert int(dict(status.get("summary") or {}).get("source_variant_total") or 0) == 156
+
+
+def test_property_search_run_status_fixes_inflated_provider_total_when_source_rows_missing() -> None:
+    principal_id = "exec-property-run-provider-count-no-sources"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"provider-total-no-sources-{uuid.uuid4().hex}"
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "selected_platforms": ["willhaben", "kalandra", "wiener_wohnen"],
+            "summary": {
+                "provider_total": 156,
+                "source_variant_total": 156,
+                "sources": [],
+            },
+        }
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert int(dict(status.get("summary") or {}).get("provider_total") or 0) == 3
+
+
 def test_property_search_location_matching_prefers_requested_districts() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
 
@@ -1038,6 +1118,36 @@ def test_property_search_area_accepts_adjacent_districts_for_fuzzy_scope_only() 
         title="Moderne Zwei-Zimmer Wohnung mit Terrasse in Salzburg",
         summary="Concrete listing evidence says Salzburg.",
         property_facts={"postal_name": "5020 Salzburg"},
+    ) is False
+
+
+def test_property_search_area_accepts_adjacent_districts_without_explicit_radius_for_fuzzy_district_scope() -> None:
+    strict_preferences = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "location_query": "Wien",
+        "selected_districts": ["1010 Vienna"],
+        "search_mode": "discovery",
+    }
+    hints = _property_search_location_hints(strict_preferences)
+
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences=strict_preferences,
+        source_spec={"country_code": "AT"},
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/adjacent/",
+        title="Wohnung mieten in 1020 Wien | 70 m² | 3 Zimmer",
+        summary="Concrete listing evidence says Leopoldstadt.",
+        property_facts={"postal_name": "1020 Wien"},
+    ) is True
+    assert product_service._property_candidate_matches_search_area(
+        location_hints=hints,
+        request_preferences=strict_preferences,
+        source_spec={"country_code": "AT"},
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-donaustadt/neighbor/",
+        title="Wohnung mieten in 1220 Wien | 62 m² | 2 Zimmer",
+        summary="Concrete listing evidence says Donaustadt.",
+        property_facts={"postal_name": "1220 Wien"},
     ) is False
 
 
@@ -2056,6 +2166,96 @@ def test_property_scout_hit_sender_suppresses_location_conflicts_and_opens_repai
     assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
     assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
     assert repair_tasks[0].status in {"pending", "returned"}
+
+
+def test_property_scout_hit_sender_suppresses_low_score_direct_calls(monkeypatch) -> None:
+    principal_id = "exec-property-hit-low-score-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Scout Low Score Gate Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+    monkeypatch.setenv("PROPERTYQUARRY_SCOUT_OUTBOUND_MIN_SCORE", "60")
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("low-score scout hit must not notify")),
+    )
+
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Wohnung mieten in 1010 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+        summary="2-Zimmer Wohnung im 1. Bezirk, 60 m2, Gesamtmiete EUR 1.090.",
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/low-score/",
+        source_ref="property-scout:low-score-1010",
+        assessment={"fit_score": 50.0, "recommendation": "review"},
+        fit_score=50.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/low-score/",
+                "listing_title": "Wohnung mieten in 1010 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+                "summary": "2-Zimmer Wohnung im 1. Bezirk, 60 m2, Gesamtmiete EUR 1.090.",
+                "source_platform": "willhaben",
+                "source_family": "marketplace",
+                "property_facts_json": {
+                    "postal_name": "1010 Wien",
+                    "location": "1010 Wien, Innere Stadt",
+                    "street_address": "Kärntner Straße 12, 1010 Wien",
+                    "exact_address": "Kärntner Straße 12, 1010 Wien",
+                    "area_sqm": 60,
+                    "rooms": 2,
+                    "total_rent_eur": 1090,
+                },
+            },
+        ),
+        render_dossier=False,
+        requested_location_hints=("1010 Vienna",),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "fit_below_outbound_threshold"
+    assert result["fit_score"] == 50.0
+    assert result["min_score"] == 60.0
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks == []
+
+
+def test_property_source_scope_placeholder_detection_keeps_street_addresses_concrete() -> None:
+    facts = {
+        "postal_name": "1010 Wien",
+        "location": "1010 Wien, Innere Stadt",
+        "street_address": "Kärntner Straße 12, 1010 Wien",
+        "exact_address": "Kärntner Straße 12, 1010 Wien",
+        "source_scope_location": "1010 Vienna",
+        "source_postal_code": "1010",
+        "source_city": "Vienna",
+    }
+
+    assert product_service._property_candidate_has_concrete_location(facts)
 
 
 def test_property_location_match_uses_listing_postal_evidence_over_source_scope() -> None:
@@ -4691,7 +4891,7 @@ def test_hosted_property_tour_bundle_splits_public_manifest_from_private_receipt
     public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     private_manifest = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
 
-    assert public_manifest["hosted_url"] == f"https://propertyquarry.com/tours/{payload['slug']}"
+    assert public_manifest["hosted_url"] == f"/tours/{payload['slug']}"
     assert "principal_id" not in public_manifest
     assert "recipient_email" not in public_manifest
     assert "source_ref" not in public_manifest

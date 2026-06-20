@@ -13,6 +13,7 @@ PUBLIC_ROUTES = (
     "/",
     "/product",
     "/security",
+    "/data-deletion",
     "/pricing",
     "/docs",
     "/integrations",
@@ -126,6 +127,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Automatic digests" in security.text
     assert "Morning memo schedule" not in security.text
 
+    deletion = client.get("/data-deletion")
+    assert "Request deletion of your PropertyQuarry data." in deletion.text
+    assert "property@propertyquarry.com" in deletion.text
+    assert "Data deletion request" in deletion.text
+
     sign_in = client.get("/sign-in")
     assert "Shared review when needed" in sign_in.text
 
@@ -199,6 +205,7 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
         "principal seats",
     )
     paths = (
+        "/app/settings/plan",
         "/app/settings/usage",
         "/app/settings/support",
         "/app/settings/trust",
@@ -217,7 +224,8 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
 
     usage = client.get("/app/settings/usage", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert "Ranked homes" in usage.text
-    assert "Source checks" in usage.text
+    assert "Provider scans" in usage.text
+    assert "Source checks" not in usage.text
     assert "Repair status" in usage.text
 
     trust = client.get("/app/settings/trust", headers={"host": "propertyquarry.com", "accept": "text/html"})

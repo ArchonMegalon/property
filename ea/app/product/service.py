@@ -2034,6 +2034,24 @@ def _property_search_provider_group_key(source_spec: dict[str, object]) -> str:
     return label.casefold() or "provider"
 
 
+def _property_search_provider_identity_key(source_spec: dict[str, object]) -> str:
+    provider_source_key = str(source_spec.get("provider_source_key") or source_spec.get("source_provider_key") or "").strip()
+    if provider_source_key:
+        candidate = provider_source_key.split(":", 1)[0].strip().casefold()
+        if candidate:
+            return candidate
+    for raw_key in ("provider_key", "platform", "provider_family", "label", "source_label"):
+        key = str(source_spec.get(raw_key) or "").strip().lower()
+        if raw_key in {"label", "source_label"}:
+            if "|" in key:
+                key = key.split("|", 1)[0].strip()
+            if key:
+                return key
+        if key:
+            return key
+    return ""
+
+
 def _property_search_interleave_by_provider_group(specs: list[dict[str, object]]) -> list[dict[str, object]]:
     if len(specs) < 2:
         return [dict(spec) for spec in specs]
@@ -2065,15 +2083,9 @@ def _property_search_provider_group_total(specs: list[dict[str, object]]) -> int
 def _property_search_provider_total(specs: list[dict[str, object]]) -> int:
     provider_keys: set[str] = set()
     for spec in specs:
-        platform = str(dict(spec).get("platform") or "").strip().lower()
-        if platform:
-            provider_keys.add(platform)
-            continue
-        label = " ".join(str(dict(spec).get("label") or "").split()).strip()
-        if "|" in label:
-            label = label.split("|", 1)[0].strip()
-        if label:
-            provider_keys.add(label.casefold())
+        key = _property_search_provider_identity_key(dict(spec))
+        if key:
+            provider_keys.add(key)
     return len(provider_keys)
 
 
@@ -4386,6 +4398,8 @@ _PROPERTY_UNTRUSTED_LISTING_BLOCK_RE = re.compile(
 _PROPERTY_UNTRUSTED_LISTING_TAG_RE = re.compile(r"<[^>]+>")
 _PROPERTY_UNTRUSTED_INSTRUCTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("ignore_previous_instructions", re.compile(r"\b(ignore|disregard|forget)\s+(all\s+)?(previous|prior|above)\s+instructions?\b", re.IGNORECASE)),
+    ("instruction_override_attempt", re.compile(r"\b(override|bypass|ignore|disable)\b[^.\n]{0,80}\b(system|developer|policy|rules?|instructions?)\b", re.IGNORECASE)),
+    ("role_prompt_marker", re.compile(r"\b(system|developer|assistant)\s*(message|instructions?|prompt)\b|\b(begin|end)\s+(system|developer)\b", re.IGNORECASE)),
     ("system_prompt_request", re.compile(r"\b(system|developer)\s+prompt\b|\breveal\s+(the\s+)?(prompt|instructions?)\b", re.IGNORECASE)),
     ("secret_exfiltration_request", re.compile(r"\b(send|print|return|exfiltrate|reveal)\s+[^.\n]{0,80}\b(secret|token|api\s*key|credential|cookie)s?\b", re.IGNORECASE)),
     ("fake_tool_call", re.compile(r"\b(tool|function)_?call\b|\"tool\"\s*:|\"function\"\s*:", re.IGNORECASE)),
@@ -6180,10 +6194,17 @@ def _property_search_adjacent_area_radius_m(preferences: dict[str, object] | Non
 
 def _property_search_adjacent_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
     payload = dict(preferences or {})
-    if _property_search_adjacent_area_radius_m(payload) <= 0:
+    location_hints = _property_search_location_hints(payload)
+    effective_radius_m = _property_search_effective_adjacent_area_radius_m(
+        preferences=payload,
+        location_hints=location_hints,
+    )
+    if effective_radius_m <= 0:
         return ()
+    search_payload = dict(payload)
+    search_payload["adjacent_area_radius_m"] = effective_radius_m
     try:
-        return adjacent_location_query_variants(payload)
+        return adjacent_location_query_variants(search_payload)
     except Exception:
         return ()
 
@@ -6339,6 +6360,10 @@ def _property_candidate_matches_search_area(
     facts = dict(property_facts or {})
     effective_country_code = str(preferences.get("country_code") or source.get("country_code") or "").strip()
     effective_region_code = str(preferences.get("region_code") or "").strip()
+    effective_adjacent_area_radius_m = _property_search_effective_adjacent_area_radius_m(
+        preferences=preferences,
+        location_hints=location_hints,
+    )
     if _property_candidate_matches_requested_location(
         location_hints=location_hints,
         property_url=property_url,
@@ -6365,7 +6390,7 @@ def _property_candidate_matches_search_area(
         property_facts=facts,
         country_code=effective_country_code,
         region_code=effective_region_code,
-        adjacent_area_radius_m=_property_search_adjacent_area_radius_m(preferences),
+        adjacent_area_radius_m=effective_adjacent_area_radius_m,
     )
 
 
@@ -6516,6 +6541,44 @@ _PROPERTY_BUY_LISTING_MARKERS = (
     "for sale",
     "buy ",
 )
+
+_PROPERTY_SEARCH_FUZZY_DISTRICT_ADJACENT_RADIUS_M = 4000
+
+
+def _property_search_has_explicit_selected_area(preferences: dict[str, object] | None) -> bool:
+    payload = dict(preferences or {})
+    for key in ("selected_location_values", "selected_districts"):
+        values = payload.get(key)
+        if isinstance(values, (list, tuple, set)) and any(str(value or "").strip() for value in values):
+            return True
+    raw_preferences = payload.get("raw_preferences")
+    if isinstance(raw_preferences, dict):
+        for key in ("selected_location_values", "selected_districts"):
+            values = raw_preferences.get(key)
+            if isinstance(values, (list, tuple, set)) and any(str(value or "").strip() for value in values):
+                return True
+    return False
+
+
+def _property_search_effective_adjacent_area_radius_m(
+    *,
+    preferences: dict[str, object] | None,
+    location_hints: tuple[str, ...],
+) -> int:
+    configured_radius_m = _property_search_adjacent_area_radius_m(preferences)
+    if configured_radius_m > 0:
+        return configured_radius_m
+    if (
+        _property_search_mode(preferences) == "discovery"
+        and any(
+            re.search(r"\b\d{4,5}\b", str(value or ""))
+            for value in location_hints
+        )
+    ):
+        return _PROPERTY_SEARCH_FUZZY_DISTRICT_ADJACENT_RADIUS_M
+    if _property_search_has_explicit_selected_area(preferences):
+        return 0
+    return 0
 
 
 def _property_candidate_listing_mode_evidence(
@@ -6788,9 +6851,37 @@ def _property_candidate_has_concrete_location(property_facts: dict[str, object] 
         lowered = str(value or "").strip().lower()
         if not lowered:
             return False
+        if any(
+            token in lowered
+            for token in (
+                "gasse",
+                "straße",
+                "strasse",
+                "weg",
+                "platz",
+                "allee",
+                "lane",
+                "road",
+                "street",
+                "avenue",
+                "drive",
+                "boulevard",
+                "square",
+                "court",
+                "terrace",
+            )
+        ):
+            return False
         if lowered in source_scope_candidates:
             return True
-        return bool(source_postal_code and _property_postal_code_core(lowered) == source_postal_code)
+        if not (source_postal_code and _property_postal_code_core(lowered) == source_postal_code):
+            return False
+        source_city = str(facts.get("source_city") or "").strip().lower()
+        remainder = re.sub(r"\b\d{4,5}\b", " ", lowered)
+        if source_city:
+            remainder = remainder.replace(source_city, " ")
+        remainder = re.sub(r"[\s,;|/\\()\\[\\]{}._-]+", " ", remainder).strip()
+        return not remainder
 
     for value in (exact_address, street_address, district):
         if value and not _is_source_scope_placeholder(value):
@@ -10837,8 +10928,6 @@ def _property_alert_review_telegram_text(
     elif learned_matches:
         extra_lines.append(f"Why this fits you: {compact_text(learned_matches[0], fallback='', limit=160)}")
     extra_lines.append("PropertyQuarry saved this review so you can compare it, request a tour, or dismiss it.")
-    if str(preference_person_id or "").strip() and str(preference_person_id or "").strip() != "self":
-        extra_lines.append(f"Preference profile: {str(preference_person_id or '').strip()}")
     visible_property_url = (
         str(tour_url or "").strip()
         or str(review_url or "").strip()
@@ -28650,7 +28739,19 @@ class ProductService:
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
         if not normalized_property_url:
             raise ValueError("property_tour_url_missing")
-        if not auto_deliver and str(os.getenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS") or "").strip().lower() not in {"1", "true", "yes", "on"}:
+        has_workbench_context = any(
+            str(value or "").strip()
+            for value in (
+                run_id,
+                candidate_ref,
+                source_ref,
+            )
+        )
+        if (
+            has_workbench_context
+            and not auto_deliver
+            and str(os.getenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS") or "").strip().lower() not in {"1", "true", "yes", "on"}
+        ):
             title = "Selected property"
             human_task_id = ""
             try:
@@ -29497,7 +29598,46 @@ class ProductService:
                 safe_events.append(safe_event)
             snapshot["events"] = safe_events
         summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+
+        def _coerce_non_negative_int(value: object, *, default: int = 0) -> int:
+            try:
+                return max(0, int(float(str(value or "").strip())))
+            except Exception:
+                return default
+
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        selected_platforms = {
+            str(raw_platform or "").strip().lower()
+            for raw_platform in list(snapshot.get("selected_platforms") or [])
+            if str(raw_platform or "").strip()
+        }
+        selected_platform_count = len(selected_platforms)
+        source_variant_total = max(
+            0,
+            _coerce_non_negative_int(
+                summary.get("source_variant_total"),
+                default=_coerce_non_negative_int(summary.get("sources_total")),
+            ),
+        )
+        source_count_hint = max(len(sources), source_variant_total)
+        if sources:
+            inferred_provider_total = _property_search_provider_total(sources)
+            explicit_provider_total = _coerce_non_negative_int(summary.get("provider_total"))
+            if inferred_provider_total:
+                if (
+                    explicit_provider_total <= 0
+                    or explicit_provider_total > source_count_hint
+                    or (explicit_provider_total == source_count_hint and inferred_provider_total < explicit_provider_total)
+                ):
+                    summary["provider_total"] = inferred_provider_total
+        elif selected_platform_count:
+            explicit_provider_total = _coerce_non_negative_int(summary.get("provider_total"))
+            if explicit_provider_total <= 0:
+                summary["provider_total"] = selected_platform_count
+            elif explicit_provider_total > selected_platform_count and source_count_hint >= explicit_provider_total:
+                summary["provider_total"] = selected_platform_count
+        if source_count_hint and not _coerce_non_negative_int(summary.get("source_variant_total") or 0):
+            summary["source_variant_total"] = source_count_hint
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if sources and status_value not in {"processed", "completed", "completed_partial"}:
             repair_tasks = [
@@ -30084,7 +30224,7 @@ class ProductService:
             else (
                 f"Resolved {provider_total} provider(s) for scanning."
                 if provider_total
-                else f"Resolved {source_variant_total} source check(s) for scanning."
+                else f"Resolved {source_variant_total} provider scan(s)."
             )
         )
         prefetched_source_results = _property_search_prefetch_listing_urls(
@@ -36538,6 +36678,34 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{source_ref or candidate_property_url or property_url}|{suppression_reason}|property-scout-hit-telegram-suppressed",
             )
             return payload
+        try:
+            outbound_score = max(float(fit_score or 0.0), _property_alert_fit_score(assessment))
+        except Exception:
+            outbound_score = _property_alert_fit_score(assessment)
+        outbound_min_score = _property_scout_outbound_notification_min_score()
+        if outbound_score < outbound_min_score:
+            payload = {
+                "status": "suppressed",
+                "reason": "fit_below_outbound_threshold",
+                "property_url": candidate_property_url or property_url,
+                "source_ref": source_ref,
+                "fit_score": round(float(outbound_score or 0.0), 2),
+                "min_score": round(float(outbound_min_score or 0.0), 2),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_hit_telegram_suppressed_low_score",
+                payload={
+                    **payload,
+                    "title": candidate_title,
+                    "summary": candidate_summary,
+                    "counterparty": str(counterparty or "").strip(),
+                    "actor": str(actor or "").strip() or "property_scout",
+                },
+                source_id=str(source_ref or candidate_property_url or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or candidate_property_url or property_url}|fit-below-outbound-threshold|property-scout-hit-telegram-suppressed",
+            )
+            return payload
         dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
         dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-telegram|{dedupe_suffix}"
         if self._recent_product_event_exists(
@@ -37431,6 +37599,31 @@ class ProductService:
                 },
                 source_id=str(source_ref or candidate_property_url or property_url).strip(),
                 dedupe_key=f"{principal_id}|{source_ref or candidate_property_url or property_url}|{suppression_reason}|property-scout-hit-email-suppressed",
+            )
+            return payload
+        outbound_score = _property_alert_fit_score(assessment)
+        outbound_min_score = _property_scout_outbound_notification_min_score()
+        if outbound_score < outbound_min_score:
+            payload = {
+                "status": "suppressed",
+                "reason": "fit_below_outbound_threshold",
+                "property_url": candidate_property_url or property_url,
+                "source_ref": source_ref,
+                "fit_score": round(float(outbound_score or 0.0), 2),
+                "min_score": round(float(outbound_min_score or 0.0), 2),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_hit_email_suppressed_low_score",
+                payload={
+                    **payload,
+                    "title": candidate_title,
+                    "summary": candidate_summary,
+                    "counterparty": str(counterparty or "").strip(),
+                    "actor": str(actor or "").strip() or "property_scout",
+                },
+                source_id=str(source_ref or candidate_property_url or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or candidate_property_url or property_url}|fit-below-outbound-threshold|property-scout-hit-email-suppressed",
             )
             return payload
         recipient_email = _principal_email_hint(principal_id)

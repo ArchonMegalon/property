@@ -1547,7 +1547,7 @@
       const nextState = kind === 'flythrough'
         ? {
             state: String(payload?.flythrough_url ? 'ready' : payload?.flythrough_status || 'pending').trim().toLowerCase(),
-            label: String(payload?.flythrough_url ? 'Open flythrough' : payload?.status_label || button.textContent || '').trim(),
+            label: String(payload?.flythrough_url ? 'Open walkthrough' : payload?.status_label || button.textContent || '').trim(),
             href: String(payload?.flythrough_url || '').trim(),
           }
         : {

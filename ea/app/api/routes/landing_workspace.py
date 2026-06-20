@@ -163,6 +163,8 @@ def _propertyquarry_copy(value: object, *, fallback: str = "") -> str:
         "Commitment ledger": "Follow-up ledger",
         "draft queue": "draft review",
         "Draft queue": "Draft review",
+        "draft review": "review workflow",
+        "Draft review": "Review workflow",
         "Google-first pilot with one executive and one operator.": "PropertyQuarry pilot with one account owner and one collaborator.",
         "office loop": "property workflow",
         "Office loop": "Property workflow",
@@ -441,6 +443,8 @@ def settings_plan_detail(
         if str(value).strip()
     ]
     warnings = [_propertyquarry_copy(value) for value in (commercial.get("warnings") or []) if str(value).strip()]
+    raw_plan_unit = str(plan.get("unit_of_sale") or "workspace").strip().lower()
+    plan_scope = "PropertyQuarry account" if raw_plan_unit in {"workspace", "account"} else _propertyquarry_copy(raw_plan_unit.replace("_", " "))
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -448,12 +452,12 @@ def settings_plan_detail(
         page_title="PropertyQuarry plan",
         current_nav="settings",
         console_title="Plan",
-        console_summary="Plan unit, billing posture, messaging scope, and collaborator boundaries for this account.",
+        console_summary="Search access, billing posture, messaging scope, and collaborator boundaries for this account.",
         object_kind="Commercial boundary",
         object_title=str(plan.get("display_name") or "Pilot"),
         object_summary=_propertyquarry_copy(billing.get("contract_note"), fallback="Commercial posture is not yet set."),
         object_meta=[
-            {"label": "Plan unit", "value": str(plan.get("unit_of_sale") or "workspace")},
+            {"label": "Account scope", "value": plan_scope},
             {"label": "Billing state", "value": str(billing.get("billing_state") or "unknown")},
             {"label": "Invoice status", "value": str(billing.get("invoice_status") or "unknown")},
             {"label": "Support tier", "value": str(billing.get("support_tier") or "standard")},
@@ -474,7 +478,7 @@ def settings_plan_detail(
                 "title": "Plan and billing posture",
                 "items": [
                     _object_detail_row("Plan", str(plan.get("display_name") or "Pilot"), "Plan"),
-                    _object_detail_row("Plan unit", str(plan.get("unit_of_sale") or "workspace"), "Plan"),
+                    _object_detail_row("Account scope", plan_scope, "Plan"),
                     _object_detail_row("Price label", str(billing.get("price_label") or "Custom"), "Billing"),
                     _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
                     _object_detail_row("Invoice status", str(billing.get("invoice_status") or "unknown"), "Billing"),
@@ -486,7 +490,7 @@ def settings_plan_detail(
                 "eyebrow": "Entitlements",
                 "title": "What is included",
                 "items": [
-                    _object_detail_row("Principal seats", str(entitlements.get("principal_seats") or 0), "Seats"),
+                    _object_detail_row("Account owner seats", str(entitlements.get("principal_seats") or 0), "Seats"),
                     _object_detail_row("Collaborator seats", str(entitlements.get("operator_seats") or 0), "Seats"),
                     _object_detail_row("Audit retention", str(entitlements.get("audit_retention") or "standard"), "Retention"),
                     _object_detail_row("Feature flags", ", ".join(feature_flags) or "No enabled features", "Flags"),
@@ -558,15 +562,15 @@ def settings_usage_detail(
                 {"label": "Repair status", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What usage means here",
-            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, source checks run, homes ranked, artifacts prepared, and whether repair work is still open.",
+            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, provider scans run, homes ranked, artifacts prepared, and whether repair work is still open.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
                 _object_detail_row("Completed searches", str(property_usage["completed_total"]), "Search"),
                 _object_detail_row("Partial searches", str(property_usage["partial_total"]), "Coverage"),
                 _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Coverage"),
-                _object_detail_row("Source checks", str(property_usage["source_total"]), "Checks"),
-                _object_detail_row("Source check failures", str(property_usage["failed_source_total"]), "Checks"),
+                _object_detail_row("Provider scans", str(property_usage["source_total"]), "Checks"),
+                _object_detail_row("Scan failures", str(property_usage["failed_source_total"]), "Checks"),
             ],
             object_sections=[
                 {
@@ -589,7 +593,7 @@ def settings_usage_detail(
                         _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                         _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
                         _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Providers"),
-                        _object_detail_row("Source checks", str(property_usage["source_total"]), "Checks"),
+                        _object_detail_row("Provider scans", str(property_usage["source_total"]), "Checks"),
                     ],
                 },
                 {
@@ -607,8 +611,8 @@ def settings_usage_detail(
                     "title": "Repair and delivery posture",
                     "items": [
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Source check failures", str(property_usage["failed_source_total"]), "Checks"),
-                        _object_detail_row("Repairing source checks", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Scan failures", str(property_usage["failed_source_total"]), "Checks"),
+                        _object_detail_row("Repairing scans", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
                         _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Delivery"),
                     ],
@@ -757,18 +761,18 @@ def settings_support_detail(
             object_kind="Support posture",
             object_title=str(property_usage["repair_status"]),
             object_summary=(
-                f"{property_usage['failed_source_total']} source check failures · "
+                f"{property_usage['failed_source_total']} scan failures · "
                 f"{property_usage['ranked_total']} ranked homes · "
                 f"{str(billing.get('support_tier') or 'standard').title()} support"
             ),
             object_meta=[
-                {"label": "Source check failures", "value": str(property_usage["failed_source_total"])},
-                {"label": "Repairing source checks", "value": str(property_usage["repairing_source_total"])},
+                {"label": "Scan failures", "value": str(property_usage["failed_source_total"])},
+                {"label": "Repairing scans", "value": str(property_usage["repairing_source_total"])},
                 {"label": "Partial runs", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
             object_sidebar_title="What support answers",
-            object_sidebar_copy="This view answers whether source checks failed, whether repair work is active, what results are already usable, and which account bundle support can inspect.",
+            object_sidebar_copy="This view answers whether provider scans failed, whether repair work is active, what results are already usable, and which account bundle support can inspect.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
@@ -791,8 +795,8 @@ def settings_support_detail(
                     "title": "Provider repair and run health",
                     "items": [
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Source check failures", str(property_usage["failed_source_total"]), "Checks"),
-                        _object_detail_row("Repairing source checks", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Scan failures", str(property_usage["failed_source_total"]), "Checks"),
+                        _object_detail_row("Repairing scans", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
                         _object_detail_row("Partial runs", str(property_usage["partial_total"]), "Coverage"),
                         _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
@@ -1179,7 +1183,7 @@ def settings_outcomes_detail(
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                 _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                _object_detail_row("Source check failures", str(property_usage["failed_source_total"]), "Checks"),
+                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Repair"),
                 _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
             ],
@@ -1201,7 +1205,7 @@ def settings_outcomes_detail(
                         _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                         _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
                         _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Providers"),
-                        _object_detail_row("Source checks", str(property_usage["source_total"]), "Checks"),
+                        _object_detail_row("Provider scans", str(property_usage["source_total"]), "Checks"),
                     ],
                 },
                 {
@@ -1859,7 +1863,7 @@ def settings_access_detail(
         or (
             f"Access link issued for {issue_email}"
             if issue_status == "issued" and issue_email
-            else "Issue and revoke workspace access links from this page."
+            else "Issue and revoke secure account links from this page."
         )
     )
     return _render_console_object_detail(

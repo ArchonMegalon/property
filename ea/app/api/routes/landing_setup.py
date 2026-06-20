@@ -20,6 +20,11 @@ from app.api.routes.landing import (
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.facebook_oauth import (
+    complete_facebook_oauth_callback,
+    read_facebook_oauth_state,
+    read_facebook_oauth_state_unchecked,
+)
 from app.services.google_oauth import (
     complete_google_oauth_callback,
     google_bundle_supports_workspace_sync,
@@ -144,6 +149,41 @@ def _render_google_oauth_callback_failure(
         body_points=(
             "PropertyQuarry keeps the browser callback fail-closed and should show the real blocker instead of a blank gateway error.",
             "If this persists, check the Google OAuth credentials, redirect URI, and provider availability for propertyquarry.com.",
+        ),
+    )
+    response.status_code = status_code
+    return response
+
+
+def _render_facebook_oauth_callback_failure(
+    request: Request,
+    *,
+    detail: str,
+    status_code: int,
+) -> HTMLResponse:
+    response = _render_public_template(
+        request,
+        "channel_detail.html",
+        page_title="Facebook connection needs attention",
+        public_nav=PUBLIC_NAV,
+        current_nav="integrations",
+        access_identity=None,
+        principal_id="",
+        channel_title="Facebook connection",
+        channel_eyebrow="Facebook",
+        channel={
+            "status": "needs_attention",
+            "detail": detail or "Facebook connection could not be completed on this host.",
+            "capabilities": [],
+            "limitations": [],
+        },
+        detail_points=(
+            "The OAuth callback did not complete cleanly.",
+            "Retry the Facebook sign-in flow from the latest sign-in page if this was an expired or cancelled sign-in.",
+        ),
+        body_points=(
+            "PropertyQuarry keeps the browser callback fail-closed and should show the real blocker instead of a blank gateway error.",
+            "If this persists, check the Facebook Login credentials, redirect URI, and provider availability for propertyquarry.com.",
         ),
     )
     response.status_code = status_code
@@ -317,6 +357,104 @@ async def google_connect_browser(
         channel={"status": google_start.get("detail") or "not_ready", "detail": google_start.get("detail") or "Google onboarding could not start.", "capabilities": [], "limitations": []},
         detail_points=("Google consent could not start on this host.",),
         body_points=("Check OAuth credentials, redirect URI, and provider configuration.",),
+    )
+
+
+@router.get("/facebook/callback", response_class=HTMLResponse, response_model=None, name="facebook_oauth_browser_callback")
+def facebook_oauth_browser_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+    container: AppContainer = Depends(get_container),
+) -> HTMLResponse | RedirectResponse:
+    if str(error or "").strip():
+        detail = str(error_description or error or "facebook_oauth_denied").strip()
+        if str(state or "").strip():
+            try:
+                read_facebook_oauth_state(state)
+            except Exception:
+                pass
+        return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=400)
+    if not str(code or "").strip() or not str(state or "").strip():
+        return _render_facebook_oauth_callback_failure(
+            request,
+            detail="Facebook did not return a valid OAuth code and state.",
+            status_code=400,
+        )
+    try:
+        state_payload = read_facebook_oauth_state(state)
+        account = complete_facebook_oauth_callback(container=container, code=code, state=state)
+    except RuntimeError as exc:
+        detail = str(exc or "facebook_oauth_callback_failed")
+        if detail == "facebook_oauth_state_expired" and str(state or "").strip():
+            try:
+                expired_state = read_facebook_oauth_state_unchecked(state)
+            except Exception:
+                expired_state = {}
+            return_to = _normalize_browser_return_to(str(expired_state.get("return_to") or ""), default="")
+            if return_to:
+                separator = "&" if "?" in return_to else "?"
+                return RedirectResponse(
+                    f"{return_to}{separator}facebook_error=facebook_oauth_state_expired",
+                    status_code=303,
+                )
+        return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=400)
+    except Exception as exc:
+        return _render_facebook_oauth_callback_failure(request, detail=str(exc or "facebook_oauth_callback_failed"), status_code=502)
+    product = build_product_service(container)
+    product.record_surface_event(
+        principal_id=account.binding.principal_id,
+        event_type="facebook_account_connected",
+        surface="facebook_oauth_browser_callback",
+        actor=str(account.facebook_email or account.facebook_subject or account.binding.principal_id or "facebook_oauth").strip(),
+        metadata={
+            "binding_id": str(account.binding.binding_id or "").strip(),
+            "facebook_email": str(account.facebook_email or "").strip(),
+            "facebook_subject": str(account.facebook_subject or "").strip(),
+        },
+    )
+    browser_source = str(state_payload.get("browser_source") or "").strip()
+    if browser_source == "sign_in":
+        onboarding_status = container.onboarding.status(principal_id=account.binding.principal_id)
+        workspace_name = str(dict(onboarding_status.get("workspace") or {}).get("name") or "").strip() or str(
+            account.facebook_name or account.facebook_email or account.binding.principal_id or "PropertyQuarry"
+        ).strip()
+        access = product.issue_workspace_access_session(
+            principal_id=account.binding.principal_id,
+            email=account.facebook_email,
+            role="principal",
+            display_name=workspace_name,
+            source_kind="facebook_sign_in",
+            default_target="/app/properties",
+        )
+        return RedirectResponse(str(access.get("access_url") or "/app/properties"), status_code=303)
+    return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
+    return _render_public_template(
+        request,
+        "channel_detail.html",
+        page_title="Facebook connected",
+        public_nav=PUBLIC_NAV,
+        current_nav="integrations",
+        access_identity=None,
+        principal_id=account.binding.principal_id,
+        channel_title="Facebook connected",
+        channel_eyebrow="Facebook",
+        channel={
+            "status": "connected",
+            "detail": "Facebook Login is connected for identity-only return access.",
+            "capabilities": ["Sign in with Facebook identity", "Return to the same PropertyQuarry workspace"],
+            "limitations": ["No feed, page, or WhatsApp permissions are requested by this sign-in path"],
+        },
+        detail_points=(
+            f"Connected account: {account.facebook_email or account.facebook_name or account.facebook_subject}",
+            f"Return path: {return_to or '/sign-in'}",
+        ),
+        body_points=(
+            "You can close this page or return to PropertyQuarry.",
+            "Use settings later if broader Meta or WhatsApp Business permissions are added as separate explicit lanes.",
+        ),
     )
 
 

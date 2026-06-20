@@ -1873,10 +1873,11 @@
     progressNode.style.width = `${progress}%`;
     const sourceVariants = Number(summary.source_variant_total || summary.sources_total || 0);
     const providers = Number(summary.provider_total || 0);
-    const scanLabel = providers && sourceVariants > providers
-      ? `${providers} providers / ${sourceVariants} source checks`
-      : `${Number(summary.sources_total || 0)} source checks`;
-    summaryNode.textContent = `${progress}% complete | ${scanLabel} | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+    const listings = Number(summary.listing_total || 0);
+    const scanLabel = providers
+      ? `${providers} providers`
+      : (sourceVariants > 0 ? 'selected sources' : 'warming up');
+    summaryNode.textContent = `${progress}% complete | ${scanLabel} | ${listings} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
 
     const sources = Array.isArray(summary.sources) ? summary.sources : [];
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {

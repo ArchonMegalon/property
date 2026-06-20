@@ -451,6 +451,15 @@ def public_tour_file_url(slug: str, relpath: str) -> str:
     return f"/tours/files/{slug}/{safe_relpath}"
 
 
+def public_tour_canonical_path(slug: str) -> str:
+    normalized_slug = str(slug or "").strip()
+    if not normalized_slug:
+        return ""
+    if "/" in normalized_slug or "\\" in normalized_slug or ".." in normalized_slug:
+        return ""
+    return f"/tours/{normalized_slug}"
+
+
 def public_tour_manifest(
     payload: dict[str, object],
     *,
@@ -666,6 +675,11 @@ def redacted_public_tour_payload(
                 rendered[key] = relpath
             else:
                 rendered[key.replace("_relpath", "_url")] = public_tour_file_url(slug, relpath)
+            continue
+        if key in {"hosted_url", "public_url"}:
+            canonical_path = public_tour_canonical_path(slug)
+            if canonical_path:
+                rendered[key] = canonical_path
             continue
         rendered[key] = redact_public_tour_value(payload.get(key))
     rendered["slug"] = slug

@@ -81,6 +81,26 @@ def test_env_example_keeps_external_investment_feeds_fail_closed_and_durable() -
     assert "/tmp/propertyquarry/state/property_investment_external_cache.json" not in env
 
 
+def test_local_env_example_keeps_browseract_state_inside_property_repo() -> None:
+    env = (ROOT / ".env.local.example").read_text(encoding="utf-8")
+
+    assert "BROWSERACT_CHATPLAYGROUND_AUDIT_WORKFLOW_QUERY=propertyquarry_chatplayground_audit_live" in env
+    assert (
+        "BROWSERACT_CHATPLAYGROUND_AUDIT_RESULT_PATH="
+        "/docker/property/state/browseract_bootstrap/runtime/propertyquarry_chatplayground_audit_live/result.json"
+    ) in env
+    assert "ea_chatplayground_audit_live" not in env
+    assert "/docker/fleet" not in env
+
+
+def test_release_hygiene_forbids_tracked_live_env_files() -> None:
+    script = (ROOT / "scripts/check_property_release_hygiene.py").read_text(encoding="utf-8")
+
+    assert 'tracked live env file forbidden' in script
+    assert '".env"' in script
+    assert '".env.local"' in script
+
+
 def test_prod_compose_keeps_fastestvpn_repo_local_and_default_off() -> None:
     compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
 

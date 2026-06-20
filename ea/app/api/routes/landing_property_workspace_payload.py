@@ -74,6 +74,31 @@ def _property_workbench_lightweight_orientation_preview(value: object) -> dict[s
     return preview
 
 
+def _property_provider_identity_key(source_spec: dict[str, object]) -> str:
+    provider_source_key = str(source_spec.get("provider_source_key") or source_spec.get("source_provider_key") or "").strip()
+    if provider_source_key:
+        candidate = provider_source_key.split(":", 1)[0].strip().casefold()
+        if candidate:
+            return candidate
+    for key in ("provider_key", "platform", "provider_family", "label", "source_label"):
+        raw_value = str(source_spec.get(key) or "").strip()
+        if key in {"label", "source_label"} and "|" in raw_value:
+            raw_value = raw_value.split("|", 1)[0].strip()
+        normalized = raw_value.lower()
+        if normalized:
+            return normalized
+    return ""
+
+
+def _property_provider_total(source_rows: list[dict[str, object]]) -> int:
+    provider_keys: set[str] = set()
+    for row in source_rows:
+        key = _property_provider_identity_key(row)
+        if key:
+            provider_keys.add(key)
+    return len(provider_keys)
+
+
 def property_workspace_payload(
     section: str,
     *,
@@ -309,12 +334,28 @@ def property_workspace_payload(
             continue
         normalized_platforms.append(normalized_lower)
     selected_platforms = normalized_platforms
-    provider_option_total = max(0, len(available_platform_values))
+    sources_total_rows = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
+    run_source_variant_total = max(
+        int(run_summary.get("source_variant_total") or run_summary.get("sources_total") or 0),
+        len(sources_total_rows),
+    )
     run_provider_total = int(run_summary.get("provider_total") or 0)
-    run_source_variant_total = int(run_summary.get("source_variant_total") or run_summary.get("sources_total") or 0)
-    run_provider_display_total = run_provider_total if run_provider_total > 0 else len(selected_platforms)
-    if run_provider_total > 0 and selected_platforms:
-        run_provider_display_total = max(run_provider_total, min(len(selected_platforms), provider_option_total or len(selected_platforms)))
+    run_provider_display_total = run_provider_total
+    if sources_total_rows:
+        inferred_run_provider_total = _property_provider_total(sources_total_rows)
+        source_total_hint = max(len(sources_total_rows), run_source_variant_total)
+        if inferred_run_provider_total:
+            if (
+                run_provider_total <= 0
+                or run_provider_total > source_total_hint
+                or (run_provider_total == source_total_hint and inferred_run_provider_total < run_provider_total)
+            ):
+                run_provider_display_total = inferred_run_provider_total
+    if run_provider_display_total <= 0 and selected_platforms:
+        run_provider_display_total = len(selected_platforms)
+    if selected_platforms:
+        run_provider_display_total = max(run_provider_display_total, len(selected_platforms))
+    run_provider_display_total = max(run_provider_display_total, 0)
     run_payload_for_surface = {
         **run_payload_for_surface,
         "provider_display_total": run_provider_display_total,
@@ -361,9 +402,9 @@ def property_workspace_payload(
     fleet_digest = dict(billing_truth.get("fleet_digest") or property_state.get("fleet_digest") or {}) if wants_credit_digest else {}
     fleet_digest_items = [
         row_item(
-            str(item.get("title") or "Fleet digest"),
-            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Digest pending"),
-            str(item.get("tag") or "Digest"),
+            str(item.get("title") or "Repair notes"),
+            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Repair notes pending"),
+            str(item.get("tag") or "Repair"),
         )
         for item in list(fleet_digest.get("items") or [])[:4]
         if isinstance(item, dict)
@@ -2194,14 +2235,14 @@ def property_workspace_payload(
                     {
                         "label": "Providers",
                         "value": str(run_provider_display_total),
-                        "detail": f"{run_source_variant_total} source checks across selected areas.",
+                        "detail": "Selected providers are checking the chosen areas.",
                     }
                     if run_provider_display_total > 0
                     and run_source_variant_total > run_provider_display_total
                     else {
-                        "label": "Source checks",
+                        "label": "Search scope",
                         "value": str(run_source_variant_total),
-                        "detail": "Provider, area, and repair checks being executed for this run.",
+                        "detail": "Selected sources are checking the saved brief.",
                     }
                 ),
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
@@ -2393,7 +2434,11 @@ def property_workspace_payload(
                     "eyebrow": "Repair",
                     "title": "Repair",
                     "body": "",
-                    "items": repair_truth_rows + (fleet_digest_items[:2] if fleet_digest_items else [row_item("Fleet digest", "Credit posture and repair receipts will appear here once the next digest is refreshed.", "Digest")]),
+                    "items": repair_truth_rows + (
+                        fleet_digest_items[:2]
+                        if fleet_digest_items
+                        else [row_item("Repair notes", "Provider retries and repair receipts will appear here after the next saved-search run.", "Repair")]
+                    ),
                 },
                 {
                     "eyebrow": "Limits",

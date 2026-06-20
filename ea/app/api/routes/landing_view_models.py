@@ -3107,16 +3107,6 @@ def app_section_payload(
         property_plan_max_match_score,
         property_visible_max_match_score,
     )
-    profile_manage_href = f"/app/profile?run_id={active_run_id}" if active_run_id else "/app/profile"
-    selected_preference_person_id = str(property_preferences.get("preference_person_id") or "self").strip() or "self"
-    preference_profile_options = [{"value": "self", "label": "Default"}]
-    if selected_preference_person_id != "self":
-        preference_profile_options.append(
-            {
-                "value": selected_preference_person_id,
-                "label": selected_preference_person_id,
-            }
-        )
     country_codes = tuple(
         str(option.get("value") or "").strip()
         for option in country_options
@@ -3592,28 +3582,6 @@ def app_section_payload(
                 "placeholder": "Free text for priorities not listed above",
                 "tooltip": "If the same custom preference is requested three times, it should be promoted into this user's default catalog. If many users request the same thing, it should become available for everyone.",
                 "step": "children",
-            },
-            {
-                "type": "select",
-                "name": "preference_person_id",
-                "label": "Preference profile",
-                "value": selected_preference_person_id,
-                "options": preference_profile_options,
-                "manage_href": profile_manage_href,
-                "manage_label": "Manage feedback preferences",
-                "step": "children",
-                "hidden": True,
-            },
-            {
-                "type": "checkbox",
-                "name": "use_stored_feedback_preferences",
-                "label": "Use stored feedback preferences",
-                "value": "true",
-                "checked": bool(property_preferences.get("use_stored_feedback_preferences", True)),
-                "manage_href": profile_manage_href,
-                "manage_label": "Manage",
-                "step": "children",
-                "hidden": True,
             },
             {
                 "type": "checkbox",
@@ -4516,7 +4484,7 @@ def app_section_payload(
                 {
                     "key": "children",
                     "label": "What matters",
-                    "detail": "Everyday preferences, schools, childcare, and local fit that should stay explicit.",
+                    "detail": "Daily-life priorities that shape ranking.",
                 },
                 {
                     "key": "reachability",
@@ -4723,11 +4691,6 @@ def app_section_payload(
                     "items": property_market_summary_items
                     + [
                         row_item(
-                            "Preference profile",
-                            str(property_preferences.get("preference_person_id") or "self"),
-                            "Profile",
-                        ),
-                        row_item(
                             "Active providers",
                             ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No providers saved yet.",
                             "Profile",
@@ -4817,7 +4780,7 @@ def app_section_payload(
                 {"label": "Country", "value": property_country_label},
                 {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
                 {
-                    "label": "Source checks",
+                    "label": "Provider scans",
                     "value": str(int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0)),
                 },
                 {"label": "Listings", "value": str(int(property_summary.get("listing_total") or 0))},
