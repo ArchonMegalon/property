@@ -74,6 +74,12 @@ def test_property_public_tour_scripts_default_to_property_state() -> None:
     assert "EA-hosted" not in crezlo_publish
 
 
+def test_property_release_gate_runs_repair_fleet_canary() -> None:
+    gate = (ROOT / "scripts/property_release_gates.sh").read_text(encoding="utf-8")
+
+    assert "scripts/propertyquarry_repair_fleet_canary.py" in gate
+
+
 def test_env_example_keeps_external_investment_feeds_fail_closed_and_durable() -> None:
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
 
