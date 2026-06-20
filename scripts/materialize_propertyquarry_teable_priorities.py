@@ -74,16 +74,16 @@ PRIORITIES = [
         "priority": "P0",
         "area": "Reliability",
         "title": "Repair workflow must be executable and durable",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "fleet/job-system",
         "current_state": (
-            "Interrupted and fetch-failed runs show repair copy, but the customer can still see stale queued states and "
-            "partial coverage without a clear completed retry."
+            "Provider repair tasks, stale-run replacement, worker-exception repair and repair receipts are executable. "
+            "Compact run snapshots now preserve replacement run links, repair receipts, task counts and can-auto-repair state."
         ),
         "next_action": (
-            "Persist repair attempts, checkpoints, provider quarantine, retry budget and terminal completed_partial states; "
-            "make failed runs trigger repair jobs automatically with idempotent receipts."
+            "Add provider quarantine/retry-budget receipts and a live canary proving fetch-failed provider lanes advance to "
+            "replacement or completed_partial without stale queued copy."
         ),
         "source": "whole-product audit",
     },

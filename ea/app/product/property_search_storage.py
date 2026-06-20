@@ -95,7 +95,17 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "relaxation_suggestions",
     "repair_status",
     "repair_status_label",
+    "repair_step_label",
     "repair_outcome_summary",
+    "repair_attempt_count",
+    "repair_replacement_run_id",
+    "repair_replacement_status_url",
+    "repair_resolved_total",
+    "repair_receipts",
+    "provider_repair_task_opened_total",
+    "provider_repair_task_existing_total",
+    "provider_repair_tasks",
+    "can_auto_repair",
 )
 
 

@@ -56,6 +56,55 @@ def test_property_notification_price_signal_uses_catalog_currencies() -> None:
     ) == "AUD 1,250,000"
 
 
+def test_property_search_compact_run_preserves_repair_lifecycle_fields() -> None:
+    compact = property_search_storage._compact_property_search_run_record(  # type: ignore[attr-defined]
+        {
+            "run_id": "repair-run",
+            "principal_id": "repair-principal",
+            "status": "failed",
+            "summary": {
+                "status": "failed",
+                "repair_status": "repairing",
+                "repair_status_label": "Repairing",
+                "repair_step_label": "Started a replacement search run from the saved brief.",
+                "repair_outcome_summary": "Repair is retrying the interrupted search.",
+                "repair_attempt_count": 1,
+                "repair_replacement_run_id": "repair-run-retry",
+                "repair_replacement_status_url": "/app/api/signals/property/search/run/repair-run-retry",
+                "repair_resolved_total": 1,
+                "repair_receipts": [
+                    {
+                        "run_id": "repair-run",
+                        "filter_key": "run_worker_exception",
+                        "resolution": "worker_exception_restart_required",
+                    }
+                ],
+                "provider_repair_task_opened_total": 1,
+                "provider_repair_task_existing_total": 0,
+                "provider_repair_tasks": [
+                    {
+                        "status": "returned",
+                        "filter_key": "run_worker_exception",
+                        "resolution": "worker_exception_restart_required",
+                    }
+                ],
+                "can_auto_repair": True,
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    assert summary["repair_status"] == "repairing"
+    assert summary["repair_step_label"] == "Started a replacement search run from the saved brief."
+    assert summary["repair_replacement_run_id"] == "repair-run-retry"
+    assert summary["repair_replacement_status_url"] == "/app/api/signals/property/search/run/repair-run-retry"
+    assert summary["repair_resolved_total"] == 1
+    assert summary["repair_receipts"][0]["resolution"] == "worker_exception_restart_required"
+    assert summary["provider_repair_task_opened_total"] == 1
+    assert summary["provider_repair_tasks"][0]["filter_key"] == "run_worker_exception"
+    assert summary["can_auto_repair"] is True
+
+
 def test_property_plan_investment_research_levels_follow_tier() -> None:
     plus = property_commercial_snapshot(
         {"property_commercial": {"active_plan_key": "plus", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"}}
