@@ -166,27 +166,28 @@ def _compact_property_search_run_json_sql() -> str:
         f"- '{key}'"
         for key in _PROPERTY_SEARCH_RUN_COMPACT_PREFERENCE_DROP_KEYS
     )
-    top_entries = ",\n                        ".join(
+    top_objects = " ||\n                            ".join(
         (
-            f"'{key}', (payload_json -> '{key}') {preference_drop_sql}"
+            f"jsonb_build_object('{key}', (payload_json -> '{key}') {preference_drop_sql})"
             if key in {"property_search_preferences", "preferences"}
-            else f"'{key}', payload_json -> '{key}'"
+            else f"jsonb_build_object('{key}', payload_json -> '{key}')"
         )
         for key in _PROPERTY_SEARCH_RUN_COMPACT_TOP_LEVEL_KEYS
     )
-    summary_entries = ",\n                                ".join(
-        f"'{key}', payload_json #> '{{summary,{key}}}'"
+    summary_objects = " ||\n                                    ".join(
+        f"jsonb_build_object('{key}', payload_json #> '{{summary,{key}}}')"
         for key in _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS
     )
     return f"""
                     jsonb_strip_nulls(
+                        (
+                            {top_objects}
+                        )
+                        ||
                         jsonb_build_object(
-                            {top_entries},
                             'summary',
                             jsonb_strip_nulls(
-                                jsonb_build_object(
-                                    {summary_entries}
-                                )
+                                {summary_objects}
                             )
                         )
                     )
