@@ -19,12 +19,12 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/security": "PropertyQuarry Security, privacy, and visual quality are reviewed before public changes go live.",
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Request access.",
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Return with the same browser, a secure email link, or your connected identity.",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only.",
         "https://propertyquarry.com/manifest.webmanifest": '{"name":"PropertyQuarry","start_url":"/app/search"}',
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
         "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc>",
-        "https://propertyquarry.com/app/properties": "PropertyQuarry Return with the same browser",
+        "https://propertyquarry.com/app/properties": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only.",
     }
 
     receipt = build_live_public_smoke_receipt(
