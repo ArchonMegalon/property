@@ -40,6 +40,29 @@ def main() -> int:
             run_indexes = {row[0] for row in cur.fetchall()}
             if "idx_property_search_runs_updated" not in run_indexes:
                 raise RuntimeError("missing_index:idx_property_search_runs_updated")
+            if "idx_property_search_runs_principal_updated" not in run_indexes:
+                raise RuntimeError("missing_index:idx_property_search_runs_principal_updated")
+
+            cur.execute(
+                """
+                SELECT a.attname
+                FROM pg_index i
+                JOIN pg_class t ON t.oid = i.indrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                JOIN unnest(i.indkey) WITH ORDINALITY AS key_columns(attnum, ordinal) ON TRUE
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = key_columns.attnum
+                WHERE n.nspname = 'public'
+                  AND t.relname = 'property_search_runs'
+                  AND i.indisprimary
+                ORDER BY key_columns.ordinal
+                """
+            )
+            run_primary_key = tuple(str(row[0]) for row in cur.fetchall())
+            if run_primary_key != ("principal_id", "run_id"):
+                raise RuntimeError(
+                    "invalid_primary_key:property_search_runs:"
+                    + ",".join(run_primary_key or ("missing",))
+                )
 
             cur.execute(
                 """

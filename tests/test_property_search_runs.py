@@ -8786,3 +8786,11 @@ def test_property_search_storage_schema_scripts() -> None:
         check=False,
     )
     assert check.returncode == 0, check.stderr or check.stdout
+
+
+def test_property_search_storage_schema_check_enforces_tenant_primary_key() -> None:
+    source = Path("scripts/check_property_search_storage_schema.py").read_text(encoding="utf-8")
+
+    assert "idx_property_search_runs_principal_updated" in source
+    assert "run_primary_key != (\"principal_id\", \"run_id\")" in source
+    assert "invalid_primary_key:property_search_runs" in source
