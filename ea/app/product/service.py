@@ -6190,11 +6190,6 @@ def _property_candidate_matches_requested_location(
 
     if _matches_text(concrete_text, normalized_concrete_text):
         return True
-
-    scope_text = " ".join(part for part in scope_parts if part).lower()
-    normalized_scope_text = re.sub(r"[^a-z0-9äöüß]+", "", scope_text)
-    if scope_text and _matches_text(scope_text, normalized_scope_text):
-        return True
     return False
 
 
@@ -36784,10 +36779,7 @@ class ProductService:
             )
         )
         candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
-        candidate_has_notification_location = candidate_has_listing_location_probe or any(
-            str(candidate_facts.get(key) or "").strip()
-            for key in ("postal_name", "district", "location", "source_scope_location")
-        )
+        candidate_has_notification_location = candidate_has_listing_location_probe
         candidate_location_mismatch = bool(
             (candidate_semantic_probe_available or candidate_listing_postal_codes)
             and location_hints
@@ -37711,10 +37703,7 @@ class ProductService:
             )
         )
         candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
-        candidate_has_notification_location = candidate_has_listing_location_probe or any(
-            str(candidate_facts.get(key) or "").strip()
-            for key in ("postal_name", "district", "location", "source_scope_location")
-        )
+        candidate_has_notification_location = candidate_has_listing_location_probe
         candidate_location_mismatch = bool(
             (candidate_semantic_probe_available or candidate_listing_postal_codes)
             and location_hints

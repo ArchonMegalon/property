@@ -1724,7 +1724,7 @@ def test_germany_auction_sources_require_buy_or_explicit_distressed_signal_mode(
     assert all(str(row["listing_mode"]) == "buy" for row in distressed_specs)
 
 
-def test_property_search_location_matching_accepts_generic_provider_scope_location() -> None:
+def test_property_search_location_matching_rejects_source_scope_only_location() -> None:
     hints = _property_search_location_hints({"country_code": "CR", "region_code": "puntarenas", "location_query": "Monteverde"})
     facts = product_service._property_facts_with_source_scope(
         facts={"provider_channel": "re_cr_mls"},
@@ -1739,6 +1739,15 @@ def test_property_search_location_matching_accepts_generic_provider_scope_locati
         property_url="https://re.cr/en/listing/sparse-card",
         title="Mountain view home",
         summary="Sparse provider card.",
+        property_facts=facts,
+        country_code="CR",
+        region_code="puntarenas",
+    ) is False
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://re.cr/en/listing/monteverde-home",
+        title="Mountain view home in Monteverde",
+        summary="Sparse provider card with concrete listing locality in Monteverde.",
         property_facts=facts,
         country_code="CR",
         region_code="puntarenas",
@@ -2902,6 +2911,66 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match
     diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
     assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "generic_listing_page"
     assert diagnostics["provider_host"] == "www.willhaben.at"
+
+
+def test_property_scout_hit_sender_suppresses_source_scope_only_sparse_card(monkeypatch) -> None:
+    principal_id = "exec-property-hit-source-scope-only-sparse"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Source Scope Sparse Gate")
+    service = ProductService(client.app.state.container)
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("source-scope-only cards must not notify Telegram"),
+    )
+
+    result = service._send_property_scout_hit_telegram(
+        principal_id=principal_id,
+        actor="test",
+        title="Moderne 2-Zimmer Wohnung mit Terrasse",
+        summary="Sparse provider card without a concrete listing location.",
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/object?adId=1631373932",
+        source_ref="property-scout:source-scope-only-sparse",
+        assessment={"fit_score": 82.0, "recommendation": "review"},
+        fit_score=82.0,
+        preference_person_id="self",
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/object?adId=1631373932",
+                "listing_title": "Moderne 2-Zimmer Wohnung mit Terrasse",
+                "summary": "Sparse provider card without a concrete listing location.",
+                "source_platform": "willhaben",
+                "source_family": "core_portal",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "€ 1.190",
+                },
+            },
+        ),
+        requested_location_hints=(),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+        render_dossier=False,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
 
 
 def test_property_generic_listing_page_detector_overrides_detail_shaped_url_for_search_count_snippets() -> None:
