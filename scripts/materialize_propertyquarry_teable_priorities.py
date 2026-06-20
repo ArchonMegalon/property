@@ -201,16 +201,16 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Billing",
         "title": "Finish PayFunnels commercial lifecycle",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "billing/payments",
         "current_state": (
-            "Pricing has been simplified, but the paid lifecycle still needs complete PayFunnels verification, entitlement "
-            "activation, invoice handoff and failure handling."
+            "Pricing has been simplified and PayFunnels completion webhooks are idempotent, but the paid lifecycle still "
+            "needs full payment failure, cancellation, downgrade, billing-history and invoice-handoff coverage."
         ),
         "next_action": (
-            "Implement PayFunnels webhook/payment verification, plan entitlement transitions, billing history, downgrade/"
-            "cancel behavior and invoice handoff."
+            "Finish plan entitlement transitions, billing history, downgrade/cancel behavior, failed-payment recovery, "
+            "invoice handoff and production PayFunnels smoke receipts."
         ),
         "source": "whole-product audit",
     },
@@ -251,6 +251,60 @@ PRIORITIES = [
         "source": "whole-product audit",
     },
     {
+        "projection_id": "pq-priority-run-progress-eta-minimal",
+        "priority": "P1",
+        "area": "Run progress",
+        "title": "Run progress and ETA must feel alive without noise",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "run-state/frontend",
+        "current_state": (
+            "Live result pages can show failed/partial states, duplicated repair text, stale queued wording, dead refresh "
+            "buttons, empty detail grids and no useful ETA."
+        ),
+        "next_action": (
+            "Auto-refresh run state without flicker, remove manual refresh buttons, show compact ETA and current useful "
+            "work, deduplicate repair copy and fill minimal failure/partial summaries with actionable content."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-provider-source-labels",
+        "priority": "P1",
+        "area": "Run state",
+        "title": "Provider and source-variant counts must be accurate",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "run-state/provider-catalog",
+        "current_state": (
+            "Customer UI has shown 156 providers when the product actually has far fewer providers and many source "
+            "variants. This damages trust during failed or partial runs."
+        ),
+        "next_action": (
+            "Separate provider count from source-variant count everywhere; use source variants for adapter passes and "
+            "providers only for real provider brands; add snapshot tests for run-health labels."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-scout-notification-quality",
+        "priority": "P1",
+        "area": "Notifications",
+        "title": "Scout updates only send strong, valid matches",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "notifications/scout",
+        "current_state": (
+            "Scout notifications have sent 50/100 generic candidates, wrong districts and source labels that imply the "
+            "selected area even when extracted listing text says otherwise."
+        ),
+        "next_action": (
+            "Require score above 60 for scout sends, block hard-area violations before delivery, suppress maybe-false rows "
+            "from ranking, and include concise source/listing links only when the candidate is eligible."
+        ),
+        "source": "whole-product audit",
+    },
+    {
         "projection_id": "pq-priority-performance-first-load",
         "priority": "P1",
         "area": "Performance",
@@ -265,6 +319,42 @@ PRIORITIES = [
         "next_action": (
             "Precompute agent map thumbnails, lazy-load heavy media/research sections, keep authenticated navigation "
             "under the route budget, and add authenticated smoke/performance probes."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-research-page-premium-performance",
+        "priority": "P1",
+        "area": "Research detail",
+        "title": "Research pages must load fast and fit the decision workflow",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "research/frontend",
+        "current_state": (
+            "Some research pages take too long to load, waste vertical space, look visually uneven and block tour/"
+            "walkthrough actions instead of showing a clear requested-media state."
+        ),
+        "next_action": (
+            "Slim the research layout to one-screen decision density, lazy-load expensive media/state, keep 360 first, "
+            "make request-tour/request-walkthrough buttons explicit and add screenshot tests."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-mobile-pwa",
+        "priority": "P1",
+        "area": "Mobile",
+        "title": "Mobile and PWA posture",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "frontend/mobile",
+        "current_state": (
+            "The product needs an explicit mobile/PWA answer for search review, shortlist, viewing companion, account and "
+            "share flows, not only responsive desktop pages."
+        ),
+        "next_action": (
+            "Audit mobile breakpoints, add installable PWA metadata if appropriate, validate offline-safe viewing notes "
+            "scope, and add mobile screenshot smoke tests for core surfaces."
         ),
         "source": "whole-product audit",
     },
@@ -327,16 +417,16 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Investment data",
         "title": "External investment feeds need host allowlist and protected cache",
-        "status": "open",
+        "status": "done",
         "user_visible": False,
         "owner_lane": "investment/security",
         "current_state": (
-            "External investment data can be useful, but third-party feed routing and cache defaults must fail closed "
-            "before they are trusted in paid research."
+            "External investment feeds now require an allowed-host configuration for HTTPS, only allow local insecure "
+            "HTTP by explicit env, default to /docker/property/state, cap response size and chmod cache files to 0600."
         ),
         "next_action": (
-            "Require configured allowed hosts, move cache to protected durable storage, set restrictive file permissions, "
-            "cache only allowlisted fields and surface source freshness/attribution."
+            "Keep the focused feed-hardening tests in the release gate and add production source freshness/attribution "
+            "receipts before surfacing investment outputs broadly."
         ),
         "source": "whole-product audit",
     },
