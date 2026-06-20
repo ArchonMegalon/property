@@ -273,16 +273,16 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Run state",
         "title": "Provider and source-variant counts must be accurate",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "run-state/provider-catalog",
         "current_state": (
-            "Customer UI has shown 156 providers when the product actually has far fewer providers and many source "
-            "variants. This damages trust during failed or partial runs."
+            "Customer UI now derives provider display totals from real provider brands and uses source-check wording for "
+            "parallel adapter/search variants, avoiding the old 156-providers trust break."
         ),
         "next_action": (
-            "Separate provider count from source-variant count everywhere; use source variants for adapter passes and "
-            "providers only for real provider brands; add snapshot tests for run-health labels."
+            "Keep snapshot tests on run-health labels, live progress, failed repair states and no-result summaries; extend "
+            "the same provider/source distinction to any new management surfaces."
         ),
         "source": "whole-product audit",
     },
