@@ -539,6 +539,91 @@ def _map_preview_cache_path_for_key(cache_key: dict[str, object]) -> Path:
     return _map_preview_cache_root() / f"{digest}.png"
 
 
+def _cached_local_map_overview_png_path(
+    cache_path: Path,
+    *,
+    overlay_rows: list[dict[str, object]] | None = None,
+    boundary_paths: list[str] | None = None,
+    pin: tuple[float, float] | None = None,
+    width: int = 640,
+    height: int = 368,
+) -> Path:
+    if cache_path.exists():
+        return cache_path
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    image = Image.new("RGB", (width, height), color=(239, 234, 225))
+    draw = ImageDraw.Draw(image, "RGBA")
+    road = (205, 196, 183, 185)
+    road_light = (255, 253, 247, 94)
+    park = (204, 218, 193, 145)
+    water = (193, 212, 219, 145)
+    draw.rectangle((0, 0, width, height), fill=(239, 234, 225, 255))
+    draw.polygon(
+        [
+            (0, int(height * 0.10)),
+            (int(width * 0.28), 0),
+            (int(width * 0.72), 0),
+            (width, int(height * 0.18)),
+            (width, int(height * 0.36)),
+            (int(width * 0.64), int(height * 0.27)),
+            (int(width * 0.34), int(height * 0.34)),
+            (0, int(height * 0.26)),
+        ],
+        fill=park,
+    )
+    draw.polygon(
+        [
+            (0, int(height * 0.74)),
+            (int(width * 0.22), int(height * 0.66)),
+            (int(width * 0.48), int(height * 0.76)),
+            (width, int(height * 0.68)),
+            (width, height),
+            (0, height),
+        ],
+        fill=water,
+    )
+    for offset in range(-width // 2, width + width // 3, max(120, width // 4)):
+        draw.line([(offset, 0), (offset + int(width * 0.42), height)], fill=road, width=max(9, width // 44))
+        draw.line([(offset, 0), (offset + int(width * 0.42), height)], fill=road_light, width=max(3, width // 150))
+    for y in range(int(height * 0.20), height, max(70, height // 4)):
+        draw.line([(0, y), (width, y - int(height * 0.09))], fill=road, width=max(7, width // 54))
+        draw.line([(0, y), (width, y - int(height * 0.09))], fill=road_light, width=max(2, width // 180))
+    for path in boundary_paths or []:
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+        points = list(zip(numbers[0::2], numbers[1::2]))
+        if len(points) >= 3:
+            draw.line(points + [points[0]], fill=(76, 70, 63, 155), width=3, joint="curve")
+    for index, row in enumerate(overlay_rows or []):
+        path = str(row.get("path") or "").strip()
+        if not path:
+            continue
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+        points = list(zip(numbers[0::2], numbers[1::2]))
+        if len(points) < 3:
+            continue
+        fill = (194, 44 + (index % 3) * 8, 50 + (index % 4) * 8, 132)
+        stroke = (132, 23, 29, 240)
+        draw.polygon(points, fill=fill, outline=stroke)
+        draw.line(points + [points[0]], fill=stroke, width=3, joint="curve")
+    if pin:
+        marker_x, marker_y = pin
+        draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))
+        draw.polygon(
+            [
+                (marker_x, marker_y - 18),
+                (marker_x - 12, marker_y - 1),
+                (marker_x, marker_y + 19),
+                (marker_x + 12, marker_y - 1),
+            ],
+            fill=(197, 40, 40, 255),
+        )
+        draw.ellipse((marker_x - 5, marker_y - 10, marker_x + 5, marker_y), fill=(255, 248, 241, 255))
+    tmp_path = cache_path.with_suffix(".tmp.png")
+    image.save(tmp_path, format="PNG", optimize=True)
+    tmp_path.replace(cache_path)
+    return cache_path
+
+
 def _schedule_cached_preview_render(
     *,
     cache_key: dict[str, object],
@@ -553,6 +638,16 @@ def _schedule_cached_preview_render(
     height: int = 368,
 ) -> Path:
     cache_path = _map_preview_cache_path_for_key(cache_key)
+    if cache_path.exists():
+        return cache_path
+    _cached_local_map_overview_png_path(
+        cache_path,
+        overlay_rows=overlay_rows,
+        boundary_paths=boundary_paths,
+        pin=pin,
+        width=width,
+        height=height,
+    )
     if cache_path.exists():
         return cache_path
     cache_id = cache_path.stem

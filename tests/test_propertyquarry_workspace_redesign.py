@@ -2346,6 +2346,33 @@ def test_property_scope_preview_map_only_uses_local_boundary_and_async_render(mo
     assert len(scheduled[0]["overlay_rows"]) == 2
 
 
+def test_property_scope_preview_map_only_materializes_first_paint_png_without_remote_tiles(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        landing_view_models.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("agents thumbnails must not wait for remote map tiles")),
+    )
+    monkeypatch.setattr(
+        landing_view_models,
+        "_nominatim_boundary_record",
+        lambda query: (_ for _ in ()).throw(AssertionError("agents first paint must not call Nominatim")),
+    )
+
+    preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna, 1200 Vienna")
+
+    assert preview["preview_kind"] == "osm_district_overlay"
+    assert preview["has_district_overlay"] is True
+    image_url = str(preview["image_url"])
+    assert image_url.startswith("/app/api/property/map-previews/")
+    assert "0000000000000000000000000000000000000000" not in image_url
+    preview_id = re.search(r"/([0-9a-f]{40})\.png$", image_url)
+    assert preview_id
+    preview_file = tmp_path / "map_previews" / f"{preview_id.group(1)}.png"
+    assert preview_file.is_file()
+    assert preview_file.stat().st_size > 1000
+
+
 def test_property_scope_preview_boundary_framing_adds_small_map_breathing_room() -> None:
     bounds = (16.356, 48.202, 16.379, 48.216)
 
