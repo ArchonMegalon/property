@@ -627,6 +627,45 @@ def test_investment_external_feed_rejects_oversized_response(monkeypatch: pytest
     assert payload == {}
 
 
+def test_investment_external_feed_rejects_streamed_oversized_response_without_content_length(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PROPERTY_RENT_ROLL_FEED_URL", "https://example.test/feed")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_ALLOWED_HOSTS", "example.test")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_MAX_RESPONSE_BYTES", "64")
+    monkeypatch.setenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", str(tmp_path / "investment_cache.json"))
+
+    class _Response:
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "application/json"}
+            self._body = b'{"annual_rent_eur": 18000, "source_label": "' + (b"a" * 5000) + b'"}'
+            self._offset = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size: int = -1) -> bytes:
+            if self._offset >= len(self._body):
+                return b""
+            if size is None or size < 0:
+                size = len(self._body) - self._offset
+            chunk = self._body[self._offset : self._offset + size]
+            self._offset += len(chunk)
+            return chunk
+
+    monkeypatch.setattr(property_investment_external_data.urllib.request, "urlopen", lambda *args, **kwargs: _Response())
+    payload = property_investment_external_data._fetch_external_feed(
+        "EA_PROPERTY_RENT_ROLL_FEED",
+        {"country_code": "AT", "purchase_price_eur": 300000},
+    )
+
+    assert payload == {}
+
+
 def test_investment_external_cache_path_defaults_to_durable_state_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_PROPERTY_INVESTMENT_EXTERNAL_CACHE_PATH", raising=False)
 

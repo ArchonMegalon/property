@@ -306,16 +306,15 @@ def _read_limited_response(response) -> bytes:  # type: ignore[no-untyped-def]
         raise ValueError("external_feed_response_too_large")
     chunks: list[bytes] = []
     total = 0
+    sentinel_limit = max_bytes + 1
     while True:
-        chunk = response.read(min(65536, max_bytes - total))
+        chunk = response.read(min(65536, sentinel_limit - total))
         if not chunk:
             break
         chunks.append(chunk)
         total += len(chunk)
         if total > max_bytes:
             raise ValueError("external_feed_response_too_large")
-        if total >= max_bytes:
-            break
     return b"".join(chunks)
 
 
