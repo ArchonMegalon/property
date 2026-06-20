@@ -19613,6 +19613,43 @@ def test_workspace_access_revocation_survives_recent_observation_window_noise() 
     assert blocked.status_code == 404
 
 
+def test_workspace_access_launch_link_is_one_time_cookie_exchange() -> None:
+    principal_id = "exec-product-access-launch-one-time"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Launch Access")
+    product = ProductService(client.app.state.container)
+
+    session = product.issue_workspace_access_session(
+        principal_id=principal_id,
+        email="principal@example.com",
+        role="principal",
+        display_name="Principal Access",
+        source_kind="test_launch_access",
+        expires_in_hours=24,
+    )
+    launch_url = str(session["access_launch_url"])
+    launch_token = str(session["access_launch_token"])
+    assert launch_url.startswith("/workspace-access/")
+    assert launch_token
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened = client.get(launch_url, follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/properties"
+    cookie = str(opened.headers.get("set-cookie") or "")
+    assert "ea_workspace_session=" in cookie
+    assert launch_token not in cookie
+    drafts = client.get("/app/api/drafts")
+    assert drafts.status_code == 200
+
+    replay = client.get(launch_url, follow_redirects=False)
+    assert replay.status_code == 404
+
+    stored = product.get_workspace_access_session(principal_id=principal_id, session_id=str(session["session_id"]))
+    assert stored is not None
+    assert stored["access_launch_token_used_at"]
+
+
 def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkeypatch) -> None:
     principal_id = "exec-product-memo-refresh"
     client = build_product_client(principal_id=principal_id)

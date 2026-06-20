@@ -18725,14 +18725,39 @@ class ProductService:
             return ""
         if expires_dt.tzinfo is None:
             expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        launch_ttl_minutes_raw = str(os.getenv("PROPERTYQUARRY_WORKSPACE_ACCESS_LAUNCH_TTL_MINUTES") or "60").strip()
+        try:
+            launch_ttl_minutes = max(5, min(24 * 60, int(float(launch_ttl_minutes_raw))))
+        except Exception:
+            launch_ttl_minutes = 60
+        launch_expires_dt = min(expires_dt, datetime.now(timezone.utc) + timedelta(minutes=launch_ttl_minutes))
         return _sign_channel_payload(
             secret=self._workspace_access_secret(),
             payload={
                 "k": "wa",
                 "s": normalized_session_id,
-                "x": int(expires_dt.timestamp()),
+                "x": int(launch_expires_dt.timestamp()),
             },
         )
+
+    def _workspace_access_session_token_from_record(self, session: dict[str, object]) -> str:
+        session_id = str(session.get("session_id") or "").strip()
+        principal_id = str(session.get("principal_id") or "").strip()
+        expires_at = str(session.get("expires_at") or "").strip()
+        if not session_id or not principal_id or not expires_at:
+            return ""
+        token_payload = {
+            "token_kind": "workspace_access_session",
+            "session_id": session_id,
+            "principal_id": principal_id,
+            "email": str(session.get("email") or "").strip().lower(),
+            "role": str(session.get("role") or "principal").strip().lower() or "principal",
+            "display_name": str(session.get("display_name") or "").strip(),
+            "operator_id": str(session.get("operator_id") or "").strip(),
+            "source_kind": str(session.get("source_kind") or "workspace_access").strip() or "workspace_access",
+            "expires_at": expires_at,
+        }
+        return _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
 
     def _resolve_workspace_access_session_principal(self, *, session_id: str, limit: int = 5000) -> str:
         normalized_session_id = str(session_id or "").strip()
@@ -39722,6 +39747,8 @@ class ProductService:
         if current is not None:
             if str(current.get("status") or "").strip().lower() == "revoked":
                 return None
+            if token_kind == "wa" and str(current.get("access_launch_token_used_at") or "").strip():
+                return None
             stored_hashes = {
                 str(current.get("access_token_hash") or "").strip(),
                 str(current.get("access_launch_token_hash") or "").strip(),
@@ -39730,8 +39757,16 @@ class ProductService:
             if stored_hashes and workspace_access_token_hash(token) not in stored_hashes:
                 return None
             current = dict(current)
-            current["access_token"] = str(token or "").strip()
-            current["access_url"] = f"/workspace-access/{token}"
+            access_token = (
+                self._workspace_access_session_token_from_record(current)
+                if token_kind == "wa"
+                else str(token or "").strip()
+            )
+            if not access_token:
+                return None
+            current["access_token"] = access_token
+            current["access_token_source"] = "launch" if token_kind == "wa" else "session"
+            current["access_url"] = f"/workspace-access/{access_token}"
             return current
         if token_kind == "wa":
             return None
@@ -39750,6 +39785,7 @@ class ProductService:
             "revoked_by": "",
             "expires_at": str(payload.get("expires_at") or "").strip(),
             "access_token": str(token or "").strip(),
+            "access_token_source": "session",
             "access_url": f"/workspace-access/{token}",
             "default_target": "/admin/office" if normalized_role == "operator" else "/app/properties",
         }
@@ -39770,6 +39806,11 @@ class ProductService:
                     "opened_by": str(actor or session.get("email") or principal_id or "workspace_access").strip(),
                     "last_seen_at": opened_at,
                     "status": str(session.get("status") or "active").strip().lower() or "active",
+                    **(
+                        {"access_launch_token_used_at": opened_at}
+                        if str(session.get("access_token_source") or "").strip() == "launch"
+                        else {}
+                    ),
                 },
                 database_url=self._workspace_access_database_url(),
             )

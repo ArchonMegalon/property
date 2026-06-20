@@ -65,6 +65,7 @@ def _normalized_workspace_access_session(payload: dict[str, object]) -> dict[str
         "access_token_last4": _clean(row.get("access_token_last4") or workspace_access_token_last4(access_token), limit=16),
         "access_launch_token_hash": access_launch_token_hash,
         "access_launch_token_last4": _clean(row.get("access_launch_token_last4") or workspace_access_token_last4(access_launch_token), limit=16),
+        "access_launch_token_used_at": _clean(row.get("access_launch_token_used_at"), limit=80),
         "default_target": _clean(row.get("default_target"), limit=500),
         "updated_at": _clean(row.get("updated_at") or _now_iso(), limit=80),
     }
