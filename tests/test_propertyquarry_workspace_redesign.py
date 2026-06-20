@@ -120,6 +120,11 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
         "Billing truth",
         "Plan and limits",
         "Plan unit",
+        "worker capacity",
+        "provider breadth",
+        "What this plan can actually run",
+        "How this plan affects real runs",
+        "live search workers",
         "Fleet digest",
         "Executive Assistant",
         "memo items",
@@ -8363,7 +8368,7 @@ def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None
 
     assert '"eyebrow": "Operating posture"' not in payload_source
     assert '"title": "Commercial posture"' not in payload_source
-    assert '"title": "Where to edit this account"' in payload_source
+    assert '"title": "Edit"' in payload_source
     assert '"title": "Plan access"' in payload_source
 
 

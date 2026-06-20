@@ -1,17 +1,13 @@
 {% set billing_cards = (primary_cards or []) + (secondary_cards or []) %}
 {% set current_card = namespace(value={}) %}
 {% set checkout_card = namespace(value={}) %}
-{% set entitlement_card = namespace(value={}) %}
 {% set upgrade_card = namespace(value={}) %}
-{% set verification_card = namespace(value={}) %}
 {% set decision_card = namespace(value={}) %}
 {% for card in billing_cards %}
   {% if card.get('title') == 'Current search access' %}{% set current_card.value = card %}{% endif %}
-  {% if card.get('title') == 'Checkout path' %}{% set checkout_card.value = card %}{% endif %}
-  {% if card.get('title') == 'What this plan can actually run' %}{% set entitlement_card.value = card %}{% endif %}
-  {% if card.get('title') == 'What actually changes with each tier' %}{% set upgrade_card.value = card %}{% endif %}
-  {% if card.get('title') == 'How this plan affects real runs' %}{% set verification_card.value = card %}{% endif %}
-  {% if card.get('title') == 'Upgrade only when the current lane is the bottleneck' %}{% set decision_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Checkout' %}{% set checkout_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Tier changes' %}{% set upgrade_card.value = card %}{% endif %}
+  {% if card.get('title') == 'When to upgrade' %}{% set decision_card.value = card %}{% endif %}
 {% endfor %}
 
 <section class="pqx-card pqx-billing-board">
@@ -34,7 +30,7 @@
   </div>
 
   <div class="pqx-billing-metric-strip">
-    {% for card in [current_card.value, checkout_card.value, entitlement_card.value, verification_card.value] if card %}
+    {% for card in [current_card.value, checkout_card.value, upgrade_card.value, decision_card.value] if card %}
     <section class="pqx-billing-metric">
       <span class="pqx-small">{{ card.get('eyebrow') or 'Billing' }}</span>
       <strong>{{ card.get('title') }}</strong>
@@ -45,11 +41,11 @@
 
   <div class="pqx-billing-note-rail">
     <strong>What is available now</strong>
-    <span>Plan, checkout, and search capacity.</span>
+    <span>Plan, checkout, and current allowance.</span>
   </div>
 
   <div class="pqx-billing-grid">
-    {% for card in [current_card.value, checkout_card.value, entitlement_card.value, verification_card.value, upgrade_card.value, decision_card.value] if card %}
+    {% for card in [current_card.value, checkout_card.value, upgrade_card.value, decision_card.value] if card %}
     <section class="pqx-billing-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
       <div class="pqx-section-head">
         <div>

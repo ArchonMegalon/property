@@ -5,7 +5,7 @@
 {% for card in account_cards %}
   {% if card.get('id') == 'profile' %}{% set profile_card.value = card %}{% endif %}
   {% if card.get('id') == 'plans' %}{% set plan_card.value = card %}{% endif %}
-  {% if card.get('title') == 'Product-facing controls' %}{% set public_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Public pages' %}{% set public_card.value = card %}{% endif %}
 {% endfor %}
 {% set profile_item = (profile_card.value.get('items') or [{}])[0] if profile_card.value else {} %}
 {% set public_items = public_card.value.get('items') or [] if public_card.value else [] %}
@@ -36,7 +36,7 @@
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_card.value.get('title') or 'Plan and entitlements' }}</h2>
-        <p>Review provider breadth, worker capacity, and upgrade impact before changing tier.</p>
+        <p>Upgrade only when the current allowance blocks a real search.</p>
       </div>
       <a class="pqx-link-button" href="/pricing">Open pricing</a>
     </section>

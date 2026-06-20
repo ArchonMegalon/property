@@ -1939,7 +1939,7 @@ def property_workspace_payload(
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Current search access.", "href": f"/app/billing{run_suffix}"},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "How deep the research lane runs.", "href": f"/app/billing{run_suffix}"},
-            {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Maximum provider breadth for this plan.", "href": f"/app/billing{run_suffix}"},
+            {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Portal allowance for the active plan.", "href": f"/app/billing{run_suffix}"},
             {"label": "Per source", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked results per provider.", "href": f"/app/billing{run_suffix}"},
         ],
         "settings": [
@@ -2052,7 +2052,7 @@ def property_workspace_payload(
         ]
         improvement_parts = []
         if platform_cap > current_platform_cap:
-            improvement_parts.append(f"+{platform_cap - current_platform_cap} platform breadth")
+            improvement_parts.append(f"+{platform_cap - current_platform_cap} more portals")
         elif platform_cap < current_platform_cap:
             improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter working lane")
         if result_cap > current_result_cap:
@@ -2072,14 +2072,14 @@ def property_workspace_payload(
         billing_upgrade_rows = [
             row_item(
                 "No live upgrade catalog available",
-                "Checkout metadata is not loaded yet. The current plan still governs search breadth, shortlist density, and research depth.",
+                "Checkout metadata is not loaded yet. The current plan still governs portals, shortlist density, and research depth.",
                 "Catalog",
             )
         ]
     billing_decision_rows = [
         row_item(
             "Stay on the current tier",
-            "Use the current plan until the real bottleneck is clear: source breadth, shortlist density, or deeper research.",
+            "Use the current plan until a real run needs more portals, more ranked homes, or deeper research.",
             "Decision",
         ),
         row_item(
@@ -2092,7 +2092,7 @@ def property_workspace_payload(
         billing_decision_rows.append(
             row_item(
                 "First paid move",
-                "Plus buys a denser working shortlist; Agent is the lane for full-breadth, full-depth search.",
+                "Plus buys a denser working shortlist; Agent is the full-depth lane.",
                 "Next tier",
             )
         )
@@ -2445,9 +2445,9 @@ def property_workspace_payload(
                     "title": "Limits",
                     "body": "",
                     "items": [
-                        row_item("Free", "1 active saved search · 1 live search worker.", "Plan"),
-                        row_item("Plus", "3 active saved searches · 2 live search workers.", "Plan"),
-                        row_item("Agent", "Unlimited saved searches · 4 live search workers.", "Plan"),
+                        row_item("Free", "1 active saved search.", "Plan"),
+                        row_item("Plus", "3 active saved searches.", "Plan"),
+                        row_item("Agent", "Unlimited saved searches.", "Plan"),
                     ],
                 },
                 {
@@ -2477,7 +2477,7 @@ def property_workspace_payload(
         },
         "billing": {
             "title": "Billing",
-            "summary": "Plan, checkout, and the search capacity available right now.",
+            "summary": "Plan, checkout, and the current search allowance.",
             "hero_kicker": "Billing",
             "hero_title": "Your plan.",
             "hero_summary": "Current access, checkout status, and search capacity.",
@@ -2492,69 +2492,24 @@ def property_workspace_payload(
                 },
                 {
                     "eyebrow": "Checkout",
-                    "title": "Checkout path",
+                    "title": "Checkout",
                     "body": "",
                     "items": [
-                        row_item(
-                            "Checkout provider",
-                            str(property_state.get("billing_checkout_provider_label") or "Unavailable"),
-                            "Provider",
-                        ),
-                        row_item(
-                            "Plan state",
-                            "The visible search capacity on this page comes from the active plan.",
-                            "Active",
-                        ),
-                        row_item(
-                            "Before changing plan",
-                            "Check whether the current bottleneck is provider breadth, shortlist density, or research depth.",
-                            "Plan",
-                        ),
+                        row_item("Provider", str(property_state.get("billing_checkout_provider_label") or "Unavailable"), "Checkout"),
+                        row_item("Change plan", "Upgrade only when a real search hits the current allowance.", "Decision"),
                     ],
-                }
+                },
             ],
             "secondary_cards": [
                 {
-                    "eyebrow": "Entitlements",
-                    "title": "What this plan can actually run",
-                    "body": "",
-                    "items": [
-                        row_item("Workers", "Free 1 · Plus 2 · Agent 4 live search workers.", "Workers"),
-                        row_item("Provider breadth", f"Up to {commercial.get('max_platforms') or 'multi'} providers in one run.", "Breadth"),
-                        row_item("Rank density", f"Up to {commercial.get('max_results_per_source') or 2} ranked results per provider.", "Results"),
-                    ],
-                },
-                {
-                    "eyebrow": "Upgrade impact",
-                    "title": "What actually changes with each tier",
+                    "eyebrow": "Upgrade",
+                    "title": "Tier changes",
                     "body": "",
                     "items": billing_upgrade_rows,
                 },
                 {
-                    "eyebrow": "Search capacity",
-                    "title": "How this plan affects real runs",
-                    "body": "",
-                    "items": [
-                        row_item(
-                            "Search breadth",
-                            f"The current plan allows up to {commercial.get('max_platforms') or 'multi'} providers in one run before the UI clips provider selection.",
-                            "Breadth",
-                        ),
-                        row_item(
-                            "Shortlist density",
-                            f"The current plan allows up to {commercial.get('max_results_per_source') or 2} ranked results per provider.",
-                            "Results",
-                        ),
-                        row_item(
-                            "Worker capacity",
-                            "Free 1 · Plus 2 · Agent 4 live search workers.",
-                            "Workers",
-                        ),
-                    ],
-                },
-                {
                     "eyebrow": "Decision",
-                    "title": "Upgrade only when the current lane is the bottleneck",
+                    "title": "When to upgrade",
                     "body": "",
                     "items": billing_decision_rows,
                 },
@@ -2587,13 +2542,10 @@ def property_workspace_payload(
                 },
                 {
                     "id": "plans",
-                    "eyebrow": "Plan and entitlements",
-                    "title": "Current plan, worker capacity, and provider breadth",
+                    "eyebrow": "Plan",
+                    "title": "Current access",
                     "body": "",
-                    "items": billing_rows + [
-                        row_item("Workers", "Free 1 · Plus 2 · Agent 4 live search workers.", "Workers"),
-                        row_item("Providers", f"Current plan allows up to {commercial.get('max_platforms') or 'multi'} providers in one run.", "Breadth"),
-                    ],
+                    "items": billing_rows,
                 },
                 {
                     "id": "profile",
@@ -2604,42 +2556,34 @@ def property_workspace_payload(
                 },
                 {
                     "id": "delivery",
-                    "eyebrow": "Delivery posture",
-                    "title": "How reports, alerts, and recurring watches leave this account",
+                    "eyebrow": "Delivery",
+                    "title": "Reports and alerts",
                     "body": "",
                     "items": [
                         row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Automation"),
-                        row_item("Delivery lane", "Email digests, repair notes, and recurring market watches leave through Automation.", "Reports"),
+                        row_item("Delivery", "Email digests and recurring market watches use your saved-search settings.", "Reports"),
                         row_item("Return access", str(google.get("connected_account_email") or "Sign-in without widening scope."), "Identity"),
                     ],
                 },
                 {
                     "eyebrow": "Next change",
-                    "title": "Where to edit this account",
+                    "title": "Edit",
                     "body": "",
                     "items": [
-                        row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
-                        row_item("Plan", "Open the plan ladder when you need more providers, deeper research, or more sustained automation.", "Plan"),
-                        row_item("Security", "Use the public security page to inspect retention and identity posture on this product.", "Trust"),
+                        row_item("Search", "Change areas, filters, providers, or shortlist depth.", "Search"),
+                        row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
+                        row_item("Security", "Review retention and identity posture.", "Trust"),
                     ],
                 },
             ],
             "secondary_cards": [{
-                "eyebrow": "Public surfaces",
-                "title": "Product-facing controls",
+                "eyebrow": "Links",
+                "title": "Public pages",
                 "body": "",
                 "items": [
                     {
-                        "title": "Pricing",
-                        "detail": "Inspect the current plan ladder and commercial delta on the public product page.",
-                        "tag": "Public",
-                        "action_href": "/pricing",
-                        "action_method": "get",
-                        "action_label": "Open pricing",
-                    },
-                    {
                         "title": "Security",
-                        "detail": "Review trust, identity, and data-posture language on the public product page.",
+                        "detail": "Review trust and data posture.",
                         "tag": "Public",
                         "action_href": "/security",
                         "action_method": "get",
@@ -2685,12 +2629,12 @@ def property_workspace_payload(
                 },
                 {
                     "eyebrow": "Next change",
-                    "title": "Where to edit this account",
+                    "title": "Edit",
                     "body": "",
                     "items": [
                         row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
-                        row_item("Plan", "Open the plan ladder when you need more providers, deeper research, or more sustained automation.", "Plan"),
-                        row_item("Security", "Use the public security page to inspect retention and identity posture on this product.", "Trust"),
+                        row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
+                        row_item("Security", "Review retention and identity posture.", "Trust"),
                     ],
                 },
             ],
@@ -2701,13 +2645,13 @@ def property_workspace_payload(
                 "body": "",
                 "items": billing_rows,
             } or {}, {
-                "eyebrow": "Public surfaces",
-                "title": "Product-facing controls",
+                "eyebrow": "Links",
+                "title": "Public pages",
                 "body": "",
                 "items": [
                     {
                         "title": "Pricing",
-                        "detail": "Inspect the current plan ladder and commercial delta on the public product page.",
+                        "detail": "Compare tiers.",
                         "tag": "Public",
                         "action_href": "/pricing",
                         "action_method": "get",
@@ -2715,7 +2659,7 @@ def property_workspace_payload(
                     },
                     {
                         "title": "Security",
-                        "detail": "Review trust, identity, and data-posture language on the public product page.",
+                        "detail": "Review trust and data posture.",
                         "tag": "Public",
                         "action_href": "/security",
                         "action_method": "get",
