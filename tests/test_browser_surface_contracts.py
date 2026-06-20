@@ -130,6 +130,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     security = client.get("/security")
     assert "Automatic digests" in security.text
     assert "Morning memo schedule" not in security.text
+    assert "Security, privacy, and visual quality are reviewed before public changes go live." in security.text
+    assert "Release checks and security review" not in security.text
     assert "Saved searches, shortlist decisions, and account settings stay attached to the signed-in PropertyQuarry account." in security.text
     assert "EA Postgres" not in security.text
     assert "source of truth" not in security.text.lower()

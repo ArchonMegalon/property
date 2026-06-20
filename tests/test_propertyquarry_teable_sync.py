@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -438,3 +439,30 @@ def test_propertyquarry_teable_bootstrap_preview_has_all_property_tables() -> No
     assert "propertyquarry_provider_sources" in payload["tables"]
     assert "propertyquarry_review_artifacts" in payload["tables"]
     assert payload["tables"]["propertyquarry_properties"][0]["name"] == "projection_id"
+
+
+def test_propertyquarry_teable_priority_materializer_has_stable_product_rows() -> None:
+    namespace = runpy.run_path("scripts/materialize_propertyquarry_teable_priorities.py", run_name="__test__")
+    priorities = list(namespace["PRIORITIES"])
+    fields = list(namespace["FIELDS"])
+
+    projection_ids = [str(row.get("projection_id") or "") for row in priorities]
+    assert len(priorities) >= 10
+    assert len(projection_ids) == len(set(projection_ids))
+    assert {str(row.get("priority") or "") for row in priorities} >= {"P0", "P1", "P2"}
+    assert "pq-priority-search-location-hard-filters" in projection_ids
+    assert "pq-priority-payfunnels-commercial-lifecycle" in projection_ids
+    assert "pq-priority-property-passport" in projection_ids
+    assert [field["name"] for field in fields] == [
+        "projection_id",
+        "priority",
+        "area",
+        "title",
+        "status",
+        "user_visible",
+        "owner_lane",
+        "current_state",
+        "next_action",
+        "source",
+        "updated_at",
+    ]

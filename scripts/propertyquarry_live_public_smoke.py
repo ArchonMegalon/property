@@ -95,8 +95,9 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     elif path == "/security":
         checks.extend(
             (
-                ("security_route_copy", "Release checks and security review" in text),
+                ("security_route_copy", "Security, privacy, and visual quality are reviewed before public changes go live." in text),
                 ("security_old_proof_copy_removed", "release-side proof" not in text.lower()),
+                ("security_no_internal_release_copy", "Release checks and security review" not in text),
             )
         )
     elif path == "/pricing":
