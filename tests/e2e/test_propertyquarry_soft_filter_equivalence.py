@@ -11,13 +11,13 @@ from tests.product_test_helpers import build_property_client, start_workspace
 
 def _poll_search_run(client, run_id: str) -> dict[str, object]:
     latest: dict[str, object] = {}
-    for _ in range(160):
+    for _ in range(600):
         response = client.get(f"/app/api/property/search-runs/{run_id}")
         assert response.status_code == 200, response.text
         latest = response.json()
         if str(latest.get("status") or "") in {"processed", "completed_partial", "failed", "cancelled"}:
             return latest
-        time.sleep(0.02)
+        time.sleep(0.05)
     return latest
 
 

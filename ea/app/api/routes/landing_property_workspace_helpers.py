@@ -1171,9 +1171,12 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
         packet_total = max(int(float(run_summary.get("packet_created_total") or run_summary.get("review_created_total") or 0)), 0)
     except Exception:
         packet_total = 0
+    writing_status = str(run_summary.get("dossier_writer_neuronwriter_status") or run_summary.get("writing_status") or "ready").strip()
+    if not writing_status:
+        writing_status = "ready"
     return [
         {
-            "title": "Writing",
+            "title": f"Writing status: {writing_status}",
             "detail": "Dossiers, review pages, and messages stay short, redacted, and tied to the facts already found.",
             "tag": "Clean",
         },
