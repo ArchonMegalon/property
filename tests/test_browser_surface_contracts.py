@@ -123,6 +123,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Choose by sources, shortlist size, and research depth." in pricing.text
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
+    assert "Checkout pending" not in pricing.text
+    assert "Request access." in pricing.text
 
     security = client.get("/security")
     assert "Automatic digests" in security.text
@@ -155,6 +157,7 @@ def test_pricing_surfaces_payfunnels_checkout_when_configured(monkeypatch: pytes
     assert pricing.status_code == 200
     assert "Secure checkout." in pricing.text
     assert "Checkout uses PayFunnels" not in pricing.text
+    assert "Checkout pending" not in pricing.text
     assert "Sign in to upgrade" in pricing.text
     assert 'data-rybbit-event="pricing_sign_in_to_upgrade"' in pricing.text
 

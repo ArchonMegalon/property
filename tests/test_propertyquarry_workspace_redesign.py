@@ -449,6 +449,8 @@ def test_propertyquarry_public_and_progress_surfaces_do_not_use_generic_ea_copy(
 
     assert "EA post-filtered" not in console_shell
     assert "PropertyQuarry applied" in console_shell
+    assert "Recurring checkout is not live" not in console_shell
+    assert "Request access from pricing." in console_shell
     assert "Vienna property page" not in pdf_renderer
     assert "PropertyQuarry Result" in rendered_result
     assert "PropertyQuarry public result viewer" in rendered_result
