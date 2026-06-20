@@ -173,7 +173,7 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert 'class="auth-provider-icon"' in response.text
     assert "Google?" not in response.text
     assert "Facebook?" not in response.text
-    assert "Identity-only return path." in response.text
+    assert "Identity-only." in response.text
     assert "Choose the narrowest sign-in path" not in response.text
 
 

@@ -254,16 +254,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Account and auth",
         "title": "Sign-in, logout and account surfaces must be fast and minimal",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "auth/account-ux",
         "current_state": (
-            "Root, sign-in, logout and account/profile flows have repeatedly exposed wasted space, unavailable provider "
-            "buttons, redirect edge cases and settings that look editable when they are not."
+            "Verified: authenticated root keeps /?home=1 as the public-home escape, disabled Facebook sign-in stays hidden, "
+            "Google uses compact identity-only copy, logout clears all workspace-session cookie variants including localhost/"
+            "domain/secure cases, and account exposes working lifecycle controls without inherited EA noise."
         ),
         "next_action": (
-            "Keep authenticated root fast, preserve /?home=1 as the deliberate public-home escape, hide disabled social "
-            "providers, prove logout, and remove account/profile rows that cannot be acted on."
+            "Keep the auth/account focused tests and real-browser logout smoke in the release gate; re-run them when root, "
+            "sign-in, account navigation or connected identity providers change."
         ),
         "source": "whole-product audit",
     },
