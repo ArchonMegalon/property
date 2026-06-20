@@ -4301,7 +4301,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Return with the same browser, a secure email link, or your connected identity." in sign_in.text
+    assert "Use your current session, secure email link, or connected identity." in sign_in.text
+    assert "Identity-only." in sign_in.text
     assert "Create account" in sign_in.text
     assert "Email me a fresh access link" not in sign_in.text
     assert "Email link" in sign_in.text

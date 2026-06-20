@@ -112,7 +112,10 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         checks.append(
             (
                 "sign_in_minimal_copy",
-                "Return with the same browser, a secure email link, or your connected identity." in text,
+                "Use your current session, secure email link, or connected identity." in text
+                and "Identity-only." in text
+                and "Google?" not in text
+                and "Facebook?" not in text,
             )
         )
     elif path == "/manifest.webmanifest":
