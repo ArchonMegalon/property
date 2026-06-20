@@ -1181,11 +1181,11 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
                 neuronwriter_statuses.append(value)
     normalized_neuronwriter_statuses = sorted(set(neuronwriter_statuses))
     if normalized_neuronwriter_statuses:
-        neuronwriter_detail = "Editorial pass status: " + ", ".join(normalized_neuronwriter_statuses)
+        neuronwriter_detail = "Writing status: " + ", ".join(normalized_neuronwriter_statuses)
         neuronwriter_tag = "Ready"
     else:
-        neuronwriter_detail = "Dossiers, review pages, email, and Telegram notifications use the redacted NeuronWriter editorial lane when the integration is configured; private facts remain claim-bound."
-        neuronwriter_tag = "Configured"
+        neuronwriter_detail = "Dossiers, review pages, and messages stay short, redacted, and tied to the facts already found."
+        neuronwriter_tag = "Available"
     try:
         telegram_sent = max(int(float(run_summary.get("telegram_sent_total") or run_summary.get("notified_total") or 0)), 0)
     except Exception:
@@ -1200,18 +1200,18 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
         packet_total = 0
     return [
         {
-            "title": "Writing quality",
+            "title": "Writing",
             "detail": neuronwriter_detail,
             "tag": neuronwriter_tag,
         },
         {
             "title": "Message links",
-            "detail": "Messages render links as titled buttons or titled HTML links, so raw full URLs are not visible in chat copy.",
+            "detail": "Messages use titled links instead of long raw URLs.",
             "tag": "Clean links",
         },
         {
-            "title": "Generated files",
-            "detail": f"{packet_total} packet receipts, {tour_total} tour receipts, {telegram_sent} Telegram notification receipts summarized for this run.",
+            "title": "Files ready",
+            "detail": f"{packet_total} review page{'s' if packet_total != 1 else ''}, {tour_total} tour{'s' if tour_total != 1 else ''}, {telegram_sent} sent update{'s' if telegram_sent != 1 else ''}.",
             "tag": "Saved",
         },
     ]
@@ -1233,8 +1233,8 @@ def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str
         flythrough_total = 0
     rows.append(
             {
-                "title": "Current run receipts",
-                "detail": f"{tour_total} 3D tour receipts, {flythrough_total} fly-through receipts, {telegram_sent} Telegram sends recorded in this run summary.",
+                "title": "Current outputs",
+                "detail": f"{tour_total} 3D tour{'s' if tour_total != 1 else ''}, {flythrough_total} walkthrough video{'s' if flythrough_total != 1 else ''}, {telegram_sent} sent update{'s' if telegram_sent != 1 else ''}.",
                 "tag": "Saved",
             }
         )
@@ -1243,8 +1243,8 @@ def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str
         latest = repair_receipts[-1]
         rows.append(
             {
-                "title": "Repair receipts",
-                "detail": f"{len(repair_receipts)} repair receipt(s) recorded. Latest: {str(latest.get('resolution') or 'returned').replace('_', ' ')}.",
+                "title": "Repair outcome",
+                "detail": f"{len(repair_receipts)} repair attempt{'s' if len(repair_receipts) != 1 else ''} recorded. Latest: {str(latest.get('resolution') or 'returned').replace('_', ' ')}.",
                 "tag": "Repair",
             }
         )

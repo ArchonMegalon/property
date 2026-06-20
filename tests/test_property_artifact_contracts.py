@@ -36,9 +36,10 @@ def test_property_artifact_provider_matrix_covers_owned_delivery_lanes() -> None
 def test_required_artifact_receipts_forbid_cube_and_bare_links() -> None:
     text = "\n".join(row["detail"] for row in required_artifact_receipt_rows())
 
-    assert "Fallback cube viewers are forbidden" in text
+    assert "fake cube viewers stay hidden" in text
     assert "titled hyperlink" in text
-    assert "Provider, duration, room coverage, continuity, and speed receipts" in text
+    assert "must pass visual quality checks before delivery" in text
+    assert "receipts" not in text.lower()
 
 
 def test_property_walkthrough_video_still_routes_to_magicfit_for_final_publication() -> None:

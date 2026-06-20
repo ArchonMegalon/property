@@ -117,6 +117,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Open search" in landing.text
     assert "Built for focused private search first" in landing.text
     assert "Upgrade only when it helps" in landing.text
+    assert "sample-memo" not in landing.text
 
     pricing = client.get("/pricing")
     assert "<h1>Pricing</h1>" in pricing.text
@@ -144,6 +145,15 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         assert not href.startswith("/results")
         resolved = client.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
+
+
+def test_propertyquarry_public_templates_do_not_keep_memo_anchors() -> None:
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    marketing = open(os.path.join(root, "ea/app/templates/marketing_home.html"), encoding="utf-8").read()
+
+    assert "sample-memo" not in marketing
+    assert 'href="#sample-shortlist"' in marketing
+    assert 'id="sample-shortlist"' in marketing
 
 
 def test_pricing_surfaces_payfunnels_checkout_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -6028,6 +6028,58 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
             assert phrase not in body, f"{phrase!r} leaked in {path}"
 
 
+def test_property_delivery_rows_are_customer_outcomes_not_provider_receipts() -> None:
+    rows = landing_property_workspace_helpers._delivery_proof_rows(
+        {
+            "dossier_writer_neuronwriter_status": "ready",
+            "packet_created_total": 2,
+            "tour_created_total": 1,
+            "telegram_sent_total": 3,
+        }
+    )
+    text = " ".join(
+        " ".join(str(row.get(key) or "") for key in ("title", "detail", "tag"))
+        for row in rows
+    )
+
+    assert "Writing status: ready" in text
+    assert "Messages use titled links instead of long raw URLs." in text
+    assert "2 review pages, 1 tour, 3 sent updates." in text
+    assert "NeuronWriter" not in text
+    assert "Telegram notification receipts" not in text
+    assert "packet receipts" not in text
+    assert "tour receipts" not in text
+
+
+def test_property_artifact_rows_are_readiness_copy_not_receipt_jargon() -> None:
+    rows = landing_property_workspace_helpers._artifact_receipt_rows(
+        {
+            "tour_created_total": 1,
+            "flythrough_rendered_total": 2,
+            "telegram_sent_total": 3,
+            "repair_receipts": [{"resolution": "completed_partial"}],
+        }
+    )
+    text = " ".join(
+        " ".join(str(row.get(key) or "") for key in ("title", "detail", "tag"))
+        for row in rows
+    )
+
+    assert "Dossier PDF" in text
+    assert "PDF output must be readable, clean, and free of internal status text." in text
+    assert "Real tour links can be shown when available; fake cube viewers stay hidden." in text
+    assert "Walkthrough videos stay request-only and must pass visual quality checks before delivery." in text
+    assert "1 3D tour, 2 walkthrough videos, 3 sent updates." in text
+    assert "Repair outcome" in text
+    assert "1 repair attempt recorded." in text
+    assert "MarkupGo" not in text
+    assert "Playwright render receipt" not in text
+    assert "export receipts" not in text
+    assert "Telegram delivery" not in text
+    assert "Telegram sends" not in text
+    assert "receipts" not in text.lower()
+
+
 def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     source_map = repo_root / "docs/PROPERTYQUARRY_SOURCE_OF_TRUTH_MAP.md"

@@ -158,18 +158,18 @@ def property_artifact_provider_lanes() -> tuple[PropertyArtifactProviderLane, ..
 def required_artifact_receipt_rows() -> tuple[dict[str, str], ...]:
     return (
         {
-            "title": "Premium PDF",
-            "detail": "MarkupGo or Playwright render receipt, PDF QA result, no artifact status text in the customer PDF.",
+            "title": "Dossier PDF",
+            "detail": "PDF output must be readable, clean, and free of internal status text.",
             "tag": "Required",
         },
         {
             "title": "3D tours",
-            "detail": "Matterport and 3DVista export receipts. Fallback cube viewers are forbidden.",
+            "detail": "Real tour links can be shown when available; fake cube viewers stay hidden.",
             "tag": "Required",
         },
         {
             "title": "Fly-through",
-            "detail": "Provider, duration, room coverage, continuity, and speed receipts before Telegram delivery.",
+            "detail": "Walkthrough videos stay request-only and must pass visual quality checks before delivery.",
             "tag": "Required",
         },
         {
