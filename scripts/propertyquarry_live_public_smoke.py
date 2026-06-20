@@ -160,7 +160,23 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             )
         )
     elif path == "/manifest.webmanifest":
-        checks.append(("manifest_name", "PropertyQuarry" in text and "start_url" in text))
+        try:
+            manifest_payload = json.loads(text)
+        except Exception:
+            manifest_payload = {}
+        icons = manifest_payload.get("icons") if isinstance(manifest_payload, dict) else []
+        icon_rows = [dict(row) for row in icons if isinstance(row, dict)] if isinstance(icons, list) else []
+        checks.extend(
+            (
+                ("manifest_name", isinstance(manifest_payload, dict) and manifest_payload.get("name") == "PropertyQuarry"),
+                ("manifest_start_url", isinstance(manifest_payload, dict) and manifest_payload.get("start_url") == "/app/search"),
+                ("manifest_display_scope", isinstance(manifest_payload, dict) and manifest_payload.get("display") == "standalone" and manifest_payload.get("scope") == "/"),
+                (
+                    "manifest_maskable_icon",
+                    any(str(row.get("src") or "") == "/pwa-icon.svg" and "maskable" in str(row.get("purpose") or "") for row in icon_rows),
+                ),
+            )
+        )
     elif path == "/service-worker.js":
         checks.append(("service_worker_no_cache_api", "caches." not in text and "skipWaiting" in text))
     elif path == "/robots.txt":
