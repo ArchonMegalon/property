@@ -20724,6 +20724,54 @@ def test_property_payfunnels_refund_webhook_records_lifecycle_without_pending_ch
     ]
 
 
+def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
+    principal_id = "exec-property-billing-surface-payment-state"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "property_commercial": {
+                "last_payment_status": "failed",
+                "last_payment_amount_eur": "3.00",
+                "last_billing_event_type": "payment.failed",
+                "last_billing_event_id": "evt-billing-surface-failed",
+                "last_billing_event_at": "2026-06-20T12:00:00+00:00",
+                "billing_events_json": [
+                    {
+                        "event_id": "evt-billing-surface-failed",
+                        "event_type": "payment.failed",
+                        "provider": "payfunnels",
+                        "plan_key": "plus",
+                        "order_id": "pf-plus-surface",
+                        "payment_status": "failed",
+                        "amount_eur": "3.00",
+                        "recorded_at": "2026-06-20T12:00:00+00:00",
+                    }
+                ],
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+
+    assert billing.status_code == 200
+    assert "Current search access" in billing.text
+    assert "Latest payment" in billing.text
+    assert "Failed | EUR 3.00 | payment.failed" in billing.text
+    assert "Billing truth" not in billing.text
+    assert "Plan and limits" not in billing.text
+    assert "Current commercial state" not in billing.text
+
+
 def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

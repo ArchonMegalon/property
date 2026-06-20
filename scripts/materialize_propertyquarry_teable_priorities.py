@@ -242,7 +242,8 @@ PRIORITIES = [
         "owner_lane": "billing/payments",
         "current_state": (
             "Pricing has been simplified; PayFunnels completion webhooks are idempotent; failed, cancelled and refunded "
-            "callbacks now clear stale pending checkouts and record bounded billing event receipts."
+            "callbacks now clear stale pending checkouts and record bounded billing event receipts; the billing surface "
+            "shows a compact latest-payment row only when useful."
         ),
         "next_action": (
             "Finish downgrade/cancel policy, billing history UI, invoice handoff, failed-payment recovery copy and "

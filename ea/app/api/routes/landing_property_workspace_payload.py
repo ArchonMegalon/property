@@ -2011,6 +2011,7 @@ def property_workspace_payload(
     current_platform_cap = int(current_plan_spec.get("max_platforms") or commercial.get("max_platforms") or 0)
     current_result_cap = int(current_plan_spec.get("max_results_per_source") or commercial.get("max_results_per_source") or 0)
     current_match_cap = int(current_plan_spec.get("max_match_score") or commercial.get("max_match_score") or 0)
+    commercial_state = dict(commercial.get("property_commercial") or {})
     billing_rows = [
         row_item(
             "Current plan",
@@ -2028,6 +2029,32 @@ def property_workspace_payload(
             "Provider",
         ),
     ]
+    pending_plan_key = str(commercial_state.get("pending_plan_key") or "").strip()
+    pending_order_id = str(commercial_state.get("pending_order_id") or "").strip()
+    last_payment_status = str(commercial_state.get("last_payment_status") or "").strip().replace("_", " ")
+    last_billing_event_type = str(commercial_state.get("last_billing_event_type") or "").strip().replace("_", " ")
+    last_payment_amount = str(commercial_state.get("last_payment_amount_eur") or "").strip()
+    if pending_plan_key and pending_order_id:
+        billing_rows.append(
+            row_item(
+                "Checkout pending",
+                f"{pending_plan_key.title()} checkout is waiting for provider confirmation.",
+                "Pending",
+            )
+        )
+    elif last_payment_status:
+        payment_detail = last_payment_status.title()
+        if last_payment_amount:
+            payment_detail = f"{payment_detail} | EUR {last_payment_amount}"
+        if last_billing_event_type:
+            payment_detail = f"{payment_detail} | {last_billing_event_type}"
+        billing_rows.append(
+            row_item(
+                "Latest payment",
+                payment_detail,
+                "Recorded",
+            )
+        )
     if commercial.get("active_until"):
         billing_rows.append(
             row_item(
