@@ -241,12 +241,12 @@ PRIORITIES = [
         "user_visible": True,
         "owner_lane": "billing/payments",
         "current_state": (
-            "Pricing has been simplified and PayFunnels completion webhooks are idempotent, but the paid lifecycle still "
-            "needs full payment failure, cancellation, downgrade, billing-history and invoice-handoff coverage."
+            "Pricing has been simplified; PayFunnels completion webhooks are idempotent; failed, cancelled and refunded "
+            "callbacks now clear stale pending checkouts and record bounded billing event receipts."
         ),
         "next_action": (
-            "Finish plan entitlement transitions, billing history, downgrade/cancel behavior, failed-payment recovery, "
-            "invoice handoff and production PayFunnels smoke receipts."
+            "Finish downgrade/cancel policy, billing history UI, invoice handoff, failed-payment recovery copy and "
+            "production PayFunnels smoke receipts."
         ),
         "source": "whole-product audit",
     },

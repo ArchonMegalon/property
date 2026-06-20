@@ -20595,6 +20595,135 @@ def test_property_payfunnels_webhook_accepts_sha256_signature_prefix(
     assert webhook.json()["current_plan_key"] == "plus"
 
 
+def test_property_payfunnels_failed_webhook_clears_pending_checkout_and_records_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-failed-payment"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["order_id"]
+
+    webhook_payload = {
+        "event_id": "evt_failed_123",
+        "event_type": "payment.failed",
+        "client_reference_id": principal_id,
+        "external_id": order_id,
+        "plan_key": "plus",
+        "payment_status": "failed",
+        "payer_email": "buyer@example.com",
+        "amount_eur": "3.00",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+
+    assert webhook.status_code == 200, webhook.text
+    body = webhook.json()
+    assert body["status"] == "recorded"
+    assert body["current_plan_key"] == "free"
+    assert body["payment_status"] == "failed"
+
+    status_after_webhook = client.get("/v1/onboarding/property-search/preferences")
+    assert status_after_webhook.status_code == 200
+    commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "free"
+    assert commercial["pending_order_id"] == ""
+    assert commercial["pending_plan_key"] == ""
+    assert commercial["last_order_id"] == order_id
+    assert commercial["last_payment_status"] == "failed"
+    assert commercial["last_billing_event_type"] == "payment.failed"
+    assert commercial["last_billing_event_id"] == "evt_failed_123"
+    assert commercial["billing_events_json"][-1]["event_type"] == "payment.failed"
+    assert commercial["billing_events_json"][-1]["provider"] == "payfunnels"
+
+
+def test_property_payfunnels_refund_webhook_records_lifecycle_without_pending_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-refund"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["order_id"]
+    completed_payload = {
+        "event_id": "evt_completed_123",
+        "event_type": "payment.completed",
+        "client_reference_id": principal_id,
+        "external_id": order_id,
+        "plan_key": "plus",
+        "payment_status": "completed",
+        "amount_eur": "3.00",
+    }
+    completed_raw = json.dumps(completed_payload, separators=(",", ":")).encode("utf-8")
+    completed_signature = hmac.new(b"pf-secret", completed_raw, hashlib.sha256).hexdigest()
+    completed = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=completed_raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": completed_signature,
+        },
+    )
+    assert completed.status_code == 200, completed.text
+
+    refund_payload = {
+        "event_id": "evt_refund_123",
+        "event_type": "payment.refunded",
+        "client_reference_id": principal_id,
+        "external_id": order_id,
+        "plan_key": "plus",
+        "payment_status": "refunded",
+        "amount_eur": "3.00",
+    }
+    refund_raw = json.dumps(refund_payload, separators=(",", ":")).encode("utf-8")
+    refund_signature = hmac.new(b"pf-secret", refund_raw, hashlib.sha256).hexdigest()
+    refunded = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=refund_raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": refund_signature,
+        },
+    )
+
+    assert refunded.status_code == 200, refunded.text
+    assert refunded.json()["status"] == "recorded"
+    assert refunded.json()["current_plan_key"] == "plus"
+
+    status_after_refund = client.get("/v1/onboarding/property-search/preferences")
+    commercial = status_after_refund.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "plus"
+    assert commercial["pending_order_id"] == ""
+    assert commercial["last_payment_status"] == "refunded"
+    assert commercial["last_billing_event_type"] == "payment.refunded"
+    assert [event["event_id"] for event in commercial["billing_events_json"]] == [
+        "evt_completed_123",
+        "evt_refund_123",
+    ]
+
+
 def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

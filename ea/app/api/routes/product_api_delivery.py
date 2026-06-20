@@ -73,6 +73,7 @@ from app.services.property_billing import (
     enforce_property_plan_limits,
     merge_property_commercial,
     paid_plan_expiry,
+    property_billing_event_updates,
     payfunnels_configured,
     paypal_configured,
     property_plan_spec,
@@ -95,6 +96,32 @@ public_payfunnels_router = APIRouter(prefix="/app/api", tags=["product-billing"]
 
 _PAYFUNNELS_TITLE_PRINCIPAL_RE = re.compile(r"pq_principal:([^|]+)")
 _PAYFUNNELS_TITLE_ORDER_RE = re.compile(r"pq_order:([^|]+)")
+_PAYFUNNELS_COMPLETED_EVENTS = {
+    "payment.completed",
+    "checkout.completed",
+    "subscription.activated",
+}
+_PAYFUNNELS_COMPLETED_STATUSES = {"paid", "completed", "succeeded", "active"}
+_PAYFUNNELS_FAILED_EVENTS = {
+    "payment.failed",
+    "checkout.failed",
+    "payment.declined",
+    "subscription.payment_failed",
+}
+_PAYFUNNELS_CANCELLED_EVENTS = {
+    "checkout.cancelled",
+    "checkout.canceled",
+    "subscription.cancelled",
+    "subscription.canceled",
+}
+_PAYFUNNELS_REFUNDED_EVENTS = {
+    "payment.refunded",
+    "refund.completed",
+    "charge.refunded",
+}
+_PAYFUNNELS_FAILED_STATUSES = {"failed", "declined", "error"}
+_PAYFUNNELS_CANCELLED_STATUSES = {"cancelled", "canceled", "voided"}
+_PAYFUNNELS_REFUNDED_STATUSES = {"refunded", "partially_refunded"}
 
 
 def _payfunnels_title_value(pattern: re.Pattern[str], title: str) -> str:
@@ -1197,6 +1224,15 @@ async def payfunnels_property_billing_webhook(
     ).strip()
     amount_eur = str(payload.get("amount_eur") or payload.get("amount") or payload.get("chargeAmount") or "").strip()
     event_type = str(payload.get("event_type") or payload.get("event") or "").strip().lower()
+    event_id = str(
+        payload.get("event_id")
+        or payload.get("eventId")
+        or payload.get("id")
+        or payload.get("webhook_id")
+        or payload.get("chargeId")
+        or payload.get("invoiceId")
+        or ""
+    ).strip()
     if not principal_id or not plan_key or not order_id:
         raise HTTPException(status_code=400, detail="payfunnels_webhook_missing_fields")
     try:
@@ -1211,11 +1247,10 @@ async def payfunnels_property_billing_webhook(
     pending_plan_key = str(pending_commercial.get("pending_plan_key") or "").strip().lower()
     last_order_id = str(pending_commercial.get("last_order_id") or "").strip()
     active_plan_key = str(pending_commercial.get("active_plan_key") or "").strip().lower()
-    completed = payment_status in {"paid", "completed", "succeeded", "active"} or event_type in {
-        "payment.completed",
-        "checkout.completed",
-        "subscription.activated",
-    }
+    completed = payment_status in _PAYFUNNELS_COMPLETED_STATUSES or event_type in _PAYFUNNELS_COMPLETED_EVENTS
+    failed = payment_status in _PAYFUNNELS_FAILED_STATUSES or event_type in _PAYFUNNELS_FAILED_EVENTS
+    cancelled = payment_status in _PAYFUNNELS_CANCELLED_STATUSES or event_type in _PAYFUNNELS_CANCELLED_EVENTS
+    refunded = payment_status in _PAYFUNNELS_REFUNDED_STATUSES or event_type in _PAYFUNNELS_REFUNDED_EVENTS
     if completed and (not pending_order_id or not pending_plan_key):
         if last_order_id == order_id and active_plan_key == spec.plan_key:
             return {
@@ -1233,6 +1268,16 @@ async def payfunnels_property_billing_webhook(
         raise HTTPException(status_code=409, detail="payfunnels_plan_mismatch")
     if completed:
         active_until = paid_plan_expiry(plan_key=spec.plan_key)
+        event_updates = property_billing_event_updates(
+            pending_commercial,
+            provider="payfunnels",
+            event_type=event_type or payment_status or "payment.completed",
+            event_id=event_id,
+            plan_key=spec.plan_key,
+            order_id=order_id,
+            payment_status=payment_status or event_type or "completed",
+            amount_eur=amount_eur or spec.amount_eur,
+        )
         updated = merge_property_commercial(
             preferences_before,
             updates={
@@ -1249,6 +1294,7 @@ async def payfunnels_property_billing_webhook(
                 "pending_plan_key": "",
                 "pending_approval_url": "",
                 "plan_source": "payfunnels",
+                **event_updates,
             },
         )
         _save_property_preferences(container, principal_id=principal_id, property_preferences=updated)
@@ -1258,6 +1304,45 @@ async def payfunnels_property_billing_webhook(
             "plan_key": spec.plan_key,
             "current_plan_key": spec.plan_key,
             "payment_status": payment_status or event_type or "completed",
+        }
+    if failed or cancelled or refunded:
+        event_label = event_type or payment_status or ("refunded" if refunded else ("cancelled" if cancelled else "failed"))
+        event_updates = property_billing_event_updates(
+            pending_commercial,
+            provider="payfunnels",
+            event_type=event_label,
+            event_id=event_id,
+            plan_key=spec.plan_key,
+            order_id=order_id,
+            payment_status=payment_status or event_label,
+            amount_eur=amount_eur or spec.amount_eur,
+        )
+        updates: dict[str, object] = {
+            "last_order_id": order_id,
+            "last_capture_id": order_id,
+            "last_payment_status": payment_status or event_label,
+            "last_payment_amount_eur": amount_eur or spec.amount_eur,
+            "last_payer_email": payer_email,
+            "pending_order_id": "",
+            "pending_plan_key": "",
+            "pending_approval_url": "",
+            "plan_source": "payfunnels",
+            **event_updates,
+        }
+        if refunded:
+            updates["status"] = "refunded"
+        elif cancelled:
+            updates["status"] = "cancelled"
+        else:
+            updates["status"] = "payment_failed"
+        updated = merge_property_commercial(preferences_before, updates=updates)
+        _save_property_preferences(container, principal_id=principal_id, property_preferences=updated)
+        return {
+            "status": "recorded",
+            "principal_id": principal_id,
+            "plan_key": spec.plan_key,
+            "current_plan_key": str(updated.get("property_commercial", {}).get("active_plan_key") or "free"),
+            "payment_status": payment_status or event_label,
         }
     return {
         "status": "ignored",

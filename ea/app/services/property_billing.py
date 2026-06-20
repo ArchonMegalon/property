@@ -179,6 +179,88 @@ def normalize_property_commercial(value: dict[str, object] | None) -> dict[str, 
         "pending_plan_key": str(raw.get("pending_plan_key") or "").strip().lower(),
         "pending_approval_url": str(raw.get("pending_approval_url") or "").strip(),
         "plan_source": str(raw.get("plan_source") or "").strip(),
+        "last_billing_event_type": str(raw.get("last_billing_event_type") or "").strip(),
+        "last_billing_event_id": str(raw.get("last_billing_event_id") or "").strip(),
+        "last_billing_event_at": str(raw.get("last_billing_event_at") or "").strip(),
+        "billing_events_json": _normalized_property_billing_events(raw.get("billing_events_json")),
+    }
+
+
+def _normalized_property_billing_events(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    events: list[dict[str, object]] = []
+    for item in value[-20:]:
+        if not isinstance(item, dict):
+            continue
+        event = {
+            "event_id": str(item.get("event_id") or "").strip()[:160],
+            "event_type": str(item.get("event_type") or "").strip().lower()[:120],
+            "provider": str(item.get("provider") or "").strip().lower()[:80],
+            "plan_key": str(item.get("plan_key") or "").strip().lower()[:40],
+            "order_id": str(item.get("order_id") or "").strip()[:160],
+            "payment_status": str(item.get("payment_status") or "").strip().lower()[:80],
+            "amount_eur": str(item.get("amount_eur") or "").strip()[:40],
+            "recorded_at": str(item.get("recorded_at") or "").strip()[:80],
+        }
+        if any(event.values()):
+            events.append(event)
+    return events
+
+
+def property_billing_event_updates(
+    existing_commercial: dict[str, object] | None,
+    *,
+    provider: str,
+    event_type: str,
+    event_id: str = "",
+    plan_key: str = "",
+    order_id: str = "",
+    payment_status: str = "",
+    amount_eur: str = "",
+) -> dict[str, object]:
+    normalized = normalize_property_commercial(existing_commercial)
+    events = list(normalized.get("billing_events_json") or [])
+    compact_event_type = str(event_type or "").strip().lower()
+    compact_event_id = str(event_id or "").strip()
+    if not compact_event_id:
+        stable = "|".join(
+            [
+                str(provider or "").strip().lower(),
+                compact_event_type,
+                str(plan_key or "").strip().lower(),
+                str(order_id or "").strip(),
+                str(payment_status or "").strip().lower(),
+                str(amount_eur or "").strip(),
+            ]
+        )
+        compact_event_id = hashlib.sha256(stable.encode("utf-8")).hexdigest()[:24]
+    if any(str(item.get("event_id") or "") == compact_event_id for item in events if isinstance(item, dict)):
+        return {
+            "last_billing_event_type": compact_event_type,
+            "last_billing_event_id": compact_event_id,
+            "last_billing_event_at": str(normalized.get("last_billing_event_at") or ""),
+            "billing_events_json": events,
+        }
+    recorded_at = _now_iso()
+    events.append(
+        {
+            "event_id": compact_event_id,
+            "event_type": compact_event_type,
+            "provider": str(provider or "").strip().lower(),
+            "plan_key": str(plan_key or "").strip().lower(),
+            "order_id": str(order_id or "").strip(),
+            "payment_status": str(payment_status or "").strip().lower(),
+            "amount_eur": str(amount_eur or "").strip(),
+            "recorded_at": recorded_at,
+        }
+    )
+    events = _normalized_property_billing_events(events)
+    return {
+        "last_billing_event_type": compact_event_type,
+        "last_billing_event_id": compact_event_id,
+        "last_billing_event_at": recorded_at,
+        "billing_events_json": events,
     }
 
 
