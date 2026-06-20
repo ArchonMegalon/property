@@ -29,21 +29,6 @@
     {% endfor %}
   </div>
 
-  <div class="pqx-billing-metric-strip">
-    {% for card in [current_card.value, checkout_card.value, upgrade_card.value, decision_card.value] if card %}
-    <section class="pqx-billing-metric">
-      <span class="pqx-small">{{ card.get('eyebrow') or 'Billing' }}</span>
-      <strong>{{ card.get('title') }}</strong>
-      {% if card.get('body') %}<small>{{ card.get('body') }}</small>{% endif %}
-    </section>
-    {% endfor %}
-  </div>
-
-  <div class="pqx-billing-note-rail">
-    <strong>What is available now</strong>
-    <span>Plan, checkout, and current allowance.</span>
-  </div>
-
   <div class="pqx-billing-grid">
     {% for card in [current_card.value, checkout_card.value, upgrade_card.value, decision_card.value] if card %}
     <section class="pqx-billing-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
