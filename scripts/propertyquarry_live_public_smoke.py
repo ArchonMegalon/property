@@ -102,7 +102,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     elif path == "/pricing":
         checks.extend(
             (
-                ("pricing_minimal_copy", "Pick the search lane you need." in text),
+                ("pricing_minimal_copy", "Pricing" in text and "Choose by sources, shortlist size, and research depth." in text),
                 ("pricing_old_noise_removed", "Choose the lane that matches the real search workload" not in text),
             )
         )

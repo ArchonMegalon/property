@@ -119,8 +119,9 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Upgrade only when it helps" in landing.text
 
     pricing = client.get("/pricing")
-    assert "Pick the search lane you need." in pricing.text
-    assert "Upgrade when the current lane is the bottleneck." in pricing.text
+    assert "<h1>Pricing</h1>" in pricing.text
+    assert "Choose by sources, shortlist size, and research depth." in pricing.text
+    assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
 
     security = client.get("/security")

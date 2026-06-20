@@ -3,25 +3,25 @@
 <style>
   .pricing-wrap {
     display: grid;
-    gap: 18px;
-    padding-top: 18px;
+    gap: 14px;
+    padding-top: 12px;
   }
   .pricing-head {
     display: flex;
-    align-items: end;
+    align-items: baseline;
     justify-content: space-between;
-    gap: 18px;
+    gap: 14px;
     padding: 0 2px;
   }
   .pricing-head h1 {
     margin: 0;
-    max-width: 760px;
-    font-size: clamp(2rem, 4vw, 4.2rem);
-    line-height: 0.96;
+    font-size: clamp(2rem, 3.2vw, 3.2rem);
+    line-height: 1;
   }
   .pricing-head p {
-    max-width: 420px;
+    max-width: 360px;
     margin: 0;
+    font-size: 0.95rem;
     color: var(--text-dim);
   }
   .tier-grid {
@@ -30,11 +30,11 @@
     gap: 12px;
   }
   .tier-card {
-    min-height: 360px;
+    min-height: 318px;
     display: grid;
     grid-template-rows: auto auto 1fr auto;
-    gap: 14px;
-    padding: 18px;
+    gap: 11px;
+    padding: 14px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.025);
@@ -51,7 +51,7 @@
   }
   .tier-top h2 {
     margin: 0;
-    font-size: 1.35rem;
+    font-size: 1.2rem;
   }
   .tier-price {
     color: var(--accent);
@@ -61,11 +61,14 @@
   }
   .tier-copy {
     margin: 0;
+    min-height: 42px;
     color: var(--text-dim);
+    font-size: 0.94rem;
+    line-height: 1.45;
   }
   .tier-facts {
     display: grid;
-    gap: 8px;
+    gap: 6px;
     align-content: start;
     margin: 0;
     padding: 0;
@@ -74,10 +77,11 @@
   .tier-facts li {
     display: flex;
     justify-content: space-between;
-    gap: 14px;
-    padding-top: 8px;
+    gap: 12px;
+    padding-top: 7px;
     border-top: 1px solid var(--line);
     color: var(--text-dim);
+    font-size: 0.92rem;
   }
   .tier-facts strong {
     color: var(--text);
@@ -93,17 +97,6 @@
     color: var(--text-dim);
     font-size: 0.82rem;
   }
-  .pricing-note {
-    display: flex;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 14px 2px 4px;
-    color: var(--text-dim);
-    border-top: 1px solid var(--line);
-  }
-  .pricing-note strong {
-    color: var(--text);
-  }
   @media (max-width: 980px) {
     .pricing-head {
       display: grid;
@@ -115,19 +108,15 @@
     .tier-card {
       min-height: auto;
     }
-    .pricing-note {
-      display: grid;
-    }
   }
 </style>
 
 <section class="section pricing-wrap">
   <div class="pricing-head">
     <div>
-      <div class="kicker">Pricing</div>
-      <h1>Pick the search lane you need.</h1>
+      <h1>Pricing</h1>
     </div>
-    <p>Plans change source breadth, shortlist density, score ceiling, and property page depth.</p>
+    <p>Choose by sources, shortlist size, and research depth.</p>
   </div>
 
   <div class="tier-grid">
@@ -139,11 +128,11 @@
       </div>
       <p class="tier-copy">
         {% if plan.plan_key == "free" %}
-        Validate the ranking on a narrow shortlist.
+        Validate ranking on a narrow shortlist.
         {% elif plan.plan_key == "plus" %}
-        Review more matches with deeper property pages.
+        More matches and deeper property pages.
         {% else %}
-        Run the full property desk for heavier search work.
+        Full desk for ongoing managed search.
         {% endif %}
       </p>
       <ul class="tier-facts">
@@ -182,10 +171,6 @@
     {% endfor %}
   </div>
 
-  <div class="pricing-note">
-    <strong>Upgrade when the current lane is the bottleneck.</strong>
-    <span>Free proves fit quality. Plus expands serious review. Agent is for ongoing managed search.</span>
-  </div>
 </section>
 
 <script>
