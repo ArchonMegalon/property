@@ -2139,6 +2139,52 @@ def property_workspace_payload(
                 "Current tier",
             )
         )
+    billing_history_rows = []
+    billing_events = [
+        dict(event)
+        for event in list(commercial_state.get("billing_events_json") or [])
+        if isinstance(event, dict)
+    ]
+    for event in list(reversed(billing_events))[:5]:
+        event_type = str(event.get("event_type") or "billing event").strip().replace("_", " ").replace(".", " ")
+        event_status = str(event.get("payment_status") or "").strip().replace("_", " ")
+        event_plan = str(event.get("plan_key") or "").strip().title()
+        event_amount = str(event.get("amount_eur") or "").strip()
+        event_when = str(event.get("recorded_at") or "").strip()[:16].replace("T", " ")
+        detail_parts = [part for part in (event_status.title(), f"EUR {event_amount}" if event_amount else "", event_when) if part]
+        billing_history_rows.append(
+            row_item(
+                event_type.title(),
+                " | ".join(detail_parts) or "Recorded by the billing webhook.",
+                event_plan or "Payment",
+            )
+        )
+    if not billing_history_rows:
+        billing_history_rows.append(
+            row_item(
+                "No payment history yet",
+                "Checkout events will appear here after a payment, cancellation, refund, or failed attempt.",
+                "History",
+            )
+        )
+    billing_history_rows.extend(
+        [
+            {
+                **row_item(
+                    "Cancellation and refunds",
+                    "Policy, refund handling, and failed-payment recovery live on the public refund page.",
+                    "Policy",
+                ),
+                "action_href": "/refunds",
+                "action_label": "Open policy",
+            },
+            row_item(
+                "Invoice handoff",
+                "Payment verification stays in PropertyQuarry; invoice/VAT documents are handled by the accounting lane after receipt.",
+                "Invoice",
+            ),
+        ]
+    )
     research_rows = []
     for candidate in shortlist_candidates[:6]:
         title = str(candidate.get("title") or "Research packet").strip() or "Research packet"
@@ -2543,6 +2589,12 @@ def property_workspace_payload(
                     "title": "When to upgrade",
                     "body": "",
                     "items": billing_decision_rows,
+                },
+                {
+                    "eyebrow": "History",
+                    "title": "Billing history",
+                    "body": "",
+                    "items": billing_history_rows,
                 },
             ],
             "console_form": property_form,

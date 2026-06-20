@@ -245,11 +245,12 @@ PRIORITIES = [
         "current_state": (
             "Pricing has been simplified; PayFunnels completion webhooks are idempotent; failed, cancelled and refunded "
             "callbacks now clear stale pending checkouts and record bounded billing event receipts; the billing surface "
-            "shows a compact latest-payment row only when useful."
+            "shows compact latest-payment and billing-history rows only when useful, plus refund/cancellation and invoice "
+            "handoff context without provider-name noise."
         ),
         "next_action": (
-            "Finish downgrade/cancel policy, billing history UI, invoice handoff, failed-payment recovery copy and "
-            "production PayFunnels smoke receipts."
+            "Finish downgrade/cancel policy automation, accounting-lane invoice receipts, failed-payment recovery actions "
+            "and production PayFunnels smoke receipts."
         ),
         "source": "whole-product audit",
     },

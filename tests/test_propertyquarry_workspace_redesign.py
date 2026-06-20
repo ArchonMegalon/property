@@ -4215,6 +4215,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert billing.status_code == 200
     assert "Billing" in billing.text
     assert "Your plan" in billing.text
+    assert "Billing history" in billing.text
+    assert "Cancellation and refunds" in billing.text
+    assert "Invoice handoff" in billing.text
     assert "Billing truth" not in billing.text
     assert "Commercial truth" not in billing.text
     assert "Plan and limits" not in billing.text
@@ -4225,6 +4228,45 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert billing.text.count("Checkout") <= 2
     billing_payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
     assert 'row_item("Provider", str(property_state.get("billing_checkout_provider_label")' not in billing_payload_source
+
+
+def test_property_billing_surface_shows_compact_payment_history() -> None:
+    client = build_property_client(principal_id="exec-property-billing-history")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Billing History Office")
+    response = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "property_search_enabled": True,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "billing_events_json": [
+                    {
+                        "event_id": "evt_pay_1",
+                        "event_type": "payment.completed",
+                        "provider": "payfunnels",
+                        "plan_key": "plus",
+                        "order_id": "pf_123",
+                        "payment_status": "paid",
+                        "amount_eur": "3.00",
+                        "recorded_at": "2026-06-20T12:00:00+00:00",
+                    }
+                ],
+            },
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+
+    billing = client.get("/app/billing", headers=headers)
+
+    assert billing.status_code == 200
+    assert "Billing history" in billing.text
+    assert "Payment Completed" in billing.text
+    assert "Paid | EUR 3.00 | 2026-06-20 12:00" in billing.text
+    assert "Plus" in billing.text
+    assert "PayFunnels" not in billing.text
 
 
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
