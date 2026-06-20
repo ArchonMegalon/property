@@ -3108,7 +3108,7 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
     home = client.get("/")
     assert home.status_code == 200, home.text
 
-    for href in ("/privacy", "/terms", "/support", "/imprint"):
+    for href in ("/privacy", "/terms", "/support", "/imprint", "/cookies", "/subprocessors", "/refunds", "/disclaimers"):
         assert f'href="{href}"' in home.text
     assert 'href="/openapi.json">API</a>' not in home.text
     assert "Repository</a>" not in home.text

@@ -17,6 +17,7 @@ SURFACE_TEMPLATES = (
     "ea/app/templates/docs_page.html",
     "ea/app/templates/integrations_page.html",
     "ea/app/templates/data_deletion.html",
+    "ea/app/templates/base_public.html",
     "ea/app/templates/app/property_decision_workbench.html",
     "ea/app/templates/app/property_research_detail.html",
     "ea/app/templates/app/property_packets.html",

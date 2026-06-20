@@ -16,6 +16,14 @@ DEFAULT_ROUTES = (
     "/",
     "/security",
     "/pricing",
+    "/privacy",
+    "/terms",
+    "/support",
+    "/imprint",
+    "/cookies",
+    "/subprocessors",
+    "/refunds",
+    "/disclaimers",
     "/register",
     "/sign-in",
     "/manifest.webmanifest",
@@ -80,7 +88,21 @@ def fetch_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
 def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> list[tuple[str, bool]]:
     checks: list[tuple[str, bool]] = []
     visible_text = _visible_text(text)
-    if path in {"/", "/security", "/pricing", "/register", "/sign-in"}:
+    if path in {
+        "/",
+        "/security",
+        "/pricing",
+        "/privacy",
+        "/terms",
+        "/support",
+        "/imprint",
+        "/cookies",
+        "/subprocessors",
+        "/refunds",
+        "/disclaimers",
+        "/register",
+        "/sign-in",
+    }:
         checks.extend(
             (
                 ("contains_propertyquarry", "PropertyQuarry" in text),
@@ -106,6 +128,25 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ("pricing_minimal_copy", "Pricing" in text and "Start free" in text),
                 ("pricing_old_noise_removed", "Choose the lane that matches the real search workload" not in text),
                 ("pricing_subtitle_removed", "Choose by sources, shortlist size, and research depth." not in text),
+            )
+        )
+    elif path in {"/privacy", "/terms", "/support", "/imprint", "/cookies", "/subprocessors", "/refunds", "/disclaimers"}:
+        expected_by_path = {
+            "/privacy": ("Privacy", "Public tours should use a narrow public manifest"),
+            "/terms": ("Terms", "Generated or embedded tours help screening"),
+            "/support": ("Support", "wrong-area matches"),
+            "/imprint": ("Imprint", "How to reach PropertyQuarry"),
+            "/cookies": ("Cookies and Analytics", "essential cookies"),
+            "/subprocessors": ("Subprocessors", "Vendor control plane"),
+            "/refunds": ("Refunds and Cancellation", "failed payment recovery"),
+            "/disclaimers": ("Disclaimers", "Generated visualization"),
+        }
+        expected = expected_by_path[path]
+        checks.extend(
+            (
+                ("trust_page_title", expected[0] in text),
+                ("trust_page_substance", expected[1] in text),
+                ("trust_page_no_placeholder", "Before public paid launch" not in text and "Replace placeholder" not in text),
             )
         )
     elif path == "/sign-in":

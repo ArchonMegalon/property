@@ -429,16 +429,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Trust and legal",
         "title": "Public trust, legal, attribution and disclaimer pages",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "public/trust",
         "current_state": (
-            "The paid public product needs reviewed privacy, terms, imprint, cookie, subprocessors, refund, support, "
-            "property-data attribution, generated-tour and investment-education disclaimers."
+            "Public Privacy, Terms, Imprint, Support, Cookies, Subprocessors, Refunds and Disclaimers pages render, are "
+            "in the sitemap, are linked from the public footer, and are covered by the live public smoke. The copy keeps "
+            "generated-tour, investment, provider-rights and data-lifecycle boundaries explicit."
         ),
         "next_action": (
-            "Ship the public legal/trust route set, link it from footer/account where relevant, and keep legal copy separate "
-            "from marketing or AI-generated content optimization."
+            "Keep these pages reviewed by a qualified owner before public paid launch and update them when billing, "
+            "provider-rights or subprocessors materially change."
         ),
         "source": "whole-product audit",
     },
