@@ -82,7 +82,7 @@
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
     <p class="lead">Use the path that matches how you joined: current session, secure email link, workspace invite, or optional Google or Facebook identity.</p>
     <div class="cta-row">
-      <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
+      <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open current session</a>
       <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
     <form class="access-form" method="post" action="/sign-in/google">

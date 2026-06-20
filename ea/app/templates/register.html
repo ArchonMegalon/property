@@ -283,7 +283,7 @@
           </section>
         </div>
         <div class="cta-row">
-          <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">{% if brand.key == 'propertyquarry' %}Open PropertyQuarry{% else %}Open account{% endif %}</a>
+          <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">{% if brand.key == 'propertyquarry' %}Open PropertyQuarry{% else %}Open account{% endif %}</a>
           <a class="btn" href="/app/settings">Account settings</a>
         </div>
       </section>

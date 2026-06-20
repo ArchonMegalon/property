@@ -369,13 +369,19 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     client = build_property_client(principal_id="pq-register-copy")
 
     page = client.get("/register", headers={"host": "propertyquarry.com"})
+    sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
+    assert sign_in.status_code == 200
     assert "Start an account that finds and ranks the right properties" in page.text
     assert "Create the account and start the first search" in page.text
+    assert 'href="/app/search"' in page.text
+    assert 'href="/app/search"' in sign_in.text
+    assert 'href="/app/properties">Open current session</a>' not in sign_in.text
     assert "first useful memo" not in page.text
     assert 'data-milestone="commitments"' not in page.text
     assert "Executive Assistant" not in page.text
+    assert "Executive Assistant" not in sign_in.text
 
     get_started_template = (
         Path(__file__).resolve().parents[1] / "ea/app/templates/get_started.html"
@@ -384,6 +390,11 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "first useful property search" in get_started_body
     assert "first useful memo" not in get_started_body
     assert "workspace narrow" not in get_started_body
+    onboarding_rules = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/onboarding/_step_rules.html"
+    ).read_text(encoding="utf-8")
+    assert 'href="/app/search">Open PropertyQuarry</a>' in onboarding_rules
+    assert 'href="/app/properties">Open PropertyQuarry</a>' not in onboarding_rules
 
 
 def test_public_branding_repo_urls_stay_in_property_repository(monkeypatch) -> None:
