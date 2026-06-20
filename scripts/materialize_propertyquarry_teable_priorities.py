@@ -110,16 +110,15 @@ PRIORITIES = [
         "priority": "P0",
         "area": "Search workflow",
         "title": "Search wizard navigation and launch feedback must be immediate",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "frontend/search",
         "current_state": (
-            "Step navigation and launch actions have repeatedly regressed into appended content, slow clicks, no spinner "
-            "or unclear position after moving to the next step."
+            "Browser tests verify step clicks replace visible controls without accumulation, step changes scroll back to "
+            "the wizard nav, the top launch button remains visible, and launch shows a busy/disabled state immediately."
         ),
         "next_action": (
-            "Keep the launch button visible at the top-right of the wizard nav, scroll back to nav on step changes, show "
-            "a non-flickering launch animation, disable duplicate submits and screenshot-test the full flow."
+            "Keep these browser tests in the release gate whenever the search setup layout is rearranged."
         ),
         "source": "whole-product audit",
     },
@@ -146,16 +145,15 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Automation",
         "title": "Automation cards use OSM district-overlay thumbnails only",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "frontend/maps",
         "current_state": (
-            "Automation thumbnails should show selected district shapes with a small margin. Generic thumbnail pipelines "
-            "should not replace the map-based previews."
+            "Verified: automation cards use the map-only preview builder, reject generic local thumbnail/point-preview "
+            "fallbacks, materialize async OSM district overlays, and keep a small framing margin around selected shapes."
         ),
         "next_action": (
-            "Pre-render/cached district-overlay thumbnails for agents; fit all selected shapes without cutting them off; "
-            "delete the unrelated thumbnail fallback path."
+            "Keep map-only preview tests in the release gate and extend fixtures when new countries add district boundary data."
         ),
         "source": "whole-product audit",
     },
@@ -164,16 +162,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Tours and media",
         "title": "360 tours and walkthrough renders must be request-driven",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "media-factory",
         "current_state": (
-            "Provider 360/Matterport/3DVista links should be enabled when present. Generated walkthrough/video work must "
-            "not start by default or burn credits without a user action."
+            "Verified: generated visual requests send auto_deliver=false, keep buttons disabled while queued, expose "
+            "ready walkthrough links only after completion, reject Willhaben tracking endpoints as provider 360 URLs, "
+            "and preserve Matterport live embeds without leaking private source URLs in public manifests."
         ),
         "next_action": (
-            "E2E test provider live-360 detection, Matterport/3DVista routing, blocked synthetic fallback, and explicit "
-            "request buttons for generated media."
+            "Keep the manifest-backed sent-link browser test for live Matterport/3DVista and flythrough URLs; it skips "
+            "locally unless PROPERTYQUARRY_SENT_LINKS_MANIFEST points at real sent links."
         ),
         "source": "whole-product audit",
     },
