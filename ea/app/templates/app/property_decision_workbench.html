@@ -102,6 +102,7 @@
                     <button
                       class="pqx-button primary"
                       type="button"
+                      aria-label="{{ row.get('action_label') or 'Relax and restart' }}"
                       data-pqx-counterfactual='{{ row.get("adjustments")|tojson|safe }}'
                     >{{ row.get('action_label') or 'Relax and restart' }}</button>
                     {% if row.get('affected_total') %}
@@ -5857,7 +5858,7 @@
               </span>
               {% if setup_mode and console_form and show_form_controls and surface_mode != 'agents' %}
               <span class="pqx-inline-status pqx-launch-status" data-property-launch-status aria-live="polite"></span>
-              <button class="pqx-button primary" type="button" data-property-start-top>{{ console_form.get('submit_label') or 'Launch search' }}</button>
+              <button class="pqx-button primary" type="button" data-property-start-top aria-label="{{ console_form.get('submit_label') or 'Launch search' }}">{{ console_form.get('submit_label') or 'Launch search' }}</button>
               {% endif %}
             </div>
           </div>
@@ -5923,7 +5924,7 @@
             <fieldset class="pqx-workflow" aria-label="Search setup" data-property-step-nav>
               <legend>Search flow</legend>
               {% for step in wizard_steps %}
-              <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}">
+              <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}" aria-label="{{ step.get('label') or 'Search step' }}">
                 <strong>{{ step.get('label') }}</strong>
               </button>
               {% endfor %}
@@ -6266,7 +6267,7 @@
               </div>
               <div class="pqx-actions" data-property-actions hidden>
                 <button class="pqx-button subtle" type="button" data-property-save>Save search</button>
-                <button class="pqx-button primary" type="button" data-property-start>{{ console_form.get('submit_label') or 'Launch search' }}</button>
+                <button class="pqx-button primary" type="button" data-property-start aria-label="{{ console_form.get('submit_label') or 'Launch search' }}">{{ console_form.get('submit_label') or 'Launch search' }}</button>
               </div>
             </div>
             <div class="pqx-inline-status" data-property-inline-status></div>

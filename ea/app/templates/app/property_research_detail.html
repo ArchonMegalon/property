@@ -962,6 +962,7 @@
               data-source-ref="{{ research_source_ref or '' }}"
               data-run-id="{{ research_run_id or '' }}"
               data-candidate-ref="{{ research_candidate_ref or '' }}"
+              aria-label="{{ action.get('label') or 'Request visual review' }}"
             >{{ action.get('label') }}</button>
             {% endif %}
           {% endfor %}
@@ -1327,10 +1328,10 @@
       <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first.</p>
       <div class="object-feedback-reasons" data-object-feedback-reasons>
         {% for row in (research_feedback.get('suggestions') or {}).get('negative') or [] %}
-        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}" aria-label="{{ row.get('label') or 'Feedback reason' }}">{{ row.get('label') }}</button>
         {% endfor %}
         {% for row in (research_feedback.get('suggestions') or {}).get('positive') or [] %}
-        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}" aria-label="{{ row.get('label') or 'Feedback reason' }}">{{ row.get('label') }}</button>
         {% endfor %}
       </div>
       <div class="object-copy"><strong>Next question to send</strong></div>

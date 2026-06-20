@@ -99,12 +99,13 @@ PRIORITIES = [
         "user_visible": True,
         "owner_lane": "frontend/design-system",
         "current_state": (
-            "The product still has copy that feels internal, repeated status rows, oversized panels, dark-mode contrast "
-            "edge cases and controls that sometimes lack immediate feedback."
+            "Customer-facing security copy no longer uses review-gate/visual-check proof wording. A static surface gate now "
+            "catches known noise phrases, unsafe hash links, unnamed buttons and missing image alt attributes across the "
+            "main PropertyQuarry public, app, result, research, account and billing templates."
         ),
         "next_action": (
-            "Audit landing, search, results, research, agents, automation, account, sign-in, pricing and legal pages in "
-            "light/dark/mobile; remove non-actionable proof/check wording and verify clickable affordances."
+            "Keep removing oversized panels and repeated status rows; add screenshot coverage for landing, search, results, "
+            "research, agents, automation, account, sign-in, pricing and legal pages in light/dark/mobile."
         ),
         "source": "whole-product audit",
     },
@@ -446,12 +447,13 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Accessibility",
         "title": "Accessibility must become a release gate",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "frontend/accessibility",
         "current_state": (
-            "Polish passes cover visual layout, but accessibility is not yet a first-class exit gate across public, app, "
-            "results, research, account, pricing and generated artifact surfaces."
+            "scripts/check_property_surface_accessibility.py is wired into property_release_gates.sh and guards main "
+            "PropertyQuarry templates against known noise copy, unsafe/empty links, unnamed buttons and images without alt "
+            "attributes. Dynamic search/research action buttons now carry deterministic aria-labels."
         ),
         "next_action": (
             "Add axe, keyboard, focus, contrast, reduced-motion, touch-target and dialog checks; include PDF language, "
