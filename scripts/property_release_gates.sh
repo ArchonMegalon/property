@@ -50,6 +50,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_whole_project_scope.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_surface_accessibility.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
   tests/test_property_notification_email_templates.py \

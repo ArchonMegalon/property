@@ -357,16 +357,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Performance",
         "title": "First-load performance for app, agents and research pages",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "frontend/performance",
         "current_state": (
-            "Root and app landing were improved, but agents and some research detail pages can still feel slow when "
-            "thumbnails, maps, media state or large run payloads are initialized synchronously."
+            "Root and app landing were improved. scripts/propertyquarry_authenticated_performance_smoke.py now seeds an "
+            "authenticated local workspace, saved agents, and a synthetic completed run, then enforces first-paint route "
+            "budgets for search, agents, properties, shortlist, research, account and billing without hitting providers."
         ),
         "next_action": (
-            "Precompute agent map thumbnails, lazy-load heavy media/research sections, keep authenticated navigation "
-            "under the route budget, and add authenticated smoke/performance probes."
+            "Add a Docker/live authenticated variant and keep heavy media/research sections lazy so route budgets stay "
+            "stable when real run payloads grow."
         ),
         "source": "whole-product audit",
     },
@@ -375,16 +376,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Research detail",
         "title": "Research pages must load fast and fit the decision workflow",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "research/frontend",
         "current_state": (
-            "Some research pages take too long to load, waste vertical space, look visually uneven and block tour/"
-            "walkthrough actions instead of showing a clear requested-media state."
+            "The authenticated performance smoke now renders a seeded research detail page with a ranked candidate and "
+            "checks it stays under budget with explicit media-request actions. The visual layout still needs broader "
+            "screenshot tightening on dense real packets."
         ),
         "next_action": (
             "Slim the research layout to one-screen decision density, lazy-load expensive media/state, keep 360 first, "
-            "make request-tour/request-walkthrough buttons explicit and add screenshot tests."
+            "and add screenshot tests for real dense packets."
         ),
         "source": "whole-product audit",
     },
