@@ -346,7 +346,6 @@ def product_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
-    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
 
     app = create_app()
     client = TestClient(app)
@@ -376,7 +375,6 @@ def founder_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
-    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     client, seeded = seed_founder_fixture(principal_id="fixture-founder-browser")
     yield from _start_browser_server(client, seeded=seeded)
 
@@ -388,7 +386,6 @@ def team_browser_server() -> Iterator[dict[str, object]]:
     os.environ["EA_ENABLE_PUBLIC_SIDE_SURFACES"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_TOURS"] = "0"
-    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     client, seeded = seed_team_fixture(principal_id="fixture-team-browser")
     yield from _start_browser_server(client, seeded=seeded)
 

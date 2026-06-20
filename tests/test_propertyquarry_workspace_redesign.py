@@ -387,11 +387,23 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
 
 
 def test_public_branding_repo_urls_stay_in_property_repository(monkeypatch) -> None:
-    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
-    assert public_branding.brand_from_hostname("propertyquarry.com")["repo_url"] == "https://github.com/ArchonMegalon/property"
+    brand = public_branding.brand_from_hostname("propertyquarry.com")
+    assert brand["key"] == "propertyquarry"
+    assert brand["name"] == "PropertyQuarry"
+    assert brand["app_home"] == "/app/search"
+    assert brand["repo_url"] == "https://github.com/ArchonMegalon/property"
 
     monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "0")
-    assert public_branding.brand_from_hostname("legacy.invalid")["repo_url"] == "https://github.com/ArchonMegalon/property"
+    fallback_brand = public_branding.brand_from_hostname("legacy.invalid")
+    assert fallback_brand["key"] == "propertyquarry"
+    assert fallback_brand["name"] == "PropertyQuarry"
+    assert fallback_brand["app_home"] == "/app/search"
+    assert fallback_brand["repo_url"] == "https://github.com/ArchonMegalon/property"
+
+    source = (Path(__file__).resolve().parents[1] / "ea/app/services/public_branding.py").read_text(encoding="utf-8")
+    assert "Executive Assistant" not in source
+    assert "/app/today" not in source
+    assert "PROPERTYQUARRY_DEFAULT_BRAND" not in source
 
 
 def test_propertyquarry_account_surfaces_do_not_use_ea_channel_copy() -> None:
@@ -1203,7 +1215,6 @@ def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) ->
 
 def test_propertyquarry_root_redirects_token_authenticated_users_but_keeps_home_escape(monkeypatch) -> None:
     principal_id = "pq-root-token-search-redirect"
-    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)

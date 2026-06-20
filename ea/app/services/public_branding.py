@@ -21,11 +21,6 @@ PROPERTYQUARRY_HOSTS = _normalized_hosts_from_env(
 )
 
 
-def _propertyquarry_default_enabled() -> bool:
-    raw = str(os.getenv("PROPERTYQUARRY_DEFAULT_BRAND") or "1").strip().lower()
-    return raw not in {"0", "false", "no", "off"}
-
-
 def _propertyquarry_brand() -> dict[str, str]:
     return {
         "key": "propertyquarry",
@@ -66,20 +61,8 @@ def _request_origin(request: Any) -> str:
 
 
 def brand_from_hostname(hostname: str | None) -> dict[str, str]:
-    normalized = str(hostname or "").strip().lower().rstrip(".")
-    if normalized in PROPERTYQUARRY_HOSTS or _propertyquarry_default_enabled():
-        return _propertyquarry_brand()
-    return {
-        "key": "ea",
-        "name": "Executive Assistant",
-        "mark": "EA",
-        "create_label": "Create personal workspace",
-        "sign_in_label": "Sign in",
-        "workspace_label": "Assistant account",
-        "app_home": "/app/today",
-        "public_base_url": str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/"),
-        "repo_url": "https://github.com/ArchonMegalon/property",
-    }
+    _ = hostname
+    return _propertyquarry_brand()
 
 
 def request_brand(request: Any) -> dict[str, str]:

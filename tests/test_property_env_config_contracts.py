@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_env_example_lists_flagship_property_provider_switches() -> None:
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
 
+    assert "PROPERTYQUARRY_DEFAULT_BRAND" not in env
+
     for required in (
         "PROPERTYQUARRY_NEURONWRITER_ENABLED=0",
         "PROPERTYQUARRY_NEURONWRITER_REQUIRED=0",
