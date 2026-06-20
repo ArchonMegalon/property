@@ -11,7 +11,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+EA_DIR = ROOT / "ea"
+if str(EA_DIR) not in sys.path:
+    sys.path.insert(0, str(EA_DIR))
+
 from browseract_ui_media import compose_slideshow_video, transcode_video_webm
+from app.api.routes.public_tour_payloads import PrivateTourReceipt, build_public_tour_manifest
 
 
 DEFAULT_OUTPUT_DIR = Path("/docker/property/state/public_property_tours/crezlo")
@@ -222,6 +228,20 @@ def compose_tour_video(target_dir: Path, scenes: list[dict[str, object]], *, var
     return meta
 
 
+def public_tour_bundle_payload(*, payload: dict[str, object], bundle_dir: Path) -> dict[str, object]:
+    slug = str(payload.get("slug") or "").strip()
+    return build_public_tour_manifest(
+        payload,
+        expose_asset_relpaths=True,
+        url_allowed=lambda _url: False,
+        bundle_dir_resolver=lambda requested_slug: bundle_dir if str(requested_slug or "").strip() == slug else None,
+    ).as_dict()
+
+
+def private_tour_receipt(payload: dict[str, object]) -> dict[str, object]:
+    return PrivateTourReceipt.from_payload(payload).as_dict()
+
+
 def sort_rows(rows: dict[str, dict[str, object]]) -> list[dict[str, object]]:
     def key(row: dict[str, object]) -> tuple[str, int, str]:
         variant_key = str(row.get("variant_key") or "").strip()
@@ -271,12 +291,15 @@ def main() -> int:
         hosted_url = f"{str(args.public_base_url).rstrip('/')}/{slug}"
         published_scenes = write_scene_assets(target_dir, scenes)
         video_meta = compose_tour_video(target_dir, published_scenes, variant_key=variant_key) if published_scenes else {}
-        published = {
+        full_payload = {
             "slug": slug,
             "hosted_url": hosted_url,
             "run_key": str(row.get("run_key") or "").strip(),
             "listing_id": listing_id,
             "listing_url": str(packet.get("property_url") or "").strip(),
+            "property_url": str(packet.get("property_url") or "").strip(),
+            "source_ref": listing_id,
+            "external_id": str(row.get("run_key") or "").strip(),
             "title": str(packet.get("title") or structured.get("tour_title") or "").strip(),
             "display_title": str(coerce_dict(structured.get("tour_detail_json")).get("display_title") or "").strip(),
             "tour_title": str(structured.get("tour_title") or "").strip(),
@@ -307,8 +330,11 @@ def main() -> int:
             "crezlo_public_url": str(row.get("public_url") or structured.get("public_url") or "").strip(),
             "scenes": published_scenes,
         }
+        published = public_tour_bundle_payload(payload=full_payload, bundle_dir=target_dir)
+        private_receipt = private_tour_receipt(full_payload)
         out_path = target_dir / "tour.json"
         out_path.write_text(json.dumps(published, indent=2, ensure_ascii=False) + "\n")
+        (target_dir / "tour.private.json").write_text(json.dumps(private_receipt, indent=2, ensure_ascii=False) + "\n")
         index_rows.append(
             {
                 "slug": slug,

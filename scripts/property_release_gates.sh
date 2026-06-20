@@ -93,6 +93,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_content_studio.py \
   tests/test_property_subscribr_receipts.py \
   tests/e2e/test_property_content_studio_workflow.py \
+  tests/test_crezlo_public_tour_publish.py \
   tests/test_premium_dossier_contracts.py \
   tests/test_property_env_config_contracts.py \
   tests/test_public_rybbit.py \
