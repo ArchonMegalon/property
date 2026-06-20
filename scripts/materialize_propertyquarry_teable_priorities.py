@@ -273,16 +273,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Results recovery",
         "title": "Filtered counts must open useful relaxation controls",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "results/rerun-ux",
         "current_state": (
-            "Filtered-count affordances have regressed into dead clicks or scroll-only anchors. Users need immediate, "
-            "low-noise ways to relax filters and see expected recovered-match counts."
+            "Verified: filtered-count affordances open a compact recovery dialog or fallback breakdown, empty-result desks "
+            "show counterfactual recovery actions, and recovery rows include sliders, adjustment payloads and newly-ranked "
+            "estimate text."
         ),
         "next_action": (
-            "Make every filtered-count click open a compact recovery panel with budget/radius sliders, hard-rule warnings, "
-            "live newly-ranked count estimates and a smart rerun action."
+            "Keep the filtered-link browser tests and template contract tests in the release gate; add provider-specific "
+            "recovery fixtures whenever a new hard-rule bucket is introduced."
         ),
         "source": "whole-product audit",
     },
