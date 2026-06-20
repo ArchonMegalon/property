@@ -182,16 +182,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Account lifecycle",
         "title": "Account data controls need export, deletion, sessions and shared-link revocation",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "account/privacy",
         "current_state": (
-            "Account surfaces still focus on profile and delivery. Paid users need durable lifecycle controls for their "
-            "searches, documents, public packets, sessions and preferences."
+            "Verified: account exposes export, search-history clear, access links, connected services, analytics/learning, "
+            "delete-data, public packet/tour management and no-store export responses. Packet archive/dashboard, public-tour "
+            "auth gates, retention docs and deletion page are covered by focused tests."
         ),
         "next_action": (
-            "Add export/delete/search-history controls, active sessions, revoke shared links, consent history, learning "
-            "opt-out and property-specific retention."
+            "Keep account lifecycle, packet archive, public-tour auth and retention-document tests in the release gate; "
+            "extend them when document vault or full account-deletion automation lands."
         ),
         "source": "whole-product audit",
     },
