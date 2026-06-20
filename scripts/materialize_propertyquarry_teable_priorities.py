@@ -254,7 +254,7 @@ PRIORITIES = [
             "Pricing has been simplified; PayFunnels completion webhooks are idempotent; failed, cancelled and refunded "
             "callbacks now clear stale pending checkouts and record bounded billing event receipts; the billing surface "
             "shows compact latest-payment and billing-history rows only when useful, preserves PayFunnels invoice IDs as "
-            "accounting handoff receipts, refunded PayFunnels payments now revoke the paid entitlement instead of "
+            "accounting handoff receipts with invoice/VAT fields, refunded PayFunnels payments now revoke the paid entitlement instead of "
             "leaving access active, and the release gate now runs the full PayFunnels checkout/webhook/refund/mismatch "
             "contract subset."
         ),
@@ -671,8 +671,8 @@ PRIORITIES = [
         "owner_lane": "billing/accounting",
         "current_state": (
             "PayFunnels activation, failure, refund and invoice-id webhook receipts are implemented; refund callbacks now "
-            "revoke paid access and billing history can show compact invoice handoff state. The commercial lifecycle still "
-            "needs real invoice documents, VAT handling, failed-payment recovery automation and cancel/downgrade policy."
+            "revoke paid access and billing history can show compact invoice/VAT handoff state. The commercial lifecycle still "
+            "needs real accounting document generation, failed-payment recovery automation and cancel/downgrade policy."
         ),
         "next_action": (
             "Keep PropertyQuarry as entitlement truth, use PayFunnels/PayPal only for payment proof, add Invoiless or an "

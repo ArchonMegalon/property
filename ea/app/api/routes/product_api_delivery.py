@@ -1240,6 +1240,21 @@ async def payfunnels_property_billing_webhook(
         or dict(payload.get("invoice") or {}).get("id")
         or ""
     ).strip()
+    invoice_payload = dict(payload.get("invoice") or {}) if isinstance(payload.get("invoice"), dict) else {}
+    invoice_url = str(
+        payload.get("invoice_url")
+        or payload.get("invoiceUrl")
+        or payload.get("invoiceURL")
+        or payload.get("invoicePdfUrl")
+        or invoice_payload.get("url")
+        or invoice_payload.get("pdf_url")
+        or ""
+    ).strip()
+    invoice_status = str(payload.get("invoice_status") or payload.get("invoiceStatus") or invoice_payload.get("status") or "").strip()
+    currency = str(payload.get("currency") or payload.get("currencyCode") or payload.get("chargeCurrency") or "EUR").strip()
+    net_amount_eur = str(payload.get("net_amount_eur") or payload.get("netAmount") or payload.get("subtotalAmount") or "").strip()
+    vat_amount_eur = str(payload.get("vat_amount_eur") or payload.get("taxAmount") or payload.get("vatAmount") or "").strip()
+    vat_rate = str(payload.get("vat_rate") or payload.get("taxRate") or payload.get("vatRate") or "").strip()
     if not principal_id or not plan_key or not order_id:
         raise HTTPException(status_code=400, detail="payfunnels_webhook_missing_fields")
     try:
@@ -1283,9 +1298,15 @@ async def payfunnels_property_billing_webhook(
             plan_key=spec.plan_key,
             order_id=order_id,
             invoice_id=invoice_id,
+            invoice_url=invoice_url,
+            invoice_status=invoice_status,
             accounting_status="invoice_pending" if invoice_id else "invoice_not_provided",
             payment_status=payment_status or event_type or "completed",
+            currency=currency or "EUR",
             amount_eur=amount_eur or spec.amount_eur,
+            net_amount_eur=net_amount_eur,
+            vat_amount_eur=vat_amount_eur,
+            vat_rate=vat_rate,
         )
         updated = merge_property_commercial(
             preferences_before,
@@ -1324,9 +1345,15 @@ async def payfunnels_property_billing_webhook(
             plan_key=spec.plan_key,
             order_id=order_id,
             invoice_id=invoice_id,
+            invoice_url=invoice_url,
+            invoice_status=invoice_status,
             accounting_status="invoice_pending" if invoice_id else "invoice_not_provided",
             payment_status=payment_status or event_label,
+            currency=currency or "EUR",
             amount_eur=amount_eur or spec.amount_eur,
+            net_amount_eur=net_amount_eur,
+            vat_amount_eur=vat_amount_eur,
+            vat_rate=vat_rate,
         )
         updates: dict[str, object] = {
             "last_order_id": order_id,

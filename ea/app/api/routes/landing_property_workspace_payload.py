@@ -2164,19 +2164,31 @@ def property_workspace_payload(
         for event in list(commercial_state.get("billing_events_json") or [])
         if isinstance(event, dict)
     ]
+    invoice_handoffs_by_event = {
+        str(row.get("event_id") or "").strip(): dict(row)
+        for row in list(commercial.get("invoice_handoffs") or [])
+        if isinstance(row, dict) and str(row.get("event_id") or "").strip()
+    }
     for event in list(reversed(billing_events))[:5]:
         event_type = str(event.get("event_type") or "billing event").strip().replace("_", " ").replace(".", " ")
         event_status = str(event.get("payment_status") or "").strip().replace("_", " ")
         event_plan = str(event.get("plan_key") or "").strip().title()
         event_amount = str(event.get("amount_eur") or "").strip()
-        event_invoice_id = str(event.get("invoice_id") or "").strip()
-        event_accounting_status = str(event.get("accounting_status") or "").strip().replace("_", " ")
+        event_handoff = invoice_handoffs_by_event.get(str(event.get("event_id") or "").strip(), {})
+        event_invoice_id = str(event_handoff.get("invoice_id") or event.get("invoice_id") or "").strip()
+        event_accounting_status = str(event_handoff.get("state") or event.get("accounting_status") or "").strip().replace("_", " ")
+        event_vat = str(event_handoff.get("vat_amount_eur") or event.get("vat_amount_eur") or "").strip()
+        event_vat_rate = str(event_handoff.get("vat_rate") or event.get("vat_rate") or "").strip()
         event_when = str(event.get("recorded_at") or "").strip()[:16].replace("T", " ")
         detail_parts = [part for part in (event_status.title(), f"EUR {event_amount}" if event_amount else "", event_when) if part]
         if event_invoice_id:
             detail_parts.append(f"Invoice {event_invoice_id}")
         elif event_accounting_status:
             detail_parts.append(event_accounting_status.title())
+        if event_vat:
+            detail_parts.append(f"VAT EUR {event_vat}")
+        elif event_vat_rate:
+            detail_parts.append(f"VAT {event_vat_rate}")
         billing_history_rows.append(
             row_item(
                 event_type.title(),

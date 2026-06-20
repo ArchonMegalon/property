@@ -20,7 +20,7 @@ import app.product.property_investment_external_data as property_investment_exte
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
-from app.services.property_billing import property_commercial_snapshot, property_worker_cap
+from app.services.property_billing import property_billing_event_updates, property_billing_invoice_handoffs, property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
 
@@ -125,6 +125,50 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert agent["max_match_score"] == 80
     assert agent["magic_fit_scene_period"] == "none"
     assert agent["magic_fit_video_period"] == "none"
+
+
+def test_property_billing_invoice_handoff_preserves_vat_and_document_state() -> None:
+    updates = property_billing_event_updates(
+        {},
+        provider="payfunnels",
+        event_type="payment.completed",
+        event_id="evt-invoice-vat",
+        plan_key="plus",
+        order_id="pf-plus-vat",
+        invoice_id="inv-vat-123",
+        invoice_url="https://billing.example.test/invoices/inv-vat-123.pdf",
+        invoice_status="issued",
+        accounting_status="invoice_pending",
+        payment_status="completed",
+        currency="EUR",
+        amount_eur="3.00",
+        net_amount_eur="2.52",
+        vat_amount_eur="0.48",
+        vat_rate="20%",
+    )
+
+    handoffs = property_billing_invoice_handoffs({"billing_events_json": updates["billing_events_json"]})
+
+    assert handoffs == [
+        {
+            "event_id": "evt-invoice-vat",
+            "provider": "payfunnels",
+            "plan_key": "plus",
+            "order_id": "pf-plus-vat",
+            "invoice_id": "inv-vat-123",
+            "invoice_url": "https://billing.example.test/invoices/inv-vat-123.pdf",
+            "state": "issued",
+            "accounting_status": "invoice_pending",
+            "invoice_status": "issued",
+            "payment_status": "completed",
+            "currency": "EUR",
+            "amount_eur": "3.00",
+            "net_amount_eur": "2.52",
+            "vat_amount_eur": "0.48",
+            "vat_rate": "20%",
+            "recorded_at": handoffs[0]["recorded_at"],
+        }
+    ]
 
 
 def test_property_search_preferences_use_school_evidence_priority_with_legacy_alias() -> None:

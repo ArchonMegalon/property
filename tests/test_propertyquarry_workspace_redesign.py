@@ -4261,9 +4261,13 @@ def test_property_billing_surface_shows_compact_payment_history() -> None:
                         "plan_key": "plus",
                         "order_id": "pf_123",
                         "invoice_id": "inv_123",
+                        "invoice_status": "issued",
                         "accounting_status": "invoice_pending",
                         "payment_status": "paid",
                         "amount_eur": "3.00",
+                        "net_amount_eur": "2.52",
+                        "vat_amount_eur": "0.48",
+                        "vat_rate": "20%",
                         "recorded_at": "2026-06-20T12:00:00+00:00",
                     }
                 ],
@@ -4278,7 +4282,7 @@ def test_property_billing_surface_shows_compact_payment_history() -> None:
     assert billing.status_code == 200
     assert "Billing history" in billing.text
     assert "Payment Completed" in billing.text
-    assert "Paid | EUR 3.00 | 2026-06-20 12:00 | Invoice inv_123" in billing.text
+    assert "Paid | EUR 3.00 | 2026-06-20 12:00 | Invoice inv_123 | VAT EUR 0.48" in billing.text
     assert "Plus" in billing.text
     assert "PayFunnels" not in billing.text
 

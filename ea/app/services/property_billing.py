@@ -200,9 +200,15 @@ def _normalized_property_billing_events(value: object) -> list[dict[str, object]
             "plan_key": str(item.get("plan_key") or "").strip().lower()[:40],
             "order_id": str(item.get("order_id") or "").strip()[:160],
             "invoice_id": str(item.get("invoice_id") or "").strip()[:160],
+            "invoice_url": str(item.get("invoice_url") or "").strip()[:500],
+            "invoice_status": str(item.get("invoice_status") or "").strip().lower()[:80],
             "accounting_status": str(item.get("accounting_status") or "").strip().lower()[:80],
             "payment_status": str(item.get("payment_status") or "").strip().lower()[:80],
+            "currency": str(item.get("currency") or "EUR").strip().upper()[:8],
             "amount_eur": str(item.get("amount_eur") or "").strip()[:40],
+            "net_amount_eur": str(item.get("net_amount_eur") or "").strip()[:40],
+            "vat_amount_eur": str(item.get("vat_amount_eur") or "").strip()[:40],
+            "vat_rate": str(item.get("vat_rate") or "").strip()[:40],
             "recorded_at": str(item.get("recorded_at") or "").strip()[:80],
         }
         if any(event.values()):
@@ -219,9 +225,15 @@ def property_billing_event_updates(
     plan_key: str = "",
     order_id: str = "",
     invoice_id: str = "",
+    invoice_url: str = "",
+    invoice_status: str = "",
     accounting_status: str = "",
     payment_status: str = "",
+    currency: str = "EUR",
     amount_eur: str = "",
+    net_amount_eur: str = "",
+    vat_amount_eur: str = "",
+    vat_rate: str = "",
 ) -> dict[str, object]:
     normalized = normalize_property_commercial(existing_commercial)
     events = list(normalized.get("billing_events_json") or [])
@@ -235,6 +247,7 @@ def property_billing_event_updates(
                 str(plan_key or "").strip().lower(),
                 str(order_id or "").strip(),
                 str(invoice_id or "").strip(),
+                str(invoice_url or "").strip(),
                 str(payment_status or "").strip().lower(),
                 str(amount_eur or "").strip(),
             ]
@@ -253,15 +266,21 @@ def property_billing_event_updates(
             "event_id": compact_event_id,
             "event_type": compact_event_type,
             "provider": str(provider or "").strip().lower(),
-            "plan_key": str(plan_key or "").strip().lower(),
-            "order_id": str(order_id or "").strip(),
-            "invoice_id": str(invoice_id or "").strip(),
-            "accounting_status": str(accounting_status or "").strip().lower(),
-            "payment_status": str(payment_status or "").strip().lower(),
-            "amount_eur": str(amount_eur or "").strip(),
-            "recorded_at": recorded_at,
-        }
-    )
+                "plan_key": str(plan_key or "").strip().lower(),
+                "order_id": str(order_id or "").strip(),
+                "invoice_id": str(invoice_id or "").strip(),
+                "invoice_url": str(invoice_url or "").strip(),
+                "invoice_status": str(invoice_status or "").strip().lower(),
+                "accounting_status": str(accounting_status or "").strip().lower(),
+                "payment_status": str(payment_status or "").strip().lower(),
+                "currency": str(currency or "EUR").strip().upper(),
+                "amount_eur": str(amount_eur or "").strip(),
+                "net_amount_eur": str(net_amount_eur or "").strip(),
+                "vat_amount_eur": str(vat_amount_eur or "").strip(),
+                "vat_rate": str(vat_rate or "").strip(),
+                "recorded_at": recorded_at,
+            }
+        )
     events = _normalized_property_billing_events(events)
     return {
         "last_billing_event_type": compact_event_type,
@@ -269,6 +288,51 @@ def property_billing_event_updates(
         "last_billing_event_at": recorded_at,
         "billing_events_json": events,
     }
+
+
+def property_billing_invoice_handoffs(property_commercial: dict[str, object] | None) -> list[dict[str, object]]:
+    commercial = normalize_property_commercial(property_commercial)
+    rows: list[dict[str, object]] = []
+    for event in list(commercial.get("billing_events_json") or []):
+        if not isinstance(event, dict):
+            continue
+        invoice_id = str(event.get("invoice_id") or "").strip()
+        accounting_status = str(event.get("accounting_status") or "").strip().lower()
+        invoice_status = str(event.get("invoice_status") or "").strip().lower()
+        payment_status = str(event.get("payment_status") or "").strip().lower()
+        if not invoice_id and not accounting_status and not invoice_status:
+            continue
+        if payment_status in {"refunded", "refund", "payment.refunded"}:
+            state = "refunded"
+        elif payment_status in {"failed", "payment.failed"}:
+            state = "payment_failed"
+        elif invoice_status in {"issued", "sent", "paid"}:
+            state = invoice_status
+        elif invoice_id:
+            state = "pending_document"
+        else:
+            state = accounting_status or "pending_document"
+        rows.append(
+            {
+                "event_id": str(event.get("event_id") or "").strip(),
+                "provider": str(event.get("provider") or "").strip().lower(),
+                "plan_key": str(event.get("plan_key") or "").strip().lower(),
+                "order_id": str(event.get("order_id") or "").strip(),
+                "invoice_id": invoice_id,
+                "invoice_url": str(event.get("invoice_url") or "").strip(),
+                "state": state,
+                "accounting_status": accounting_status,
+                "invoice_status": invoice_status,
+                "payment_status": payment_status,
+                "currency": str(event.get("currency") or "EUR").strip().upper(),
+                "amount_eur": str(event.get("amount_eur") or "").strip(),
+                "net_amount_eur": str(event.get("net_amount_eur") or "").strip(),
+                "vat_amount_eur": str(event.get("vat_amount_eur") or "").strip(),
+                "vat_rate": str(event.get("vat_rate") or "").strip(),
+                "recorded_at": str(event.get("recorded_at") or "").strip(),
+            }
+        )
+    return rows[-10:]
 
 
 def property_commercial_snapshot(property_preferences: dict[str, object] | None) -> dict[str, object]:
@@ -297,6 +361,7 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
         "pending_plan_key": pending_plan.plan_key if pending_plan is not None else "",
         "pending_plan_label": pending_plan.display_name if pending_plan is not None else "",
         "pending_approval_url": str(commercial.get("pending_approval_url") or ""),
+        "invoice_handoffs": property_billing_invoice_handoffs(commercial),
         "plan_catalog": [
             {
                 "plan_key": spec.plan_key,

@@ -20486,8 +20486,14 @@ def test_property_payfunnels_webhook_accepts_documented_callback_shape(
         "invoiceTitle": title,
         "customerEmail": "buyer@example.com",
         "chargeAmount": "3.00",
+        "currencyCode": "EUR",
         "chargeId": "ch_123",
         "invoiceId": "inv_123",
+        "invoiceUrl": "https://billing.example.test/invoices/inv_123.pdf",
+        "invoiceStatus": "issued",
+        "netAmount": "2.52",
+        "taxAmount": "0.48",
+        "taxRate": "20%",
         "event_type": "payment.completed",
         "payment_status": "completed",
     }
@@ -20510,7 +20516,12 @@ def test_property_payfunnels_webhook_accepts_documented_callback_shape(
     assert commercial["active_plan_key"] == "plus"
     assert commercial["last_payer_email"] == "buyer@example.com"
     assert commercial["billing_events_json"][-1]["invoice_id"] == "inv_123"
+    assert commercial["billing_events_json"][-1]["invoice_url"] == "https://billing.example.test/invoices/inv_123.pdf"
+    assert commercial["billing_events_json"][-1]["invoice_status"] == "issued"
     assert commercial["billing_events_json"][-1]["accounting_status"] == "invoice_pending"
+    assert commercial["billing_events_json"][-1]["net_amount_eur"] == "2.52"
+    assert commercial["billing_events_json"][-1]["vat_amount_eur"] == "0.48"
+    assert commercial["billing_events_json"][-1]["vat_rate"] == "20%"
 
 
 def test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape(
@@ -20756,9 +20767,13 @@ def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
                         "plan_key": "plus",
                         "order_id": "pf-plus-surface",
                         "invoice_id": "inv-surface-123",
+                        "invoice_status": "issued",
                         "accounting_status": "invoice_pending",
                         "payment_status": "failed",
                         "amount_eur": "3.00",
+                        "net_amount_eur": "2.52",
+                        "vat_amount_eur": "0.48",
+                        "vat_rate": "20%",
                         "recorded_at": "2026-06-20T12:00:00+00:00",
                     }
                 ],
@@ -20773,6 +20788,7 @@ def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
     assert "Current search access" in billing.text
     assert "Latest payment" in billing.text
     assert "Failed | EUR 3.00 | payment.failed" in billing.text
+    assert "VAT EUR 0.48" in billing.text
     assert "Billing truth" not in billing.text
     assert "Plan and limits" not in billing.text
     assert "Current commercial state" not in billing.text
