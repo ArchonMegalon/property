@@ -363,16 +363,16 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Security",
         "title": "Untrusted listing and document content is data, never instruction",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": False,
         "owner_lane": "security/research-pipeline",
         "current_state": (
-            "Provider HTML, listing descriptions, PDFs, OCR and external feeds can flow into extraction, ranking, dossiers "
-            "and content drafts. This needs an explicit prompt-injection boundary."
+            "Listing-text extraction strips scripted/hidden content and flags instruction-like text. Content-studio source "
+            "packets and generated drafts now fail validation on prompt-injection language and hidden/scripted markup."
         ),
         "next_action": (
-            "Strip hidden/scripted content, extract into strict schemas before model reasoning, never pass secrets to "
-            "untrusted contexts, and add malicious fixtures for listing text, PDF metadata and OCR."
+            "Extend the same boundary to uploaded PDF metadata/OCR, external feeds and every LLM research prompt; keep "
+            "malicious fixtures in release gates and record prompt/schema versions."
         ),
         "source": "whole-product audit",
     },

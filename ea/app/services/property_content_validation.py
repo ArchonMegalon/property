@@ -57,11 +57,62 @@ SCRIPT_FACT_TERMS = (
     "sauna",
     "terrace",
 )
+PROMPT_INJECTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "instruction_override",
+        re.compile(
+            r"\b(?:ignore|disregard|forget|override|bypass)\b.{0,80}\b(?:previous|prior|above|system|developer|policy|instructions?)\b",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    ),
+    (
+        "role_prompt",
+        re.compile(
+            r"\b(?:system|developer|assistant)\s*(?:message|prompt|instructions?)\b|<\s*/?\s*(?:system|developer|assistant)\s*>",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "prompt_exfiltration",
+        re.compile(r"\b(?:reveal|print|show|dump|exfiltrate)\b.{0,80}\b(?:system prompt|developer prompt|instructions?|secrets?)\b", re.IGNORECASE | re.DOTALL),
+    ),
+    (
+        "tool_or_function_call",
+        re.compile(r"\b(?:tool_call|function_call|assistant to=|call_tool|invoke_tool)\b|```json\s*\{[^`]{0,400}\b(?:tool|function|arguments)\b", re.IGNORECASE | re.DOTALL),
+    ),
+    (
+        "credential_request",
+        re.compile(r"\b(?:api[_ -]?key|bearer token|authorization header|cookie|password|credential)\b.{0,80}\b(?:send|print|show|use|include|exfiltrate)\b", re.IGNORECASE | re.DOTALL),
+    ),
+)
+UNTRUSTED_MARKUP_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "scripted_markup",
+        re.compile(r"<\s*(?:script|style|template|noscript|iframe|object|embed)\b", re.IGNORECASE),
+    ),
+    (
+        "hidden_markup",
+        re.compile(
+            r"<[^>]+(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|aria-hidden\s*=\s*['\"]?true|hidden\b|type\s*=\s*['\"]?hidden)",
+            re.IGNORECASE,
+        ),
+    ),
+    ("html_comment", re.compile(r"<!--[\s\S]*?-->", re.IGNORECASE)),
+)
 
 
 def _contains_any(text: str, phrases: tuple[str, ...]) -> list[str]:
     lowered = text.lower()
     return [phrase for phrase in phrases if phrase in lowered]
+
+
+def _pattern_findings(text: str, patterns: tuple[tuple[str, re.Pattern[str]], ...]) -> list[tuple[str, str]]:
+    findings: list[tuple[str, str]] = []
+    for code, pattern in patterns:
+        match = pattern.search(text)
+        if match:
+            findings.append((code, " ".join(match.group(0).split())[:180]))
+    return findings
 
 
 def _pass_fail(condition: bool) -> str:
@@ -107,6 +158,14 @@ def validate_property_content_source_packet(packet: dict[str, object]) -> dict[s
     expires = _parse_iso(packet.get("expires_at"))
     checks["freshness"] = _pass_fail(expires is not None and expires > datetime.now(timezone.utc))
     canonical = packet_text_index(packet)
+    instruction_findings = _pattern_findings(canonical, PROMPT_INJECTION_PATTERNS)
+    markup_findings = _pattern_findings(canonical, UNTRUSTED_MARKUP_PATTERNS)
+    checks["untrusted_instruction_boundary"] = _pass_fail(not instruction_findings)
+    checks["untrusted_markup_boundary"] = _pass_fail(not markup_findings)
+    for code, detail in instruction_findings:
+        findings.append({"code": f"untrusted_instruction_{code}", "path": "$", "detail": detail})
+    for code, detail in markup_findings:
+        findings.append({"code": f"untrusted_markup_{code}", "path": "$", "detail": detail})
     for code, phrases in (
         ("financial_language", FINANCIAL_BLOCK_PHRASES),
         ("legal_language", LEGAL_BLOCK_PHRASES),
@@ -147,6 +206,14 @@ def validate_property_content_script(packet: dict[str, object], markdown: str) -
     privacy = validate_property_content_privacy(text)
     checks["privacy"] = str(privacy["status"])
     findings.extend({"code": str(item.get("code")), "path": "$script", "detail": str(item.get("detail"))} for item in privacy["findings"])
+    instruction_findings = _pattern_findings(text, PROMPT_INJECTION_PATTERNS)
+    markup_findings = _pattern_findings(text, UNTRUSTED_MARKUP_PATTERNS)
+    checks["untrusted_instruction_boundary"] = _pass_fail(not instruction_findings)
+    checks["untrusted_markup_boundary"] = _pass_fail(not markup_findings)
+    for code, detail in instruction_findings:
+        findings.append({"code": f"untrusted_instruction_{code}", "path": "$script", "detail": detail})
+    for code, detail in markup_findings:
+        findings.append({"code": f"untrusted_markup_{code}", "path": "$script", "detail": detail})
     source_index = packet_text_index(packet)
     forbidden_claims = [str(item or "").strip() for item in packet.get("forbidden_claims") or [] if str(item or "").strip()]
     forbidden_matches = [claim for claim in forbidden_claims if claim.lower() in lowered]
