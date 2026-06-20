@@ -57,16 +57,15 @@ PRIORITIES = [
         "priority": "P0",
         "area": "Ranking",
         "title": "Soft filters affect score, not eligibility",
-        "status": "open",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "ranking/e2e",
         "current_state": (
-            "Runs with many optional preferences can leave hundreds of candidates outside the shortlist. Must-have and "
-            "hard rules may filter; neutral/nice/strong preferences should score and explain."
+            "Verified in unit and e2e coverage: non-hard daily-life preferences preserve the discovered hit set, while "
+            "soft mismatches only score-demote, annotate distance preference notes and affect ordering/explanation."
         ),
         "next_action": (
-            "Keep the soft-filter equivalence E2E: same hard criteria with and without soft filters must inspect the same "
-            "candidate set; only ordering, score and explanation may change."
+            "Keep the soft-filter equivalence E2E in the release gate and extend it with every new What matters category."
         ),
         "source": "whole-product audit",
     },
@@ -129,12 +128,12 @@ PRIORITIES = [
         "priority": "P0",
         "area": "Design system",
         "title": "Light and dark mode must share readable component tokens",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "frontend/design-system",
         "current_state": (
-            "Some controls keep light backgrounds while text switches to dark-mode white. Social-provider buttons and "
-            "auth controls need one consistent readable treatment across modes."
+            "Sign-in provider rows now use compact shared surface/icon/button tokens and no longer show noisy Google?/Facebook? "
+            "help buttons. Broader app-surface light/dark screenshot coverage is still required."
         ),
         "next_action": (
             "Replace one-off white panels/buttons with shared surface, border, icon and text tokens; screenshot-test "

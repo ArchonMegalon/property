@@ -446,6 +446,11 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert 'href="/app/search"' in page.text
     assert 'href="/app/search"' in sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
+    assert "Google?" not in sign_in.text
+    assert "Facebook?" not in sign_in.text
+    assert "Use the path that matches how you joined" not in sign_in.text
+    assert "Identity-only." in sign_in.text
+    assert "auth-provider-icon" in sign_in.text
     assert "first useful memo" not in page.text
     assert 'data-milestone="commitments"' not in page.text
     assert "Executive Assistant" not in page.text
