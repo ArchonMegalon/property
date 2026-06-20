@@ -537,6 +537,115 @@ PRIORITIES = [
         "source": "whole-product audit",
     },
     {
+        "projection_id": "pq-priority-search-run-tenancy-schema",
+        "priority": "P1",
+        "area": "Data model",
+        "title": "Search-run tenancy and schema versioning",
+        "status": "open",
+        "user_visible": False,
+        "owner_lane": "storage/security",
+        "current_state": (
+            "Search runs still need a stricter tenant boundary and migration posture so ownership cannot drift, user paths "
+            "cannot list other principals, and concurrent provider/ranking/research updates do not overwrite each other."
+        ),
+        "next_action": (
+            "Move to principal-scoped immutable ownership or composite keys, split user/admin listing APIs, add schema "
+            "migrations and optimistic versions or event tables for run updates."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-dedicated-worker-queues",
+        "priority": "P1",
+        "area": "Reliability",
+        "title": "Dedicated worker queues for provider, research, render and delivery lanes",
+        "status": "open",
+        "user_visible": False,
+        "owner_lane": "fleet/job-system",
+        "current_state": (
+            "Repair execution is now durable, but heavy work still needs resource-isolated queues so slow browser fetches, "
+            "research, PDFs, tours and notifications cannot starve each other."
+        ),
+        "next_action": (
+            "Introduce provider-fetch, browser-extraction, evidence, ranking, LLM research, document parsing, PDF render, "
+            "tour/media, notification and projection-sync queues with retries, locks, checkpoints and dead-letter receipts."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-notification-governance",
+        "priority": "P1",
+        "area": "Notifications",
+        "title": "Email, Telegram and WhatsApp delivery governance",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "delivery",
+        "current_state": (
+            "Scout quality is guarded, but channel governance still needs verified destinations, quiet hours, opt-in, "
+            "STOP/START, delivery receipts, suppression and unified user controls."
+        ),
+        "next_action": (
+            "Build one Delivery center backed by durable channel tables for email, Telegram and WhatsApp, including "
+            "template category, receipt, bounce/complaint, unsubscribe and retention handling."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-ranking-benchmark",
+        "priority": "P1",
+        "area": "Ranking",
+        "title": "Offline ranking and research benchmark",
+        "status": "open",
+        "user_visible": False,
+        "owner_lane": "ranking/evaluation",
+        "current_state": (
+            "Soft filters and hard filters are guarded by focused tests, but scoring changes still need replayable "
+            "benchmark receipts to prove recall, ordering, explanation faithfulness and cost per useful shortlist."
+        ),
+        "next_action": (
+            "Create versioned briefs, candidate sets, expected exclusions, expert relevance labels, missing-fact truth and "
+            "outcome fixtures; report Recall@20, Precision@5, NDCG@10, hard-filter violations and cost deltas."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-market-readiness-localization",
+        "priority": "P1",
+        "area": "Markets",
+        "title": "Market readiness, currency, timezone and localization",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "market-catalog/localization",
+        "current_state": (
+            "The catalog exposes many countries and languages, but not every market has equal provider rights, evidence "
+            "coverage, currency formatting, timezone behavior, documents, localized notifications and support readiness."
+        ),
+        "next_action": (
+            "Add market states from catalog_only to public, require provider canaries and rights review before public "
+            "exposure, and introduce Money, localized dates/numbers, market/user timezones and address formats."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-billing-invoice-vat-lifecycle",
+        "priority": "P1",
+        "area": "Billing",
+        "title": "Invoice, VAT, cancellation, refund and failed-payment lifecycle",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "billing/accounting",
+        "current_state": (
+            "PayFunnels activation and webhook receipts are partially implemented, but the commercial lifecycle still needs "
+            "invoice documents, VAT handling, billing history, failed-payment recovery, downgrade/cancel policy and refund "
+            "receipts."
+        ),
+        "next_action": (
+            "Keep PropertyQuarry as entitlement truth, use PayFunnels/PayPal only for payment proof, add Invoiless or an "
+            "accounting lane for invoice/VAT documents, and expose compact billing history without operational noise."
+        ),
+        "source": "whole-product audit",
+    },
+    {
         "projection_id": "pq-priority-observability-dr",
         "priority": "P2",
         "area": "Operations",

@@ -453,6 +453,12 @@ def test_propertyquarry_teable_priority_materializer_has_stable_product_rows() -
     assert "pq-priority-search-location-hard-filters" in projection_ids
     assert "pq-priority-payfunnels-commercial-lifecycle" in projection_ids
     assert "pq-priority-property-passport" in projection_ids
+    assert "pq-priority-search-run-tenancy-schema" in projection_ids
+    assert "pq-priority-dedicated-worker-queues" in projection_ids
+    assert "pq-priority-notification-governance" in projection_ids
+    assert "pq-priority-ranking-benchmark" in projection_ids
+    assert "pq-priority-market-readiness-localization" in projection_ids
+    assert "pq-priority-billing-invoice-vat-lifecycle" in projection_ids
     assert [field["name"] for field in fields] == [
         "projection_id",
         "priority",
