@@ -1683,6 +1683,15 @@ def settings_trust_detail(
                     _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
                     _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
                     _object_detail_row("Sync reliability", str(reliability.get("sync") or "watch"), "Runtime"),
+                    _object_detail_row(
+                        "Export data",
+                        "Download your account, searches, saved results, and preference records.",
+                        "Data",
+                        href="/app/api/property/account/export?download=1",
+                        action_href="/app/api/property/account/export?download=1",
+                        action_label="Export data",
+                        action_method="get",
+                    ),
                 ],
             },
             {
