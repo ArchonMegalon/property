@@ -144,6 +144,9 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / 
 
 
 def _facebook_sign_in_enabled() -> bool:
+    enabled_flag = str(os.environ.get("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN") or "").strip().lower()
+    if enabled_flag not in {"1", "true", "yes", "on"}:
+        return False
     return all(
         str(os.environ.get(key) or "").strip()
         for key in (
@@ -2417,6 +2420,16 @@ async def sign_in_facebook(
 ) -> RedirectResponse:
     from app.services.facebook_oauth import build_facebook_oauth_start
 
+    if not _facebook_sign_in_enabled():
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "facebook_error": "facebook_sign_in_disabled",
+                }
+            ),
+            status_code=303,
+        )
     try:
         packet = build_facebook_oauth_start(
             principal_id="",

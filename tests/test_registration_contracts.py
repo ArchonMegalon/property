@@ -177,7 +177,22 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert "Choose the narrowest sign-in path" not in response.text
 
 
-def test_sign_in_page_only_shows_facebook_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sign_in_page_hides_facebook_until_explicitly_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in")
+
+    assert response.status_code == 200
+    assert "Continue with Facebook" not in response.text
+    assert 'action="/sign-in/facebook"' not in response.text
+
+
+def test_sign_in_page_only_shows_facebook_when_configured_and_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
@@ -189,6 +204,19 @@ def test_sign_in_page_only_shows_facebook_when_configured(monkeypatch: pytest.Mo
     assert response.status_code == 200
     assert "Continue with Facebook" in response.text
     assert 'action="/sign-in/facebook"' in response.text
+
+
+def test_sign_in_facebook_post_fails_closed_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    response = client.post("/sign-in/facebook", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert "facebook_error=facebook_sign_in_disabled" in response.headers["location"]
 
 
 def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -250,6 +278,7 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
 
 
 def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
