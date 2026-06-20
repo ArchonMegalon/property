@@ -24748,9 +24748,13 @@ class ProductService:
                 reason = "provider source endpoint was removed"
             elif not bool(snapshot.get("http_ok")):
                 return {"status": "deferred", "reason": "manual_provider_patch_required"}
-        elif filter_key == "run_interrupted_stale":
-            resolution = "stale_run_restart_required"
-            reason = "search run stopped updating before a durable checkpoint could complete; started a fresh bounded run from the saved brief"
+        elif filter_key in {"run_interrupted_stale", "run_worker_exception"}:
+            if filter_key == "run_worker_exception":
+                resolution = "worker_exception_restart_required"
+                reason = "search worker failed before source rows could complete; started a fresh bounded run from the saved brief"
+            else:
+                resolution = "stale_run_restart_required"
+                reason = "search run stopped updating before a durable checkpoint could complete; started a fresh bounded run from the saved brief"
             parent_run_id = str(input_json.get("run_id") or diagnostics.get("run_id") or "").strip()
             parent_state: dict[str, object] = {}
             if parent_run_id:

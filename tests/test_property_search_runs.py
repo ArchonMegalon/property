@@ -7241,12 +7241,29 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
     assert repair_input["run_id"] == run["run_id"]
     assert repair_input["diagnostics"]["failure_class"] == "run_worker_exception"
     assert repair_input["diagnostics"]["error"] == "provider merge crashed before source rows existed"
+    replacement_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_search_repair_replacement_run",
+        lambda self, **kwargs: replacement_calls.append(dict(kwargs)) or {"run_id": f"{run['run_id']}-repair"},
+    )
     repair_summary = service.process_property_provider_repair_tasks(
         principal_id=principal_id,
         actor="test",
         limit=5,
     )
-    assert repair_summary["deferred_total"] == 1
+    assert repair_summary["resolved_total"] == 1
+    assert repair_summary["deferred_total"] == 0
+    assert repair_summary["resolved"][0]["resolution"] == "worker_exception_restart_required"
+    assert repair_summary["resolved"][0]["replacement_run_id"] == f"{run['run_id']}-repair"
+    assert replacement_calls
+    assert replacement_calls[0]["selected_platforms"] == ("willhaben",)
+    assert replacement_calls[0]["property_search_preferences"]["location_query"] == "1010 Vienna"
+
+    repaired_status = service.get_property_search_run_status(principal_id=principal_id, run_id=str(run["run_id"]))
+    assert repaired_status["summary"]["repair_replacement_run_id"] == f"{run['run_id']}-repair"
+    assert repaired_status["summary"]["repair_replacement_status_url"] == f"/app/api/signals/property/search/run/{run['run_id']}-repair"
+    assert repaired_status["summary"]["repair_receipts"][0]["resolution"] == "worker_exception_restart_required"
 
 
 def test_property_search_run_state_builds_stale_failure_event() -> None:
