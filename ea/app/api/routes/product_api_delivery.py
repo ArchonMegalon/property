@@ -1233,6 +1233,13 @@ async def payfunnels_property_billing_webhook(
         or payload.get("invoiceId")
         or ""
     ).strip()
+    invoice_id = str(
+        payload.get("invoice_id")
+        or payload.get("invoiceId")
+        or payload.get("invoice")
+        or dict(payload.get("invoice") or {}).get("id")
+        or ""
+    ).strip()
     if not principal_id or not plan_key or not order_id:
         raise HTTPException(status_code=400, detail="payfunnels_webhook_missing_fields")
     try:
@@ -1275,6 +1282,8 @@ async def payfunnels_property_billing_webhook(
             event_id=event_id,
             plan_key=spec.plan_key,
             order_id=order_id,
+            invoice_id=invoice_id,
+            accounting_status="invoice_pending" if invoice_id else "invoice_not_provided",
             payment_status=payment_status or event_type or "completed",
             amount_eur=amount_eur or spec.amount_eur,
         )
@@ -1314,6 +1323,8 @@ async def payfunnels_property_billing_webhook(
             event_id=event_id,
             plan_key=spec.plan_key,
             order_id=order_id,
+            invoice_id=invoice_id,
+            accounting_status="invoice_pending" if invoice_id else "invoice_not_provided",
             payment_status=payment_status or event_label,
             amount_eur=amount_eur or spec.amount_eur,
         )

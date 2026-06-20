@@ -250,11 +250,11 @@ PRIORITIES = [
         "current_state": (
             "Pricing has been simplified; PayFunnels completion webhooks are idempotent; failed, cancelled and refunded "
             "callbacks now clear stale pending checkouts and record bounded billing event receipts; the billing surface "
-            "shows compact latest-payment and billing-history rows only when useful, plus refund/cancellation and invoice "
-            "handoff context without provider-name noise."
+            "shows compact latest-payment and billing-history rows only when useful, preserves PayFunnels invoice IDs as "
+            "accounting handoff receipts, plus refund/cancellation context without provider-name noise."
         ),
         "next_action": (
-            "Finish downgrade/cancel policy automation, accounting-lane invoice receipts, failed-payment recovery actions "
+            "Finish downgrade/cancel policy automation, full accounting-lane invoice/VAT documents, failed-payment recovery actions "
             "and production PayFunnels smoke receipts."
         ),
         "source": "whole-product audit",
@@ -639,9 +639,9 @@ PRIORITIES = [
         "user_visible": True,
         "owner_lane": "billing/accounting",
         "current_state": (
-            "PayFunnels activation and webhook receipts are partially implemented, but the commercial lifecycle still needs "
-            "invoice documents, VAT handling, billing history, failed-payment recovery, downgrade/cancel policy and refund "
-            "receipts."
+            "PayFunnels activation, failure, refund and invoice-id webhook receipts are implemented and billing history can "
+            "show compact invoice handoff state. The commercial lifecycle still needs real invoice documents, VAT handling, "
+            "failed-payment recovery automation, downgrade/cancel policy and refund operations."
         ),
         "next_action": (
             "Keep PropertyQuarry as entitlement truth, use PayFunnels/PayPal only for payment proof, add Invoiless or an "

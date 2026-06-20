@@ -20509,6 +20509,8 @@ def test_property_payfunnels_webhook_accepts_documented_callback_shape(
     commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
     assert commercial["active_plan_key"] == "plus"
     assert commercial["last_payer_email"] == "buyer@example.com"
+    assert commercial["billing_events_json"][-1]["invoice_id"] == "inv_123"
+    assert commercial["billing_events_json"][-1]["accounting_status"] == "invoice_pending"
 
 
 def test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape(
@@ -20751,6 +20753,8 @@ def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
                         "provider": "payfunnels",
                         "plan_key": "plus",
                         "order_id": "pf-plus-surface",
+                        "invoice_id": "inv-surface-123",
+                        "accounting_status": "invoice_pending",
                         "payment_status": "failed",
                         "amount_eur": "3.00",
                         "recorded_at": "2026-06-20T12:00:00+00:00",

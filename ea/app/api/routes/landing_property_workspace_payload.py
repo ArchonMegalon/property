@@ -2150,8 +2150,14 @@ def property_workspace_payload(
         event_status = str(event.get("payment_status") or "").strip().replace("_", " ")
         event_plan = str(event.get("plan_key") or "").strip().title()
         event_amount = str(event.get("amount_eur") or "").strip()
+        event_invoice_id = str(event.get("invoice_id") or "").strip()
+        event_accounting_status = str(event.get("accounting_status") or "").strip().replace("_", " ")
         event_when = str(event.get("recorded_at") or "").strip()[:16].replace("T", " ")
         detail_parts = [part for part in (event_status.title(), f"EUR {event_amount}" if event_amount else "", event_when) if part]
+        if event_invoice_id:
+            detail_parts.append(f"Invoice {event_invoice_id}")
+        elif event_accounting_status:
+            detail_parts.append(event_accounting_status.title())
         billing_history_rows.append(
             row_item(
                 event_type.title(),

@@ -4254,6 +4254,8 @@ def test_property_billing_surface_shows_compact_payment_history() -> None:
                         "provider": "payfunnels",
                         "plan_key": "plus",
                         "order_id": "pf_123",
+                        "invoice_id": "inv_123",
+                        "accounting_status": "invoice_pending",
                         "payment_status": "paid",
                         "amount_eur": "3.00",
                         "recorded_at": "2026-06-20T12:00:00+00:00",
@@ -4270,7 +4272,7 @@ def test_property_billing_surface_shows_compact_payment_history() -> None:
     assert billing.status_code == 200
     assert "Billing history" in billing.text
     assert "Payment Completed" in billing.text
-    assert "Paid | EUR 3.00 | 2026-06-20 12:00" in billing.text
+    assert "Paid | EUR 3.00 | 2026-06-20 12:00 | Invoice inv_123" in billing.text
     assert "Plus" in billing.text
     assert "PayFunnels" not in billing.text
 
