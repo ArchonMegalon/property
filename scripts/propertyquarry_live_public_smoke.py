@@ -91,6 +91,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     if path == "/":
         checks.append(("home_has_main_copy", "Search once. Rank the right homes. Decide with evidence." in text))
         checks.append(("home_no_visible_proof_noise", "proof" not in visible_text.lower()))
+        checks.append(("home_no_legacy_proof_component", "pq-proof" not in text.lower()))
     elif path == "/security":
         checks.extend(
             (
@@ -119,11 +120,16 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     elif path == "/robots.txt":
         checks.append(("robots_sitemap", "Sitemap: https://propertyquarry.com/sitemap.xml" in text))
     elif path == "/sitemap.xml":
+        parsed_final = urllib.parse.urlparse(str(final_url or ""))
+        sitemap_origin = f"{parsed_final.scheme}://{parsed_final.netloc}" if parsed_final.scheme and parsed_final.netloc else "https://propertyquarry.com"
         checks.append(
             (
                 "sitemap_core",
-                "<loc>https://propertyquarry.com/</loc>" in text
-                and "<loc>https://propertyquarry.com/pricing</loc>" in text,
+                (f"<loc>{sitemap_origin}/</loc>" in text and f"<loc>{sitemap_origin}/pricing</loc>" in text)
+                or (
+                    "<loc>https://propertyquarry.com/</loc>" in text
+                    and "<loc>https://propertyquarry.com/pricing</loc>" in text
+                ),
             )
         )
     elif path == "/app/properties":

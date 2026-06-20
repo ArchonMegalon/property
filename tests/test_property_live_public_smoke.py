@@ -54,3 +54,32 @@ def test_live_public_smoke_fails_cloudflare_502_and_legacy_origin_without_networ
     assert rows["/"]["ok"] is False
     assert rows["/pricing"]["ok"] is False
     assert any(check["name"] == "no_generic_ea_copy" and check["ok"] is False for check in rows["/pricing"]["checks"])
+
+
+def test_live_public_smoke_fails_legacy_home_proof_component_without_network() -> None:
+    receipt = build_live_public_smoke_receipt(
+        routes=("/",),
+        fetcher=lambda url, _timeout: _fake_response(
+            '<html><body><main>PropertyQuarry Search once. Rank the right homes. Decide with evidence.</main><div class="pq-proof"></div></body></html>',
+            final_url=url,
+        ),
+    )
+
+    assert receipt["status"] == "fail"
+    row = receipt["checks"][0]
+    assert row["path"] == "/"
+    assert any(check["name"] == "home_no_legacy_proof_component" and check["ok"] is False for check in row["checks"])
+
+
+def test_live_public_smoke_accepts_localhost_sitemap_origin_without_network() -> None:
+    receipt = build_live_public_smoke_receipt(
+        base_url="http://localhost:18101",
+        routes=("/sitemap.xml",),
+        fetcher=lambda url, _timeout: _fake_response(
+            "<loc>http://localhost:18101/</loc><loc>http://localhost:18101/pricing</loc>",
+            final_url=url,
+        ),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["checks"][0]["path"] == "/sitemap.xml"
