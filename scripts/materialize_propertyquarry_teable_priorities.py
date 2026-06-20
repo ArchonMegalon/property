@@ -39,16 +39,17 @@ PRIORITIES = [
         "priority": "P0",
         "area": "Search correctness",
         "title": "Postal-code and district hard filters must never leak wrong areas",
-        "status": "in_progress",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "search-runner/provider-adapters",
         "current_state": (
-            "Title, summary and URL postal conflicts are filtered before ranking/notification. Source-scope extraction "
-            "now normalizes all postal URL/label scopes, not only Vienna, and strips URL path tails like `/augasse`."
+            "Verified: title, summary and URL postal conflicts override dirty source-scope placeholders before matching, "
+            "ranking and notification. Source-scope extraction normalizes all postal URL/label scopes, strips URL path tails "
+            "like `/augasse`, and listing text now preserves user-facing `Wien` labels while matching still handles aliases."
         ),
         "next_action": (
-            "Keep broad live-provider canaries for Austrian postal-code and province slug cases, and expand fixtures as "
-            "new provider-specific location encodings appear."
+            "Keep broad live-provider canaries for Austrian postal-code/province slug cases and expand fixtures when new "
+            "provider-specific location encodings appear."
         ),
         "source": "whole-product audit",
     },
@@ -330,16 +331,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Notifications",
         "title": "Scout updates only send strong, valid matches",
-        "status": "in_progress",
+        "status": "verified",
         "user_visible": True,
         "owner_lane": "notifications/scout",
         "current_state": (
-            "Scout notifications now strip search-scope labels and enforce a hard 60/100 outbound floor even if the env "
-            "override is misconfigured lower. Wrong-area and generic-page suppression has focused regression coverage."
+            "Verified: scout notifications strip search-scope labels for all postal scopes, enforce a hard 60/100 outbound "
+            "floor even if env is misconfigured lower, and suppress wrong-area, generic-page and low-score candidates before "
+            "ranking/notification."
         ),
         "next_action": (
-            "Keep broad live-provider canaries for wrong-area candidates, suppress maybe-false rows from ranking, and "
-            "include concise source/listing links only when the candidate is eligible."
+            "Keep broad live-provider canaries for wrong-area candidates and include concise source/listing links only when "
+            "the candidate is eligible."
         ),
         "source": "whole-product audit",
     },
