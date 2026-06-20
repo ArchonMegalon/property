@@ -127,7 +127,13 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         key="sign_in",
         group="auth_handoff",
         label="Sign in and active sign-in handoff",
-        routes=("/sign-in", "/workspace-link", "/google/connected", "/app/api/property/landing-handoff"),
+        routes=(
+            "/sign-in",
+            "/workspace-access/:token",
+            "/workspace-invites/:token",
+            "/google/connected",
+            "/app/api/property/landing-handoff",
+        ),
         templates=("sign_in.html", "workspace_link.html", "google_connected.html", "propertyquarry_home.html"),
     ),
     PropertySurface(

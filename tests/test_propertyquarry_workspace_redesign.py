@@ -5880,6 +5880,15 @@ def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate(
     assert "no plaintext URLs in Telegram or email body text" in design_body
     assert "show suppressed-candidate summaries" in design_body
 
+    registry_body = (repo_root / "docs/PROPERTYQUARRY_SURFACE_REGISTRY.md").read_text(encoding="utf-8")
+    registry_source = (repo_root / "ea/app/product/property_surface_registry.py").read_text(encoding="utf-8")
+    assert "/workspace-access/:token" in registry_body
+    assert "/workspace-invites/:token" in registry_body
+    assert "/workspace-access/:token" in registry_source
+    assert "/workspace-invites/:token" in registry_source
+    assert "/workspace-link" not in registry_body
+    assert '"/workspace-link"' not in registry_source
+
     retention_body = retention.read_text(encoding="utf-8")
     assert "private PDFs and signed packet links must be revocable" in retention_body
     assert "raw household feedback is owner-private by default" in retention_body
@@ -5890,6 +5899,8 @@ def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate(
     assert "Public packets and tours" in retention_body
     assert "External investment data" in retention_body
     assert "Revocation must remove customer access and make stale artifacts undiscoverable" in retention_body
+    assert "workspace defaults" not in retention_body
+    assert "workspace links" not in retention_body
 
     analytics_body = analytics.read_text(encoding="utf-8")
     assert "pq.search.started" in analytics_body

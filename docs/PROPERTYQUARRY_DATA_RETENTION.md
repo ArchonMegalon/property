@@ -38,7 +38,7 @@ document intake records carry privacy class and redaction state
 
 | Data class | Examples | Default retention | Required control |
 | --- | --- | --- | --- |
-| Account profile and workspace defaults | identity, market defaults, delivery preferences | until account deletion | export account data, edit settings, delete account |
+| Account profile and saved defaults | identity, market defaults, delivery preferences | until account deletion | export account data, edit settings, delete account |
 | Search preferences | selected areas, hard rules, What Matters preferences | until changed or account deletion | edit search, load/save What Matters, export account data |
 | Search runs | run status, ranked and filtered summaries, repair receipts | saved until the user deletes them | clear search history, delete individual run, export account data |
 | Source listing cache | provider result URLs and normalized listing snippets | short operational cache only | TTL expiry, provider-rights review, no customer export of internal diagnostics |
@@ -49,7 +49,7 @@ document intake records carry privacy class and redaction state
 | Public packets and tours | redacted manifest, public assets, static share links | until explicit expiry/revocation | manage public links, revoke share, delete underlying static asset |
 | Generated media | floorplan assets, walkthrough receipts, MagicFit/Dadan references | owner-private until reviewed; public only after privacy gate | request generation, approve publication, delete media |
 | Delivery receipts | email, Telegram, WhatsApp status, quiet-hour receipts | limited operational period | delivery center, unsubscribe/STOP handling, receipt deletion by retention job |
-| Access sessions and links | workspace links, active sessions, revocations | until expiry plus audit window | active sessions, revoke session/link, rotate signing keys |
+| Access sessions and links | account access links, active sessions, revocations | until expiry plus audit window | active sessions, revoke session/link, rotate signing keys |
 | External investment data | third-party valuation/rent/yield feed cache | durable protected cache with host allowlist and TTL | configured allowed hosts, cache prune, source attribution |
 | Analytics events | page/control events without private payloads | aggregate operational analytics only | analytics preference, no run/listing/exact-location payloads |
 

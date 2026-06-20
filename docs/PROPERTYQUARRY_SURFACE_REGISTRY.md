@@ -78,7 +78,8 @@ Routes that create or resume access:
 - `/register`
 - `/get-started`
 - `/sign-in`
-- `/workspace-link`
+- `/workspace-access/:token`
+- `/workspace-invites/:token`
 - `/google/connected`
 - `/app/api/property/landing-handoff`
 

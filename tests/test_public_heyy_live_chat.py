@@ -49,7 +49,15 @@ def test_public_heyy_live_chat_blocks_private_routes(monkeypatch: pytest.MonkeyP
     _clear_heyy_live_chat_env(monkeypatch)
     monkeypatch.setenv("EA_PUBLIC_HEYY_LIVE_CHAT_ENABLED", "1")
 
-    for path in ("/app/properties", "/api/health", "/v1/results", "/workspace-access/review-token", "/tours/private-tour"):
+    for path in (
+        "/app/properties",
+        "/api/health",
+        "/v1/results",
+        "/workspace-access/review-token",
+        "/workspace-invites/review-token",
+        "/workspace-link",
+        "/tours/private-tour",
+    ):
         assert not heyy_live_chat_route_allowed(path)
         assert heyy_live_chat_head_snippet(hostname="propertyquarry.com", path=path) == ""
 

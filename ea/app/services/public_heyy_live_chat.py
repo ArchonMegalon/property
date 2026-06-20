@@ -26,7 +26,6 @@ _PUBLIC_EXACT_PATHS = {
     "/integrations/whatsapp",
     "/docs",
     "/get-started",
-    "/workspace-link",
 }
 
 _PUBLIC_PREFIXES = (
