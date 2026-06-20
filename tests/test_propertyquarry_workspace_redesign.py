@@ -144,6 +144,7 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
         "workspace access method",
         "workspace records",
         "source check",
+        "Run health and coverage",
         "Everyday preferences, schools, childcare, and local fit that should stay explicit.",
         "workspace preferences",
         "generated workflow data",

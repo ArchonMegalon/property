@@ -2,7 +2,7 @@
   <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress">
     <div class="pqx-section-head">
       <div>
-        <h2>{% if run_active %}Run health and coverage{% else %}Run summary{% endif %}</h2>
+        <h2>{% if run_active %}Search progress{% else %}Search summary{% endif %}</h2>
         <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('reviewed_listing_total') or (run.get('summary') or {}).get('listing_total') or 0 }} homes checked so far{% if ((run.get('summary') or {}).get('filtered_floorplan_total') or 0) %} · {{ (run.get('summary') or {}).get('filtered_floorplan_total') or 0 }} still missing floorplans{% endif %}</div>
       </div>
       <div class="pqx-inline-actions">
