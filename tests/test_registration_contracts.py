@@ -288,6 +288,113 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
+def test_sign_in_google_reopens_existing_workspace_using_google_connector_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    existing_principal = "user-a2a5c1d8b7e2f4"
+    client.headers.update({"X-EA-Principal-ID": existing_principal})
+    start_workspace(client, mode="personal", workspace_name="Connector Binding Workspace")
+
+    from app.services import google_oauth as google_service
+
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=existing_principal,
+        connector_name=google_service.GOOGLE_CONNECTOR_NAME,
+        external_account_ref="tibor.girschele@gmail.com",
+        scope_json={"scopes": ()},
+        auth_metadata_json={"google_email": "tibor.girschele@gmail.com"},
+        status="enabled",
+    )
+
+    sign_in_start = client.post(
+        "/sign-in/google",
+        follow_redirects=False,
+    )
+    assert sign_in_start.status_code == 303
+    auth_url = sign_in_start.headers["location"]
+    assert auth_url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
+    parsed = urllib.parse.urlparse(auth_url)
+    query = urllib.parse.parse_qs(parsed.query)
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-signin",
+            "email": "tibor.girschele@gmail.com",
+        },
+    )
+
+    callback = client.get(
+        "/google/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/workspace-access/")
+
+    opened = client.get(callback.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/search"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+
+def test_sign_in_google_prefers_real_workspace_over_temporary_cf_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    real_principal = "user-a2a5c1d8b7e2f4"
+    client.headers.update({"X-EA-Principal-ID": real_principal})
+    start_workspace(client, mode="personal", workspace_name="Connector Binding Workspace")
+
+    from app.api.routes.landing import build_product_service
+
+    product = build_product_service(client.app.state.container)
+    product.issue_workspace_access_session(
+        principal_id=real_principal,
+        email="tibor.girschele@gmail.com",
+        role="principal",
+        display_name="Connector Binding Workspace",
+        source_kind="registration",
+        default_target="/app/search",
+    )
+    temporary_principal = "cf-email:tibor.girschele@gmail.com"
+    product.issue_workspace_access_session(
+        principal_id=temporary_principal,
+        email="tibor.girschele@gmail.com",
+        role="principal",
+        display_name="Temporary Principal",
+        source_kind="registration",
+        default_target="/app/search",
+    )
+
+    access = product.issue_google_sign_in_workspace_session(
+        google_email="tibor.girschele@gmail.com",
+        fallback_principal_id=temporary_principal,
+        display_name="Tibor",
+    )
+    assert access["principal_id"] == real_principal
+
+
 def test_sign_in_google_does_not_create_wrong_workspace_for_unknown_email(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
@@ -331,6 +438,78 @@ def test_sign_in_google_does_not_create_wrong_workspace_for_unknown_email(monkey
     assert callback.status_code == 303
     assert callback.headers["location"].startswith("/sign-in?")
     assert "google_error=workspace_google_sign_in_not_found" in callback.headers["location"]
+    sign_in_page = client.get(callback.headers["location"], follow_redirects=False)
+    assert sign_in_page.status_code == 200
+    assert "Create account" in sign_in_page.text
+    assert "unknown.google@example.com" in sign_in_page.text
+
+
+def test_sign_in_google_callback_google_error_is_returned_to_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    sign_in_start = client.post("/sign-in/google", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    parsed = urllib.parse.urlparse(sign_in_start.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+
+    callback = client.get(
+        "/google/callback",
+        params={
+            "error": "access_denied",
+            "error_description": "The user denied the request",
+            "state": query["state"][0],
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "google_error=The+user+denied+the+request" in callback.headers["location"]
+
+
+def test_sign_in_page_shows_friendly_identity_only_google_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(monkeypatch)
+    response = client.get("/sign-in?google_error=Google+Identity-only.")
+
+    assert response.status_code == 200
+    assert "Google returned identity-only access." in response.text
+    assert "Retry Google sign-in" in response.text
+    assert 'action="/sign-in/google"' in response.text
+    assert "data-submitting-label=\"Opening Google...\"" in response.text
+    assert "Create account" in response.text
+
+
+def test_sign_in_google_identity_only_callback_redirects_as_google_identity_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    sign_in_start = client.post("/sign-in/google", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    parsed = urllib.parse.urlparse(sign_in_start.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+
+    callback = client.get(
+        "/google/callback",
+        params={
+            "error": "access_denied",
+            "error_description": "Google Identity-only.",
+            "state": query["state"][0],
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "google_error=google_identity_only" in callback.headers["location"]
 
 
 def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:

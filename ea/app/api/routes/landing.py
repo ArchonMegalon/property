@@ -2340,6 +2340,7 @@ def sign_in_page(
     link_email = str(request.query_params.get("link_email") or "").strip()
     link_error = str(request.query_params.get("link_error") or "").strip()
     google_error = str(request.query_params.get("google_error") or "").strip()
+    google_prefill_email = str(request.query_params.get("google_prefill_email") or "").strip()
     facebook_error = str(request.query_params.get("facebook_error") or "").strip()
     return _render_public_template(
         request,
@@ -2356,6 +2357,7 @@ def sign_in_page(
                 "sign_in_link_enabled": email_delivery_enabled(),
                 "sign_in_link_status": link_status,
                 "sign_in_link_email": link_email,
+                "sign_in_google_prefill_email": google_prefill_email,
                 "sign_in_link_error": link_error,
                 "sign_in_google_error": google_error,
                 "sign_in_facebook_error": facebook_error,

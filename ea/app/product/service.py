@@ -39922,6 +39922,7 @@ class ProductService:
         if not normalized_email:
             return ()
         principal_last_seen: dict[str, str] = {}
+        connector_principals: set[str] = set()
         for row in self._container.channel_runtime.list_recent_observations(limit=max(int(observation_limit), 100)):
             payload = dict(row.payload or {})
             email_values = (
@@ -39937,6 +39938,25 @@ class ProductService:
             previous = str(principal_last_seen.get(principal_id) or "").strip()
             if not previous or created_at > previous:
                 principal_last_seen[principal_id] = created_at
+        for binding in self._container.tool_runtime.list_connector_bindings_for_connector(
+            google_oauth_service.GOOGLE_CONNECTOR_NAME,
+            limit=max(int(observation_limit), 200),
+        ):
+            if str(binding.status or "").strip().lower() != "enabled":
+                continue
+            principal_id = str(binding.principal_id or "").strip()
+            if not principal_id or principal_id.startswith("cf-email:"):
+                continue
+            metadata = dict(binding.auth_metadata_json or {})
+            binding_email = str(binding.external_account_ref or "").strip().lower()
+            metadata_email = str(metadata.get("google_email") or "").strip().lower()
+            if normalized_email not in {binding_email, metadata_email}:
+                continue
+            connector_ts = str(binding.updated_at or binding.created_at or "").strip()
+            previous = str(principal_last_seen.get(principal_id) or "").strip()
+            if not previous or connector_ts > previous:
+                principal_last_seen[principal_id] = connector_ts
+            connector_principals.add(principal_id)
         candidates: list[dict[str, object]] = []
         for principal_id, last_seen_at in sorted(principal_last_seen.items(), key=lambda item: item[1], reverse=True):
             status = self._container.onboarding.status(principal_id=principal_id)
@@ -39969,6 +39989,19 @@ class ProductService:
                         "role": str(selected.get("role") or "principal").strip().lower() or "principal",
                         "display_name": str(selected.get("display_name") or workspace_name).strip() or workspace_name,
                         "operator_id": str(selected.get("operator_id") or "").strip(),
+                    }
+                )
+                continue
+            if principal_id in connector_principals:
+                candidates.append(
+                    {
+                        "kind": "access",
+                        "principal_id": principal_id,
+                        "workspace_name": workspace_name,
+                        "email": normalized_email,
+                        "role": "principal",
+                        "display_name": workspace_name,
+                        "operator_id": "",
                     }
                 )
                 continue
@@ -40228,16 +40261,29 @@ class ProductService:
         if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
             raise ValueError("google_sign_in_email_invalid")
         candidates = [dict(candidate) for candidate in self._workspace_sign_in_candidates(email=normalized_email)]
-        access_candidates = [candidate for candidate in candidates if str(candidate.get("kind") or "access").strip().lower() == "access"]
+        access_candidates = [
+            candidate
+            for candidate in candidates
+            if str(candidate.get("kind") or "access").strip().lower() == "access"
+            and not str(candidate.get("principal_id") or "").strip().startswith("cf-email:")
+        ]
+        if not access_candidates:
+            access_candidates = [
+                candidate
+                for candidate in candidates
+                if str(candidate.get("kind") or "access").strip().lower() == "access"
+                and str(candidate.get("principal_id") or "").strip().startswith("cf-email:")
+            ]
         selected = access_candidates[0] if access_candidates else {}
         principal_id = str(selected.get("principal_id") or "").strip()
         role = str(selected.get("role") or "principal").strip().lower() or "principal"
         operator_id = str(selected.get("operator_id") or "").strip()
         workspace_name = str(selected.get("workspace_name") or "").strip()
         selected_display_name = str(selected.get("display_name") or workspace_name).strip()
+        used_temporary_principal = principal_id.startswith("cf-email:")
         if not principal_id:
             fallback = str(fallback_principal_id or "").strip()
-            if fallback:
+            if fallback and not fallback.startswith("cf-email:"):
                 status = self._container.onboarding.status(principal_id=fallback)
                 workspace = dict(status.get("workspace") or {})
                 fallback_workspace_name = str(workspace.get("name") or "").strip()
@@ -40271,7 +40317,8 @@ class ProductService:
                 "google_email": normalized_email,
                 "workspace_name": workspace_name or resolved_display_name,
                 "access_session_id": str(access_session.get("session_id") or "").strip(),
-                "matched_existing_workspace": bool(selected),
+                "matched_existing_workspace": bool(selected) and not used_temporary_principal,
+                "matched_temporary_workspace": used_temporary_principal,
             },
             source_id=f"google-sign-in:{normalized_email}:{principal_id}",
         )

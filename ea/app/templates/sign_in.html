@@ -170,14 +170,33 @@
     </div>
     {% if sign_in_google_error %}
     <div class="access-feedback">
-      <strong>Google sign-in could not start.</strong>
+      <strong>Google sign-in could not complete.</strong>
       <p class="copy">
         {% if sign_in_google_error == 'workspace_google_sign_in_not_found' %}
-        No PropertyQuarry workspace is connected to that Google account yet. Use your secure email link or create an account first.
+        No PropertyQuarry workspace is connected to
+        {% if sign_in_google_prefill_email %}
+        <strong>{{ sign_in_google_prefill_email }}</strong>
+        {% else %}
+        that Google account
+        {% endif %}
+        yet. Use your secure email link or create account first.
+        {% elif sign_in_google_error == 'google_identity_only' or "identity-only" in (sign_in_google_error or "").lower() %}
+        Google returned identity-only access. That is valid for sign-in, but we could not match this account to an active PropertyQuarry workspace yet.
+        Use the email you used during workspace onboarding, or request a secure sign-in link instead.
+        {% elif sign_in_google_error.startswith('google_oauth_') %}
+        Google sign-in is temporarily unavailable. If this persists, verify the Google OAuth configuration and callback setup on this host.
         {% else %}
         {{ sign_in_google_error }}
         {% endif %}
       </p>
+      <div class="cta-row">
+        {% if sign_in_google_error == 'workspace_google_sign_in_not_found' or sign_in_google_error == 'google_identity_only' or "identity-only" in (sign_in_google_error or "").lower() %}
+        <a class="btn" href="/register">Create account</a>
+        {% endif %}
+        <form method="post" action="/sign-in/google" data-auth-provider-form data-submitting-label="Opening Google...">
+          <button class="btn" type="submit">Retry Google sign-in</button>
+        </form>
+      </div>
     </div>
     {% endif %}
     {% if sign_in_facebook_error %}
@@ -187,11 +206,11 @@
     </div>
     {% endif %}
     {% if sign_in_link_enabled %}
-    <form class="access-form" method="post" action="/sign-in/email-link">
-      <div>
-        <label for="sign_in_email">Email link</label>
-        <input id="sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" required>
-      </div>
+      <form class="access-form" method="post" action="/sign-in/email-link">
+        <div>
+          <label for="sign_in_email">Email link</label>
+          <input id="sign_in_email" name="email" type="email" value="{{ sign_in_google_prefill_email or sign_in_link_email or '' }}" placeholder="you@company.com" required>
+        </div>
       <div class="cta-row">
         <button class="btn" type="submit">Email me a sign-in link</button>
       </div>

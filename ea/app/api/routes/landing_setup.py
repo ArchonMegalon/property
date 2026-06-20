@@ -155,6 +155,26 @@ def _render_google_oauth_callback_failure(
     return response
 
 
+def _normalize_google_sign_in_error(error: str) -> str:
+    normalized = str(error or "").strip()
+    if not normalized:
+        return "google_oauth_callback_failed"
+    lower = normalized.lower()
+    if "identity-only" in lower or "identity only" in lower:
+        return "google_identity_only"
+    return normalized
+
+
+def _google_sign_in_error_redirect(*, error: str, google_email: str = "") -> RedirectResponse:
+    query = {
+        "google_error": _normalize_google_sign_in_error(error),
+    }
+    normalized_email = str(google_email or "").strip()
+    if normalized_email:
+        query["google_prefill_email"] = normalized_email
+    return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
+
+
 def _render_facebook_oauth_callback_failure(
     request: Request,
     *,
@@ -467,27 +487,29 @@ def google_oauth_browser_callback(
     error_description: str = "",
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse | RedirectResponse:
+    state_payload = {}
+    try:
+        state_payload = read_google_oauth_state(state) if str(state or "").strip() else {}
+    except Exception:
+        state_payload = {}
+    browser_source = str(state_payload.get("browser_source") or "").strip()
     if str(error or "").strip():
         detail = str(error_description or error or "google_oauth_denied").strip()
-        try:
-            state_payload = read_google_oauth_state(state) if str(state or "").strip() else {}
-        except Exception:
-            state_payload = {}
         if str(state_payload.get("oauth_lane") or "").strip() == "google_location_history" and str(error or "").strip() == "access_denied":
             detail = (
                 "Google denied the Data Portability consent. "
                 "Typical causes are: the account is not allowed as an OAuth test user, "
                 "the Data Portability scope is not approved for this client, or the consent was cancelled."
             )
+        if browser_source == "sign_in":
+            return _google_sign_in_error_redirect(error=detail)
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     if not str(code or "").strip() or not str(state or "").strip():
-        return _render_google_oauth_callback_failure(
-            request,
-            detail="Google did not return a valid OAuth code and state.",
-            status_code=400,
-        )
+        detail = "Google did not return a valid OAuth code and state."
+        if browser_source == "sign_in":
+            return _google_sign_in_error_redirect(error=detail)
+        return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     try:
-        state_payload = read_google_oauth_state(state)
         product = build_product_service(container)
         if str(state_payload.get("oauth_lane") or "").strip() == "google_location_history":
             connected = product.complete_google_location_history_connect(code=code, state=state)
@@ -546,8 +568,12 @@ def google_oauth_browser_callback(
                     f"{return_to}{separator}google_error=google_oauth_state_expired",
                     status_code=303,
                 )
+        if browser_source == "sign_in":
+            return _google_sign_in_error_redirect(error=detail)
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     except Exception as exc:
+        if browser_source == "sign_in":
+            return _google_sign_in_error_redirect(error=str(exc or "google_oauth_callback_failed"))
         return _render_google_oauth_callback_failure(request, detail=str(exc or "google_oauth_callback_failed"), status_code=502)
     product = build_product_service(container)
     product.record_surface_event(
@@ -582,6 +608,7 @@ def google_oauth_browser_callback(
                 + urllib.parse.urlencode(
                     {
                         "google_error": str(exc or "workspace_google_sign_in_not_found"),
+                        "google_prefill_email": str(account.google_email or ""),
                     }
                 ),
                 status_code=303,
