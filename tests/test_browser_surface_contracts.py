@@ -196,10 +196,16 @@ def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
     assert manifest.status_code == 200
     payload = manifest.json()
     assert payload["name"] == "PropertyQuarry"
+    assert payload["id"] == "/app/search"
     assert payload["start_url"] == "/app/search"
     assert payload["display"] == "standalone"
     assert payload["scope"] == "/"
+    assert payload["launch_handler"]["client_mode"] == "navigate-existing"
     assert payload["icons"][0]["src"] == "/pwa-icon.svg"
+    shortcuts = {row["url"]: row for row in payload["shortcuts"]}
+    assert shortcuts["/app/search"]["name"] == "Search"
+    assert shortcuts["/app/properties"]["name"] == "Results"
+    assert shortcuts["/app/agents"]["name"] == "Saved Searches"
 
     assert service_worker.status_code == 200
     assert service_worker.headers["cache-control"] == "no-store"

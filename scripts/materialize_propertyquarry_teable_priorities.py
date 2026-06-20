@@ -406,12 +406,13 @@ PRIORITIES = [
         "user_visible": True,
         "owner_lane": "frontend/mobile",
         "current_state": (
-            "The product needs an explicit mobile/PWA answer for search review, shortlist, viewing companion, account and "
-            "share flows, not only responsive desktop pages."
+            "The product uses one responsive app, has mobile browser coverage for public home, workspace, What matters, "
+            "running progress, setup controls and public tours, and now exposes a stronger PWA manifest with stable app "
+            "id, standalone scope, launch handler, maskable icon and Search/Results/Saved-search shortcuts."
         ),
         "next_action": (
-            "Audit mobile breakpoints, add installable PWA metadata if appropriate, validate offline-safe viewing notes "
-            "scope, and add mobile screenshot smoke tests for core surfaces."
+            "Add more mobile screenshot smoke for account, billing, agents and dense research detail; validate any "
+            "future offline viewing-notes scope before caching private data."
         ),
         "source": "whole-product audit",
     },

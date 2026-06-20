@@ -172,6 +172,7 @@ def propertyquarry_web_manifest() -> JSONResponse:
             "name": "PropertyQuarry",
             "short_name": "PropertyQuarry",
             "description": "A focused property search and decision workspace.",
+            "id": "/app/search",
             "start_url": "/app/search",
             "scope": "/",
             "display": "standalone",
@@ -179,6 +180,7 @@ def propertyquarry_web_manifest() -> JSONResponse:
             "theme_color": "#17211c",
             "orientation": "portrait-primary",
             "categories": ["productivity", "lifestyle"],
+            "launch_handler": {"client_mode": "navigate-existing"},
             "icons": [
                 {
                     "src": "/pwa-icon.svg",
@@ -186,6 +188,29 @@ def propertyquarry_web_manifest() -> JSONResponse:
                     "type": "image/svg+xml",
                     "purpose": "any maskable",
                 }
+            ],
+            "shortcuts": [
+                {
+                    "name": "Search",
+                    "short_name": "Search",
+                    "description": "Open the property search brief.",
+                    "url": "/app/search",
+                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                },
+                {
+                    "name": "Results",
+                    "short_name": "Results",
+                    "description": "Open current ranked homes.",
+                    "url": "/app/properties",
+                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                },
+                {
+                    "name": "Saved Searches",
+                    "short_name": "Saved",
+                    "description": "Open saved search automation.",
+                    "url": "/app/agents",
+                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                },
             ],
         },
         media_type="application/manifest+json",

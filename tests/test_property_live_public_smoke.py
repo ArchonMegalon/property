@@ -44,8 +44,10 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only.",
         "https://propertyquarry.com/manifest.webmanifest": (
-            '{"name":"PropertyQuarry","start_url":"/app/search","display":"standalone","scope":"/",'
-            '"icons":[{"src":"/pwa-icon.svg","purpose":"any maskable"}]}'
+            '{"name":"PropertyQuarry","id":"/app/search","start_url":"/app/search","display":"standalone","scope":"/",'
+            '"launch_handler":{"client_mode":"navigate-existing"},'
+            '"icons":[{"src":"/pwa-icon.svg","purpose":"any maskable"}],'
+            '"shortcuts":[{"url":"/app/search"},{"url":"/app/properties"},{"url":"/app/agents"}]}'
         ),
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
@@ -126,6 +128,7 @@ def test_live_public_smoke_fails_weak_pwa_manifest_without_network() -> None:
     row = receipt["checks"][0]
     assert any(check["name"] == "manifest_display_scope" and check["ok"] is False for check in row["checks"])
     assert any(check["name"] == "manifest_maskable_icon" and check["ok"] is False for check in row["checks"])
+    assert any(check["name"] == "manifest_core_shortcuts" and check["ok"] is False for check in row["checks"])
 
 
 def test_live_public_smoke_accepts_localhost_sitemap_origin_without_network() -> None:

@@ -213,14 +213,30 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             manifest_payload = {}
         icons = manifest_payload.get("icons") if isinstance(manifest_payload, dict) else []
         icon_rows = [dict(row) for row in icons if isinstance(row, dict)] if isinstance(icons, list) else []
+        shortcuts = manifest_payload.get("shortcuts") if isinstance(manifest_payload, dict) else []
+        shortcut_urls = {
+            str(row.get("url") or "").strip()
+            for row in shortcuts
+            if isinstance(row, dict)
+        } if isinstance(shortcuts, list) else set()
         checks.extend(
             (
                 ("manifest_name", isinstance(manifest_payload, dict) and manifest_payload.get("name") == "PropertyQuarry"),
+                ("manifest_id", isinstance(manifest_payload, dict) and manifest_payload.get("id") == "/app/search"),
                 ("manifest_start_url", isinstance(manifest_payload, dict) and manifest_payload.get("start_url") == "/app/search"),
                 ("manifest_display_scope", isinstance(manifest_payload, dict) and manifest_payload.get("display") == "standalone" and manifest_payload.get("scope") == "/"),
                 (
+                    "manifest_launch_handler",
+                    isinstance(manifest_payload, dict)
+                    and dict(manifest_payload.get("launch_handler") or {}).get("client_mode") == "navigate-existing",
+                ),
+                (
                     "manifest_maskable_icon",
                     any(str(row.get("src") or "") == "/pwa-icon.svg" and "maskable" in str(row.get("purpose") or "") for row in icon_rows),
+                ),
+                (
+                    "manifest_core_shortcuts",
+                    {"/app/search", "/app/properties", "/app/agents"}.issubset(shortcut_urls),
                 ),
             )
         )
