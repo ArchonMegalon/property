@@ -51,6 +51,8 @@ def test_env_example_keeps_property_source_cache_inside_property_repo() -> None:
 
     assert "EA_PROPERTY_SOURCE_LISTING_CACHE_PATH=/docker/property/state/property_source_listing_cache.json" in env
     assert "/docker/fleet/state/property_source_listing_cache.json" not in env
+    assert "EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS=7776000" in env
+    assert "search-run history is kept until the user deletes it" not in env
 
 
 def test_property_public_tour_scripts_default_to_property_state() -> None:
