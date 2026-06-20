@@ -39,7 +39,6 @@ _CLICKRANK_PUBLIC_PREFIXES = (
     "/markets/",
     "/blog/",
     "/compare/",
-    "/memorials/",
 )
 
 _CLICKRANK_PRIVATE_PREFIXES = (
