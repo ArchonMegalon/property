@@ -46,6 +46,8 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "/health/ready",
         "/version",
         "/app/properties",
+        "scripts/propertyquarry_live_public_smoke.py",
+        "propertyquarry_deploy_public_smoke.json",
         "PropertyQuarry",
         "storage_backend",
         "postgres",

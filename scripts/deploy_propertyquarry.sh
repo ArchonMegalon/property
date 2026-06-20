@@ -19,7 +19,7 @@ Deploys the standalone PropertyQuarry runtime with operator preflight checks:
   - starts docker-compose.property.yml and waits for API, scheduler, and DB health
   - can add docker-compose.cloudflared.yml only for a dedicated PropertyQuarry tunnel token
   - supports isolated blue/green deploys via configurable Compose project/container names
-  - probes /health, /health/ready, /version, the landing page, and /app/properties auth
+  - probes /health, /health/ready, /version, public routes, PWA/SEO assets, and /app/properties auth
 
 Environment:
   PROPERTYQUARRY_COMPOSE_FILE     Compose file path, default docker-compose.property.yml.
@@ -372,5 +372,15 @@ case "${app_status}" in
     exit 1
     ;;
 esac
+
+public_smoke_receipt="/tmp/propertyquarry_deploy_public_smoke.json"
+if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py \
+  --base-url "${base_url}" \
+  --timeout-seconds 8 \
+  --write "${public_smoke_receipt}" >/dev/null; then
+  echo "PropertyQuarry public route smoke failed." >&2
+  cat "${public_smoke_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
 
 echo "ok: PropertyQuarry deployed at ${base_url}"
