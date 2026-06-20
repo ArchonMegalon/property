@@ -24,6 +24,9 @@ from app.product import property_surface_state
 from app.product.models import HandoffNote
 from app.product.service import (
     ProductService,
+    _property_candidate_matches_requested_location,
+    _property_enrich_facts_from_listing_text,
+    _property_facts_with_source_scope,
     _property_search_analysis_cap_per_source,
     _property_source_display_label,
     _property_scout_brief_text,
@@ -300,6 +303,64 @@ def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_co
     )
     assert "Source: Willhaben" in raw_message
     assert "Source: Willhaben | Austria | Rent | 1010 Vienna" not in raw_message
+
+
+def test_propertyquarry_requested_postal_scope_rejects_listing_url_postal_leaks() -> None:
+    examples = [
+        (
+            "Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+            "2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+            "https://www.derstandard.at/immobilien/wohnung-mieten-in-1220-wien",
+        ),
+        (
+            "Wohnung mieten in 1200 Wien,Brigittenau | 81.98 m² | 3 Zimmer",
+            "Stilvolle 3-Zimmer-Wohnung mit Garten & Terrasse im 20. Bezirk.",
+            "https://www.derstandard.at/immobilien/wohnung-mieten-in-1200-wien-brigittenau",
+        ),
+        (
+            "Prepared property page",
+            "Gallitzinstrasse",
+            "https://www.raiffeisen-wohnbau.at/projects/id/1160-vienna/gallitzinstras",
+        ),
+        (
+            "Augasse 17",
+            "Projektadresse Augasse 17 in 1090 Wien.",
+            "https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70",
+        ),
+        (
+            "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse",
+            "Moderne Wohnung mit Penthouse-Charakter in Salzburg.",
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/moderne-wohnung",
+        ),
+        (
+            "Einziehen sorgenfrei starten",
+            "Ihre Traumwohnung mit Balkon in Schärding.",
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/oberoesterreich/schaerding/einziehen-sorgenfrei-starten",
+        ),
+    ]
+
+    for title, summary, property_url in examples:
+        facts = _property_facts_with_source_scope(
+            facts={"postal_name": "1010 Vienna"},
+            source_url=property_url,
+            source_label="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        )
+        facts = _property_enrich_facts_from_listing_text(
+            facts=facts,
+            title=title,
+            summary=summary,
+            listing_mode="rent",
+        )
+
+        assert not _property_candidate_matches_requested_location(
+            location_hints=("1010 Vienna",),
+            property_url=property_url,
+            title=title,
+            summary=summary,
+            property_facts=facts,
+            country_code="AT",
+            region_code="vienna",
+        ), property_url
 
 
 def test_property_postal_parser_is_generic_but_not_price_hungry() -> None:
