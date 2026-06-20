@@ -11,6 +11,8 @@ from typing import Any
 
 
 SUBSCRIBR_DEFAULT_BASE_URL = "https://subscribr.ai/api/v1"
+SUBSCRIBR_DEFAULT_ALLOWED_HOSTS = frozenset({"subscribr.ai"})
+SUBSCRIBR_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 def env_flag(name: str, *, default: bool = False) -> bool:
@@ -22,6 +24,31 @@ def env_flag(name: str, *, default: bool = False) -> bool:
 
 def subscribr_enabled() -> bool:
     return env_flag("PROPERTYQUARRY_SUBSCRIBR_ENABLED") and env_flag("PROPERTYQUARRY_SUBSCRIBR_API_ENABLED")
+
+
+def _subscribr_allowed_hosts() -> frozenset[str]:
+    configured = {
+        str(item or "").strip().lower()
+        for item in str(os.getenv("PROPERTYQUARRY_SUBSCRIBR_ALLOWED_HOSTS") or "").split(",")
+        if str(item or "").strip()
+    }
+    return frozenset(configured or SUBSCRIBR_DEFAULT_ALLOWED_HOSTS)
+
+
+def _validated_subscribr_base_url(raw_base_url: str) -> str:
+    normalized = str(raw_base_url or SUBSCRIBR_DEFAULT_BASE_URL).strip().rstrip("/")
+    parsed = urllib.parse.urlparse(normalized)
+    host = str(parsed.hostname or "").strip().lower()
+    if parsed.scheme != "https":
+        raise SubscribrApiError(400, "subscribr_https_required")
+    if not host or host not in _subscribr_allowed_hosts():
+        raise SubscribrApiError(400, "subscribr_host_not_allowed")
+    return urllib.parse.urlunparse(("https", parsed.netloc, parsed.path.rstrip("/"), "", "", "")).rstrip("/")
+
+
+class _SubscribrNoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        raise urllib.error.HTTPError(req.full_url, code, "subscribr_redirect_blocked", headers, fp)
 
 
 @dataclass(frozen=True)
@@ -44,9 +71,11 @@ class SubscribrClient:
         opener: object | None = None,
     ) -> None:
         self._token = str(token or os.getenv("SUBSCRIBR_PROPERTY_SCRIPT_API_TOKEN") or "").strip()
-        self._base_url = str(base_url or os.getenv("PROPERTYQUARRY_SUBSCRIBR_BASE_URL") or SUBSCRIBR_DEFAULT_BASE_URL).rstrip("/")
+        self._base_url = _validated_subscribr_base_url(
+            str(base_url or os.getenv("PROPERTYQUARRY_SUBSCRIBR_BASE_URL") or SUBSCRIBR_DEFAULT_BASE_URL)
+        )
         self._timeout_seconds = float(timeout_seconds or 30.0)
-        self._opener = opener or urllib.request.build_opener()
+        self._opener = opener or urllib.request.build_opener(_SubscribrNoRedirectHandler())
 
     @property
     def configured(self) -> bool:
@@ -94,7 +123,19 @@ class SubscribrClient:
             raise SubscribrApiError(int(exc.code), detail, retry_after_seconds=retry_after) from exc
         except urllib.error.URLError as exc:
             raise SubscribrApiError(502, "subscribr_unreachable") from exc
-        body = response.read()
+        content_type = ""
+        try:
+            content_type = str(response.getheader("Content-Type", "") or "").lower()
+        except Exception:
+            content_type = "application/json"
+        if content_type and "json" not in content_type:
+            raise SubscribrApiError(502, "subscribr_unexpected_content_type")
+        try:
+            body = response.read(SUBSCRIBR_MAX_RESPONSE_BYTES + 1)
+        except TypeError:
+            body = response.read()
+        if len(body) > SUBSCRIBR_MAX_RESPONSE_BYTES:
+            raise SubscribrApiError(502, "subscribr_response_too_large")
         if not body:
             return {}
         try:
@@ -156,4 +197,3 @@ def redacted_subscribr_error(error: BaseException) -> dict[str, object]:
             "retry_after_seconds": error.retry_after_seconds,
         }
     return {"status_code": 500, "detail": error.__class__.__name__}
-
