@@ -370,7 +370,9 @@ PRIORITIES = [
         "current_state": (
             "Root and app landing were improved. scripts/propertyquarry_authenticated_performance_smoke.py now seeds an "
             "authenticated local workspace, saved agents, and a synthetic completed run, then enforces first-paint route "
-            "budgets for search, agents, properties, shortlist, research, account and billing without hitting providers."
+            "budgets for search, agents, properties, shortlist, research, account and billing without hitting providers. "
+            "The operator route-budget override now applies to default routes too, and the failure path is tested with "
+            "an intentionally strict 1 ms budget."
         ),
         "next_action": (
             "Add a Docker/live authenticated variant and keep heavy media/research sections lazy so route budgets stay "

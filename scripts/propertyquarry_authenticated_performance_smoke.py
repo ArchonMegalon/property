@@ -24,6 +24,12 @@ DEFAULT_ROUTE_BUDGET_MS = {
 }
 
 
+def _route_budget_for(path: str, *, route_budget_ms: int) -> int:
+    normalized_path = str(path or "").split("?", 1)[0]
+    default_budget = int(DEFAULT_ROUTE_BUDGET_MS.get(normalized_path, route_budget_ms))
+    return min(default_budget, int(route_budget_ms))
+
+
 def _seed_workspace(client: TestClient) -> None:
     response = client.post(
         "/v1/onboarding/start",
@@ -266,7 +272,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "/app/billing",
     ]
     rows = [
-        _measure_route(client, route, budget_ms=int(DEFAULT_ROUTE_BUDGET_MS.get(route.split("?", 1)[0], route_budget_ms)))
+        _measure_route(client, route, budget_ms=_route_budget_for(route, route_budget_ms=route_budget_ms))
         for route in routes
     ]
     failed = [row for row in rows if not row.get("ok")]
@@ -289,7 +295,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run authenticated PropertyQuarry route performance smoke.")
     parser.add_argument("--route-budget-ms", type=int, default=1200)
     args = parser.parse_args()
-    receipt = build_authenticated_performance_receipt(route_budget_ms=max(100, int(args.route_budget_ms or 1200)))
+    receipt = build_authenticated_performance_receipt(route_budget_ms=max(1, int(args.route_budget_ms or 1200)))
     print(json.dumps(receipt, indent=2, sort_keys=True))
     return 0 if receipt.get("status") == "pass" else 1
 
