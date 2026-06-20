@@ -3422,7 +3422,6 @@ def app_shell(
         "channels": "/app/account#delivery",
         "research": "/app/properties",
         "profile": "/app/account",
-        "alerts": "/app/account",
         "settings": "/app/account",
         "usage": "/app/settings/usage",
         "support": "/app/settings/support",
@@ -3436,7 +3435,7 @@ def app_shell(
     allowed.update(legacy_redirects)
     allowed.update({"today", "queue", "commitments", "people", "evidence", "activity", "channel-loop"})
     if property_brand:
-        allowed.update({"properties", "search", "shortlist", "agents", "billing", "account"})
+        allowed.update({"properties", "search", "shortlist", "agents", "alerts", "billing", "account"})
         legacy_redirects.update(property_legacy_redirects)
         allowed.update(property_legacy_redirects)
     else:
@@ -3468,6 +3467,7 @@ def app_shell(
         "search": "search",
         "shortlist": "shortlist",
         "agents": "agents",
+        "alerts": "alerts",
         "account": "account",
         "billing": "billing",
     }
@@ -3553,7 +3553,7 @@ def app_shell(
                 stats=stats,
             ),
         )
-    property_sections = {"properties", "search", "shortlist", "agents", "account", "billing"} if property_brand else set()
+    property_sections = {"properties", "search", "shortlist", "agents", "alerts", "account", "billing"} if property_brand else set()
     core_sections = {"today", "queue", "commitments", "people", "evidence", "activity"}
     if not property_brand:
         core_sections.add("settings")

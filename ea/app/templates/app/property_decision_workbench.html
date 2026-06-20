@@ -20,9 +20,9 @@
 {% set run_failed_no_results = run_terminal_no_results and run_status == 'failed' %}
 {% set run_visible = run_active %}
 {% set has_results = results|length > 0 %}
-{% set static_surface = surface_mode in ['agents', 'account', 'billing'] %}
+{% set static_surface = surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
 {% set setup_mode = static_surface or surface_mode == 'search' or (surface_mode == 'properties' and not run_visible and not run_terminal_no_results and not has_results) %}
-{% set setup_mobile_primary = 'brief' if surface_mode in ['search', 'agents', 'account', 'billing'] else 'results' %}
+{% set setup_mobile_primary = 'brief' if surface_mode in ['search', 'agents', 'alerts', 'account', 'billing'] else 'results' %}
 {% set has_mobile_results_panel = setup_mode or has_results or run_terminal_no_results %}
 {% set has_mobile_property_panel = has_results or run_visible or (run_terminal_no_results and not run_failed_no_results) %}
 {% set has_mobile_brief_panel = setup_mode %}
@@ -5570,9 +5570,9 @@
       {% endif %}
       {% if mobile_panel_count > 1 %}
       <div class="pqx-mobile-switch" aria-label="PropertyQuarry view mode" data-property-mobile-dock>
-        {% if has_mobile_results_panel %}<button class="pqx-mode-button{% if mobile_primary == 'results' %} active{% endif %}" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">{% if setup_mode and surface_mode in ['agents', 'account', 'billing'] %}Overview{% else %}Results{% endif %}</button>{% endif %}
+        {% if has_mobile_results_panel %}<button class="pqx-mode-button{% if mobile_primary == 'results' %} active{% endif %}" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">{% if setup_mode and surface_mode in ['agents', 'alerts', 'account', 'billing'] %}Overview{% else %}Results{% endif %}</button>{% endif %}
         {% if has_mobile_property_panel %}<button class="pqx-mode-button{% if mobile_primary == 'property' %} active{% endif %}" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">{% if run_visible %}Run{% elif run_terminal_no_results %}Details{% else %}Property{% endif %}</button>{% endif %}
-        {% if has_mobile_brief_panel %}<button class="pqx-mode-button{% if mobile_primary == 'brief' %} active{% endif %}" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">{% if surface_mode == 'agents' %}Automation{% elif surface_mode == 'account' %}Account{% elif surface_mode == 'billing' %}Billing{% else %}Search{% endif %}</button>{% endif %}
+        {% if has_mobile_brief_panel %}<button class="pqx-mode-button{% if mobile_primary == 'brief' %} active{% endif %}" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">{% if surface_mode == 'agents' %}Automation{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'account' %}Account{% elif surface_mode == 'billing' %}Billing{% else %}Search{% endif %}</button>{% endif %}
       </div>
       {% endif %}
 
@@ -5587,7 +5587,7 @@
             <span>
               {% if surface_mode == 'search' %}
               Search
-              {% elif surface_mode in ['agents', 'account', 'billing'] %}
+              {% elif surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
               {{ hero_kicker or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
               Run
@@ -5596,7 +5596,7 @@
             <h1>
               {% if surface_mode == 'search' %}
               Edit the brief.
-              {% elif surface_mode in ['agents', 'account', 'billing'] %}
+              {% elif surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
               {{ hero_title or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
               Open the right surface for the next decision.
@@ -5664,7 +5664,7 @@
             </div>
           </section>
           {% endif %}
-          {% if surface_mode in ['agents', 'account', 'billing'] %}
+          {% if surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
           <div class="pqx-brief-stack">
             {% if hero_summary or summary %}
             <p class="pqx-note">{{ hero_summary or summary or '' }}</p>
@@ -5678,7 +5678,7 @@
             {% endif %}
           </div>
           {% endif %}
-          {% if surface_mode not in ['agents', 'account', 'billing'] %}
+          {% if surface_mode not in ['agents', 'alerts', 'account', 'billing'] %}
           <div class="pqx-dashboard-stack" data-pqx-dashboard-summary>
             <div class="pqx-dashboard-row">
               <span class="pqx-small">Saved searches</span>
@@ -5824,6 +5824,8 @@
               <h2>
                 {% if surface_mode == 'agents' %}
                 Automation
+                {% elif surface_mode == 'alerts' %}
+                Alerts
                 {% elif surface_mode == 'billing' %}
                 Billing
                 {% elif surface_mode == 'account' %}
@@ -5835,6 +5837,8 @@
               <div class="pqx-note" data-property-step-summary>
                 {% if surface_mode == 'agents' %}
                 Edit saved searches, start a fresh sweep, and open recent outcomes.
+                {% elif surface_mode == 'alerts' %}
+                Sent property pages, delivery rules, and active run updates.
                 {% elif surface_mode == 'billing' %}
                 Plan, entitlements, limits, and checkout controls stay here.
                 {% elif surface_mode == 'account' %}
@@ -5848,6 +5852,8 @@
               <span class="pqx-pill" data-property-step-progress>
                 {% if surface_mode == 'agents' %}
                 Agents
+                {% elif surface_mode == 'alerts' %}
+                Alerts
                 {% elif surface_mode == 'billing' %}
                 Billing
                 {% elif surface_mode == 'account' %}
@@ -5862,7 +5868,7 @@
               {% endif %}
             </div>
           </div>
-          {% if surface_mode in ['agents', 'account', 'billing'] %}
+          {% if surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
           {% if surface_mode == 'agents' %}
           {% set search_agents = workbench.get('search_agents') or (search_agents if search_agents is defined else (property_meta.get('search_agents') or [])) %}
           {% include "app/_property_search_agents_panel.html" %}

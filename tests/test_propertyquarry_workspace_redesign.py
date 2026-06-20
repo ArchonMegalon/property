@@ -4202,8 +4202,13 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 
     alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=headers)
     assert alerts.status_code == 200
-    assert "Account" in alerts.text
-    assert "Identity, plan, delivery, and editable defaults." in alerts.text
+    assert "Alerts" in alerts.text
+    assert "Delivery rules" in alerts.text
+    assert "Email" in alerts.text
+    assert "Telegram" in alerts.text
+    assert "WhatsApp" in alerts.text
+    assert "STOP/START" in alerts.text
+    assert "Outbound channels must stay opt-in" in alerts.text
 
     notifications_preview = client.get("/app/properties/notifications/preview", params={"template": "property_match"}, headers=headers)
     assert notifications_preview.status_code == 200

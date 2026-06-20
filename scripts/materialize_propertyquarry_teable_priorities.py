@@ -397,7 +397,7 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Mobile",
         "title": "Mobile and PWA posture",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "frontend/mobile",
         "current_state": (
@@ -585,12 +585,13 @@ PRIORITIES = [
         "user_visible": True,
         "owner_lane": "delivery",
         "current_state": (
-            "Scout quality is guarded, but channel governance still needs verified destinations, quiet hours, opt-in, "
-            "STOP/START, delivery receipts, suppression and unified user controls."
+            "A canonical delivery-governance catalog now covers email, Telegram and WhatsApp, including verified "
+            "destinations, opt-in, quiet hours, receipts, suppression, and WhatsApp STOP/START posture. The Alerts "
+            "surface now renders these rules as a first-class PropertyQuarry page instead of redirecting to Account."
         ),
         "next_action": (
-            "Build one Delivery center backed by durable channel tables for email, Telegram and WhatsApp, including "
-            "template category, receipt, bounce/complaint, unsubscribe and retention handling."
+            "Back the delivery-governance catalog with durable channel tables, email bounce/complaint handling, "
+            "webhook receipts, per-channel retention controls, and unified editable user delivery preferences."
         ),
         "source": "whole-product audit",
     },

@@ -50,6 +50,7 @@ from app.product.property_surface_state import (
     normalized_property_search_goal,
     property_mode_visibility_label,
 )
+from app.product.property_delivery_governance import property_delivery_governance_rows
 
 
 def _property_workbench_lightweight_image_url(value: object, *, max_data_url_chars: int = 4096) -> str:
@@ -1937,7 +1938,7 @@ def property_workspace_payload(
             {"label": "Reports", "value": "Email", "detail": "Digests, repair notes, and market watches leave from this lane.", "href": f"/app/agents{run_suffix}"},
         ],
         "billing": [
-            {"label": "Plan", "value": current_plan_label, "detail": "Current search access.", "href": f"/app/billing{run_suffix}"},
+            {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": f"/app/billing{run_suffix}"},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "How deep the research lane runs.", "href": f"/app/billing{run_suffix}"},
             {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Portal allowance for the active plan.", "href": f"/app/billing{run_suffix}"},
             {"label": "Per source", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked results per provider.", "href": f"/app/billing{run_suffix}"},
@@ -1987,6 +1988,24 @@ def property_workspace_payload(
             "Billing, saved defaults, and security should stay explicit and product-specific.",
             "Control",
         ),
+    ]
+    delivery_channel_keys = set(
+        str(channel or "").strip().lower()
+        for channel in list(property_preferences.get("alert_channels") or [])
+        if str(channel or "").strip()
+    )
+    delivery_channel_keys.update(
+        key
+        for key, value in channels.items()
+        if key in {"email", "telegram", "whatsapp"} and isinstance(value, dict) and str(value.get("status") or "").strip().lower() in {"enabled", "active", "guided_manual", "export_planned"}
+    )
+    delivery_governance_rows = [
+        row_item(
+            str(row.get("title") or "Delivery"),
+            str(row.get("detail") or "").strip(),
+            str(row.get("tag") or "").strip(),
+        )
+        for row in property_delivery_governance_rows(sorted(delivery_channel_keys))
     ]
     alerts_rows = list(recent_matches_card.get("items") or []) + [
         row_item(
@@ -2433,6 +2452,12 @@ def property_workspace_payload(
                     "body": "Recurring alerts are only useful when the user can still see and revise the search posture behind them.",
                     "items": saved_search_rows,
                 },
+                {
+                    "eyebrow": "Delivery",
+                    "title": "Delivery rules",
+                    "body": "Outbound channels must stay opt-in, receipted, and quiet-hour aware.",
+                    "items": delivery_governance_rows,
+                },
                 run_card,
             ],
             "console_form": {},
@@ -2570,14 +2595,14 @@ def property_workspace_payload(
                     "items": billing_rows,
                 },
                 {
-                    "eyebrow": "Checkout",
-                    "title": "Checkout",
+                    "eyebrow": "Payment",
+                    "title": "Payment",
                     "body": "",
                     "items": [
                         row_item(
                             "Status",
                             "Available" if bool(property_state.get("billing_checkout_enabled")) else "Not active yet",
-                            "Checkout",
+                            "Status",
                         ),
                         row_item("Change plan", "Upgrade only when a real search hits the current allowance.", "Decision"),
                     ],

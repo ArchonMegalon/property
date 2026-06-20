@@ -6,7 +6,7 @@
 {% set history_card = namespace(value={}) %}
 {% for card in billing_cards %}
   {% if card.get('title') == 'Current search access' %}{% set current_card.value = card %}{% endif %}
-  {% if card.get('title') == 'Checkout' %}{% set checkout_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Payment' %}{% set checkout_card.value = card %}{% endif %}
   {% if card.get('title') == 'Tier changes' %}{% set upgrade_card.value = card %}{% endif %}
   {% if card.get('title') == 'When to upgrade' %}{% set decision_card.value = card %}{% endif %}
   {% if card.get('title') == 'Billing history' %}{% set history_card.value = card %}{% endif %}
