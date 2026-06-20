@@ -93,6 +93,13 @@ def test_property_release_gate_runs_heyy_whatsapp_contracts() -> None:
     assert "tests/test_property_heyy_api_contracts.py" in release_gate
 
 
+def test_property_release_gate_runs_offline_ranking_benchmark() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "offline ranking benchmark for hard filters, soft scoring, ordering, and scout thresholds" in release_gate
+    assert "scripts/check_property_ranking_benchmark.py" in release_gate
+
+
 def test_readme_documents_hardened_deploy_and_port_override() -> None:
     readme = _read("README.md")
 

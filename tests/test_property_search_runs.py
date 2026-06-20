@@ -2518,6 +2518,11 @@ def test_property_location_match_uses_url_slug_postal_evidence_over_source_scope
     )
 
 
+def test_property_postal_extraction_ignores_source_scope_locality_noise() -> None:
+    assert product_service._property_postal_location_evidence("selected 1010 source scope") == ()
+    assert product_service._property_postal_location_evidence("requested 1010 search area") == ()
+
+
 @pytest.mark.parametrize(
     ("title", "summary", "property_url", "expected_postal"),
     [

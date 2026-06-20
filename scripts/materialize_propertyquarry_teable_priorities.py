@@ -630,16 +630,16 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Ranking",
         "title": "Offline ranking and research benchmark",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": False,
         "owner_lane": "ranking/evaluation",
         "current_state": (
-            "Soft filters and hard filters are guarded by focused tests, but scoring changes still need replayable "
-            "benchmark receipts to prove recall, ordering, explanation faithfulness and cost per useful shortlist."
+            "An executable offline benchmark now guards exact postal/district hard filters, score-only soft filters, "
+            "top ordering and scout notification thresholds. Broader relevance/outcome replay is still open."
         ),
         "next_action": (
-            "Create versioned briefs, candidate sets, expected exclusions, expert relevance labels, missing-fact truth and "
-            "outcome fixtures; report Recall@20, Precision@5, NDCG@10, hard-filter violations and cost deltas."
+            "Expand the benchmark into versioned briefs, larger candidate sets, missing-fact truth, outcome fixtures, "
+            "explanation-faithfulness checks and cost-per-useful-shortlist deltas."
         ),
         "source": "whole-product audit",
     },
@@ -729,6 +729,10 @@ def _request_json(
     body: dict[str, object] | None = None,
 ) -> object:
     data = None if body is None else json.dumps(body, ensure_ascii=True).encode("utf-8")
+    try:
+        request_timeout = max(5.0, float(os.environ.get("PROPERTYQUARRY_TEABLE_REQUEST_TIMEOUT_SECONDS") or 30.0))
+    except Exception:
+        request_timeout = 30.0
     request = urllib.request.Request(
         url,
         data=data,
@@ -744,7 +748,7 @@ def _request_json(
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=request_timeout) as response:
             payload = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "ignore")[:1000]

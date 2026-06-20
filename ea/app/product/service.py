@@ -5433,6 +5433,13 @@ def _property_postal_location_evidence(value: object) -> tuple[dict[str, str], .
             locality,
             flags=re.IGNORECASE,
         ).strip(" ,.;:-")
+        if re.search(
+            r"\b(?:source|search|provider|selected|requested)\s+(?:scope|area|district|location)\b|"
+            r"\b(?:scope|source)\s+(?:location|placeholder)\b",
+            locality,
+            flags=re.IGNORECASE,
+        ):
+            continue
         locality_lower = locality.lower()
         if locality and locality == locality_lower and locality_lower not in {"wien"}:
             locality = locality.title()

@@ -27,6 +27,7 @@ Runs the focused PropertyQuarry release bundle:
   - phase and master exit-gate specs plus flagship browser workflows
   - property workspace real-browser greenfield checks
   - property search run contracts
+  - offline ranking benchmark for hard filters, soft scoring, ordering, and scout thresholds
   - property search storage schema guard
   - saved search-agent management contracts
   - property market catalog contracts
@@ -51,6 +52,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_release_hygiene.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_whole_project_scope.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_surface_accessibility.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_provider_governance.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py
