@@ -7626,6 +7626,9 @@ def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_co
 
     combined = " ".join(str(value) for value in summary.values())
     assert "A replacement search is checking the saved brief." in combined
+    assert "The brief was saved; the replacement run is now the active check." in combined
+    assert "repair receipt" not in combined.lower()
+    assert "run receipts" not in combined.lower()
     assert "0/156 source variants" not in combined
     assert "0/156 provider checks" not in combined
     assert "interrupted pass stopped" not in combined
@@ -7651,7 +7654,10 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
 
     combined = " ".join(str(value) for value in summary.values())
     assert summary["happened"] == "Repair is retrying the interrupted search."
+    assert "The brief and selected sources were still saved." in combined
     assert "Repair took over before any listing inspection completed." in combined
+    assert "repair receipt" not in combined.lower()
+    assert "run receipts" not in combined.lower()
     assert "0/156" not in combined
     assert "source variants" not in combined
     assert "source checks" not in combined.lower()
@@ -7687,6 +7693,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     assert "361 candidates returned by the selected sources" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "provider overview pages" in summary["eta_feedback"]
+    assert "receipts" not in " ".join(summary.values()).lower()
     assert "0/31 source variants" not in " ".join(summary.values())
 
 

@@ -1238,7 +1238,7 @@ def build_property_empty_outcome_summary(
     else:
         happened = "The search finished without a candidate clearing the current shortlist."
     if status_value == "failed" and replacement_run_id:
-        still_worked = "The brief and repair receipt were saved; the replacement run is now the active check."
+        still_worked = "The brief was saved; the replacement run is now the active check."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected sources."
@@ -1247,7 +1247,7 @@ def build_property_empty_outcome_summary(
         still_worked = (
             f"The selected sources covered {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
-            else "The brief, providers, and run receipts were still recorded."
+            else "The brief and selected sources were still saved."
         )
     if status_value == "failed":
         next_move = "Wait for repair; this page checks quietly every 10s and will move to the usable run when one is ready."
@@ -1273,7 +1273,7 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         eta_feedback = stopped_context
     elif source_total:
-        eta_feedback = "Run receipts are saved; change one rule and rerun for a fresh read."
+        eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":
         eta_feedback = "Repair has the run queued; this page checks quietly every 10s and will switch when a usable rerun is ready."
     else:
