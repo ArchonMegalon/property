@@ -78,6 +78,13 @@ def test_propertyquarry_deploy_wrapper_stays_property_only() -> None:
         assert forbidden not in script
 
 
+def test_property_release_gate_runs_payfunnels_billing_contracts() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "PayFunnels checkout, webhook, refund, mismatch, and billing-surface contracts" in release_gate
+    assert "tests/test_product_api_contracts.py -k 'payfunnels'" in release_gate
+
+
 def test_readme_documents_hardened_deploy_and_port_override() -> None:
     readme = _read("README.md")
 

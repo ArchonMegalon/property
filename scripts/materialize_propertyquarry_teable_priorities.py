@@ -254,8 +254,9 @@ PRIORITIES = [
             "Pricing has been simplified; PayFunnels completion webhooks are idempotent; failed, cancelled and refunded "
             "callbacks now clear stale pending checkouts and record bounded billing event receipts; the billing surface "
             "shows compact latest-payment and billing-history rows only when useful, preserves PayFunnels invoice IDs as "
-            "accounting handoff receipts, and refunded PayFunnels payments now revoke the paid entitlement instead of "
-            "leaving access active."
+            "accounting handoff receipts, refunded PayFunnels payments now revoke the paid entitlement instead of "
+            "leaving access active, and the release gate now runs the full PayFunnels checkout/webhook/refund/mismatch "
+            "contract subset."
         ),
         "next_action": (
             "Finish cancel/downgrade policy automation, full accounting-lane invoice/VAT documents, failed-payment recovery "
