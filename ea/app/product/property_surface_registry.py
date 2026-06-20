@@ -177,7 +177,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         label="Property research detail",
         routes=("/app/research/:candidate_ref",),
         templates=("app/property_research_detail.html", "app/_property_selected_review_panel.html"),
-        neuronwriter_allowed=True,
     ),
     PropertySurface(
         key="agents",
@@ -213,7 +212,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         label="Public redacted result pages",
         routes=("/results/:slug", "/results/:slug.json", "/results/files/:slug/:asset"),
         clickrank_allowed=False,
-        neuronwriter_allowed=True,
     ),
     PropertySurface(
         key="public_packet",
@@ -222,7 +220,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         routes=("/v1/integrations/fliplink/documents/property-packets/:token", "/app/properties/packets"),
         templates=("app/property_packets.html",),
         artifacts=("redacted packet manifest", "packet PDF"),
-        neuronwriter_allowed=True,
     ),
     PropertySurface(
         key="public_tour",
@@ -237,7 +234,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         label="Premium dossier PDF",
         routes=("/app/api/properties/packets/:publication_id/pdf",),
         artifacts=("premium dossier HTML", "premium dossier PDF", "appendix PDF"),
-        neuronwriter_allowed=True,
     ),
     PropertySurface(
         key="floorplan_and_tour_control",
@@ -268,7 +264,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         label="Email alerts and digests",
         routes=("/app/account#delivery", "/app/api/channel-loop"),
         artifacts=("email digest", "delivery receipt"),
-        neuronwriter_allowed=True,
     ),
     PropertySurface(
         key="telegram_delivery",
@@ -276,7 +271,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
         label="Telegram review messages",
         routes=("/app/account#delivery", "/v1/channels/telegram/ingest", "/v1/channels/telegram/ingest/:bot_key"),
         artifacts=("Telegram alert", "appendix link"),
-        neuronwriter_allowed=True,
     ),
     PropertySurface(
         key="whatsapp_delivery",
@@ -289,7 +283,6 @@ PROPERTY_SURFACES: tuple[PropertySurface, ...] = (
             "/app/api/integrations/heyy/notifications/search-agent-digest",
         ),
         artifacts=("WhatsApp template", "delivery receipt"),
-        neuronwriter_allowed=True,
     ),
     PropertySurface(
         key="provider_management",
@@ -350,6 +343,15 @@ def clickrank_property_surface_keys() -> tuple[str, ...]:
 
 def neuronwriter_property_surface_keys() -> tuple[str, ...]:
     return tuple(surface.key for surface in PROPERTY_SURFACES if surface.neuronwriter_allowed)
+
+
+def property_surface_processor_policy_violations() -> tuple[str, ...]:
+    private_groups = {"auth_handoff", "authenticated_app", "results_research", "shared_public_artifacts", "generated_artifacts", "delivery"}
+    return tuple(
+        surface.key
+        for surface in PROPERTY_SURFACES
+        if surface.neuronwriter_allowed and surface.group in private_groups
+    )
 
 
 def property_surface_acceptance_matrix() -> dict[str, dict[str, object]]:

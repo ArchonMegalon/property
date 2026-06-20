@@ -6848,11 +6848,13 @@ def test_property_search_runs_can_be_cleared_for_current_principal_only() -> Non
             product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
 
 
-def test_property_search_runs_are_saved_until_user_deletes_by_default(monkeypatch) -> None:
+def test_property_search_runs_keep_recent_history_but_prune_stale_payloads_by_default(monkeypatch) -> None:
     monkeypatch.delenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS", raising=False)
-    run_id = "retained-old-run"
+    run_id = "retained-recent-run"
+    stale_run_id = "pruned-stale-run"
     principal_id = "exec-property-search-run-retained"
     old_timestamp = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
     old_record = product_service._new_property_search_run_record(
         run_id=run_id,
         principal_id=principal_id,
@@ -6862,15 +6864,21 @@ def test_property_search_runs_are_saved_until_user_deletes_by_default(monkeypatc
     )
     old_record["created_at"] = old_timestamp
     old_record["updated_at"] = old_timestamp
+    stale_record = dict(old_record)
+    stale_record["run_id"] = stale_run_id
+    stale_record["created_at"] = stale_timestamp
+    stale_record["updated_at"] = stale_timestamp
 
     with product_service._PROPERTY_SEARCH_RUN_LOCK:
         previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
         product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
         product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = old_record
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[stale_run_id] = stale_record
     try:
         product_service._prune_property_search_runs()
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             assert run_id in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+            assert stale_run_id not in product_service._PROPERTY_SEARCH_RUN_REGISTRY
     finally:
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()

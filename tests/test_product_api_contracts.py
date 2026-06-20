@@ -19945,9 +19945,38 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert access_session.status_code == 200
     access_body = access_session.json()
     assert access_body["access_url"].startswith("/workspace-access/")
+    assert access_body["access_token"]
     assert access_body["default_target"] == "/app/properties"
     assert access_body["status"] == "active"
     assert access_body["issued_at"]
+
+    from app.product.workspace_access_storage import get_workspace_access_session_record
+
+    stored_access = get_workspace_access_session_record(
+        principal_id=principal_id,
+        session_id=access_body["session_id"],
+        database_url="",
+    )
+    assert stored_access is not None
+    assert stored_access["access_token"] == ""
+    assert stored_access["access_url"] == ""
+    assert stored_access["access_launch_token"] == ""
+    assert stored_access["access_launch_url"] == ""
+    assert stored_access["access_token_hash"]
+    assert stored_access["access_launch_token_hash"]
+    assert stored_access["access_token_last4"] == access_body["access_token"][-4:]
+
+    issued_events = [
+        row
+        for row in client.app.state.container.channel_runtime.list_recent_observations(limit=100, principal_id=principal_id)
+        if str(row.event_type or "") == "workspace_access_session_issued"
+        and str((row.payload or {}).get("session_id") or "") == access_body["session_id"]
+    ]
+    assert issued_events
+    event_payload = dict(issued_events[-1].payload or {})
+    assert event_payload["access_token"] == ""
+    assert event_payload["access_url"] == ""
+    assert event_payload["access_token_hash"] == stored_access["access_token_hash"]
 
     listed = client.get("/app/api/access-sessions")
     assert listed.status_code == 200

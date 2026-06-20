@@ -58,6 +58,7 @@ def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
         clickrank_property_surface_keys,
         neuronwriter_property_surface_keys,
         property_surface_acceptance_matrix,
+        property_surface_processor_policy_violations,
         property_surface_keys,
         property_surfaces_by_group,
     )
@@ -120,7 +121,14 @@ def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
     }
     assert "app_shell" not in clickrank_property_surface_keys()
     assert "public_tour" not in clickrank_property_surface_keys()
-    assert "property_research_detail" in neuronwriter_property_surface_keys()
+    assert set(neuronwriter_property_surface_keys()) == {
+        "public_home",
+        "public_pricing",
+        "public_trust",
+        "public_docs_guides",
+    }
+    assert property_surface_processor_policy_violations() == ()
+    assert "property_research_detail" not in neuronwriter_property_surface_keys()
     assert "app_shell" not in neuronwriter_property_surface_keys()
 
     expected_gates = {
@@ -161,15 +169,21 @@ def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
         "/app/properties/packets",
     )
     assert matrix["public_tour"]["clickrank_allowed"] is False
+    assert matrix["public_results"]["neuronwriter_allowed"] is False
+    assert matrix["public_packet"]["neuronwriter_allowed"] is False
     assert matrix["public_tour"]["routes"] == ("/tours/:slug", "/tours/:slug.json", "/tours/files/:slug/:asset")
     assert matrix["agents"]["routes"] == ("/app/agents", "/app/automation", "/app/automations")
     assert "/app/settings/access" in matrix["account"]["routes"]
     assert matrix["premium_dossier"]["routes"] == ("/app/api/properties/packets/:publication_id/pdf",)
+    assert matrix["premium_dossier"]["neuronwriter_allowed"] is False
     assert "/app/api/signals/willhaben/property-tour" in matrix["floorplan_and_tour_control"]["routes"]
     assert "/app/api/property-video/requests/dadan" in matrix["video_walkthrough"]["routes"]
     assert "/v1/integrations/dadan/webhooks/recording-submitted" in matrix["video_walkthrough"]["routes"]
     assert "/v1/channels/telegram/ingest" in matrix["telegram_delivery"]["routes"]
     assert "/v1/integrations/heyy/whatsapp/webhook" in matrix["whatsapp_delivery"]["routes"]
+    assert matrix["email_delivery"]["neuronwriter_allowed"] is False
+    assert matrix["telegram_delivery"]["neuronwriter_allowed"] is False
+    assert matrix["whatsapp_delivery"]["neuronwriter_allowed"] is False
 
 
 def test_propertyquarry_clickable_looking_recent_reviews_are_real_links_or_plain_rows() -> None:

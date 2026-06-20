@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Any
@@ -17,6 +18,18 @@ def _clean(value: object, *, limit: int = 1000) -> str:
     return str(value or "").strip()[:limit]
 
 
+def workspace_access_token_hash(token: object) -> str:
+    normalized = str(token or "").strip()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def workspace_access_token_last4(token: object) -> str:
+    normalized = str(token or "").strip()
+    return normalized[-4:] if len(normalized) >= 4 else normalized
+
+
 def _normalized_workspace_access_session(payload: dict[str, object]) -> dict[str, object]:
     row = dict(payload or {})
     principal_id = _clean(row.get("principal_id"), limit=200)
@@ -24,6 +37,10 @@ def _normalized_workspace_access_session(payload: dict[str, object]) -> dict[str
     if not principal_id or not session_id:
         return {}
     status = _clean(row.get("status") or "active", limit=40).lower() or "active"
+    access_token = _clean(row.get("access_token"), limit=5000)
+    access_launch_token = _clean(row.get("access_launch_token"), limit=5000)
+    access_token_hash = _clean(row.get("access_token_hash") or workspace_access_token_hash(access_token), limit=128)
+    access_launch_token_hash = _clean(row.get("access_launch_token_hash") or workspace_access_token_hash(access_launch_token), limit=128)
     normalized: dict[str, object] = {
         "session_id": session_id,
         "principal_id": principal_id,
@@ -40,10 +57,14 @@ def _normalized_workspace_access_session(payload: dict[str, object]) -> dict[str
         "opened_at": _clean(row.get("opened_at"), limit=80),
         "opened_by": _clean(row.get("opened_by"), limit=200),
         "last_seen_at": _clean(row.get("last_seen_at"), limit=80),
-        "access_token": _clean(row.get("access_token"), limit=5000),
-        "access_url": _clean(row.get("access_url"), limit=5000),
-        "access_launch_token": _clean(row.get("access_launch_token"), limit=5000),
-        "access_launch_url": _clean(row.get("access_launch_url"), limit=5000),
+        "access_token": "",
+        "access_url": "",
+        "access_launch_token": "",
+        "access_launch_url": "",
+        "access_token_hash": access_token_hash,
+        "access_token_last4": _clean(row.get("access_token_last4") or workspace_access_token_last4(access_token), limit=16),
+        "access_launch_token_hash": access_launch_token_hash,
+        "access_launch_token_last4": _clean(row.get("access_launch_token_last4") or workspace_access_token_last4(access_launch_token), limit=16),
         "default_target": _clean(row.get("default_target"), limit=500),
         "updated_at": _clean(row.get("updated_at") or _now_iso(), limit=80),
     }

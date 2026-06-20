@@ -559,7 +559,7 @@ def test_premium_dossier_quality_gate_rejects_missing_cover_or_footer_when_requi
     assert report.ok is False
 
 
-def test_premium_pipeline_falls_back_to_legacy_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
+def test_premium_pipeline_fails_closed_when_rendered_pdf_fails_quality_gate(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
     monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
@@ -573,7 +573,10 @@ def test_premium_pipeline_falls_back_to_legacy_when_rendered_pdf_fails_quality_g
             render_seconds=0.1,
         )
 
+    legacy_called = {"value": False}
+
     def _legacy_renderer(**kwargs):  # noqa: ANN003
+        legacy_called["value"] = True
         return {"status": "legacy_rendered", "receipt": {"renderer_provider": "legacy"}}
 
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _bad_playwright)
@@ -591,8 +594,49 @@ def test_premium_pipeline_falls_back_to_legacy_when_rendered_pdf_fails_quality_g
         legacy_renderer=_legacy_renderer,
     )
 
+    assert rendered["status"] == "premium_render_failed"
+    assert rendered["error_code"] == "premium_pdf_render_failed"
+    assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
+    assert rendered["receipt"]["legacy_renderer_blocked"] is True
+    assert rendered["receipt"]["emergency_legacy_renderer_used"] is False
+    assert legacy_called["value"] is False
+
+
+def test_premium_pipeline_uses_legacy_only_when_emergency_flag_is_enabled(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
+    monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
+
+    def _bad_playwright(_request):
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=b"%PDF-1.4\n\x00bad",
+            pdf_sha256="bad",
+            render_seconds=0.1,
+        )
+
+    def _legacy_renderer(**kwargs):  # noqa: ANN003
+        return {"status": "legacy_rendered", "receipt": {"renderer_provider": "legacy"}}
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _bad_playwright)
+    rendered = render_property_packet_pdf_via_premium_pipeline(
+        artifact_root=tmp_path,
+        publication_id="pub_quality_emergency_fallback",
+        principal_id="cf-email:tibor@example.com",
+        source=_sample_source(),
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=True,
+        include_photos=True,
+        legacy_renderer=_legacy_renderer,
+    )
+
     assert rendered["status"] == "legacy_rendered"
     assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
+    assert rendered["receipt"]["emergency_legacy_renderer_used"] is True
 
 
 def test_premium_pipeline_writes_visual_preview_receipt_fields(monkeypatch, tmp_path: Path) -> None:
@@ -793,7 +837,7 @@ def test_playwright_renderer_blocks_remote_network_requests(monkeypatch, tmp_pat
     assert observed["blocked"] == ["https://cdn.example.test/hero.jpg"]
 
 
-def test_premium_pipeline_records_quality_failure_when_legacy_fallback_runs(monkeypatch, tmp_path: Path) -> None:
+def test_premium_pipeline_records_quality_failure_when_fail_closed_blocks_legacy(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
     monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
     monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
@@ -807,7 +851,10 @@ def test_premium_pipeline_records_quality_failure_when_legacy_fallback_runs(monk
             render_seconds=0.1,
         )
 
+    legacy_called = {"value": False}
+
     def _legacy_renderer(**kwargs):  # noqa: ANN003
+        legacy_called["value"] = True
         return {"status": "legacy_rendered", "receipt": {"renderer_provider": "legacy"}}
 
     monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _bad_playwright)
@@ -825,8 +872,10 @@ def test_premium_pipeline_records_quality_failure_when_legacy_fallback_runs(monk
         legacy_renderer=_legacy_renderer,
     )
 
-    assert rendered["status"] == "legacy_rendered"
+    assert rendered["status"] == "premium_render_failed"
     assert rendered["receipt"]["premium_render_failures"][0]["error_code"] == "premium_pdf_quality_gate_failed"
+    assert rendered["receipt"]["legacy_renderer_blocked"] is True
+    assert legacy_called["value"] is False
 
 
 def test_telegram_appendix_uses_premium_pipeline_before_legacy_fallback(monkeypatch, tmp_path: Path) -> None:

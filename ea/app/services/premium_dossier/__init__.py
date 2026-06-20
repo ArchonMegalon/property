@@ -29,13 +29,16 @@ def _renderer_chain() -> list[str]:
     if not primary:
         primary = "playwright"
     chain: list[str] = []
-    legacy_allowed = str(os.getenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW") or "").strip().lower() in {"1", "true", "yes", "on"}
     for name in (primary, fallback):
         if name and name not in chain:
-            if name == "legacy" and not legacy_allowed:
+            if name == "legacy" and not _legacy_renderer_allowed():
                 continue
             chain.append(name)
     return chain
+
+
+def _legacy_renderer_allowed() -> bool:
+    return str(os.getenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _payload_has_private_reference_media(payload: dict[str, object]) -> bool:
@@ -157,6 +160,19 @@ def render_property_packet_pdf_via_premium_pipeline(
         elif result.error_code:
             render_failures.append({"renderer": result.renderer, "error_code": result.error_code, "error_detail": result.error_detail})
     if render_result is None:
+        if not _legacy_renderer_allowed():
+            return {
+                "status": "premium_render_failed",
+                "error_code": "premium_pdf_render_failed",
+                "error_detail": "Premium PDF renderers failed and emergency legacy fallback is disabled.",
+                "receipt": {
+                    "renderer_provider": "premium_fail_closed",
+                    "premium_render_failures": render_failures[:5],
+                    "emergency_legacy_renderer_used": False,
+                    "legacy_renderer_blocked": True,
+                },
+                "redacted_payload": redaction.payload,
+            }
         legacy_rendered = legacy_renderer(
             artifact_root=artifact_root,
             publication_id=publication_id,
@@ -171,7 +187,11 @@ def render_property_packet_pdf_via_premium_pipeline(
         )
         if isinstance(legacy_rendered, dict) and render_failures:
             receipt = legacy_rendered.get("receipt") if isinstance(legacy_rendered.get("receipt"), dict) else {}
-            receipt = {**dict(receipt), "premium_render_failures": render_failures[:5]}
+            receipt = {
+                **dict(receipt),
+                "premium_render_failures": render_failures[:5],
+                "emergency_legacy_renderer_used": True,
+            }
             legacy_rendered = {**legacy_rendered, "receipt": receipt}
         return legacy_rendered
     principal_token = "".join(ch if ch.isalnum() else "-" for ch in principal_id.lower())[:80].strip("-") or "principal"

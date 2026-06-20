@@ -162,6 +162,7 @@ from app.product.workspace_access_storage import (
     list_workspace_access_session_records,
     put_workspace_access_session_record,
     update_workspace_access_session_record,
+    workspace_access_token_hash,
 )
 from app.product.property_search_run_state import (
     property_search_run_apply_event as _state_property_search_run_apply_event,
@@ -596,7 +597,7 @@ _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS = (
     "justimmo.at",
     "immobilien.derstandard.at",
 )
-_PROPERTY_SEARCH_RUN_TTL_SECONDS = 0
+_PROPERTY_SEARCH_RUN_TTL_SECONDS = 90 * 24 * 60 * 60
 _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
@@ -39610,10 +39611,21 @@ class ProductService:
             payload,
             database_url=self._workspace_access_database_url(),
         )
+        event_payload = {
+            **payload,
+            "access_token": "",
+            "access_url": "",
+            "access_launch_token": "",
+            "access_launch_url": "",
+            "access_token_hash": workspace_access_token_hash(access_token),
+            "access_token_last4": access_token[-4:],
+            "access_launch_token_hash": workspace_access_token_hash(launch_token),
+            "access_launch_token_last4": launch_token[-4:],
+        }
         self._record_product_event(
             principal_id=principal_id,
             event_type="workspace_access_session_issued",
-            payload=payload,
+            payload=event_payload,
             source_id=session_id,
             dedupe_key=f"{principal_id}|{session_id}",
         )
@@ -39721,6 +39733,16 @@ class ProductService:
         if current is not None:
             if str(current.get("status") or "").strip().lower() == "revoked":
                 return None
+            stored_hashes = {
+                str(current.get("access_token_hash") or "").strip(),
+                str(current.get("access_launch_token_hash") or "").strip(),
+            }
+            stored_hashes.discard("")
+            if stored_hashes and workspace_access_token_hash(token) not in stored_hashes:
+                return None
+            current = dict(current)
+            current["access_token"] = str(token or "").strip()
+            current["access_url"] = f"/workspace-access/{token}"
             return current
         if token_kind == "wa":
             return None

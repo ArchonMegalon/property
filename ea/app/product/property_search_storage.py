@@ -12,7 +12,7 @@ from pathlib import Path
 from uuid import uuid4
 
 
-_PROPERTY_SEARCH_RUN_TTL_SECONDS = 0
+_PROPERTY_SEARCH_RUN_TTL_SECONDS = 90 * 24 * 60 * 60
 _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
 
