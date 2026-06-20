@@ -121,7 +121,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     pricing = client.get("/pricing")
     assert "<h1>Pricing</h1>" in pricing.text
-    assert "Choose by sources, shortlist size, and research depth." in pricing.text
+    assert "Choose by sources, shortlist size, and research depth." not in pricing.text
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
     assert "Checkout pending" not in pricing.text

@@ -3,26 +3,17 @@
 <style>
   .pricing-wrap {
     display: grid;
-    gap: 14px;
-    padding-top: 12px;
+    gap: 12px;
+    padding-top: 6px;
   }
   .pricing-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 14px;
+    display: block;
     padding: 0 2px;
   }
   .pricing-head h1 {
     margin: 0;
-    font-size: clamp(2rem, 3.2vw, 3.2rem);
+    font-size: clamp(1.85rem, 2.8vw, 2.7rem);
     line-height: 1;
-  }
-  .pricing-head p {
-    max-width: 360px;
-    margin: 0;
-    font-size: 0.95rem;
-    color: var(--text-dim);
   }
   .tier-grid {
     display: grid;
@@ -30,11 +21,11 @@
     gap: 12px;
   }
   .tier-card {
-    min-height: 318px;
+    min-height: 292px;
     display: grid;
     grid-template-rows: auto auto 1fr auto;
-    gap: 11px;
-    padding: 14px;
+    gap: 10px;
+    padding: 12px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.025);
@@ -61,10 +52,10 @@
   }
   .tier-copy {
     margin: 0;
-    min-height: 42px;
+    min-height: 36px;
     color: var(--text-dim);
     font-size: 0.94rem;
-    line-height: 1.45;
+    line-height: 1.35;
   }
   .tier-facts {
     display: grid;
@@ -78,7 +69,7 @@
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    padding-top: 7px;
+    padding-top: 6px;
     border-top: 1px solid var(--line);
     color: var(--text-dim);
     font-size: 0.92rem;
@@ -98,10 +89,6 @@
     font-size: 0.82rem;
   }
   @media (max-width: 980px) {
-    .pricing-head {
-      display: grid;
-      align-items: start;
-    }
     .tier-grid {
       grid-template-columns: 1fr;
     }
@@ -116,7 +103,6 @@
     <div>
       <h1>Pricing</h1>
     </div>
-    <p>Choose by sources, shortlist size, and research depth.</p>
   </div>
 
   <div class="tier-grid">

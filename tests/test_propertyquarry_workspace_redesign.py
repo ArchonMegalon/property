@@ -6031,6 +6031,30 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
             assert phrase not in body, f"{phrase!r} leaked in {path}"
 
 
+def test_propertyquarry_dark_mode_covers_nested_search_controls() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    dark_block = body.split('html[data-pq-theme="dark"] .pqx-loaded-agent', 1)[1].split(
+        "html[data-pq-theme=\"dark\"] .pqx-workflow-step:hover", 1
+    )[0]
+
+    required_selectors = (
+        ".pqx-what-matters-head",
+        ".pqx-what-matters-chip",
+        ".pqx-what-matters-panel .pqx-choice-groupbox",
+        ".pqx-what-matters-panel .pqx-pref-row",
+        ".pqx-what-matters-panel .pqx-pref-row[data-preference-state]",
+        ".pqx-what-matters-panel .pqx-school-priority-row[data-school-family-active=\"true\"]",
+        ".pqx-what-matters-panel .pqx-school-priority-row[data-school-parent-active=\"true\"]",
+        ".pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows=\"true\"]",
+        ".pqx-automation-kpis span",
+        ".pqx-automation-history-link",
+    )
+
+    for selector in required_selectors:
+        assert selector in dark_block
+
+
 def test_property_delivery_rows_are_customer_outcomes_not_provider_receipts() -> None:
     rows = landing_property_workspace_helpers._delivery_proof_rows(
         {
