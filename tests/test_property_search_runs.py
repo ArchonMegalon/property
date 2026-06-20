@@ -8976,5 +8976,28 @@ def test_property_search_storage_schema_check_enforces_tenant_primary_key() -> N
     source = Path("scripts/check_property_search_storage_schema.py").read_text(encoding="utf-8")
 
     assert "idx_property_search_runs_principal_updated" in source
+    assert "_check_source_contracts()" in source
+    assert "ON CONFLICT (principal_id, run_id) DO UPDATE" in source
+    assert "SET principal_id = EXCLUDED.principal_id" in source
+    assert "forbidden_storage_contract" in source
+    assert "if not normalized_principal_id and not admin:" in source
     assert "run_primary_key != (\"principal_id\", \"run_id\")" in source
     assert "invalid_primary_key:property_search_runs" in source
+
+
+def test_property_search_storage_schema_check_runs_source_contracts_without_database() -> None:
+    env = dict(os.environ)
+    env.pop("DATABASE_URL", None)
+    env["PYTHONPATH"] = "ea"
+
+    result = subprocess.run(
+        ["python3", "scripts/check_property_search_storage_schema.py"],
+        cwd="/docker/property",
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "source contracts look ready" in result.stdout

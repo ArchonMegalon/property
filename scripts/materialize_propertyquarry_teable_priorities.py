@@ -543,16 +543,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Data model",
         "title": "Search-run tenancy and schema versioning",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": False,
         "owner_lane": "storage/security",
         "current_state": (
-            "Search runs still need a stricter tenant boundary and migration posture so ownership cannot drift, user paths "
-            "cannot list other principals, and concurrent provider/ranking/research updates do not overwrite each other."
+            "Composite principal/run primary-key migration and service-level principal scoping are present. The release "
+            "gate now validates source-level tenancy invariants even without DATABASE_URL, including composite upsert, "
+            "principal-scoped load/delete, no owner mutation and no empty-principal user listing."
         ),
         "next_action": (
-            "Move to principal-scoped immutable ownership or composite keys, split user/admin listing APIs, add schema "
-            "migrations and optimistic versions or event tables for run updates."
+            "Finish optimistic versions or event tables for concurrent provider/ranking/research updates, and keep the live "
+            "Postgres primary-key/index check active in deploy environments."
         ),
         "source": "whole-product audit",
     },
