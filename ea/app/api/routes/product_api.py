@@ -149,7 +149,8 @@ def _magic_fit_reference_root(container: AppContainer, *, principal_id: str) -> 
 
 
 def _property_map_preview_root(container: AppContainer) -> Path:
-    root = Path(str(os.environ.get("EA_ARTIFACTS_DIR") or container.settings.storage.artifacts_dir or "/tmp/ea_artifacts")).resolve()
+    configured_root = os.environ.get("EA_ARTIFACTS_DIR") or container.settings.storage.artifacts_dir or "/data/artifacts"
+    root = Path(str(configured_root)).resolve()
     return root / "map_previews"
 
 
