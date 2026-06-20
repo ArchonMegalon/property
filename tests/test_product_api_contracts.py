@@ -20508,6 +20508,113 @@ def test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape(
     assert commercial["last_order_id"] == "pf-plus-456"
 
 
+def test_property_payfunnels_webhook_accepts_sha256_signature_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-prefixed-signature"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    webhook_payload = {
+        "event_type": "payment.completed",
+        "client_reference_id": principal_id,
+        "external_id": "pf-plus-prefixed",
+        "plan_key": "plus",
+        "payment_status": "completed",
+        "amount_eur": "3.00",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = "sha256=" + hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+    assert webhook.status_code == 200, webhook.text
+    assert webhook.json()["current_plan_key"] == "plus"
+
+
+def test_property_payfunnels_webhook_rejects_amount_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-wrong-amount"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    webhook_payload = {
+        "event_type": "payment.completed",
+        "client_reference_id": principal_id,
+        "external_id": "pf-plus-wrong-amount",
+        "plan_key": "plus",
+        "payment_status": "completed",
+        "amount_eur": "0.01",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+    assert webhook.status_code == 409
+    assert webhook.json()["error"]["details"] == "payfunnels_amount_mismatch"
+
+    status_after_webhook = client.get("/v1/onboarding/property-search/preferences")
+    commercial = dict(status_after_webhook.json()["property_search_preferences"].get("property_commercial") or {})
+    assert commercial.get("active_plan_key") != "plus"
+
+
+def test_property_payfunnels_webhook_rejects_pending_order_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-order-mismatch"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["order_id"]
+
+    webhook_payload = {
+        "event_type": "payment.completed",
+        "client_reference_id": principal_id,
+        "external_id": "pf-plus-different-order",
+        "plan_key": "plus",
+        "payment_status": "completed",
+        "amount_eur": "3.00",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+    assert webhook.status_code == 409
+    assert webhook.json()["error"]["details"] == "payfunnels_order_mismatch"
+
+    status_after_webhook = client.get("/v1/onboarding/property-search/preferences")
+    commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["pending_order_id"] == created.json()["order_id"]
+    assert commercial.get("active_plan_key") != "plus"
+
+
 def test_property_investment_comp_samples_filter_to_matching_location(monkeypatch: pytest.MonkeyPatch) -> None:
     candidate_urls = [
         "https://example.test/rent-linz",

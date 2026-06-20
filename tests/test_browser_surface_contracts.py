@@ -152,7 +152,8 @@ def test_pricing_surfaces_payfunnels_checkout_when_configured(monkeypatch: pytes
     pricing = client.get("/pricing")
 
     assert pricing.status_code == 200
-    assert "PayFunnels" in pricing.text
+    assert "Secure checkout." in pricing.text
+    assert "Checkout uses PayFunnels" not in pricing.text
     assert "Sign in to upgrade" in pricing.text
     assert 'data-rybbit-event="pricing_sign_in_to_upgrade"' in pricing.text
 

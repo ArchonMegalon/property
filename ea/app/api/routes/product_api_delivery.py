@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import os
 import urllib.parse
 from urllib.parse import urlparse
@@ -120,6 +121,30 @@ def _payfunnels_field_value(payload: dict[str, object], label: str) -> str:
             if value:
                 return value
     return ""
+
+
+def _payfunnels_money_cents(value: object) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = text.replace("EUR", "").replace("€", "").strip().replace(" ", "")
+    if "," in normalized and "." in normalized:
+        normalized = normalized.replace(".", "").replace(",", ".")
+    elif "," in normalized:
+        normalized = normalized.replace(",", ".")
+    try:
+        amount = Decimal(normalized)
+    except (InvalidOperation, ValueError):
+        return None
+    return int((amount * Decimal("100")).quantize(Decimal("1")))
+
+
+def _payfunnels_plan_amount_matches(*, paid_amount: object, expected_amount: object) -> bool:
+    paid_cents = _payfunnels_money_cents(paid_amount)
+    expected_cents = _payfunnels_money_cents(expected_amount)
+    if paid_cents is None:
+        return True
+    return expected_cents is not None and paid_cents == expected_cents
 
 
 def _public_base_url(request: Request) -> str:
@@ -1177,6 +1202,16 @@ async def payfunnels_property_billing_webhook(
         spec = property_plan_spec(plan_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not _payfunnels_plan_amount_matches(paid_amount=amount_eur, expected_amount=spec.amount_eur):
+        raise HTTPException(status_code=409, detail="payfunnels_amount_mismatch")
+    preferences_before = _property_preferences(container, principal_id=principal_id)
+    pending_commercial = dict(preferences_before.get("property_commercial") or {})
+    pending_order_id = str(pending_commercial.get("pending_order_id") or "").strip()
+    pending_plan_key = str(pending_commercial.get("pending_plan_key") or "").strip().lower()
+    if pending_order_id and pending_order_id != order_id:
+        raise HTTPException(status_code=409, detail="payfunnels_order_mismatch")
+    if pending_plan_key and pending_plan_key != spec.plan_key:
+        raise HTTPException(status_code=409, detail="payfunnels_plan_mismatch")
     completed = payment_status in {"paid", "completed", "succeeded", "active"} or event_type in {
         "payment.completed",
         "checkout.completed",
@@ -1185,7 +1220,7 @@ async def payfunnels_property_billing_webhook(
     if completed:
         active_until = paid_plan_expiry(plan_key=spec.plan_key)
         updated = merge_property_commercial(
-            _property_preferences(container, principal_id=principal_id),
+            preferences_before,
             updates={
                 "active_plan_key": spec.plan_key,
                 "status": "active",

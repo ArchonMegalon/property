@@ -437,6 +437,8 @@ def create_payfunnels_property_checkout(
 def verify_payfunnels_webhook_signature(*, body_bytes: bytes, signature: str) -> bool:
     secret = str(os.getenv("PAYFUNNELS_WEBHOOK_SECRET") or "").strip()
     provided = str(signature or "").strip()
+    if provided.lower().startswith("sha256="):
+        provided = provided.split("=", 1)[1].strip()
     if not secret or not provided:
         return False
     expected = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()

@@ -127,7 +127,7 @@
       <div class="kicker">Pricing</div>
       <h1>Pick the search lane you need.</h1>
     </div>
-    <p>Plans change source breadth, shortlist density, score ceiling, and property page depth. Checkout uses PayFunnels when it is configured.</p>
+    <p>Plans change source breadth, shortlist density, score ceiling, and property page depth.</p>
   </div>
 
   <div class="tier-grid">
@@ -156,7 +156,7 @@
       <div class="tier-actions">
         {% if plan.plan_key == 'free' %}
         <a class="btn primary" href="/register" data-analytics-event="pricing_start_free" data-rybbit-event="pricing_start_free" data-rybbit-prop-plan="free">Start free</a>
-        <span class="tier-provider">No checkout required.</span>
+        <span class="tier-provider">No payment required.</span>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) and pricing_checkout_session_ready %}
         <button
           class="btn primary"
@@ -169,10 +169,10 @@
           data-rybbit-prop-plan="{{ plan.plan_key }}"
           data-rybbit-prop-provider="{{ (pricing_checkout_provider_labels_by_plan or {}).get(plan.plan_key) or 'checkout' }}"
         >Start checkout</button>
-        <span class="tier-provider">{{ (pricing_checkout_provider_labels_by_plan or {}).get(plan.plan_key) or 'Checkout' }}</span>
+        <span class="tier-provider">Secure checkout.</span>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) %}
         <a class="btn primary" href="/register" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
-        <span class="tier-provider">{{ (pricing_checkout_provider_labels_by_plan or {}).get(plan.plan_key) or 'Checkout' }}</span>
+        <span class="tier-provider">Secure checkout.</span>
         {% else %}
         <a class="btn ghost" href="/register" data-analytics-event="pricing_open_{{ plan.plan_key }}" data-rybbit-event="pricing_open_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Join waitlist</a>
         <span class="tier-provider">Checkout pending.</span>
