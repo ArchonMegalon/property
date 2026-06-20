@@ -3675,6 +3675,73 @@ def test_property_provider_repair_does_not_cross_resolve_floorplan_into_location
     assert refreshed.resolution == ""
 
 
+def test_property_provider_repair_snapshot_uses_generic_postal_evidence(monkeypatch) -> None:
+    principal_id = "exec-property-provider-repair-generic-postal"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Repair Generic Postal Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    service = ProductService(client.app.state.container)
+
+    class _Resp:
+        ok = True
+        text = """
+        <html><head><title>Moderne Wohnung mit Terrasse</title></head>
+        <body>
+        Lage: 5020 Salzburg
+        2 Zimmer
+        58 m2
+        EUR 1.250
+        </body></html>
+        """
+
+    monkeypatch.setattr(product_service.requests, "get", lambda *args, **kwargs: _Resp())
+
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url="https://example.invalid/listing/opaque-123",
+        title="Moderne Wohnung mit Terrasse",
+        source_url="https://example.invalid/search",
+        source_label="Willhaben | Austria | Rent | 1010 Vienna",
+        source_platform="willhaben",
+        source_family="core_portal",
+        filter_key="location_scope",
+        diagnostics={
+            "provider_host": "example.invalid",
+            "source_scope_location": "1010 Vienna",
+            "source_postal_code": "1010",
+            "source_city": "Vienna",
+        },
+        source_ref="property-scout:generic-postal-repair",
+    )
+
+    assert opened["status"] == "opened"
+    assert opened["repair_status"] == "returned"
+    assert opened["resolution"] == "suppressed_location_scope"
+    refreshed = [
+        row
+        for row in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if row.task_type == "property_provider_repair_ooda"
+    ][0]
+    assert refreshed.status == "returned"
+    assert refreshed.resolution == "suppressed_location_scope"
+
+
 def test_property_search_source_fetch_failure_opens_provider_repair_task(monkeypatch) -> None:
     principal_id = "exec-property-source-fetch-repair"
     client = build_property_client(principal_id=principal_id)

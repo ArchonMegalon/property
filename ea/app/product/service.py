@@ -24452,9 +24452,9 @@ class ProductService:
         text = re.sub(r"<[^>]+>", " ", text)
         text = html.unescape(text)
         text = " ".join(text.split())
-        postal_match = re.search(r"\b(1\d{3})\s+Wien\b", text, flags=re.IGNORECASE)
+        postal_evidence = _property_postal_location_evidence(text)
         location_match = re.search(
-            r"(?:Lage|Adresse)\s*[:|]?\s*([0-9]{4}\s+Wien(?:\s*\|\s*[^|]{1,80})?)",
+            r"(?:Lage|Adresse)\s*[:|]?\s*((?:[A-Z]{1,3}[-\s]?)?\d{4,5}(?:-\d{3})?\s+[A-Za-zÄÖÜäöüß' .\-/]{2,80})",
             text,
             flags=re.IGNORECASE,
         )
@@ -24466,8 +24466,8 @@ class ProductService:
             flags=re.IGNORECASE,
         )
         facts: dict[str, object] = {}
-        if postal_match:
-            facts["postal_name"] = f"{postal_match.group(1)} Wien"
+        if postal_evidence:
+            facts["postal_name"] = str(postal_evidence[0].get("postal_name") or "").strip()
         if location_match:
             facts["location"] = " ".join(str(location_match.group(1) or "").split())
         if rooms_match:
