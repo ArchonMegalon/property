@@ -7359,6 +7359,97 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
     assert repaired_status["summary"]["repair_receipts"][0]["resolution"] == "worker_exception_restart_required"
 
 
+def test_property_provider_repair_quarantines_stale_deferred_source_fetch(monkeypatch) -> None:
+    principal_id = "cf-email:provider.quarantine@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Quarantine Repair Office")
+    service = ProductService(client.app.state.container)
+    run_id = f"provider-quarantine-{uuid.uuid4().hex}"
+    source_url = "https://kalandra.example.invalid/search"
+    now = product_service._now_iso()
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": now,
+            "updated_at": now,
+            "status": "failed",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["kalandra", "willhaben"],
+            "progress": 100,
+            "message": "Search stopped before all provider checks finished.",
+            "summary": {
+                "status": "failed",
+                "ranked_candidates": [{"candidate_ref": "cand-1", "title": "Recovered Willhaben hit"}],
+                "sources": [
+                    {
+                        "source_url": source_url,
+                        "source_label": "Kalandra | Austria | Rent | 1010 Vienna",
+                        "status": "failed",
+                        "error": "temporary fetch failed",
+                    }
+                ],
+            },
+        }
+    opened = service._open_property_provider_repair_task(
+        principal_id=principal_id,
+        property_url=source_url,
+        title="Kalandra source fetch failed",
+        source_url=source_url,
+        source_label="Kalandra | Austria | Rent | 1010 Vienna",
+        source_platform="kalandra",
+        source_family="private_portal",
+        filter_key="source_fetch",
+        diagnostics={"provider_host": "kalandra.example.invalid", "error": "timeout", "repair_attempts": 3},
+        source_ref="property-source:kalandra",
+        run_id=run_id,
+    )
+    assert opened["status"] == "opened"
+    tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status="pending",
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(tasks) == 1
+    monkeypatch.setenv("EA_PROPERTY_PROVIDER_REPAIR_RETRY_BUDGET_SECONDS", "60")
+    monkeypatch.setattr(
+        ProductService,
+        "_auto_resolve_property_provider_repair_task",
+        lambda self, *, principal_id, task, actor: {"status": "deferred", "reason": "manual_provider_patch_required"},
+    )
+
+    repair_summary = service.process_property_provider_repair_tasks(
+        principal_id=principal_id,
+        actor="test",
+        limit=5,
+    )
+
+    assert repair_summary["resolved_total"] == 1
+    assert repair_summary["deferred_total"] == 0
+    assert repair_summary["resolved"][0]["resolution"] == "provider_quarantined_retry_budget_exhausted"
+    task_after = client.app.state.container.orchestrator.list_human_tasks(
+        principal_id=principal_id,
+        status="returned",
+        limit=20,
+    )[0]
+    assert task_after.resolution == "provider_quarantined_retry_budget_exhausted"
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    assert status["status"] == "completed_partial"
+    summary = dict(status["summary"])
+    source = dict(summary["sources"][0])
+    assert source["status"] == "repaired"
+    assert source["repair_status"] == "returned"
+    assert source["repair_resolution"] == "provider_quarantined_retry_budget_exhausted"
+    assert source["original_error"] == "temporary fetch failed"
+    assert summary["repair_receipts"][0]["resolution"] == "provider_quarantined_retry_budget_exhausted"
+    assert summary["repair_resolved_total"] == 1
+
+
 def test_property_search_run_state_builds_stale_failure_event() -> None:
     event = product_service._state_property_search_run_stale_failure_event(
         {"status": "in_progress"},

@@ -79,12 +79,13 @@ PRIORITIES = [
         "user_visible": True,
         "owner_lane": "fleet/job-system",
         "current_state": (
-            "Provider repair tasks, stale-run replacement, worker-exception repair and repair receipts are executable. "
-            "Compact run snapshots now preserve replacement run links, repair receipts, task counts and can-auto-repair state."
+            "Provider repair tasks, stale-run replacement, worker-exception repair, repair receipts and generic "
+            "retry-budget quarantine receipts are executable. Compact run snapshots now preserve replacement run links, "
+            "repair receipts, task counts and can-auto-repair state."
         ),
         "next_action": (
-            "Add provider quarantine/retry-budget receipts and a live canary proving fetch-failed provider lanes advance to "
-            "replacement or completed_partial without stale queued copy."
+            "Add a live canary proving fetch-failed provider lanes advance to replacement, quarantine or completed_partial "
+            "without stale queued copy."
         ),
         "source": "whole-product audit",
     },

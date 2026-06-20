@@ -24930,6 +24930,99 @@ class ProductService:
             max_results_per_source=max_results_per_source,
         )
 
+    def _property_provider_repair_retry_budget_seconds(self) -> int:
+        raw_value = str(os.getenv("EA_PROPERTY_PROVIDER_REPAIR_RETRY_BUDGET_SECONDS") or "").strip()
+        if not raw_value:
+            return 15 * 60
+        try:
+            parsed = int(raw_value)
+        except Exception:
+            return 15 * 60
+        return max(60, min(parsed, 24 * 60 * 60))
+
+    def _maybe_quarantine_deferred_property_provider_repair_task(
+        self,
+        *,
+        principal_id: str,
+        task: HumanTask,
+        actor: str,
+        deferred_reason: str,
+    ) -> dict[str, object] | None:
+        input_json = dict(task.input_json or {})
+        created_at = _parse_utcish(str(task.created_at or ""))
+        age_seconds = 0.0
+        if created_at is not None:
+            age_seconds = max(0.0, (datetime.now(timezone.utc) - created_at).total_seconds())
+        budget_seconds = self._property_provider_repair_retry_budget_seconds()
+        diagnostics = dict(input_json.get("diagnostics") or {}) if isinstance(input_json.get("diagnostics"), dict) else {}
+        try:
+            explicit_attempts = int(diagnostics.get("repair_attempt") or diagnostics.get("repair_attempts") or 0)
+        except Exception:
+            explicit_attempts = 0
+        if age_seconds < budget_seconds and explicit_attempts < 3:
+            return None
+        property_url = str(input_json.get("property_url") or "").strip()
+        filter_key = str(input_json.get("filter_key") or "provider_repair").strip().lower() or "provider_repair"
+        source_url = str(input_json.get("source_url") or property_url).strip()
+        source_label = str(input_json.get("source_label") or input_json.get("title") or source_url or "Provider source").strip()
+        resolution = "provider_quarantined_retry_budget_exhausted"
+        reason = (
+            compact_text(str(deferred_reason or ""), fallback="manual_provider_patch_required", limit=160)
+            or "manual_provider_patch_required"
+        )
+        updated = self._container.orchestrator.return_human_task(
+            task.human_task_id,
+            principal_id=principal_id,
+            operator_id=str(task.assigned_operator_id or "ea_one_manager").strip() or "ea_one_manager",
+            resolution=resolution,
+            returned_payload_json={
+                "source": "property_provider_repair_executor",
+                "actor": str(actor or "ea_one_manager").strip() or "ea_one_manager",
+                "resolution": resolution,
+                "reason": reason,
+                "property_url": property_url,
+                "source_url": source_url,
+                "source_label": source_label,
+                "filter_key": filter_key,
+                "retry_budget_seconds": budget_seconds,
+                "age_seconds": int(age_seconds),
+                "repair_attempts": explicit_attempts,
+                "quarantine": True,
+            },
+            provenance_json={"source": "property_provider_repair_executor", "quarantine": True},
+        )
+        if updated is None:
+            return None
+        self._record_property_search_run_repair_receipt(
+            principal_id=principal_id,
+            run_id=str(input_json.get("run_id") or "").strip(),
+            task=updated,
+            resolution=resolution,
+            reason=reason,
+            actor=actor,
+        )
+        payload = {
+            "human_task_id": f"human_task:{updated.human_task_id}",
+            "property_url": property_url,
+            "source_url": source_url,
+            "source_label": source_label,
+            "filter_key": filter_key,
+            "resolution": resolution,
+            "reason": reason,
+            "retry_budget_seconds": budget_seconds,
+            "age_seconds": int(age_seconds),
+            "repair_attempts": explicit_attempts,
+            "actor": str(actor or "ea_one_manager").strip() or "ea_one_manager",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_provider_repair_quarantined",
+            payload=payload,
+            source_id=updated.human_task_id,
+            dedupe_key=f"{principal_id}|{updated.human_task_id}|property-provider-repair-quarantined",
+        )
+        return {"status": "resolved", **payload}
+
     def process_property_provider_repair_tasks(
         self,
         *,
@@ -24955,7 +25048,16 @@ class ProductService:
             if str(result.get("status") or "").strip() == "resolved":
                 resolved.append(dict(result))
             elif str(result.get("status") or "").strip() == "deferred":
-                deferred += 1
+                quarantined = self._maybe_quarantine_deferred_property_provider_repair_task(
+                    principal_id=principal_id,
+                    task=task,
+                    actor=actor,
+                    deferred_reason=str(result.get("reason") or "").strip(),
+                )
+                if quarantined is not None:
+                    resolved.append(dict(quarantined))
+                else:
+                    deferred += 1
         return {
             "generated_at": _now_iso(),
             "resolved_total": len(resolved),
