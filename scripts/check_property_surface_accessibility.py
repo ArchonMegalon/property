@@ -46,6 +46,13 @@ FORBIDDEN_CUSTOMER_NOISE = (
 
 ALLOWED_HASH_TARGETS = {"#results-list", "#pqx-filtered-breakdown"}
 
+ACCESSIBILITY_PRIMITIVE_TEMPLATES = (
+    "ea/app/templates/base_public.html",
+    "ea/app/templates/base_console.html",
+    "ea/app/templates/app/property_decision_workbench.html",
+    "ea/app/templates/app/property_research_detail.html",
+)
+
 
 def _line_number(text: str, offset: int) -> int:
     return text[:offset].count("\n") + 1
@@ -109,6 +116,24 @@ def _check_images(path: Path, text: str, failures: list[str]) -> None:
             failures.append(f"{path}:{_line_number(text, match.start())} image must declare alt text")
 
 
+def _check_dialogs(path: Path, text: str, failures: list[str]) -> None:
+    for match in re.finditer(r"<dialog\b(?P<attrs>[^>]*)>", text, flags=re.IGNORECASE | re.DOTALL):
+        tag = match.group(0)
+        line = _line_number(text, match.start())
+        if not ((_attr(tag, "aria-label") or "").strip() or (_attr(tag, "aria-labelledby") or "").strip()):
+            failures.append(f"{path}:{line} dialog needs aria-label or aria-labelledby")
+
+
+def _check_accessibility_primitives(path: Path, text: str, failures: list[str]) -> None:
+    relative = str(path.relative_to(ROOT))
+    if relative not in ACCESSIBILITY_PRIMITIVE_TEMPLATES:
+        return
+    if "prefers-reduced-motion: reduce" not in text:
+        failures.append(f"{path} must define a prefers-reduced-motion: reduce block")
+    if ":focus-visible" not in text:
+        failures.append(f"{path} must define visible focus styles")
+
+
 def main() -> int:
     failures: list[str] = []
     for relative_path in SURFACE_TEMPLATES:
@@ -121,6 +146,8 @@ def main() -> int:
         _check_buttons(path, text, failures)
         _check_links(path, text, failures)
         _check_images(path, text, failures)
+        _check_dialogs(path, text, failures)
+        _check_accessibility_primitives(path, text, failures)
 
     release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
     if "scripts/check_property_surface_accessibility.py" not in release_gate:

@@ -483,7 +483,8 @@ PRIORITIES = [
         "current_state": (
             "scripts/check_property_surface_accessibility.py is wired into property_release_gates.sh and guards main "
             "PropertyQuarry templates against known noise copy, unsafe/empty links, unnamed buttons and images without alt "
-            "attributes. Dynamic search/research action buttons now carry deterministic aria-labels."
+            "attributes. It now also rejects unnamed dialog surfaces and requires reduced-motion and visible-focus "
+            "primitives on the public shell, app shell, workbench and research detail templates."
         ),
         "next_action": (
             "Add axe, keyboard, focus, contrast, reduced-motion, touch-target and dialog checks; include PDF language, "
