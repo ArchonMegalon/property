@@ -2437,7 +2437,7 @@ def property_workspace_payload(
                     "items": repair_truth_rows + (
                         fleet_digest_items[:2]
                         if fleet_digest_items
-                        else [row_item("Repair notes", "Provider retries and repair receipts will appear here after the next saved-search run.", "Repair")]
+                        else [row_item("Repair notes", "Provider retries and repair outcomes will appear here after the next saved-search run.", "Repair")]
                     ),
                 },
                 {

@@ -176,7 +176,7 @@ PUBLIC_TRUST_PAGES = {
         "band": (
             {
                 "title": "Data stays contextual",
-                "body": "Property preferences, shortlist decisions, uploaded documents, and delivery receipts are handled as property-workflow data, not generic assistant memory.",
+                "body": "Property preferences, shortlist decisions, uploaded documents, and delivery history are handled as property-workflow data, not generic assistant memory.",
             },
             {
                 "title": "Sharing is explicit",
@@ -187,9 +187,9 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Account data",
                 "title": "What the product stores",
-                "body": "The app can store account identity, saved search preferences, run history, shortlist decisions, feedback, generated packets, tour receipts, and delivery settings.",
+                "body": "The app can store account identity, saved search preferences, run history, shortlist decisions, feedback, generated packets, tour history, and delivery settings.",
                 "items": (
-                    "Exact addresses, documents, and internal source URLs belong in private receipts unless a user explicitly shares a redacted artifact.",
+                    "Exact addresses, documents, and internal source URLs stay private unless a user explicitly shares a redacted artifact.",
                     "Preference learning is used to improve ranking for the account and must stay separable from cross-customer analytics.",
                     "Connected services should use the narrowest practical permission set for the selected workflow.",
                 ),
@@ -212,7 +212,7 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "question": "Can a shared tour reveal the original listing URL?",
-                "answer": "Public tours should use a narrow public manifest. Private listing URLs and exact-location evidence belong in private receipts.",
+                "answer": "Public tours should use a narrow public manifest. Private listing URLs and exact-location evidence stay out of public tour files.",
             },
         ),
     },
@@ -443,7 +443,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Lifecycle",
                 "title": "Billing states",
-                "body": "The billing system should define invoice creation, VAT handling, retries, failed payment recovery, grace periods, downgrades, and receipts.",
+                "body": "The billing system should define invoice creation, VAT handling, retries, failed payment recovery, grace periods, downgrades, and payment records.",
                 "items": (
                     "Cancellation should preserve export and deletion controls.",
                     "Downgrades should keep historical results readable unless retention settings remove them.",
@@ -473,7 +473,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Evidence",
                 "title": "Verification required",
-                "body": "PropertyQuarry should show uncertainty, missing facts, source receipts, and repair status so users can decide what still needs manual review.",
+                "body": "PropertyQuarry should show uncertainty, missing facts, source trail, and repair status so users can decide what still needs manual review.",
                 "items": (
                     "Verify price, operating costs, availability, and eligibility with the provider.",
                     "Verify legal, financial, tax, zoning, and construction questions with qualified professionals.",

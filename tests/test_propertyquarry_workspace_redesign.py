@@ -3038,6 +3038,7 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
         assert page.headers.get("X-Robots-Tag") == "index, follow, max-image-preview:large"
         for snippet in snippets:
             assert snippet in page.text
+        assert "receipts" not in page.text.lower()
         assert "Replace placeholder" not in page.text
         assert "Before public paid launch" not in page.text
 
@@ -6006,6 +6007,8 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
         "NeuronWriter editorial pass",
         "Telegram links",
         "Generated asset receipts",
+        "access-session receipts",
+        "repair receipts will appear",
         "Missing-fact OODA queued.",
         "Open the packet to inspect OODA.",
         "account truth",
