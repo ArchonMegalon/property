@@ -6,6 +6,7 @@ import json
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,52 @@ def _visible_text(text: str) -> str:
     without_hidden = re.sub(r"<script.*?</script>|<style.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     without_tags = re.sub(r"<[^>]+>", " ", without_hidden)
     return re.sub(r"\s+", " ", without_tags).strip()
+
+
+def _header_value(headers: dict[str, object], name: str) -> str:
+    normalized_name = str(name or "").strip().lower()
+    for key, value in headers.items():
+        if str(key or "").strip().lower() == normalized_name:
+            return str(value or "").strip()
+    return ""
+
+
+def _security_header_checks(*, path: str, final_url: str, headers: dict[str, object]) -> list[tuple[str, bool]]:
+    html_like_paths = {
+        "/",
+        "/security",
+        "/pricing",
+        "/privacy",
+        "/terms",
+        "/support",
+        "/imprint",
+        "/cookies",
+        "/subprocessors",
+        "/refunds",
+        "/disclaimers",
+        "/register",
+        "/sign-in",
+        "/app/properties",
+    }
+    if path not in html_like_paths:
+        return []
+    csp = _header_value(headers, "Content-Security-Policy")
+    permissions = _header_value(headers, "Permissions-Policy")
+    parsed_final = urllib.parse.urlparse(str(final_url or ""))
+    checks = [
+        ("security_csp", "default-src 'self'" in csp and "frame-ancestors 'self'" in csp),
+        ("security_nosniff", _header_value(headers, "X-Content-Type-Options").lower() == "nosniff"),
+        ("security_referrer_policy", _header_value(headers, "Referrer-Policy") == "strict-origin-when-cross-origin"),
+        ("security_permissions_policy", "camera=()" in permissions and "microphone=()" in permissions),
+    ]
+    if parsed_final.scheme == "https":
+        checks.append(
+            (
+                "security_hsts",
+                _header_value(headers, "Strict-Transport-Security").lower().startswith("max-age=31536000"),
+            )
+        )
+    return checks
 
 
 def fetch_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
@@ -229,9 +276,10 @@ def build_live_public_smoke_receipt(
         text = _decode_body(body_bytes)
         status_code = int(result.get("status_code") or 0)
         final_url = str(result.get("final_url") or url)
-        route_checks = _route_checks(path=path, status_code=status_code, final_url=final_url, text=text)
-        ok = status_code < 500 and status_code > 0 and all(value for _, value in route_checks)
         headers = dict(result.get("headers") or {})
+        route_checks = _route_checks(path=path, status_code=status_code, final_url=final_url, text=text)
+        route_checks.extend(_security_header_checks(path=path, final_url=final_url, headers=headers))
+        ok = status_code < 500 and status_code > 0 and all(value for _, value in route_checks)
         checks.append(
             {
                 "path": path,

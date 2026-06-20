@@ -3,11 +3,26 @@ from __future__ import annotations
 from scripts.propertyquarry_live_public_smoke import build_live_public_smoke_receipt
 
 
-def _fake_response(body: str, *, status_code: int = 200, final_url: str = "") -> dict[str, object]:
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'self'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=()",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+}
+
+
+def _fake_response(
+    body: str,
+    *,
+    status_code: int = 200,
+    final_url: str = "",
+    headers: dict[str, str] | None = None,
+) -> dict[str, object]:
     return {
         "status_code": status_code,
         "final_url": final_url or "https://propertyquarry.com/",
-        "headers": {"Content-Type": "text/html; charset=utf-8"},
+        "headers": {"Content-Type": "text/html; charset=utf-8", **(headers or SECURITY_HEADERS)},
         "body": body.encode("utf-8"),
         "duration_ms": 12,
     }
@@ -65,6 +80,22 @@ def test_live_public_smoke_fails_cloudflare_502_and_legacy_origin_without_networ
     assert rows["/"]["ok"] is False
     assert rows["/pricing"]["ok"] is False
     assert any(check["name"] == "no_generic_ea_copy" and check["ok"] is False for check in rows["/pricing"]["checks"])
+
+
+def test_live_public_smoke_fails_missing_browser_security_headers_without_network() -> None:
+    receipt = build_live_public_smoke_receipt(
+        routes=("/",),
+        fetcher=lambda url, _timeout: _fake_response(
+            "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
+            final_url=url,
+            headers={"Content-Type": "text/html; charset=utf-8"},
+        ),
+    )
+
+    assert receipt["status"] == "fail"
+    row = receipt["checks"][0]
+    assert any(check["name"] == "security_csp" and check["ok"] is False for check in row["checks"])
+    assert any(check["name"] == "security_nosniff" and check["ok"] is False for check in row["checks"])
 
 
 def test_live_public_smoke_fails_legacy_home_proof_component_without_network() -> None:

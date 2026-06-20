@@ -452,6 +452,25 @@ PRIORITIES = [
         "source": "whole-product audit",
     },
     {
+        "projection_id": "pq-priority-browser-security-smoke",
+        "priority": "P1",
+        "area": "Security",
+        "title": "Public and app entry surfaces must ship browser security headers",
+        "status": "verified",
+        "user_visible": False,
+        "owner_lane": "security/deploy-smoke",
+        "current_state": (
+            "The public live smoke now fails if HTML-like public routes or the app auth boundary lose the expected "
+            "Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, or HTTPS HSTS posture. "
+            "The deploy script already runs this smoke against the target base URL."
+        ),
+        "next_action": (
+            "Keep the security-header smoke in every deploy gate and extend it to new public/app entry routes before they "
+            "are linked from navigation, SEO, pricing or account surfaces."
+        ),
+        "source": "whole-product audit",
+    },
+    {
         "projection_id": "pq-priority-accessibility-release-gate",
         "priority": "P1",
         "area": "Accessibility",
