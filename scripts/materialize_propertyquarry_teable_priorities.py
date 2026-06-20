@@ -211,11 +211,14 @@ PRIORITIES = [
         "current_state": (
             "Verified: raw tour.json is built through PublicTourManifest from a narrow top-level allowlist, "
             "listing/property/source URLs and brief are excluded, private source fields are written only to "
-            "PrivateTourReceipt, served assets are manifest-bound, and focused public-tour privacy/live-tour tests pass."
+            "PrivateTourReceipt, served assets are manifest-bound, the Crezlo public-tour publisher now uses the same "
+            "manifest builder instead of hand-writing broad tour.json payloads, and focused public-tour privacy/live-tour "
+            "tests pass."
         ),
         "next_action": (
-            "Keep the manifest contract check, raw tour.json privacy tests, asset-suffix tests and public action auth gates "
-            "in the release gate; remove legacy compatibility wrappers in a later cleanup pass."
+            "Keep the manifest contract check, raw tour.json privacy tests, Crezlo publisher privacy test, asset-suffix "
+            "tests and public action auth gates in the release gate; remove legacy compatibility wrappers in a later "
+            "cleanup pass."
         ),
         "source": "whole-product audit",
     },
