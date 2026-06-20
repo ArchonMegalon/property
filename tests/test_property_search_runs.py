@@ -3299,6 +3299,7 @@ def test_property_provider_repair_copy_uses_propertyquarry_language() -> None:
     )
 
     assert opened["status"] == "opened"
+    assert opened["queue_lane"] == "repair"
     repair_tasks = [
         task
         for task in client.app.state.container.orchestrator.list_human_tasks(
@@ -3310,6 +3311,9 @@ def test_property_provider_repair_copy_uses_propertyquarry_language() -> None:
     ]
     assert len(repair_tasks) == 1
     task = repair_tasks[0]
+    assert dict(task.input_json or {})["queue_lane"] == "repair"
+    assert dict(task.input_json or {})["queue_max_attempts"] >= 1
+    assert dict(task.input_json or {})["queue_timeout_seconds"] >= 30
     task_text = json.dumps(
         {
             "brief": task.brief,
@@ -3330,6 +3334,7 @@ def test_property_provider_repair_copy_uses_propertyquarry_language() -> None:
         if row.event_type == "property_provider_repair_task_created"
     ]
     assert len(events) == 1
+    assert dict(events[0].payload or {})["queue_lane"] == "repair"
     assert "EA Provider OODA" not in json.dumps(events[0].payload or {}, ensure_ascii=False)
 
 

@@ -562,16 +562,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Reliability",
         "title": "Dedicated worker queues for provider, research, render and delivery lanes",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": False,
         "owner_lane": "fleet/job-system",
         "current_state": (
-            "Repair execution is now durable, but heavy work still needs resource-isolated queues so slow browser fetches, "
-            "research, PDFs, tours and notifications cannot starve each other."
+            "A canonical PropertyQuarry worker-queue catalog now defines provider-fetch, browser-extraction, evidence, "
+            "ranking, research, document, PDF, tour/media, notification, projection-sync and repair lanes. Provider repair "
+            "tasks/events now carry the stable repair queue lane and queue budget metadata."
         ),
         "next_action": (
-            "Introduce provider-fetch, browser-extraction, evidence, ranking, LLM research, document parsing, PDF render, "
-            "tour/media, notification and projection-sync queues with retries, locks, checkpoints and dead-letter receipts."
+            "Back the catalog with durable job rows, locks, retry leases, checkpoints and dead-letter receipts for each lane "
+            "so slow browser extraction, rendering and delivery cannot starve each other."
         ),
         "source": "whole-product audit",
     },

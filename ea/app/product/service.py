@@ -56,6 +56,7 @@ from app.services.property_billing import enforce_property_plan_limits, property
 from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
 from app.services.property_media_factory import MediaRequirement, route_property_media_task
 from app.product import property_search_storage as _property_search_storage
+from app.product.property_worker_queues import property_worker_queue_spec
 from app.product.property_listing_extractors import (
     _property_area_text_to_sqm,
     _property_html_fragment_text,
@@ -24185,6 +24186,7 @@ class ProductService:
             diagnostics=diagnostics_payload,
         )
         repair_operator_id = self._ensure_property_provider_repair_operator(principal_id=principal_id)
+        repair_queue = property_worker_queue_spec("repair")
         if existing is not None:
             existing = self._assign_property_provider_repair_task(
                 principal_id=principal_id,
@@ -24212,6 +24214,7 @@ class ProductService:
                 "status": "existing",
                 "human_task_id": f"human_task:{existing.human_task_id}",
                 "queue_item_ref": f"human_task:{existing.human_task_id}",
+                "queue_lane": repair_queue.key,
                 "task_type": "property_provider_repair_ooda",
                 "repair_status": "returned" if existing_status in {"returned", "completed"} else existing_status,
                 "resolution": existing_resolution,
@@ -24267,6 +24270,10 @@ class ProductService:
                 ],
             },
             input_json={
+                "queue_lane": repair_queue.key,
+                "queue_label": repair_queue.label,
+                "queue_timeout_seconds": repair_queue.timeout_seconds,
+                "queue_max_attempts": repair_queue.max_attempts,
                 "repair_owner": "ea_one_manager",
                 "repair_workflow": "ea_provider_ooda",
                 "property_url": normalized_property_url,
@@ -24316,6 +24323,7 @@ class ProductService:
             "status": "opened",
             "human_task_id": f"human_task:{task.human_task_id}",
             "queue_item_ref": f"human_task:{task.human_task_id}",
+            "queue_lane": repair_queue.key,
             "task_type": "property_provider_repair_ooda",
             "repair_owner": "ea_one_manager",
             "repair_workflow": "ea_provider_ooda",

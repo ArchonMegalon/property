@@ -54,6 +54,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contra
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
+  tests/test_property_worker_queues.py \
   tests/test_property_notification_email_templates.py \
   tests/test_propertyquarry_teable_sync.py \
   tests/test_browser_surface_contracts.py \
