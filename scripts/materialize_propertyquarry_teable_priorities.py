@@ -215,6 +215,168 @@ PRIORITIES = [
         "source": "whole-product audit",
     },
     {
+        "projection_id": "pq-priority-signin-logout-account-minimal",
+        "priority": "P1",
+        "area": "Account and auth",
+        "title": "Sign-in, logout and account surfaces must be fast and minimal",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "auth/account-ux",
+        "current_state": (
+            "Root, sign-in, logout and account/profile flows have repeatedly exposed wasted space, unavailable provider "
+            "buttons, redirect edge cases and settings that look editable when they are not."
+        ),
+        "next_action": (
+            "Keep authenticated root fast, preserve /?home=1 as the deliberate public-home escape, hide disabled social "
+            "providers, prove logout, and remove account/profile rows that cannot be acted on."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-results-recovery-controls",
+        "priority": "P1",
+        "area": "Results recovery",
+        "title": "Filtered counts must open useful relaxation controls",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "results/rerun-ux",
+        "current_state": (
+            "Filtered-count affordances have regressed into dead clicks or scroll-only anchors. Users need immediate, "
+            "low-noise ways to relax filters and see expected recovered-match counts."
+        ),
+        "next_action": (
+            "Make every filtered-count click open a compact recovery panel with budget/radius sliders, hard-rule warnings, "
+            "live newly-ranked count estimates and a smart rerun action."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-performance-first-load",
+        "priority": "P1",
+        "area": "Performance",
+        "title": "First-load performance for app, agents and research pages",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "frontend/performance",
+        "current_state": (
+            "Root and app landing were improved, but agents and some research detail pages can still feel slow when "
+            "thumbnails, maps, media state or large run payloads are initialized synchronously."
+        ),
+        "next_action": (
+            "Precompute agent map thumbnails, lazy-load heavy media/research sections, keep authenticated navigation "
+            "under the route budget, and add authenticated smoke/performance probes."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-prompt-injection-boundary",
+        "priority": "P1",
+        "area": "Security",
+        "title": "Untrusted listing and document content is data, never instruction",
+        "status": "open",
+        "user_visible": False,
+        "owner_lane": "security/research-pipeline",
+        "current_state": (
+            "Provider HTML, listing descriptions, PDFs, OCR and external feeds can flow into extraction, ranking, dossiers "
+            "and content drafts. This needs an explicit prompt-injection boundary."
+        ),
+        "next_action": (
+            "Strip hidden/scripted content, extract into strict schemas before model reasoning, never pass secrets to "
+            "untrusted contexts, and add malicious fixtures for listing text, PDF metadata and OCR."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-legal-trust-pages",
+        "priority": "P1",
+        "area": "Trust and legal",
+        "title": "Public trust, legal, attribution and disclaimer pages",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "public/trust",
+        "current_state": (
+            "The paid public product needs reviewed privacy, terms, imprint, cookie, subprocessors, refund, support, "
+            "property-data attribution, generated-tour and investment-education disclaimers."
+        ),
+        "next_action": (
+            "Ship the public legal/trust route set, link it from footer/account where relevant, and keep legal copy separate "
+            "from marketing or AI-generated content optimization."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-accessibility-release-gate",
+        "priority": "P1",
+        "area": "Accessibility",
+        "title": "Accessibility must become a release gate",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "frontend/accessibility",
+        "current_state": (
+            "Polish passes cover visual layout, but accessibility is not yet a first-class exit gate across public, app, "
+            "results, research, account, pricing and generated artifact surfaces."
+        ),
+        "next_action": (
+            "Add axe, keyboard, focus, contrast, reduced-motion, touch-target and dialog checks; include PDF language, "
+            "heading order, bookmarks and accessible link labels for generated dossiers."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-external-investment-feed-hardening",
+        "priority": "P1",
+        "area": "Investment data",
+        "title": "External investment feeds need host allowlist and protected cache",
+        "status": "open",
+        "user_visible": False,
+        "owner_lane": "investment/security",
+        "current_state": (
+            "External investment data can be useful, but third-party feed routing and cache defaults must fail closed "
+            "before they are trusted in paid research."
+        ),
+        "next_action": (
+            "Require configured allowed hosts, move cache to protected durable storage, set restrictive file permissions, "
+            "cache only allowlisted fields and surface source freshness/attribution."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-content-studio-subscribr",
+        "priority": "P2",
+        "area": "Content studio",
+        "title": "Subscribr content studio with source-bound script packets",
+        "status": "open",
+        "user_visible": False,
+        "owner_lane": "content-studio/integrations",
+        "current_state": (
+            "Subscribr should be an operator-governed video-script and content pre-production lane, not a property truth, "
+            "ranking, billing or publication authority."
+        ),
+        "next_action": (
+            "Implement source-packet contracts, privacy/fair-housing/freshness validation, Subscribr receipts, human review "
+            "and direct-publish disabled gates before any live listing content is used."
+        ),
+        "source": "Subscribr integration guide",
+    },
+    {
+        "projection_id": "pq-priority-ltd-integration-roadmap",
+        "priority": "P2",
+        "area": "Integration roadmap",
+        "title": "Governed LTD integrations that fill missing product systems",
+        "status": "open",
+        "user_visible": False,
+        "owner_lane": "integration-governance",
+        "current_state": (
+            "The next LTD work should add product systems rather than more generators: MetaSurvey, Lunacal, ApiX-Drive, "
+            "Invoiless, Documentation.AI, Paperguide, Internxt, ApproveThis and Unmixr only under boundaries."
+        ),
+        "next_action": (
+            "Implement one shared adapter contract with allowed data classes, kill switches, receipts and delete behavior; "
+            "start with MetaSurvey/Lunacal and ApiX-Drive/Invoiless."
+        ),
+        "source": "LTD integration audit",
+    },
+    {
         "projection_id": "pq-priority-property-passport",
         "priority": "P2",
         "area": "Product moat",
