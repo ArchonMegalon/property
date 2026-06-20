@@ -66,17 +66,17 @@ def _public_tour_asset_content_type_allowed(content_type: str) -> bool:
 
 
 def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]:
-    from app.api.routes.public_tour_payloads import redacted_public_tour_payload
+    from app.api.routes.public_tour_payloads import build_public_tour_manifest
 
     normalized_payload = dict(payload or {})
     slug = str(normalized_payload.get("slug") or "").strip()
     bundle_dir = _public_tour_dir() / slug if slug else None
-    public_payload = redacted_public_tour_payload(
+    public_payload = build_public_tour_manifest(
         normalized_payload,
         expose_asset_relpaths=True,
         url_allowed=lambda _url: False,
         bundle_dir_resolver=lambda requested_slug: bundle_dir if bundle_dir and str(requested_slug or "").strip() == slug else None,
-    )
+    ).as_dict()
     live_url = _safe_live_property_tour_url(
         normalized_payload.get("source_virtual_tour_url")
         or normalized_payload.get("source_virtual_tour_origin")
@@ -100,20 +100,9 @@ def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]
 
 
 def _public_tour_private_receipt(payload: dict[str, object]) -> dict[str, object]:
-    return {
-        "principal_id": str(payload.get("principal_id") or "").strip(),
-        "listing_url": str(payload.get("listing_url") or "").strip(),
-        "property_url": str(payload.get("property_url") or "").strip(),
-        "source_ref": str(payload.get("source_ref") or "").strip(),
-        "external_id": str(payload.get("external_id") or "").strip(),
-        "recipient_email": str(payload.get("recipient_email") or "").strip().lower(),
-        "crezlo_public_url": str(payload.get("crezlo_public_url") or "").strip(),
-        "source_virtual_tour_url": str(payload.get("source_virtual_tour_url") or "").strip(),
-        "source_virtual_tour_origin": str(payload.get("source_virtual_tour_origin") or "").strip(),
-        "panorama_source": str(payload.get("panorama_source") or "").strip(),
-        "three_d_vista_url": str(payload.get("three_d_vista_url") or "").strip(),
-        "matterport_url": str(payload.get("matterport_url") or "").strip(),
-    }
+    from app.api.routes.public_tour_payloads import PrivateTourReceipt
+
+    return PrivateTourReceipt.from_payload(payload).as_dict()
 
 
 def _write_hosted_property_tour_payload(bundle_dir: Path, payload: dict[str, object]) -> None:

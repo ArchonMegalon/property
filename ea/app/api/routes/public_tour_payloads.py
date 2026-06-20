@@ -2,10 +2,69 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from fastapi import HTTPException
+
+
+@dataclass(frozen=True)
+class PublicTourManifest:
+    payload: dict[str, object] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, object]:
+        return dict(self.payload)
+
+
+@dataclass(frozen=True)
+class PrivateTourReceipt:
+    principal_id: str = ""
+    listing_url: str = ""
+    property_url: str = ""
+    source_ref: str = ""
+    external_id: str = ""
+    recipient_email: str = ""
+    crezlo_public_url: str = ""
+    source_virtual_tour_url: str = ""
+    source_virtual_tour_origin: str = ""
+    panorama_source: str = ""
+    three_d_vista_url: str = ""
+    matterport_url: str = ""
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> "PrivateTourReceipt":
+        source = dict(payload or {})
+        return cls(
+            principal_id=str(source.get("principal_id") or "").strip(),
+            listing_url=str(source.get("listing_url") or "").strip(),
+            property_url=str(source.get("property_url") or "").strip(),
+            source_ref=str(source.get("source_ref") or "").strip(),
+            external_id=str(source.get("external_id") or "").strip(),
+            recipient_email=str(source.get("recipient_email") or "").strip().lower(),
+            crezlo_public_url=str(source.get("crezlo_public_url") or "").strip(),
+            source_virtual_tour_url=str(source.get("source_virtual_tour_url") or "").strip(),
+            source_virtual_tour_origin=str(source.get("source_virtual_tour_origin") or "").strip(),
+            panorama_source=str(source.get("panorama_source") or "").strip(),
+            three_d_vista_url=str(source.get("three_d_vista_url") or "").strip(),
+            matterport_url=str(source.get("matterport_url") or "").strip(),
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "principal_id": self.principal_id,
+            "listing_url": self.listing_url,
+            "property_url": self.property_url,
+            "source_ref": self.source_ref,
+            "external_id": self.external_id,
+            "recipient_email": self.recipient_email,
+            "crezlo_public_url": self.crezlo_public_url,
+            "source_virtual_tour_url": self.source_virtual_tour_url,
+            "source_virtual_tour_origin": self.source_virtual_tour_origin,
+            "panorama_source": self.panorama_source,
+            "three_d_vista_url": self.three_d_vista_url,
+            "matterport_url": self.matterport_url,
+        }
 
 _PUBLIC_TOUR_PRIVATE_KEYS = frozenset(
     {
@@ -694,3 +753,20 @@ def redacted_public_tour_payload(
             ).values()
         )
     return rendered
+
+
+def build_public_tour_manifest(
+    payload: dict[str, object],
+    *,
+    expose_asset_relpaths: bool = False,
+    url_allowed: Callable[[str], bool],
+    bundle_dir_resolver: Callable[[str], Path | None],
+) -> PublicTourManifest:
+    return PublicTourManifest(
+        redacted_public_tour_payload(
+            dict(payload or {}),
+            expose_asset_relpaths=expose_asset_relpaths,
+            url_allowed=url_allowed,
+            bundle_dir_resolver=bundle_dir_resolver,
+        )
+    )

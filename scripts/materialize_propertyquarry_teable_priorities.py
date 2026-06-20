@@ -201,16 +201,17 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Privacy/security",
         "title": "Public tour manifests must be positive-schema safe at rest",
-        "status": "in_progress",
+        "status": "verified",
         "user_visible": False,
         "owner_lane": "public-tours/security",
         "current_state": (
-            "Raw tour.json is built from a narrow top-level allowlist, listing/property/source URLs and brief are "
-            "excluded, served assets are manifest-bound, and the release gate now enforces those invariants."
+            "Verified: raw tour.json is built through PublicTourManifest from a narrow top-level allowlist, "
+            "listing/property/source URLs and brief are excluded, private source fields are written only to "
+            "PrivateTourReceipt, served assets are manifest-bound, and focused public-tour privacy/live-tour tests pass."
         ),
         "next_action": (
-            "Replace compatibility wrappers with dedicated PublicTourManifest/PrivateTourReceipt dataclasses and keep "
-            "public action routes auth-gated."
+            "Keep the manifest contract check, raw tour.json privacy tests, asset-suffix tests and public action auth gates "
+            "in the release gate; remove legacy compatibility wrappers in a later cleanup pass."
         ),
         "source": "whole-product audit",
     },

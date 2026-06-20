@@ -46,6 +46,12 @@ def main() -> int:
     leaked = sorted(public_keys & FORBIDDEN_PUBLIC_TOP_LEVEL_KEYS)
     if leaked:
         failures.append(f"public tour top-level allowlist exposes private keys: {', '.join(leaked)}")
+    if not hasattr(public_tour_payloads, "PublicTourManifest"):
+        failures.append("public tour payloads must expose an explicit PublicTourManifest contract")
+    if not hasattr(public_tour_payloads, "PrivateTourReceipt"):
+        failures.append("public tour payloads must expose an explicit PrivateTourReceipt contract")
+    if not hasattr(public_tour_payloads, "build_public_tour_manifest"):
+        failures.append("public tour payloads must expose a public manifest builder")
 
     redactor_source = inspect.getsource(public_tour_payloads.redacted_public_tour_payload)
     if "_PUBLIC_TOUR_TOP_LEVEL_KEYS" not in redactor_source:
@@ -67,8 +73,14 @@ def main() -> int:
         failures.append("raw public tour JSON route must expose manifest assets, not raw relpaths")
 
     writer_source = inspect.getsource(property_tour_hosting._write_hosted_property_tour_payload)
+    public_builder_source = inspect.getsource(property_tour_hosting._public_tour_public_payload)
+    private_receipt_source = inspect.getsource(property_tour_hosting._public_tour_private_receipt)
     if "_public_tour_public_payload(payload)" not in writer_source:
         failures.append("hosted public tour writer must construct tour.json through the public manifest builder")
+    if "build_public_tour_manifest" not in public_builder_source:
+        failures.append("hosted public tour writer must use the explicit PublicTourManifest builder")
+    if "PrivateTourReceipt" not in private_receipt_source:
+        failures.append("hosted public tour writer must use the explicit PrivateTourReceipt contract")
     if "tour.private.json" not in writer_source and "_public_tour_private_manifest_path" not in writer_source:
         failures.append("hosted public tour writer must keep private receipt data outside raw tour.json")
 
