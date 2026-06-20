@@ -2495,7 +2495,11 @@ def property_workspace_payload(
                     "title": "Checkout",
                     "body": "",
                     "items": [
-                        row_item("Provider", str(property_state.get("billing_checkout_provider_label") or "Unavailable"), "Checkout"),
+                        row_item(
+                            "Status",
+                            "Available" if bool(property_state.get("billing_checkout_enabled")) else "Not active yet",
+                            "Checkout",
+                        ),
                         row_item("Change plan", "Upgrade only when a real search hits the current allowance.", "Decision"),
                     ],
                 },

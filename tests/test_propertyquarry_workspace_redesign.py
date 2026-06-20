@@ -4131,6 +4131,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Commercial truth" not in billing.text
     assert "Plan and limits" not in billing.text
     assert "Plan unit" not in billing.text
+    assert "PayFunnels" not in billing.text
+    billing_payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+    assert 'row_item("Provider", str(property_state.get("billing_checkout_provider_label")' not in billing_payload_source
 
 
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
