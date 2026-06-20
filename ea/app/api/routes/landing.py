@@ -3676,7 +3676,7 @@ def app_shell(
                 payload["summary"] = "Identity, plan, delivery, and editable defaults."
             elif current_nav == "billing":
                 payload["title"] = "Billing"
-                payload["summary"] = "Make plan, limits, checkout, and entitlement truth visible in one place."
+                payload["summary"] = "Plan, checkout, and current allowance."
         else:
             payload = _app_section_payload(
                 resolved_section,

@@ -120,6 +120,8 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
         "Billing truth",
         "Plan and limits",
         "Plan unit",
+        "entitlement truth",
+        "Make plan, limits",
         "worker capacity",
         "provider breadth",
         "What this plan can actually run",

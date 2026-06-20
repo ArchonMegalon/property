@@ -16,6 +16,7 @@ def _fake_response(body: str, *, status_code: int = 200, final_url: str = "") ->
 def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
+        "https://propertyquarry.com/security": "PropertyQuarry Release checks and security review keep trust language grounded.",
         "https://propertyquarry.com/pricing": "PropertyQuarry Pick the search lane you need.",
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Return with the same browser, a secure email link, or your connected identity.",

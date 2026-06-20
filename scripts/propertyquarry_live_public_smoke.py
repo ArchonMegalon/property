@@ -14,6 +14,7 @@ from typing import Callable
 
 DEFAULT_ROUTES = (
     "/",
+    "/security",
     "/pricing",
     "/register",
     "/sign-in",
@@ -31,6 +32,12 @@ def _compact_snippet(text: str, *, limit: int = 180) -> str:
 
 def _decode_body(body: bytes) -> str:
     return body.decode("utf-8", errors="replace")
+
+
+def _visible_text(text: str) -> str:
+    without_hidden = re.sub(r"<script.*?</script>|<style.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    without_tags = re.sub(r"<[^>]+>", " ", without_hidden)
+    return re.sub(r"\s+", " ", without_tags).strip()
 
 
 def fetch_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
@@ -72,7 +79,8 @@ def fetch_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
 
 def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> list[tuple[str, bool]]:
     checks: list[tuple[str, bool]] = []
-    if path in {"/", "/pricing", "/register", "/sign-in"}:
+    visible_text = _visible_text(text)
+    if path in {"/", "/security", "/pricing", "/register", "/sign-in"}:
         checks.extend(
             (
                 ("contains_propertyquarry", "PropertyQuarry" in text),
@@ -82,6 +90,14 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         )
     if path == "/":
         checks.append(("home_has_main_copy", "Search once. Rank the right homes. Decide with evidence." in text))
+        checks.append(("home_no_visible_proof_noise", "proof" not in visible_text.lower()))
+    elif path == "/security":
+        checks.extend(
+            (
+                ("security_route_copy", "Release checks and security review" in text),
+                ("security_old_proof_copy_removed", "release-side proof" not in text.lower()),
+            )
+        )
     elif path == "/pricing":
         checks.extend(
             (
