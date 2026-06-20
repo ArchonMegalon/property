@@ -1181,10 +1181,10 @@ async def payfunnels_property_billing_webhook(
         payload.get("order_id")
         or payload.get("checkout_id")
         or payload.get("external_id")
-        or payload.get("chargeId")
-        or payload.get("invoiceId")
         or field_order
         or urllib.parse.unquote(title_order)
+        or payload.get("chargeId")
+        or payload.get("invoiceId")
         or metadata.get("order_id")
         or ""
     ).strip()
@@ -1209,15 +1209,17 @@ async def payfunnels_property_billing_webhook(
     pending_commercial = dict(preferences_before.get("property_commercial") or {})
     pending_order_id = str(pending_commercial.get("pending_order_id") or "").strip()
     pending_plan_key = str(pending_commercial.get("pending_plan_key") or "").strip().lower()
-    if pending_order_id and pending_order_id != order_id:
-        raise HTTPException(status_code=409, detail="payfunnels_order_mismatch")
-    if pending_plan_key and pending_plan_key != spec.plan_key:
-        raise HTTPException(status_code=409, detail="payfunnels_plan_mismatch")
     completed = payment_status in {"paid", "completed", "succeeded", "active"} or event_type in {
         "payment.completed",
         "checkout.completed",
         "subscription.activated",
     }
+    if completed and (not pending_order_id or not pending_plan_key):
+        raise HTTPException(status_code=409, detail="payfunnels_pending_checkout_required")
+    if pending_order_id and pending_order_id != order_id:
+        raise HTTPException(status_code=409, detail="payfunnels_order_mismatch")
+    if pending_plan_key and pending_plan_key != spec.plan_key:
+        raise HTTPException(status_code=409, detail="payfunnels_plan_mismatch")
     if completed:
         active_until = paid_plan_expiry(plan_key=spec.plan_key)
         updated = merge_property_commercial(

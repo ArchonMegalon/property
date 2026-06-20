@@ -20433,12 +20433,20 @@ def test_property_payfunnels_webhook_accepts_documented_callback_shape(
     principal_id = "exec-property-payfunnels-callback"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
     monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["order_id"]
 
     title = (
         "PropertyQuarry Plus | "
         f"pq_principal:{urllib.parse.quote(principal_id, safe='')} | "
-        "pq_order:pf-plus-123"
+        f"pq_order:{order_id}"
     )
     webhook_payload = {
         "invoiceTitle": title,
@@ -20475,12 +20483,20 @@ def test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape(
     principal_id = "exec-property-payfunnels-hidden-fields"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
     monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["order_id"]
 
     webhook_payload = {
         "additionalFields": [
             {"label": "pq_principal", "hiddenFieldValue": principal_id},
-            {"label": "pq_order", "hiddenFieldValue": "pf-plus-456"},
+            {"label": "pq_order", "hiddenFieldValue": order_id},
             {"label": "pq_plan", "hiddenFieldValue": "plus"},
         ],
         "customer": {"email": "buyer@example.com"},
@@ -20505,7 +20521,7 @@ def test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape(
     assert status_after_webhook.status_code == 200
     commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
     assert commercial["active_plan_key"] == "plus"
-    assert commercial["last_order_id"] == "pf-plus-456"
+    assert commercial["last_order_id"] == order_id
 
 
 def test_property_payfunnels_webhook_accepts_sha256_signature_prefix(
@@ -20514,12 +20530,19 @@ def test_property_payfunnels_webhook_accepts_sha256_signature_prefix(
     principal_id = "exec-property-payfunnels-prefixed-signature"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
     monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
 
     webhook_payload = {
         "event_type": "payment.completed",
         "client_reference_id": principal_id,
-        "external_id": "pf-plus-prefixed",
+        "external_id": created.json()["order_id"],
         "plan_key": "plus",
         "payment_status": "completed",
         "amount_eur": "3.00",
@@ -20538,7 +20561,7 @@ def test_property_payfunnels_webhook_accepts_sha256_signature_prefix(
     assert webhook.json()["current_plan_key"] == "plus"
 
 
-def test_property_payfunnels_webhook_is_signed_provider_callback_not_user_session(
+def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from fastapi.testclient import TestClient
@@ -20572,9 +20595,8 @@ def test_property_payfunnels_webhook_is_signed_provider_callback_not_user_sessio
         },
     )
 
-    assert webhook.status_code == 200, webhook.text
-    assert webhook.json()["status"] == "ok"
-    assert webhook.json()["current_plan_key"] == "plus"
+    assert webhook.status_code == 409, webhook.text
+    assert webhook.json()["error"]["details"] == "payfunnels_pending_checkout_required"
 
     bad_signature = client.post(
         "/app/api/signals/property/billing/payfunnels/webhook",
