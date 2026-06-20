@@ -90,6 +90,7 @@ from app.services.property_market_catalog import (
 )
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+public_payfunnels_router = APIRouter(prefix="/app/api", tags=["product-billing"])
 
 
 _PAYFUNNELS_TITLE_PRINCIPAL_RE = re.compile(r"pq_principal:([^|]+)")
@@ -1143,7 +1144,7 @@ def payfunnels_property_billing_cancel(
     return RedirectResponse(f"/app/properties?billing=cancelled&plan={plan_key}&provider=payfunnels", status_code=303)
 
 
-@router.post("/signals/property/billing/payfunnels/webhook")
+@public_payfunnels_router.post("/signals/property/billing/payfunnels/webhook")
 async def payfunnels_property_billing_webhook(
     request: Request,
     container: AppContainer = Depends(get_container),

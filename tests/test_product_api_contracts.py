@@ -20538,6 +20538,55 @@ def test_property_payfunnels_webhook_accepts_sha256_signature_prefix(
     assert webhook.json()["current_plan_key"] == "plus"
 
 
+def test_property_payfunnels_webhook_is_signed_provider_callback_not_user_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.app import create_app
+
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+    monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
+
+    webhook_payload = {
+        "event_type": "payment.completed",
+        "client_reference_id": "exec-property-payfunnels-public-callback",
+        "external_id": "pf-plus-public-callback",
+        "plan_key": "plus",
+        "payment_status": "completed",
+        "amount_eur": "3.00",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    client = TestClient(create_app())
+
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+
+    assert webhook.status_code == 200, webhook.text
+    assert webhook.json()["status"] == "ok"
+    assert webhook.json()["current_plan_key"] == "plus"
+
+    bad_signature = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": "bad-signature",
+        },
+    )
+    assert bad_signature.status_code == 401
+
+
 def test_property_payfunnels_webhook_rejects_amount_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

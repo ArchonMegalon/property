@@ -59,6 +59,7 @@ def _include_public_routes(
     subscribr_public_router: APIRouter,
     dadan_public_router: APIRouter,
     heyy_public_router: APIRouter,
+    payfunnels_public_router: APIRouter,
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
@@ -73,6 +74,7 @@ def _include_public_routes(
     app.include_router(subscribr_public_router)
     app.include_router(dadan_public_router)
     app.include_router(heyy_public_router)
+    app.include_router(payfunnels_public_router)
     if settings.public_results_enabled:
         from app.api.routes.public_results import router as public_results_router
 
@@ -259,6 +261,7 @@ def create_app() -> FastAPI:
     providers_router = route_modules["providers"].router
     product_api_router = route_modules["product_api"].router
     product_api_delivery_router = route_modules["product_api_delivery"].router
+    payfunnels_public_router = route_modules["product_api_delivery"].public_payfunnels_router
     product_api_workspace_router = route_modules["product_api_workspace"].router
     rewrite_router = route_modules["rewrite"].router
     runtime_router = route_modules["runtime"].router
@@ -288,6 +291,7 @@ def create_app() -> FastAPI:
         subscribr_public_router=subscribr_public_router,
         dadan_public_router=dadan_public_router,
         heyy_public_router=heyy_public_router,
+        payfunnels_public_router=payfunnels_public_router,
         health_router=health_router,
         register_router=register_router,
     )
@@ -300,7 +304,10 @@ def create_app() -> FastAPI:
         google_oauth_router=google_oauth_router,
         channels_router=_router_without_paths(channels_router, excluded_paths={"/v1/channels/telegram/ingest"}),
         memory_router=memory_router,
-        product_api_delivery_router=product_api_delivery_router,
+        product_api_delivery_router=_router_without_paths(
+            product_api_delivery_router,
+            excluded_paths={"/app/api/signals/property/billing/payfunnels/webhook"},
+        ),
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
         fliplink_authenticated_router=fliplink_authenticated_router,
