@@ -20712,11 +20712,13 @@ def test_property_payfunnels_refund_webhook_records_lifecycle_without_pending_ch
 
     assert refunded.status_code == 200, refunded.text
     assert refunded.json()["status"] == "recorded"
-    assert refunded.json()["current_plan_key"] == "plus"
+    assert refunded.json()["current_plan_key"] == "free"
 
     status_after_refund = client.get("/v1/onboarding/property-search/preferences")
     commercial = status_after_refund.json()["property_search_preferences"]["property_commercial"]
-    assert commercial["active_plan_key"] == "plus"
+    assert commercial["active_plan_key"] == "free"
+    assert commercial["status"] == "refunded"
+    assert commercial["active_until"] == ""
     assert commercial["pending_order_id"] == ""
     assert commercial["last_payment_status"] == "refunded"
     assert commercial["last_billing_event_type"] == "payment.refunded"

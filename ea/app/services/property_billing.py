@@ -161,7 +161,7 @@ def normalize_property_commercial(value: dict[str, object] | None) -> dict[str, 
     expired = requested_plan_key != "free" and (active_until is None or active_until <= _now())
     effective_plan_key = "free" if expired else requested_plan_key
     status = str(raw.get("status") or ("expired" if expired else ("active" if effective_plan_key != "free" else "free"))).strip().lower()
-    if effective_plan_key == "free" and status not in {"expired", "free"}:
+    if effective_plan_key == "free" and status not in {"expired", "free", "payment_failed", "cancelled", "refunded"}:
         status = "free"
     if effective_plan_key != "free" and status not in {"active", "pending", "captured"}:
         status = "active"

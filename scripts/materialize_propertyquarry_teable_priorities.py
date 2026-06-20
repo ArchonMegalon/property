@@ -251,11 +251,12 @@ PRIORITIES = [
             "Pricing has been simplified; PayFunnels completion webhooks are idempotent; failed, cancelled and refunded "
             "callbacks now clear stale pending checkouts and record bounded billing event receipts; the billing surface "
             "shows compact latest-payment and billing-history rows only when useful, preserves PayFunnels invoice IDs as "
-            "accounting handoff receipts, plus refund/cancellation context without provider-name noise."
+            "accounting handoff receipts, and refunded PayFunnels payments now revoke the paid entitlement instead of "
+            "leaving access active."
         ),
         "next_action": (
-            "Finish downgrade/cancel policy automation, full accounting-lane invoice/VAT documents, failed-payment recovery actions "
-            "and production PayFunnels smoke receipts."
+            "Finish cancel/downgrade policy automation, full accounting-lane invoice/VAT documents, failed-payment recovery "
+            "actions and production PayFunnels smoke receipts."
         ),
         "source": "whole-product audit",
     },
@@ -640,9 +641,9 @@ PRIORITIES = [
         "user_visible": True,
         "owner_lane": "billing/accounting",
         "current_state": (
-            "PayFunnels activation, failure, refund and invoice-id webhook receipts are implemented and billing history can "
-            "show compact invoice handoff state. The commercial lifecycle still needs real invoice documents, VAT handling, "
-            "failed-payment recovery automation, downgrade/cancel policy and refund operations."
+            "PayFunnels activation, failure, refund and invoice-id webhook receipts are implemented; refund callbacks now "
+            "revoke paid access and billing history can show compact invoice handoff state. The commercial lifecycle still "
+            "needs real invoice documents, VAT handling, failed-payment recovery automation and cancel/downgrade policy."
         ),
         "next_action": (
             "Keep PropertyQuarry as entitlement truth, use PayFunnels/PayPal only for payment proof, add Invoiless or an "

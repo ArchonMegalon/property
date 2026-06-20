@@ -1341,6 +1341,8 @@ async def payfunnels_property_billing_webhook(
             **event_updates,
         }
         if refunded:
+            updates["active_plan_key"] = "free"
+            updates["active_until"] = ""
             updates["status"] = "refunded"
         elif cancelled:
             updates["status"] = "cancelled"
