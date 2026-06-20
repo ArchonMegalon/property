@@ -130,9 +130,9 @@
     <section class="workspace-posture">
       <strong>Where context is stored</strong>
       <ul class="muted-list">
-        <li>{{ status.storage_posture.source_of_truth or 'EA Postgres' }} is the durable source when durable storage is configured.</li>
-        <li>{{ status.storage_posture.projection_note or 'Operational projections are mirrors, not the only source of truth.' }}</li>
-        <li>{{ status.storage_posture.attachment_note or 'Large files and exports belong in object storage when the deployment supports it.' }}</li>
+        <li>Saved searches, shortlist decisions, and account settings stay attached to the signed-in PropertyQuarry account.</li>
+        <li>Generated dossiers, exports, and tours stay separate from public pages unless a user explicitly shares them.</li>
+        <li>Large files and exports use durable storage when the deployment supports it.</li>
       </ul>
     </section>
     <section class="workspace-posture">
