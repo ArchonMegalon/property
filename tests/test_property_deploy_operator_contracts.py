@@ -85,6 +85,14 @@ def test_property_release_gate_runs_payfunnels_billing_contracts() -> None:
     assert "tests/test_product_api_contracts.py -k 'payfunnels'" in release_gate
 
 
+def test_property_release_gate_runs_heyy_whatsapp_contracts() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "Heyy WhatsApp adapter, opt-in, STOP/START, webhook, and receipt contracts" in release_gate
+    assert "tests/test_property_heyy_adapter_contracts.py" in release_gate
+    assert "tests/test_property_heyy_api_contracts.py" in release_gate
+
+
 def test_readme_documents_hardened_deploy_and_port_override() -> None:
     readme = _read("README.md")
 

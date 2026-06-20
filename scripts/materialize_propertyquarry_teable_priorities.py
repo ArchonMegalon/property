@@ -615,7 +615,9 @@ PRIORITIES = [
         "current_state": (
             "A canonical delivery-governance catalog now covers email, Telegram and WhatsApp, including verified "
             "destinations, opt-in, quiet hours, receipts, suppression, and WhatsApp STOP/START posture. The Alerts "
-            "surface now renders these rules as a first-class PropertyQuarry page instead of redirecting to Account."
+            "surface now renders these rules as a first-class PropertyQuarry page instead of redirecting to Account. "
+            "The release gate now also runs Heyy WhatsApp adapter/API contracts for opt-in, STOP/START, webhook-secret "
+            "validation, redacted receipts and property/search-agent template sends."
         ),
         "next_action": (
             "Back the delivery-governance catalog with durable channel tables, email bounce/complaint handling, "
