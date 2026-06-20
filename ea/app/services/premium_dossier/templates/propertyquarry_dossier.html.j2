@@ -417,8 +417,7 @@
           <ul>{% for line in dossier.provenance_lines %}<li>{{ line }}</li>{% endfor %}</ul>
           {% if dossier.neuronwriter_status %}
           <ul>
-            <li>NeuronWriter guidance: {{ dossier.neuronwriter_status }}{% if dossier.neuronwriter_reason %} · {{ dossier.neuronwriter_reason }}{% endif %}</li>
-            {% for line in dossier.neuronwriter_questions[:3] %}<li>Question cue: {{ line }}</li>{% endfor %}
+            {% for line in dossier.neuronwriter_questions[:3] %}<li>Decision prompt: {{ line }}</li>{% endfor %}
           </ul>
           {% endif %}
         </div>

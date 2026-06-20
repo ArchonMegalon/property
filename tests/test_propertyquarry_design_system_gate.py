@@ -7,7 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CUSTOMER_TEMPLATES = (
     ROOT / "ea/app/templates/app/property_decision_workbench.html",
     ROOT / "ea/app/templates/app/property_packets.html",
+    ROOT / "ea/app/templates/app/property_research_detail.html",
+    ROOT / "ea/app/templates/app/_property_selected_review_panel.html",
     ROOT / "ea/app/templates/propertyquarry_home.html",
+    ROOT / "ea/app/services/premium_dossier/templates/propertyquarry_dossier.html.j2",
 )
 
 
@@ -29,6 +32,8 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
         "premium_dossier_render_failed",
         "tour_control_3dvista_export_missing",
         "tour_control_matterport_export_missing",
+        "NeuronWriter",
+        "private_packet_guard",
     )
     for marker in forbidden:
         assert marker not in body

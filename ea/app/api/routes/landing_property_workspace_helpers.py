@@ -1159,33 +1159,6 @@ def _property_suppression_rows(
 
 
 def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]:
-    neuronwriter_statuses: list[str] = []
-    for key in (
-        "dossier_writer_neuronwriter_status",
-        "notification_neuronwriter_status",
-        "review_page_neuronwriter_status",
-    ):
-        value = str(run_summary.get(key) or "").strip()
-        if value:
-            neuronwriter_statuses.append(value)
-    for source in list(run_summary.get("sources") or []):
-        if not isinstance(source, dict):
-            continue
-        for key in (
-            "dossier_writer_neuronwriter_status",
-            "notification_neuronwriter_status",
-            "review_page_neuronwriter_status",
-        ):
-            value = str(source.get(key) or "").strip()
-            if value:
-                neuronwriter_statuses.append(value)
-    normalized_neuronwriter_statuses = sorted(set(neuronwriter_statuses))
-    if normalized_neuronwriter_statuses:
-        neuronwriter_detail = "Writing status: " + ", ".join(normalized_neuronwriter_statuses)
-        neuronwriter_tag = "Ready"
-    else:
-        neuronwriter_detail = "Dossiers, review pages, and messages stay short, redacted, and tied to the facts already found."
-        neuronwriter_tag = "Available"
     try:
         telegram_sent = max(int(float(run_summary.get("telegram_sent_total") or run_summary.get("notified_total") or 0)), 0)
     except Exception:
@@ -1201,8 +1174,8 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
     return [
         {
             "title": "Writing",
-            "detail": neuronwriter_detail,
-            "tag": neuronwriter_tag,
+            "detail": "Dossiers, review pages, and messages stay short, redacted, and tied to the facts already found.",
+            "tag": "Clean",
         },
         {
             "title": "Message links",

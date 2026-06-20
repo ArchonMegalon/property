@@ -669,16 +669,16 @@ def handoff_detail(
             if isinstance(input_json.get("review_page_neuronwriter"), dict)
             else {}
         )
-        neuronwriter_status = str(review_page_neuronwriter.get("status") or "").strip() or "not recorded"
-        neuronwriter_detail = " | ".join(
-            part
-            for part in (
-                str(review_page_neuronwriter.get("mode") or "").strip(),
-                str(review_page_neuronwriter.get("query_id") or "").strip(),
-                str(review_page_neuronwriter.get("reason") or "").strip(),
-            )
-            if part
-        ) or "Public-safe editorial intelligence pass is recorded for this review page."
+        review_questions = [
+            str(item).strip()
+            for item in list(review_page_neuronwriter.get("questions") or review_page_neuronwriter.get("headings") or [])
+            if str(item).strip()
+        ]
+        next_review_question = (
+            review_questions[0]
+            if review_questions
+            else "Confirm the missing facts before this property moves forward."
+        )
         candidate_rows = []
         for item in candidate_properties[:4]:
             candidate_url = str(item.get("property_url") or "").strip()
@@ -747,7 +747,7 @@ def handoff_detail(
                     secondary_action_method="get" if property_url else "",
                 ),
                 _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),
-                _object_detail_row("NeuronWriter", neuronwriter_detail, neuronwriter_status),
+                _object_detail_row("Next question", next_review_question, "Review"),
             ],
             object_sections=[
                 {

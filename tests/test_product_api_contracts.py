@@ -7130,8 +7130,9 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
     assert "Heating type needs research." in page.text
     assert "https://myexternalbrain.com/tours/watch-fit-1" in page.text
     assert "https://www.immobilienscout24.at/expose/watch-fit-1" in page.text
-    assert "NeuronWriter" in page.text
-    assert "private_packet_guard" in page.text
+    assert "Next question" in page.text
+    assert "NeuronWriter" not in page.text
+    assert "private_packet_guard" not in page.text
     assert "public_safe" not in page.text
 
 

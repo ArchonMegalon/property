@@ -175,7 +175,7 @@ def test_premium_dossier_prefers_scene_render_as_hero_over_stock_gallery_order()
     assert "https://propertyquarry.com/static/magicfit-scene.jpg" in html
 
 
-def test_premium_dossier_html_surfaces_avomap_dadan_and_neuronwriter_context() -> None:
+def test_premium_dossier_html_surfaces_avomap_dadan_and_decision_prompts() -> None:
     compiled = compile_premium_dossier(
         source=_sample_source(),
         redacted_payload=_sample_source(),
@@ -189,7 +189,8 @@ def test_premium_dossier_html_surfaces_avomap_dadan_and_neuronwriter_context() -
     assert "Open routes" in html
     assert "Dadan follow-up state" in html
     assert "Open Dadan request" in html
-    assert "NeuronWriter guidance: ready" in html
+    assert "NeuronWriter guidance" not in html
+    assert "Decision prompt" in html
     assert "Which unresolved cost line still needs proof?" in html
 
 
