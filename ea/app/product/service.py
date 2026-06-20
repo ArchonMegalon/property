@@ -625,7 +625,7 @@ def _property_scout_outbound_notification_min_score() -> float:
     if not raw_value:
         return _PROPERTY_SCOUT_OUTBOUND_NOTIFICATION_MIN_SCORE
     try:
-        return max(0.0, min(100.0, float(raw_value)))
+        return max(_PROPERTY_SCOUT_OUTBOUND_NOTIFICATION_MIN_SCORE, min(100.0, float(raw_value)))
     except Exception:
         return _PROPERTY_SCOUT_OUTBOUND_NOTIFICATION_MIN_SCORE
 

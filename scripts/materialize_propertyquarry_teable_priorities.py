@@ -291,16 +291,16 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Notifications",
         "title": "Scout updates only send strong, valid matches",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": True,
         "owner_lane": "notifications/scout",
         "current_state": (
-            "Scout notifications have sent 50/100 generic candidates, wrong districts and source labels that imply the "
-            "selected area even when extracted listing text says otherwise."
+            "Scout notifications now strip search-scope labels and enforce a hard 60/100 outbound floor even if the env "
+            "override is misconfigured lower. Wrong-area and generic-page suppression has focused regression coverage."
         ),
         "next_action": (
-            "Require score above 60 for scout sends, block hard-area violations before delivery, suppress maybe-false rows "
-            "from ranking, and include concise source/listing links only when the candidate is eligible."
+            "Keep broad live-provider canaries for wrong-area candidates, suppress maybe-false rows from ranking, and "
+            "include concise source/listing links only when the candidate is eligible."
         ),
         "source": "whole-product audit",
     },

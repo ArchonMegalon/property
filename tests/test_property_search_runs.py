@@ -2320,6 +2320,16 @@ def test_property_scout_hit_sender_suppresses_low_score_direct_calls(monkeypatch
     assert repair_tasks == []
 
 
+def test_property_scout_outbound_min_score_env_cannot_lower_sixty_floor(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_SCOUT_OUTBOUND_MIN_SCORE", "50")
+
+    assert product_service._property_scout_outbound_notification_min_score() == 60.0
+
+    monkeypatch.setenv("PROPERTYQUARRY_SCOUT_OUTBOUND_MIN_SCORE", "72")
+
+    assert product_service._property_scout_outbound_notification_min_score() == 72.0
+
+
 def test_property_source_scope_placeholder_detection_keeps_street_addresses_concrete() -> None:
     facts = {
         "postal_name": "1010 Wien",
