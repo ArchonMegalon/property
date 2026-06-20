@@ -20362,6 +20362,19 @@ def test_property_payfunnels_checkout_and_webhook_activate_plus_plan(
     assert commercial["last_order_id"] == created_body["order_id"]
     assert commercial["last_payer_email"] == "buyer@example.com"
 
+    duplicate_webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+    assert duplicate_webhook.status_code == 200, duplicate_webhook.text
+    duplicate_body = duplicate_webhook.json()
+    assert duplicate_body["current_plan_key"] == "plus"
+    assert duplicate_body["idempotent"] is True
+
 
 def test_property_paypal_checkout_uses_propertyquarry_base_url_on_property_host(
     monkeypatch: pytest.MonkeyPatch,

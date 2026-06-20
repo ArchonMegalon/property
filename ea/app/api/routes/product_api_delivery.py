@@ -1209,12 +1209,23 @@ async def payfunnels_property_billing_webhook(
     pending_commercial = dict(preferences_before.get("property_commercial") or {})
     pending_order_id = str(pending_commercial.get("pending_order_id") or "").strip()
     pending_plan_key = str(pending_commercial.get("pending_plan_key") or "").strip().lower()
+    last_order_id = str(pending_commercial.get("last_order_id") or "").strip()
+    active_plan_key = str(pending_commercial.get("active_plan_key") or "").strip().lower()
     completed = payment_status in {"paid", "completed", "succeeded", "active"} or event_type in {
         "payment.completed",
         "checkout.completed",
         "subscription.activated",
     }
     if completed and (not pending_order_id or not pending_plan_key):
+        if last_order_id == order_id and active_plan_key == spec.plan_key:
+            return {
+                "status": "ok",
+                "idempotent": True,
+                "principal_id": principal_id,
+                "plan_key": spec.plan_key,
+                "current_plan_key": spec.plan_key,
+                "payment_status": payment_status or event_type or "completed",
+            }
         raise HTTPException(status_code=409, detail="payfunnels_pending_checkout_required")
     if pending_order_id and pending_order_id != order_id:
         raise HTTPException(status_code=409, detail="payfunnels_order_mismatch")
