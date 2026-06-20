@@ -38,3 +38,70 @@ def test_property_surface_accessibility_gate_requires_motion_and_focus_primitive
 
     assert any("prefers-reduced-motion: reduce" in failure for failure in failures)
     assert any("visible focus styles" in failure for failure in failures)
+
+
+def test_property_surface_accessibility_gate_requires_touch_target_primitives() -> None:
+    failures: list[str] = []
+
+    gate._check_accessibility_primitives(
+        gate.ROOT / "ea/app/templates/base_public.html",
+        """
+        :root { --touch-target: 40px; }
+        .btn { min-height: var(--touch-target); }
+        a:focus-visible { outline: 2px solid red; }
+        @media (prefers-reduced-motion: reduce) { * { transition: none; } }
+        """,
+        failures,
+    )
+
+    assert any("--touch-target-coarse" in failure for failure in failures)
+    assert any("--focus-ring" in failure for failure in failures)
+    assert any("coarse pointers" in failure for failure in failures)
+
+
+def test_property_surface_accessibility_gate_checks_contrast_tokens() -> None:
+    failures: list[str] = []
+
+    gate._check_contrast_tokens(
+        gate.ROOT / "ea/app/templates/base_public.html",
+        """
+        :root {
+          --bg: #ffffff;
+          --panel: #ffffff;
+          --text: #ffffff;
+          --text-soft: #fefefe;
+          --text-dim: #fdfdfd;
+        }
+        """,
+        failures,
+    )
+
+    assert any("contrast text on panel" in failure for failure in failures)
+    assert any("contrast text-soft on panel" in failure for failure in failures)
+
+
+def test_property_surface_accessibility_gate_checks_workbench_dark_contrast() -> None:
+    failures: list[str] = []
+
+    gate._check_contrast_tokens(
+        gate.ROOT / "ea/app/templates/app/property_decision_workbench.html",
+        """
+        :root {
+          --pq-ink: #171513;
+          --pq-muted: #696358;
+          --pq-faint: #90877a;
+          --pq-paper: #fffdf9;
+          --pq-panel: #fbf7ef;
+        }
+        html[data-pq-theme="dark"] {
+          --pq-ink: #ffffff;
+          --pq-muted: #ffffff;
+          --pq-faint: #ffffff;
+          --pq-paper: #ffffff;
+          --pq-panel: #ffffff;
+        }
+        """,
+        failures,
+    )
+
+    assert any("dark contrast pq-ink on pq-paper" in failure for failure in failures)

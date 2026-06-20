@@ -125,6 +125,18 @@
     min-height: 32px;
     padding-block: 6px;
   }
+  @media (pointer: coarse) {
+    .prd-actions .console-action,
+    .prd-actions .pqx-button,
+    .prd-map-control,
+    .prd-lightbox-close {
+      min-height: var(--touch-target-coarse);
+    }
+    .prd-map-control,
+    .prd-lightbox-close {
+      min-width: var(--touch-target-coarse);
+    }
+  }
   .prd-status-line {
     display: flex;
     flex-wrap: wrap;

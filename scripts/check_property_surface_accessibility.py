@@ -54,6 +54,47 @@ ACCESSIBILITY_PRIMITIVE_TEMPLATES = (
 )
 
 
+def _hex_to_rgb(value: str) -> tuple[float, float, float] | None:
+    text = value.strip()
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", text):
+        return None
+    return tuple(int(text[index : index + 2], 16) / 255.0 for index in (1, 3, 5))  # type: ignore[return-value]
+
+
+def _relative_luminance(value: str) -> float | None:
+    rgb = _hex_to_rgb(value)
+    if rgb is None:
+        return None
+
+    def _channel(component: float) -> float:
+        if component <= 0.03928:
+            return component / 12.92
+        return ((component + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (_channel(component) for component in rgb)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _contrast_ratio(foreground: str, background: str) -> float | None:
+    foreground_luminance = _relative_luminance(foreground)
+    background_luminance = _relative_luminance(background)
+    if foreground_luminance is None or background_luminance is None:
+        return None
+    lighter = max(foreground_luminance, background_luminance)
+    darker = min(foreground_luminance, background_luminance)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _css_vars(text: str, selector: str) -> dict[str, str]:
+    match = re.search(rf"{re.escape(selector)}\s*\{{(?P<body>.*?)\}}", text, flags=re.IGNORECASE | re.DOTALL)
+    if match is None:
+        return {}
+    return {
+        str(var_match.group("name")): str(var_match.group("value")).strip()
+        for var_match in re.finditer(r"--(?P<name>[a-zA-Z0-9_-]+)\s*:\s*(?P<value>[^;]+);", match.group("body"))
+    }
+
+
 def _line_number(text: str, offset: int) -> int:
     return text[:offset].count("\n") + 1
 
@@ -132,6 +173,61 @@ def _check_accessibility_primitives(path: Path, text: str, failures: list[str]) 
         failures.append(f"{path} must define a prefers-reduced-motion: reduce block")
     if ":focus-visible" not in text:
         failures.append(f"{path} must define visible focus styles")
+    if relative in {"ea/app/templates/base_public.html", "ea/app/templates/base_console.html"}:
+        for token in ("--touch-target:", "--touch-target-coarse:", "--focus-ring:"):
+            if token not in text:
+                failures.append(f"{path} must define {token.rstrip(':')}")
+        if "@media (pointer: coarse)" not in text or "var(--touch-target-coarse)" not in text:
+            failures.append(f"{path} must increase interactive targets for coarse pointers")
+        if "min-height: var(--touch-target)" not in text:
+            failures.append(f"{path} must use --touch-target for primary buttons")
+    if relative == "ea/app/templates/app/property_decision_workbench.html":
+        for token in ("--pq-touch-target:", "--pq-touch-target-coarse:", "--pq-focus-ring:"):
+            if token not in text:
+                failures.append(f"{path} must define {token.rstrip(':')}")
+        if "@media (pointer: coarse)" not in text or "var(--pq-touch-target-coarse)" not in text:
+            failures.append(f"{path} must increase workbench controls for coarse pointers")
+    if relative == "ea/app/templates/app/property_research_detail.html":
+        if "@media (pointer: coarse)" not in text or "var(--touch-target-coarse)" not in text:
+            failures.append(f"{path} must increase research-detail controls for coarse pointers")
+
+
+def _check_contrast_tokens(path: Path, text: str, failures: list[str]) -> None:
+    relative = str(path.relative_to(ROOT))
+    if relative in {"ea/app/templates/base_public.html", "ea/app/templates/base_console.html"}:
+        tokens = _css_vars(text, ":root")
+        pairs = (
+            ("text", "panel", 4.5),
+            ("text-soft", "panel", 4.5),
+            ("text-dim", "panel", 3.0),
+            ("text", "bg", 4.5),
+            ("text-soft", "bg", 4.5),
+        )
+    elif relative == "ea/app/templates/app/property_decision_workbench.html":
+        light_tokens = _css_vars(text, ":root")
+        dark_tokens = _css_vars(text, 'html[data-pq-theme="dark"]')
+        pairs = (
+            ("pq-ink", "pq-paper", 4.5),
+            ("pq-muted", "pq-paper", 4.5),
+            ("pq-faint", "pq-paper", 3.0),
+            ("pq-ink", "pq-panel", 4.5),
+            ("pq-muted", "pq-panel", 4.5),
+        )
+        for label, tokens in (("light", light_tokens), ("dark", dark_tokens)):
+            for foreground, background, minimum in pairs:
+                ratio = _contrast_ratio(tokens.get(foreground, ""), tokens.get(background, ""))
+                if ratio is None or ratio < minimum:
+                    failures.append(
+                        f"{path} {label} contrast {foreground} on {background} must be >= {minimum:g}:1"
+                    )
+        return
+    else:
+        return
+
+    for foreground, background, minimum in pairs:
+        ratio = _contrast_ratio(tokens.get(foreground, ""), tokens.get(background, ""))
+        if ratio is None or ratio < minimum:
+            failures.append(f"{path} contrast {foreground} on {background} must be >= {minimum:g}:1")
 
 
 def main() -> int:
@@ -148,6 +244,7 @@ def main() -> int:
         _check_images(path, text, failures)
         _check_dialogs(path, text, failures)
         _check_accessibility_primitives(path, text, failures)
+        _check_contrast_tokens(path, text, failures)
 
     release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
     if "scripts/check_property_surface_accessibility.py" not in release_gate:

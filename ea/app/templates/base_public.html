@@ -47,6 +47,9 @@
       --radius: 10px;
       --radius-sm: 8px;
       --max: 1180px;
+      --touch-target: 40px;
+      --touch-target-coarse: 44px;
+      --focus-ring: 3px solid rgba(214, 166, 63, 0.46);
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -114,7 +117,7 @@
       display: none;
     }
     .btn {
-      min-height: 40px;
+      min-height: var(--touch-target);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -141,7 +144,7 @@
     a:focus-visible,
     button:focus-visible,
     .btn:focus-visible {
-      outline: 3px solid rgba(214, 166, 63, 0.46);
+      outline: var(--focus-ring);
       outline-offset: 3px;
       border-color: var(--accent);
     }
@@ -667,7 +670,7 @@
       }
       .mobile-nav a {
         flex: 0 0 auto;
-        min-height: 38px;
+        min-height: var(--touch-target);
         display: inline-flex;
         align-items: center;
         padding: 0 12px;
@@ -684,6 +687,17 @@
         background: var(--panel);
       }
       main, .console-main { padding-top: 24px; }
+    }
+    @media (pointer: coarse) {
+      .btn,
+      .nav a,
+      .mobile-nav a,
+      .info-tip {
+        min-height: var(--touch-target-coarse);
+      }
+      .info-tip {
+        min-width: var(--touch-target-coarse);
+      }
     }
     @media (prefers-reduced-motion: reduce) {
       *,

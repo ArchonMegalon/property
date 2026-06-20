@@ -381,6 +381,9 @@
       --pq-shadow: 0 20px 52px rgba(38, 32, 22, 0.08);
       --pq-shadow-soft: 0 12px 26px rgba(38, 32, 22, 0.05);
       --pq-hover-shadow: 0 20px 40px rgba(38, 32, 22, 0.10);
+      --pq-touch-target: 40px;
+      --pq-touch-target-coarse: 44px;
+      --pq-focus-ring: 3px solid rgba(189, 139, 47, 0.34);
       color-scheme: light;
     }
     html[data-pq-theme="dark"] {
@@ -462,7 +465,7 @@
       overflow: hidden;
     }
     .pqx-primary-nav a {
-      min-height: 32px;
+      min-height: var(--pq-touch-target);
       display: inline-flex;
       align-items: center;
       padding: 0 10px;
@@ -591,7 +594,7 @@
     .pqx-button,
     .pqx-link-button,
     .pqx-mode-button {
-      min-height: 38px;
+      min-height: var(--pq-touch-target);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -675,7 +678,7 @@
     }
     .pqx-account-menu summary {
       list-style: none;
-      min-height: 38px;
+      min-height: var(--pq-touch-target);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -801,7 +804,7 @@
     .pqx-check:focus-within,
     .pqx-account-menu summary:focus-visible,
     .pqx-card summary:focus-visible {
-      outline: 3px solid rgba(189, 139, 47, 0.34);
+      outline: var(--pq-focus-ring);
       outline-offset: 2px;
       box-shadow: 0 0 0 4px rgba(255, 249, 237, 0.82);
     }
@@ -840,6 +843,22 @@
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
+      }
+    }
+    @media (pointer: coarse) {
+      .pqx-primary-nav a,
+      .pqx-button,
+      .pqx-link-button,
+      .pqx-mode-button,
+      .pqx-account-menu summary,
+      .pqx-workflow-step,
+      .pqx-decision-button,
+      .pqx-tooltip {
+        min-height: var(--pq-touch-target-coarse);
+      }
+      .pqx-tooltip,
+      .pqx-account-menu summary {
+        min-width: var(--pq-touch-target-coarse);
       }
     }
     .pqx-field-link {
