@@ -3012,6 +3012,25 @@ def test_public_pages_are_indexable_but_sign_in_is_not(monkeypatch) -> None:
     assert "<loc>https://propertyquarry.com/markets/vienna</loc>" in sitemap.text
 
 
+def test_public_channel_pages_use_propertyquarry_workflow_language() -> None:
+    client = build_property_client(principal_id="pq-public-channel-copy")
+
+    page = client.get("/channels/google")
+
+    assert page.status_code == 200, page.text
+    assert "Connect this when it improves search updates, shortlist decisions, or property follow-up." in page.text
+    assert "Save the connection only if it makes the property workflow easier to act on." in page.text
+    assert "channel-guidance-grid" in page.text
+    forbidden = (
+        "morning memo",
+        "draft queue",
+        "commitment lane",
+        "channel-proof",
+    )
+    for phrase in forbidden:
+        assert phrase not in page.text
+
+
 def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> None:
     client = build_property_client(principal_id="pq-public-trust")
     home = client.get("/")
