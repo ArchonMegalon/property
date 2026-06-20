@@ -51,6 +51,7 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "tests/e2e/test_propertyquarry_commercial_optimization_browser.py",
         "tests/e2e/test_propertyquarry_public_tour_browser.py",
         "scripts/check_property_release_hygiene.py",
+        "scripts/check_property_public_tour_manifest_contract.py",
     ):
         assert required in script
 

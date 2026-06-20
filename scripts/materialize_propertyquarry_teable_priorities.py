@@ -107,6 +107,42 @@ PRIORITIES = [
         "source": "whole-product audit",
     },
     {
+        "projection_id": "pq-priority-search-wizard-feedback",
+        "priority": "P0",
+        "area": "Search workflow",
+        "title": "Search wizard navigation and launch feedback must be immediate",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "frontend/search",
+        "current_state": (
+            "Step navigation and launch actions have repeatedly regressed into appended content, slow clicks, no spinner "
+            "or unclear position after moving to the next step."
+        ),
+        "next_action": (
+            "Keep the launch button visible at the top-right of the wizard nav, scroll back to nav on step changes, show "
+            "a non-flickering launch animation, disable duplicate submits and screenshot-test the full flow."
+        ),
+        "source": "whole-product audit",
+    },
+    {
+        "projection_id": "pq-priority-dark-light-design-tokens",
+        "priority": "P0",
+        "area": "Design system",
+        "title": "Light and dark mode must share readable component tokens",
+        "status": "open",
+        "user_visible": True,
+        "owner_lane": "frontend/design-system",
+        "current_state": (
+            "Some controls keep light backgrounds while text switches to dark-mode white. Social-provider buttons and "
+            "auth controls need one consistent readable treatment across modes."
+        ),
+        "next_action": (
+            "Replace one-off white panels/buttons with shared surface, border, icon and text tokens; screenshot-test "
+            "landing, sign-in, account, search, results, research, agents, automation and pricing in both themes."
+        ),
+        "source": "whole-product audit",
+    },
+    {
         "projection_id": "pq-priority-automation-map-thumbnails",
         "priority": "P1",
         "area": "Automation",
@@ -165,16 +201,16 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Privacy/security",
         "title": "Public tour manifests must be positive-schema safe at rest",
-        "status": "open",
+        "status": "in_progress",
         "user_visible": False,
         "owner_lane": "public-tours/security",
         "current_state": (
-            "Redaction is improved, but public artifacts should be constructed from a narrow manifest schema rather than "
-            "broad payload copying plus redaction."
+            "Raw tour.json is built from a narrow top-level allowlist, listing/property/source URLs and brief are "
+            "excluded, served assets are manifest-bound, and the release gate now enforces those invariants."
         ),
         "next_action": (
-            "Separate PublicTourManifest from private receipts; require every served asset to be in the public manifest; "
-            "directly inspect raw tour.json in tests."
+            "Replace compatibility wrappers with dedicated PublicTourManifest/PrivateTourReceipt dataclasses and keep "
+            "public action routes auth-gated."
         ),
         "source": "whole-product audit",
     },
