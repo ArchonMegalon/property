@@ -40205,6 +40205,67 @@ class ProductService:
             "items": items,
         }
 
+    def issue_google_sign_in_workspace_session(
+        self,
+        *,
+        google_email: str,
+        fallback_principal_id: str = "",
+        display_name: str = "",
+        expires_in_hours: int = 72,
+    ) -> dict[str, object]:
+        normalized_email = str(google_email or "").strip().lower()
+        if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
+            raise ValueError("google_sign_in_email_invalid")
+        candidates = [dict(candidate) for candidate in self._workspace_sign_in_candidates(email=normalized_email)]
+        access_candidates = [candidate for candidate in candidates if str(candidate.get("kind") or "access").strip().lower() == "access"]
+        selected = access_candidates[0] if access_candidates else {}
+        principal_id = str(selected.get("principal_id") or "").strip()
+        role = str(selected.get("role") or "principal").strip().lower() or "principal"
+        operator_id = str(selected.get("operator_id") or "").strip()
+        workspace_name = str(selected.get("workspace_name") or "").strip()
+        selected_display_name = str(selected.get("display_name") or workspace_name).strip()
+        if not principal_id:
+            fallback = str(fallback_principal_id or "").strip()
+            if fallback:
+                status = self._container.onboarding.status(principal_id=fallback)
+                workspace = dict(status.get("workspace") or {})
+                fallback_workspace_name = str(workspace.get("name") or "").strip()
+                if fallback_workspace_name:
+                    principal_id = fallback
+                    workspace_name = fallback_workspace_name
+                    selected_display_name = str(display_name or fallback_workspace_name).strip() or fallback_workspace_name
+        if not principal_id:
+            self._record_product_event(
+                principal_id=f"cf-email:{normalized_email}",
+                event_type="workspace_google_sign_in_not_found",
+                payload={"google_email": normalized_email},
+                source_id=f"google-sign-in-not-found:{normalized_email}",
+            )
+            raise RuntimeError("workspace_google_sign_in_not_found")
+        resolved_display_name = selected_display_name or workspace_name or str(display_name or "PropertyQuarry account").strip() or "PropertyQuarry account"
+        access_session = self.issue_workspace_access_session(
+            principal_id=principal_id,
+            email=normalized_email,
+            role=role,
+            display_name=resolved_display_name,
+            operator_id=operator_id,
+            source_kind="google_sign_in",
+            expires_in_hours=expires_in_hours,
+            default_target="/app/search",
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="workspace_google_sign_in_session_issued",
+            payload={
+                "google_email": normalized_email,
+                "workspace_name": workspace_name or resolved_display_name,
+                "access_session_id": str(access_session.get("session_id") or "").strip(),
+                "matched_existing_workspace": bool(selected),
+            },
+            source_id=f"google-sign-in:{normalized_email}:{principal_id}",
+        )
+        return access_session
+
     def send_google_connect_email_link(
         self,
         *,

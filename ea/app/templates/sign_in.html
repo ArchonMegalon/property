@@ -93,6 +93,22 @@
     border-color: var(--line);
     background: var(--panel);
   }
+  .auth-provider-card.is-submitting {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
+    background: color-mix(in srgb, var(--accent-soft) 18%, var(--panel) 82%);
+  }
+  .auth-provider-card.is-submitting .auth-provider-icon {
+    animation: auth-provider-pulse 0.9s ease-in-out infinite alternate;
+  }
+  @keyframes auth-provider-pulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.06); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .auth-provider-card.is-submitting .auth-provider-icon {
+      animation: none;
+    }
+  }
   @media (max-width: 1080px) {
     .access-grid {
       grid-template-columns: 1fr;
@@ -133,7 +149,7 @@
       <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
     <div class="auth-provider-stack" aria-label="Sign-in providers">
-      <form class="auth-provider-card" method="post" action="/sign-in/google">
+      <form class="auth-provider-card" method="post" action="/sign-in/google" data-auth-provider-form data-submitting-label="Opening Google...">
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
@@ -155,7 +171,13 @@
     {% if sign_in_google_error %}
     <div class="access-feedback">
       <strong>Google sign-in could not start.</strong>
-      <p class="copy">{{ sign_in_google_error }}</p>
+      <p class="copy">
+        {% if sign_in_google_error == 'workspace_google_sign_in_not_found' %}
+        No PropertyQuarry workspace is connected to that Google account yet. Use your secure email link or create an account first.
+        {% else %}
+        {{ sign_in_google_error }}
+        {% endif %}
+      </p>
     </div>
     {% endif %}
     {% if sign_in_facebook_error %}
@@ -196,4 +218,18 @@
     {% endif %}
   </section>
 </section>
+<script>
+  document.querySelectorAll('[data-auth-provider-form]').forEach((form) => {
+    form.addEventListener('submit', () => {
+      const button = form.querySelector('button[type="submit"]');
+      form.classList.add('is-submitting');
+      if (button) {
+        button.dataset.originalLabel = button.textContent || '';
+        button.textContent = form.dataset.submittingLabel || 'Opening...';
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+      }
+    });
+  });
+</script>
 {% endblock %}

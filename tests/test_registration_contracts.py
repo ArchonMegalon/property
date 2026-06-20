@@ -230,6 +230,17 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
     existing_principal = "user-4a1702ea0e8d9ec5"
     client.headers.update({"X-EA-Principal-ID": existing_principal})
     start_workspace(client, mode="personal", workspace_name="Tibor Property Workspace")
+    from app.api.routes.landing import build_product_service
+
+    product = build_product_service(client.app.state.container)
+    product.issue_workspace_access_session(
+        principal_id=existing_principal,
+        email="tibor.girschele@gmail.com",
+        role="principal",
+        display_name="Tibor Property Workspace",
+        source_kind="registration",
+        default_target="/app/search",
+    )
 
     sign_in_start = client.post(
         "/sign-in/google",
@@ -273,8 +284,53 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
 
     opened = client.get(callback.headers["location"], follow_redirects=False)
     assert opened.status_code == 303
-    assert opened.headers["location"] == "/app/properties"
+    assert opened.headers["location"] == "/app/search"
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+
+def test_sign_in_google_does_not_create_wrong_workspace_for_unknown_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    sign_in_start = client.post("/sign-in/google", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    parsed = urllib.parse.urlparse(sign_in_start.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-unknown",
+            "email": "unknown.google@example.com",
+        },
+    )
+
+    callback = client.get(
+        "/google/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "google_error=workspace_google_sign_in_not_found" in callback.headers["location"]
 
 
 def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:

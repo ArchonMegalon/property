@@ -570,18 +570,22 @@ def google_oauth_browser_callback(
     browser_source = str(state_payload.get("browser_source") or "").strip()
     return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
     if browser_source == "sign_in":
-        onboarding_status = container.onboarding.status(principal_id=account.binding.principal_id)
-        workspace_name = str(dict(onboarding_status.get("workspace") or {}).get("name") or "").strip() or str(
-            account.google_email or account.binding.principal_id or "PropertyQuarry"
-        ).strip()
-        access = product.issue_workspace_access_session(
-            principal_id=account.binding.principal_id,
-            email=account.google_email,
-            role="principal",
-            display_name=workspace_name,
-            source_kind="google_sign_in",
-            default_target="/app/properties",
-        )
+        try:
+            access = product.issue_google_sign_in_workspace_session(
+                google_email=account.google_email,
+                fallback_principal_id=account.binding.principal_id,
+                display_name=str(account.google_email or account.binding.principal_id or "PropertyQuarry").strip(),
+            )
+        except RuntimeError as exc:
+            return RedirectResponse(
+                "/sign-in?"
+                + urllib.parse.urlencode(
+                    {
+                        "google_error": str(exc or "workspace_google_sign_in_not_found"),
+                    }
+                ),
+                status_code=303,
+            )
         return RedirectResponse(str(access.get("access_url") or "/app/properties"), status_code=303)
     if browser_source == "settings_google" and return_to:
         redirect_values = {
