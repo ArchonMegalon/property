@@ -48,6 +48,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_release_hygiene.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_whole_project_scope.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_surface_accessibility.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_provider_governance.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py

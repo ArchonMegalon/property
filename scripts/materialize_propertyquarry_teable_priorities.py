@@ -224,16 +224,18 @@ PRIORITIES = [
         "priority": "P1",
         "area": "Provider governance",
         "title": "Provider rights and market-readiness registry",
-        "status": "open",
+        "status": "verified",
         "user_visible": False,
         "owner_lane": "provider-governance",
         "current_state": (
-            "Providers have operational quality metadata but not enough explicit rights, cache, publication, attribution "
-            "and market-readiness controls."
+            "Verified: provider specs carry explicit access mode, API/browser access posture, terms and robots review "
+            "status, cache policy, media/public-packet rights, attribution, concurrency, request-rate, owner and market "
+            "readiness metadata. Search source specs and provider options expose the governance snapshot, and the release "
+            "gate now fails if new providers violate the rights/readiness contract."
         ),
         "next_action": (
-            "Track access mode, terms review, caching rights, media republication, max request rate, attribution and "
-            "market readiness before exposing providers/countries as public-ready."
+            "Keep scripts/check_property_provider_governance.py in the release gate; only promote a provider or market to "
+            "public after terms, robots, rights review timestamps and provider canaries are recorded."
         ),
         "source": "whole-product audit",
     },
