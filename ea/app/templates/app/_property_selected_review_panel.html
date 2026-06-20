@@ -61,7 +61,7 @@
           <small>Use this to decide whether to verify, pause, or drop the candidate.</small>
         </article>
         <article class="pqx-reading-card">
-          <span class="pqx-small">Next proof</span>
+          <span class="pqx-small">Next answer</span>
           <strong>{% if selected.get('review_page_neuronwriter', {}).get('questions') %}{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[0] }}{% elif brief.get('search_goal') == 'investment' %}Confirm rent, tax, and operating cost evidence before acting on the underwriting read.{% else %}Open the property page, confirm the layout, and check the next agent-facing question.{% endif %}</strong>
           <small>Keep the next real-world step clearer than another round of browsing.</small>
         </article>
@@ -121,7 +121,7 @@
         <div class="pqx-event-list" data-pw-feedback-consequences>
           <div class="pqx-note">Update your future ranking and keep the next action visible.</div>
         </div>
-        <textarea class="pqx-decision-note" rows="3" placeholder="What exactly worked, failed, or still needs proof?" data-pw-feedback-note></textarea>
+        <textarea class="pqx-decision-note" rows="3" placeholder="What worked, failed, or still feels unclear?" data-pw-feedback-note></textarea>
         <div class="pqx-actions">
           <button class="pqx-button primary" type="button" data-pw-feedback-save aria-label="Save decision">Save answer</button>
           <a class="pqx-link-button subtle" href="/app/profile">Manage preferences</a>

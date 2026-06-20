@@ -10,6 +10,7 @@
       --pq-muted: #6d6558;
       --pq-paper: #fbfaf6;
       --pq-panel: #ffffff;
+      --pq-card: #fffdf8;
       --pq-border: #ded6c8;
       --pq-gold: #a97826;
       --pq-green: #295f4a;
@@ -81,7 +82,7 @@
     h2 { font-size: clamp(21px, 3vw, 30px); }
     .pq-pack-copy { color: var(--pq-muted); line-height: 1.55; margin: 0; }
     .pq-pack-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-    .pq-pack-stat { border: 1px solid var(--pq-border); border-radius: 8px; padding: 12px; background: #fffdf8; }
+    .pq-pack-stat { border: 1px solid var(--pq-border); border-radius: 8px; padding: 12px; background: var(--pq-card); }
     .pq-pack-stat span { color: var(--pq-muted); font-size: 12px; display: block; }
     .pq-pack-stat strong { font-size: 24px; display: block; margin-top: 5px; }
     .pq-pack-card-list { display: grid; gap: 12px; }
@@ -94,7 +95,7 @@
     .pq-pack-summary-card {
       border: 1px solid var(--pq-border);
       border-radius: 8px;
-      background: #fffdf8;
+      background: var(--pq-card);
       padding: 14px;
       display: grid;
       gap: 8px;
@@ -113,7 +114,7 @@
       gap: 14px;
       border: 1px solid var(--pq-border);
       border-radius: 8px;
-      background: #fffdf8;
+      background: var(--pq-card);
       padding: 14px;
     }
     .pq-pack-card h3 { margin: 0; font-size: 18px; line-height: 1.25; }
@@ -128,7 +129,7 @@
     .pq-pack-decision-card {
       border: 1px solid var(--pq-border);
       border-radius: 8px;
-      background: #fff;
+      background: var(--pq-card);
       padding: 12px;
       display: grid;
       gap: 7px;
@@ -153,7 +154,7 @@
       min-height: 40px;
       border: 1px solid var(--pq-border);
       border-radius: 8px;
-      background: #fff;
+      background: var(--pq-card);
       color: var(--pq-ink);
       padding: 9px 10px;
       font: inherit;
@@ -184,7 +185,7 @@
       font-size: 12px;
       font-weight: 800;
       color: var(--pq-muted);
-      background: #fffdf8;
+      background: var(--pq-card);
       white-space: nowrap;
     }
     .pq-pack-pill.good { color: var(--pq-green); border-color: rgba(41, 95, 74, .35); }
@@ -198,7 +199,7 @@
       border: 1px solid var(--pq-border);
       border-radius: 8px;
       padding: 13px;
-      background: #fffdf8;
+      background: var(--pq-card);
     }
     .pq-pack-feedback strong,
     .pq-pack-feedback small,
@@ -218,7 +219,7 @@
       min-height: 74px;
       border: 1px solid var(--pq-border);
       border-radius: 8px;
-      background: #fff;
+      background: var(--pq-card);
       color: var(--pq-ink);
       padding: 9px 10px;
       font: inherit;

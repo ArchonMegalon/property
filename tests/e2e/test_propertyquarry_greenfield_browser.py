@@ -521,7 +521,10 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(desktop_page.get_by_text("Shared review when needed")).to_be_visible()
+        expect(desktop_page.get_by_text("Return with the same browser, a secure email link, or your connected identity.")).to_be_visible()
+        expect(desktop_page.get_by_role("link", name="Open current session")).to_be_visible()
+        expect(desktop_page.get_by_role("button", name="Continue with Google")).to_be_visible()
+        expect(desktop_page.get_by_role("button", name="Continue with Facebook")).to_have_count(0)
         _assert_no_horizontal_overflow(desktop_page)
         sign_in_shot = tmp_path / "propertyquarry-sign-in-desktop.png"
         desktop_page.screenshot(path=str(sign_in_shot), full_page=True)

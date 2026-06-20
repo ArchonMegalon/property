@@ -54,6 +54,21 @@ def _property_postal_codes_from_text(text: object, *, require_locality: bool = T
 
 
 def _property_candidate_is_rankable(candidate: dict[str, object]) -> bool:
+    hard_filter_reasons = {
+        "area_mismatch",
+        "availability_mismatch",
+        "generic_listing_page",
+        "listing_mode_mismatch",
+        "location_mismatch",
+        "location_scope",
+        "outside_selected_area",
+        "property_location_conflicts_with_active_search",
+        "property_missing_concrete_location",
+        "property_type_mismatch",
+        "transaction_mismatch",
+        "wrong_listing_mode",
+        "wrong_property_type",
+    }
     status_fields = (
         "status",
         "review_status",
@@ -95,7 +110,10 @@ def _property_candidate_is_rankable(candidate: dict[str, object]) -> bool:
             return False
         if str(value or "").strip().lower() in {"1", "true", "yes", "on", "y"}:
             return False
-    if str(candidate.get("hard_filter_reason") or candidate.get("filter_reason") or "").strip():
+    if str(candidate.get("hard_filter_reason") or "").strip():
+        return False
+    filter_reason = str(candidate.get("filter_reason") or "").strip().lower()
+    if filter_reason in hard_filter_reasons:
         return False
     return True
 
@@ -951,7 +969,7 @@ def _property_search_guard_rows(
     if no_plan_total:
         rows.append(
             {
-                "title": "Layout proof rule",
+                "title": "Layout evidence",
                 "detail": f"{no_plan_total} candidate{' still needs' if no_plan_total == 1 else 's still need'} verified layout evidence.",
                 "tag": "Evidence",
             }
@@ -1164,10 +1182,10 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
     normalized_neuronwriter_statuses = sorted(set(neuronwriter_statuses))
     if normalized_neuronwriter_statuses:
         neuronwriter_detail = "Editorial pass status: " + ", ".join(normalized_neuronwriter_statuses)
-        neuronwriter_tag = "Checked"
+        neuronwriter_tag = "Ready"
     else:
         neuronwriter_detail = "Dossiers, review pages, email, and Telegram notifications use the redacted NeuronWriter editorial lane when the integration is configured; private facts remain claim-bound."
-        neuronwriter_tag = "Required"
+        neuronwriter_tag = "Configured"
     try:
         telegram_sent = max(int(float(run_summary.get("telegram_sent_total") or run_summary.get("notified_total") or 0)), 0)
     except Exception:
@@ -1182,19 +1200,19 @@ def _delivery_proof_rows(run_summary: dict[str, object]) -> list[dict[str, str]]
         packet_total = 0
     return [
         {
-            "title": "Writing quality check",
+            "title": "Writing quality",
             "detail": neuronwriter_detail,
             "tag": neuronwriter_tag,
         },
         {
             "title": "Message links",
             "detail": "Messages render links as titled buttons or titled HTML links, so raw full URLs are not visible in chat copy.",
-            "tag": "Hard gate",
+            "tag": "Clean links",
         },
         {
             "title": "Generated files",
             "detail": f"{packet_total} packet receipts, {tour_total} tour receipts, {telegram_sent} Telegram notification receipts summarized for this run.",
-            "tag": "Visible proof",
+            "tag": "Saved",
         },
     ]
 
@@ -1214,12 +1232,12 @@ def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str
     except Exception:
         flythrough_total = 0
     rows.append(
-        {
-            "title": "Current run receipts",
-            "detail": f"{tour_total} 3D tour receipts, {flythrough_total} fly-through receipts, {telegram_sent} Telegram sends recorded in this run summary.",
-            "tag": "Run proof",
-        }
-    )
+            {
+                "title": "Current run receipts",
+                "detail": f"{tour_total} 3D tour receipts, {flythrough_total} fly-through receipts, {telegram_sent} Telegram sends recorded in this run summary.",
+                "tag": "Saved",
+            }
+        )
     repair_receipts = [dict(row) for row in list(run_summary.get("repair_receipts") or []) if isinstance(row, dict)]
     if repair_receipts:
         latest = repair_receipts[-1]
@@ -1227,7 +1245,7 @@ def _artifact_receipt_rows(run_summary: dict[str, object]) -> list[dict[str, str
             {
                 "title": "Repair receipts",
                 "detail": f"{len(repair_receipts)} repair receipt(s) recorded. Latest: {str(latest.get('resolution') or 'returned').replace('_', ' ')}.",
-                "tag": "Repair proof",
+                "tag": "Repair",
             }
         )
     return rows
@@ -1300,7 +1318,7 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
             {
                 "title": "Next authority step",
                 "detail": " | ".join(next_steps[:2]),
-                "tag": "Manual proof",
+                "tag": "Manual review",
             }
         )
     updated_at = str(official.get("updated_at") or "").strip()

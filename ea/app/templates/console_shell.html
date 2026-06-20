@@ -1367,7 +1367,7 @@
             </div>
             <div class="console-copy">Save the decision here so the next shortlist learns from it and the next real-world step stays visible.</div>
             <div class="property-feedback-reasons" data-feedback-reasons></div>
-            <textarea class="property-feedback-note" rows="3" placeholder="What exactly worked, failed, or still needs proof?" data-feedback-note></textarea>
+            <textarea class="property-feedback-note" rows="3" placeholder="What worked, failed, or still feels unclear?" data-feedback-note></textarea>
             <div class="console-row-actions">
               <button class="console-action" type="button" data-feedback-save>Save answer</button>
             </div>
@@ -1848,6 +1848,47 @@
     });
   };
 
+  const providerDisplayTotalForRun = (payload, summary = null) => {
+    const explicitDisplayTotal = Number(payload?.provider_display_total || 0);
+    if (Number.isFinite(explicitDisplayTotal) && explicitDisplayTotal > 0) {
+      return explicitDisplayTotal;
+    }
+    const runSummary = summary && typeof summary === 'object' ? summary : (payload?.summary || {});
+    const explicitProviderTotal = Math.max(0, Number(runSummary.provider_total || 0));
+    const sourceVariantTotal = Math.max(0, Number(runSummary.source_variant_total || runSummary.sources_total || 0));
+    const selectedPlatforms = Array.isArray(payload?.selected_platforms)
+      ? payload.selected_platforms
+      : (Array.isArray(payload?.brief?.providers)
+        ? payload.brief.providers
+        : (Array.isArray(data?.brief?.providers) ? data.brief.providers : []));
+    const selectedProviderTotal = selectedPlatforms
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+      .filter((value, index, values) => value && values.indexOf(value) === index).length;
+    const sourceProviders = new Set();
+    (Array.isArray(runSummary.sources) ? runSummary.sources : []).forEach((source) => {
+      if (!source || typeof source !== 'object') return;
+      const rawProviderSourceKey = String(source.provider_source_key || source.source_provider_key || '').trim().toLowerCase();
+      const identity = rawProviderSourceKey
+        ? rawProviderSourceKey.split(':')[0].trim()
+        : String(source.provider_key || source.platform || source.provider_family || '').trim().toLowerCase();
+      if (identity) {
+        sourceProviders.add(identity);
+        return;
+      }
+      const label = String(source.source_label || source.label || '').trim();
+      const baseLabel = label.split('|')[0].trim().toLowerCase();
+      if (baseLabel) sourceProviders.add(baseLabel);
+    });
+    const inferredProviderTotal = Math.max(selectedProviderTotal, sourceProviders.size);
+    if (inferredProviderTotal > 0 && explicitProviderTotal > inferredProviderTotal) {
+      if (!sourceVariantTotal || explicitProviderTotal >= sourceVariantTotal || explicitProviderTotal > selectedProviderTotal * 3) {
+        return inferredProviderTotal;
+      }
+    }
+    return Math.max(explicitProviderTotal, inferredProviderTotal);
+  };
+
   const renderRun = (form, payload) => {
     const panel = form.querySelector('[data-property-run]');
     const statusNode = form.querySelector('[data-property-run-status]');
@@ -1872,7 +1913,7 @@
     messageNode.textContent = String(payload.message || 'Queued for execution.');
     progressNode.style.width = `${progress}%`;
     const sourceVariants = Number(summary.source_variant_total || summary.sources_total || 0);
-    const providers = Number(summary.provider_total || 0);
+    const providers = providerDisplayTotalForRun(payload, summary);
     const listings = Number(summary.listing_total || 0);
     const scanLabel = providers
       ? `${providers} providers`

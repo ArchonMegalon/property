@@ -6568,6 +6568,8 @@ def _property_search_effective_adjacent_area_radius_m(
     configured_radius_m = _property_search_adjacent_area_radius_m(preferences)
     if configured_radius_m > 0:
         return configured_radius_m
+    if _property_search_has_explicit_selected_area(preferences):
+        return 0
     if (
         _property_search_mode(preferences) == "discovery"
         and any(
@@ -6576,8 +6578,6 @@ def _property_search_effective_adjacent_area_radius_m(
         )
     ):
         return _PROPERTY_SEARCH_FUZZY_DISTRICT_ADJACENT_RADIUS_M
-    if _property_search_has_explicit_selected_area(preferences):
-        return 0
     return 0
 
 
@@ -6996,6 +6996,22 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
     rows: list[dict[str, object]] = []
     seen: set[str] = set()
 
+    hard_filter_reasons = {
+        "area_mismatch",
+        "availability_mismatch",
+        "generic_listing_page",
+        "listing_mode_mismatch",
+        "location_mismatch",
+        "location_scope",
+        "outside_selected_area",
+        "property_location_conflicts_with_active_search",
+        "property_missing_concrete_location",
+        "property_type_mismatch",
+        "transaction_mismatch",
+        "wrong_listing_mode",
+        "wrong_property_type",
+    }
+
     def _candidate_is_rankable(candidate: dict[str, object]) -> bool:
         status_fields = (
             "status",
@@ -7030,7 +7046,10 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
         )
         if any(_property_truthy_flag(candidate.get(flag)) for flag in blocked_flags):
             return False
-        if str(candidate.get("hard_filter_reason") or candidate.get("filter_reason") or "").strip():
+        if str(candidate.get("hard_filter_reason") or "").strip():
+            return False
+        filter_reason = str(candidate.get("filter_reason") or "").strip().lower()
+        if filter_reason in hard_filter_reasons:
             return False
         return True
 
@@ -21864,7 +21883,7 @@ class ProductService:
         access_url = str(session.get("access_url") or "").strip()
         if not access_url:
             return ""
-        absolute_access_url = urllib.parse.urljoin(f"{_workspace_access_public_base_url()}/", access_url.lstrip("/"))
+        absolute_access_url = urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
         separator = "&" if "?" in absolute_access_url else "?"
         return f"{absolute_access_url}{separator}return_to={urllib.parse.quote(target_path, safe='/')}"
 
@@ -22765,6 +22784,13 @@ class ProductService:
             source_id=str(source_ref or external_id or task.human_task_id).strip(),
             dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-created",
         )
+        telegram_suppression_reason = ""
+        outbound_min_score = _property_scout_outbound_notification_min_score()
+        if notify_telegram and float(fit_score or 0.0) < outbound_min_score:
+            notify_telegram = False
+            telegram_suppression_reason = "fit_below_outbound_threshold"
+            payload["telegram_delivery_error"] = telegram_suppression_reason
+            payload["telegram_min_score"] = round(float(outbound_min_score or 0.0), 2)
         if notify_telegram:
             try:
                 feedback_property_url = str(property_url or "").strip()
@@ -22862,7 +22888,11 @@ class ProductService:
             self._record_product_event(
                 principal_id=principal_id,
                 event_type="property_alert_review_telegram_suppressed",
-                payload={**payload},
+                payload={
+                    **payload,
+                    "reason": telegram_suppression_reason or "notify_telegram_disabled",
+                    "fit_score": round(float(fit_score or 0.0), 2),
+                },
                 source_id=str(source_ref or external_id or task.human_task_id).strip(),
                 dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-telegram-suppressed",
             )
@@ -27816,7 +27846,7 @@ class ProductService:
                         if has_partial_results
                         else ("Repairing" if task_status in {"opened", "existing"} else "Repair needed")
                     ),
-                    "repair_step_label": "Queued a generic repair for the interrupted search run.",
+                    "repair_step_label": "Repairing interrupted run.",
                     "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
                     "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
                     "provider_repair_tasks": [
@@ -27846,7 +27876,7 @@ class ProductService:
                     run_id=normalized_run_id,
                     principal_id=normalized_principal,
                     step="run_repair_queued",
-                    message="Queued a generic provider repair because the search stopped updating before it could finish.",
+                    message="Repair was queued for the interrupted run so usable results can resume.",
                     status=str(stale_failure.get("status") or "failed"),
                     steps_delta=0,
                     summary_updates=repair_summary_updates,
@@ -29512,7 +29542,7 @@ class ProductService:
                     repair_summary_updates = {
                         "repair_status": "repairing" if task_status in {"opened", "existing"} else "degraded",
                         "repair_status_label": "Repairing" if task_status in {"opened", "existing"} else "Repair needed",
-                        "repair_step_label": "Queued a generic repair for the failed search run.",
+                        "repair_step_label": "Repairing interrupted run.",
                         "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
                         "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
                         "provider_repair_tasks": [
@@ -29532,7 +29562,7 @@ class ProductService:
                         run_id=run_id,
                         principal_id=normalized_principal,
                         step="run_repair_queued",
-                        message="Queued a generic provider repair because the search worker failed before it could finish.",
+                        message="Repair was queued because the search worker failed before completion.",
                         status="failed",
                         steps_delta=0,
                         summary_updates=repair_summary_updates,
@@ -29571,9 +29601,66 @@ class ProductService:
         run_id: str,
         lightweight: bool = False,
     ) -> dict[str, object] | None:
+        def _coerce_non_negative_int(value: object, *, default: int = 0) -> int:
+            try:
+                return max(0, int(float(str(value or "").strip())))
+            except Exception:
+                return default
+
+        def _normalize_run_summary_counts(
+            payload: dict[str, object],
+            *,
+            summary: dict[str, object],
+            selected_platforms: tuple[str, ...] | set[str] | list[str] | tuple | set | list,
+        ) -> tuple[dict[str, object], list[dict[str, object]]]:
+            normalized_platforms = {
+                str(platform or "").strip().lower()
+                for platform in list(selected_platforms or [])
+                if str(platform or "").strip()
+            }
+            selected_platform_count = len(normalized_platforms)
+            sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+            source_variant_total = max(
+                0,
+                _coerce_non_negative_int(
+                    summary.get("source_variant_total"),
+                    default=_coerce_non_negative_int(summary.get("sources_total")),
+                ),
+            )
+            source_count_hint = max(len(sources), source_variant_total)
+            if sources:
+                inferred_provider_total = _property_search_provider_total(sources)
+                explicit_provider_total = _coerce_non_negative_int(summary.get("provider_total"))
+                if inferred_provider_total:
+                    if (
+                        explicit_provider_total <= 0
+                        or explicit_provider_total > source_count_hint
+                        or (explicit_provider_total == source_count_hint and inferred_provider_total < explicit_provider_total)
+                    ):
+                        summary["provider_total"] = inferred_provider_total
+            elif selected_platform_count:
+                explicit_provider_total = _coerce_non_negative_int(summary.get("provider_total"))
+                if explicit_provider_total <= 0:
+                    summary["provider_total"] = selected_platform_count
+                elif explicit_provider_total > selected_platform_count and (
+                    not source_count_hint
+                    or explicit_provider_total >= source_count_hint
+                ):
+                    summary["provider_total"] = selected_platform_count
+            if source_count_hint and not _coerce_non_negative_int(summary.get("source_variant_total") or 0):
+                summary["source_variant_total"] = source_count_hint
+            payload["summary"] = summary
+            return summary, sources
+
         if lightweight:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
             if isinstance(compact_snapshot, dict) and compact_snapshot:
+                summary = dict(compact_snapshot.get("summary") or {}) if isinstance(compact_snapshot.get("summary"), dict) else {}
+                _normalize_run_summary_counts(
+                    compact_snapshot,
+                    summary=summary,
+                    selected_platforms=list(compact_snapshot.get("selected_platforms") or []),
+                )
                 return compact_snapshot
         snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
         if not isinstance(snapshot, dict):
@@ -29598,46 +29685,11 @@ class ProductService:
                 safe_events.append(safe_event)
             snapshot["events"] = safe_events
         summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
-
-        def _coerce_non_negative_int(value: object, *, default: int = 0) -> int:
-            try:
-                return max(0, int(float(str(value or "").strip())))
-            except Exception:
-                return default
-
-        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
-        selected_platforms = {
-            str(raw_platform or "").strip().lower()
-            for raw_platform in list(snapshot.get("selected_platforms") or [])
-            if str(raw_platform or "").strip()
-        }
-        selected_platform_count = len(selected_platforms)
-        source_variant_total = max(
-            0,
-            _coerce_non_negative_int(
-                summary.get("source_variant_total"),
-                default=_coerce_non_negative_int(summary.get("sources_total")),
-            ),
+        summary, sources = _normalize_run_summary_counts(
+            payload=snapshot,
+            summary=summary,
+            selected_platforms=snapshot.get("selected_platforms") or [],
         )
-        source_count_hint = max(len(sources), source_variant_total)
-        if sources:
-            inferred_provider_total = _property_search_provider_total(sources)
-            explicit_provider_total = _coerce_non_negative_int(summary.get("provider_total"))
-            if inferred_provider_total:
-                if (
-                    explicit_provider_total <= 0
-                    or explicit_provider_total > source_count_hint
-                    or (explicit_provider_total == source_count_hint and inferred_provider_total < explicit_provider_total)
-                ):
-                    summary["provider_total"] = inferred_provider_total
-        elif selected_platform_count:
-            explicit_provider_total = _coerce_non_negative_int(summary.get("provider_total"))
-            if explicit_provider_total <= 0:
-                summary["provider_total"] = selected_platform_count
-            elif explicit_provider_total > selected_platform_count and source_count_hint >= explicit_provider_total:
-                summary["provider_total"] = selected_platform_count
-        if source_count_hint and not _coerce_non_negative_int(summary.get("source_variant_total") or 0):
-            summary["source_variant_total"] = source_count_hint
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if sources and status_value not in {"processed", "completed", "completed_partial"}:
             repair_tasks = [

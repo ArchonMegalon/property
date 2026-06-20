@@ -3,9 +3,9 @@ from __future__ import annotations
 import contextlib
 import html
 import hmac
+import hashlib
 import json
 import os
-import hashlib
 import re
 import urllib.parse
 from datetime import datetime, timezone
@@ -141,6 +141,76 @@ from app.services.fliplink import build_fliplink_packet_service
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+
+
+def _facebook_sign_in_enabled() -> bool:
+    return all(
+        str(os.environ.get(key) or "").strip()
+        for key in (
+            "EA_FACEBOOK_OAUTH_APP_ID",
+            "EA_FACEBOOK_OAUTH_APP_SECRET",
+            "EA_FACEBOOK_OAUTH_REDIRECT_URI",
+        )
+    ) and bool(
+        str(
+            os.environ.get("EA_FACEBOOK_OAUTH_STATE_SECRET")
+            or os.environ.get("EA_GOOGLE_OAUTH_STATE_SECRET")
+            or os.environ.get("EA_PROVIDER_SECRET_KEY")
+            or os.environ.get("EA_SIGNING_SECRET")
+            or ""
+        ).strip()
+    )
+
+
+@router.get("/manifest.webmanifest", response_class=JSONResponse, include_in_schema=False)
+def propertyquarry_web_manifest() -> JSONResponse:
+    return JSONResponse(
+        {
+            "name": "PropertyQuarry",
+            "short_name": "PropertyQuarry",
+            "description": "A focused property search and decision workspace.",
+            "start_url": "/app/search",
+            "scope": "/",
+            "display": "standalone",
+            "background_color": "#f4f0e8",
+            "theme_color": "#17211c",
+            "orientation": "portrait-primary",
+            "categories": ["productivity", "lifestyle"],
+            "icons": [
+                {
+                    "src": "/pwa-icon.svg",
+                    "sizes": "any",
+                    "type": "image/svg+xml",
+                    "purpose": "any maskable",
+                }
+            ],
+        },
+        media_type="application/manifest+json",
+    )
+
+
+@router.get("/pwa-icon.svg", response_class=Response, include_in_schema=False)
+def propertyquarry_pwa_icon() -> Response:
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PropertyQuarry"><rect width="512" height="512" rx="96" fill="#17211c"/><path d="M144 336V188l112-64 112 64v148h-74v-92h-76v92z" fill="#f8faf7"/><path d="M171 354h170" stroke="#bd8b2f" stroke-width="24" stroke-linecap="round"/></svg>"""
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+@router.get("/service-worker.js", response_class=PlainTextResponse, include_in_schema=False)
+def propertyquarry_service_worker() -> PlainTextResponse:
+    return PlainTextResponse(
+        """self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+self.addEventListener('fetch', () => {
+  return;
+});
+""",
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @lru_cache(maxsize=1)
@@ -312,7 +382,7 @@ PUBLIC_MARKET_VIENNA = {
             "items": (
                 "The strongest homes first.",
                 "The one reason each home survived the cut.",
-                "The main blocker that still needs proof.",
+                "The main blocker that still needs an answer.",
                 "The next-best fallback if this one fails.",
             ),
         },
@@ -2261,6 +2331,7 @@ def sign_in_page(
                 "sign_in_link_error": link_error,
                 "sign_in_google_error": google_error,
                 "sign_in_facebook_error": facebook_error,
+                "sign_in_facebook_enabled": _facebook_sign_in_enabled(),
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",
             },
         ),
@@ -2496,15 +2567,20 @@ def workspace_access_session(
     return response
 
 
-@router.post("/app/actions/sign-out", response_model=None, include_in_schema=False)
+@router.api_route("/app/actions/sign-out", methods=["GET", "POST"], response_model=None, include_in_schema=False)
 async def app_sign_out(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
-    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    body: dict[str, list[str]] = {}
+    if request.method == "POST":
+        body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     public_base = str(request_brand(request).get("public_base_url") or "/").strip() or "/"
-    return_to = _normalize_browser_return_to(_form_value(body, "return_to", public_base), default=public_base)
+    query_params = request.query_params
+    return_to = _normalize_browser_return_to(query_params.get("return_to", "") or _form_value(body, "return_to", public_base), default=public_base)
+    if not return_to:
+        return_to = public_base
     workspace_session = _workspace_session_payload(request, container)
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
@@ -3077,7 +3153,7 @@ def property_research_packet(
         },
         {
             "eyebrow": "Before you decide",
-            "title": "What still needs proof",
+            "title": "What still needs an answer",
             "items": (missing_rows + investment_risk_rows)[:10] or [_object_detail_row("No blocker recorded", "The current file does not show a blocking gap beyond normal due diligence.", "Clear")],
         },
         {

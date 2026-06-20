@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17211c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PropertyQuarry">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/pwa-icon.svg" type="image/svg+xml">
   <title>{{ page_title }}</title>
   {{ rybbit_head_snippet(request) }}
   {% if analytics_principal_id %}
@@ -1357,5 +1363,12 @@
     </main>
   </div>
   {% endif %}
+  <script>
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' }).catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

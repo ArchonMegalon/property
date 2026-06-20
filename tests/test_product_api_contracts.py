@@ -654,6 +654,11 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     )
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_assessment",
+        lambda **kwargs: {"fit_score": 82.0, "recommendation": "shortlist", "match_reasons_json": ["Current brief fit is strong enough to notify."]},
+    )
 
     observed_telegram: dict[str, object] = {}
 
@@ -2563,6 +2568,11 @@ def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_p
     )
     monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_assessment",
+        lambda **kwargs: {"fit_score": 82.0, "recommendation": "shortlist", "match_reasons_json": ["Current brief fit is strong enough to notify."]},
+    )
 
     observed_telegram: dict[str, object] = {}
 

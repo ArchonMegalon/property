@@ -822,13 +822,18 @@ def build_property_run_live_board_snapshot(
             )
         ):
             provider_total = inferred_provider_total
-    scan_total_label = (
-        f"{provider_total} providers · {source_variant_total} scans"
-        if provider_total and source_variant_total > provider_total
-        else f"{source_total} provider scans"
-    )
+    scan_total_label = f"{provider_total} providers" if provider_total else f"{source_total} provider scans"
     provider_label = _compact_property_provider_label(provider_full_label or scan_total_label)
-    source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} checks"
+    provider_total = _positive_int(summary.get("provider_total"))
+    if not source_rows and source_total and provider_total and source_total > provider_total and source_total > 3:
+        if source_total >= provider_total * 3:
+            source_total = provider_total
+        elif provider_total and source_total > provider_total + 2:
+            source_total = provider_total
+    if source_rows:
+        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} checks"
+    else:
+        source_count_label = live_info.get("fraction_label") or ("waiting for source checks" if source_total == 0 else f"0/{source_total} checks")
     summary_label = (
         f"{scan_total_label} · {provider_label} · {live_info.get('fraction_label')}"
         if provider_full_label and live_info.get("fraction_label")

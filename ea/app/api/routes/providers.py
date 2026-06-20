@@ -2004,6 +2004,25 @@ def _browseract_onemin_login_ready(*, account_label: str, binding_metadata: dict
     return bool(login_email and login_password)
 
 
+def _bound_onemin_provider_api_credentials(
+    *,
+    account_label: str,
+    binding_metadata: dict[str, object],
+) -> dict[str, str]:
+    if not any(
+        key in binding_metadata
+        for key in (
+            "onemin_account_credentials_json",
+            "onemin_account_logins_json",
+        )
+    ):
+        return {}
+    return upstream.onemin_account_login_credentials(
+        account_name=account_label,
+        binding_metadata=binding_metadata,
+    )
+
+
 def _normalized_onemin_owner_rows(*, account_labels: set[str] | None = None) -> list[dict[str, str]]:
     normalized_labels = {str(value or "").strip() for value in (account_labels or set()) if str(value or "").strip()}
     rows: list[dict[str, str]] = []
@@ -3239,8 +3258,8 @@ def refresh_onemin_billing(
                 if account_label not in bound_account_labels:
                     bound_account_labels.add(account_label)
                     bound_account_label_order.append(account_label)
-                credentials = upstream.onemin_account_login_credentials(
-                    account_name=account_label,
+                credentials = _bound_onemin_provider_api_credentials(
+                    account_label=account_label,
                     binding_metadata=binding_metadata,
                 )
                 if credentials:
@@ -3267,16 +3286,6 @@ def refresh_onemin_billing(
                         "reason": "account_label_unresolved" if not requested_account_labels else "account_label_filtered",
                     }
                 )
-        for row in all_api_account_rows:
-            account_label = str(row.get("account_name") or "").strip()
-            if not account_label or account_label in all_account_login_credentials:
-                continue
-            credentials = upstream.onemin_account_login_credentials(
-                account_name=account_label,
-                binding_metadata={},
-            )
-            if credentials:
-                all_account_login_credentials[account_label] = credentials
         all_account_login_credentials.update(bound_account_login_credentials)
         browseract_scope = "bound_accounts_only"
         browseract_target_label_order = list(bound_account_label_order)

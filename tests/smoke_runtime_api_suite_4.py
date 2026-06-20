@@ -258,6 +258,7 @@ def test_prod_mode_rejects_insecure_startup_dependency_fallback() -> None:
     saved_env = {
         "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_SIGNING_SECRET": os.environ.get("EA_SIGNING_SECRET"),
         "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
         "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
@@ -265,6 +266,7 @@ def test_prod_mode_rejects_insecure_startup_dependency_fallback() -> None:
     try:
         os.environ["EA_RUNTIME_MODE"] = "prod"
         os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ["EA_SIGNING_SECRET"] = "signing-secret"
         os.environ["EA_STORAGE_BACKEND"] = "memory"
         os.environ.pop("EA_LEDGER_BACKEND", None)
         os.environ.pop("DATABASE_URL", None)
@@ -339,6 +341,7 @@ def test_prod_ready_fails_when_postgres_backend_database_url_missing() -> None:
     saved_env = {
         "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_SIGNING_SECRET": os.environ.get("EA_SIGNING_SECRET"),
         "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
         "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
@@ -346,6 +349,7 @@ def test_prod_ready_fails_when_postgres_backend_database_url_missing() -> None:
     try:
         os.environ["EA_RUNTIME_MODE"] = "prod"
         os.environ["EA_API_TOKEN"] = "secret-token"
+        os.environ["EA_SIGNING_SECRET"] = "signing-secret"
         os.environ["EA_STORAGE_BACKEND"] = "postgres"
         os.environ.pop("EA_LEDGER_BACKEND", None)
         os.environ.pop("DATABASE_URL", None)

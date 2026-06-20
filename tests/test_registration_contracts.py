@@ -167,9 +167,28 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
 
     assert response.status_code == 200
     assert "Continue with Google" in response.text
+    assert "Continue with Facebook" not in response.text
+    assert 'action="/sign-in/facebook"' not in response.text
+    assert 'class="auth-provider-card"' in response.text
+    assert 'class="auth-provider-icon"' in response.text
+    assert "Google?" not in response.text
+    assert "Facebook?" not in response.text
+    assert "Identity-only return path." in response.text
+    assert "Choose the narrowest sign-in path" not in response.text
+
+
+def test_sign_in_page_only_shows_facebook_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in")
+
+    assert response.status_code == 200
     assert "Continue with Facebook" in response.text
-    assert "Google can reopen an existing workspace with identity-only scope." in response.text
-    assert "Facebook can reopen an existing workspace with public profile and email only." in response.text
+    assert 'action="/sign-in/facebook"' in response.text
 
 
 def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -296,9 +315,8 @@ def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytes
 
     assert response.status_code == 200
     assert 'action="/sign-in/google"' in response.text
-    assert 'action="/sign-in/facebook"' in response.text
     assert "Continue with Google" in response.text
-    assert "Continue with Facebook" in response.text
+    assert "Continue with Facebook" not in response.text
     assert 'id="google_sign_in_email"' not in response.text
     assert 'placeholder="you@company.com"' not in response.text
 

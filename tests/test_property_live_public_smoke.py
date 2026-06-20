@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+from scripts.propertyquarry_live_public_smoke import build_live_public_smoke_receipt
+
+
+def _fake_response(body: str, *, status_code: int = 200, final_url: str = "") -> dict[str, object]:
+    return {
+        "status_code": status_code,
+        "final_url": final_url or "https://propertyquarry.com/",
+        "headers": {"Content-Type": "text/html; charset=utf-8"},
+        "body": body.encode("utf-8"),
+        "duration_ms": 12,
+    }
+
+
+def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
+        "https://propertyquarry.com/pricing": "PropertyQuarry Pick the search lane you need.",
+        "https://propertyquarry.com/register": "PropertyQuarry Create account",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Return with the same browser, a secure email link, or your connected identity.",
+        "https://propertyquarry.com/manifest.webmanifest": '{"name":"PropertyQuarry","start_url":"/app/search"}',
+        "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
+        "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
+        "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc>",
+        "https://propertyquarry.com/app/properties": "PropertyQuarry Return with the same browser",
+    }
+
+    receipt = build_live_public_smoke_receipt(
+        fetcher=lambda url, _timeout: _fake_response(
+            bodies[url],
+            final_url="https://propertyquarry.com/sign-in?return_to=%2Fapp%2Fproperties"
+            if url.endswith("/app/properties")
+            else url,
+        )
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failed_count"] == 0
+
+
+def test_live_public_smoke_fails_cloudflare_502_and_legacy_origin_without_network() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/pricing"):
+            return _fake_response("Executive Assistant Morning Memo", status_code=200, final_url=url)
+        return _fake_response("<html>Cloudflare 502</html>", status_code=502, final_url=url)
+
+    receipt = build_live_public_smoke_receipt(routes=("/", "/pricing"), fetcher=fetcher)
+
+    assert receipt["status"] == "fail"
+    rows = {row["path"]: row for row in receipt["checks"]}
+    assert rows["/"]["status_code"] == 502
+    assert rows["/"]["ok"] is False
+    assert rows["/pricing"]["ok"] is False
+    assert any(check["name"] == "no_generic_ea_copy" and check["ok"] is False for check in rows["/pricing"]["checks"])

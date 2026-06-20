@@ -179,6 +179,42 @@ def test_ranked_candidates_exclude_false_positive_and_repair_only_rows() -> None
     assert [row["source_ref"] for row in ranked] == ["good"]
 
 
+def test_ranked_candidates_keep_soft_filter_reasons_but_exclude_hard_reasons() -> None:
+    ranked = product_service._property_search_ranked_candidates_from_sources(
+        [
+            {
+                "source_label": "Source A",
+                "top_candidates": [
+                    {
+                        "source_ref": "soft",
+                        "fit_score": 66,
+                        "ranking_score": 66,
+                        "title": "Soft preference miss",
+                        "filter_reason": "playground_too_far_score_only",
+                    },
+                    {
+                        "source_ref": "hard",
+                        "fit_score": 98,
+                        "ranking_score": 98,
+                        "title": "Outside area",
+                        "filter_reason": "outside_selected_area",
+                    },
+                    {
+                        "source_ref": "hard-explicit",
+                        "fit_score": 97,
+                        "ranking_score": 97,
+                        "title": "Hard filtered",
+                        "hard_filter_reason": "area_mismatch",
+                    },
+                ],
+            }
+        ]
+    )
+
+    assert [row["source_ref"] for row in ranked] == ["soft"]
+    assert ranked[0]["rank"] == 1
+
+
 def test_property_scout_notification_source_hides_search_scope_metadata() -> None:
     text = product_service._property_alert_review_telegram_text(
         title="Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | EUR 1.090",
@@ -738,6 +774,7 @@ def test_floorplan_recovery_workers_store_recovered_preview(monkeypatch: pytest.
 
 def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_APP_BASE_URL", raising=False)
     monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
     monkeypatch.delenv("EA_PUBLIC_APP_BASE_URL", raising=False)
     monkeypatch.delenv("EA_PUBLIC_TOUR_BASE_URL", raising=False)
@@ -749,6 +786,10 @@ def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monke
 
     assert product_service._property_public_app_base_url() == "https://propertyquarry.com"
     assert product_service._property_public_tour_base_url() == "https://propertyquarry.com/tours"
+
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_APP_BASE_URL", "https://app.propertyquarry.test")
+
+    assert product_service._property_public_app_base_url() == "https://app.propertyquarry.test"
 
 
 def test_property_public_preview_cache_reuses_sanitized_public_facts() -> None:
@@ -1025,6 +1066,41 @@ def test_property_search_run_status_fixes_inflated_provider_total_when_source_ro
     assert int(dict(status.get("summary") or {}).get("provider_total") or 0) == 3
 
 
+def test_property_search_run_status_lightweight_fixes_inflated_provider_total(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-run-provider-count-lightweight"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"provider-total-lightweight-{uuid.uuid4().hex}"
+
+    compact_run = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "in_progress",
+        "selected_platforms": ["willhaben", "kalandra", "wiener_wohnen"],
+        "summary": {
+            "provider_total": 156,
+            "source_variant_total": 156,
+            "sources_total": 104,
+        },
+    }
+
+    def _fake_load_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+        if str(run_id or "").strip() == compact_run["run_id"] and str(principal_id or "").strip() == compact_run["principal_id"]:
+            return dict(compact_run)
+        return None
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_compact_record", _fake_load_compact_record)
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    assert int(dict(status.get("summary") or {}).get("provider_total") or 0) == 3
+    assert int(dict(status.get("summary") or {}).get("source_variant_total") or 0) == 156
+
+
 def test_property_search_location_matching_prefers_requested_districts() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
 
@@ -1121,7 +1197,7 @@ def test_property_search_area_accepts_adjacent_districts_for_fuzzy_scope_only() 
     ) is False
 
 
-def test_property_search_area_accepts_adjacent_districts_without_explicit_radius_for_fuzzy_district_scope() -> None:
+def test_property_search_area_keeps_selected_district_scope_hard_without_radius() -> None:
     strict_preferences = {
         "country_code": "AT",
         "region_code": "vienna",
@@ -1139,7 +1215,7 @@ def test_property_search_area_accepts_adjacent_districts_without_explicit_radius
         title="Wohnung mieten in 1020 Wien | 70 m² | 3 Zimmer",
         summary="Concrete listing evidence says Leopoldstadt.",
         property_facts={"postal_name": "1020 Wien"},
-    ) is True
+    ) is False
     assert product_service._property_candidate_matches_search_area(
         location_hints=hints,
         request_preferences=strict_preferences,
@@ -4248,6 +4324,128 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
     assert any(dict(dict(row).get("property_facts") or {}).get("distance_preference_notes") for row in soft_rows)
 
 
+def test_property_search_neutral_filter_importance_keeps_distance_candidates(monkeypatch) -> None:
+    principal_id = "exec-property-neutral-filter-preserve-candidates"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Neutral Filter Preserves Hits")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1220-brigittenau"
+    listing_urls = [
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-brigittenau/neutral-filter-a/",
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-brigittenau/neutral-filter-b/",
+    ]
+    facts_by_url = {
+        listing_urls[0]: {
+            "postal_name": "1220 Wien",
+            "area_sqm": 74,
+            "rooms": 2,
+            "total_rent_eur": 1300,
+            "nearest_library_m": 2200,
+            "nearest_supermarket_m": 2800,
+            "nearest_playground_m": 1900,
+        },
+        listing_urls[1]: {
+            "postal_name": "1220 Wien",
+            "area_sqm": 68,
+            "rooms": 2,
+            "total_rent_eur": 1280,
+            "nearest_library_m": 2600,
+            "nearest_supermarket_m": 2500,
+            "nearest_playground_m": 1700,
+        },
+    }
+
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1220 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 6,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": list(listing_urls),
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:neutral-filter-preserve"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+
+    def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+        facts = dict(facts_by_url[property_url])
+        return {
+            "listing_id": property_url.rsplit("/", 2)[-2],
+            "title": f"Mietwohnung in 1220 Wien {property_url.rsplit('/', 2)[-2]}",
+            "summary": "68 m², 2 Zimmer, Gesamtmiete EUR 1.300, Balkon.",
+            "property_facts_json": facts,
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+
+    def _fake_fit(**kwargs) -> dict[str, object]:
+        property_url = str(kwargs.get("property_url") or "")
+        return {
+            "fit_score": 52.0 if property_url.endswith("neutral-filter-a/") else 57.0,
+            "recommendation": "review",
+            "match_reasons_json": ["Hard search basics match"],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        }
+
+    monkeypatch.setattr(product_service, "_property_alert_personal_fit_from_facts", _fake_fit)
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {
+            "status": "opened",
+            "editor_url": f"/app/research/{str(kwargs.get('source_ref') or 'candidate').split(':')[-1]}",
+        },
+    )
+
+    base_preferences = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "location_query": "1220 Vienna",
+        "property_type": "apartment",
+        "require_floorplan": False,
+    }
+    neutral_preferences = {
+        **base_preferences,
+        "max_distance_to_library_m": 500,
+        "max_distance_to_library_importance": "neutral",
+        "max_distance_to_supermarket_m": 500,
+        "max_distance_to_supermarket_importance": "neutral",
+        "max_distance_to_playground_m": 500,
+        "max_distance_to_playground_importance": "neutral",
+    }
+
+    neutral_result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences=neutral_preferences,
+        max_results_per_source=6,
+        force_refresh=True,
+    )
+
+    def _captured_urls(result: dict[str, object]) -> set[str]:
+        rows = list(dict(list(result.get("sources") or [])[0]).get("research_candidates") or [])
+        return {str(row.get("property_url") or "") for row in rows}
+
+    assert _captured_urls(neutral_result) == set(listing_urls)
 def test_property_search_filters_dirty_source_scope_postal_conflict_before_shortlist(monkeypatch) -> None:
     principal_id = "exec-property-run-dirty-postal-gate"
     client = build_property_client(principal_id=principal_id)
@@ -5302,6 +5500,71 @@ def test_property_alert_review_suppresses_candidate_outside_selected_district_ev
 
     assert result["status"] == "suppressed"
     assert result["reason"] == "property_location_conflicts_with_active_search"
+
+
+def test_property_alert_review_suppresses_low_score_telegram_even_when_review_opens(monkeypatch) -> None:
+    principal_id = "exec-property-alert-low-score-telegram-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review Low Score Telegram Gate")
+    seed_product_state(client, principal_id=principal_id)
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    monkeypatch.setenv("PROPERTYQUARRY_SCOUT_OUTBOUND_MIN_SCORE", "60")
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("low-score review must not notify")),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Wohnung mieten in 1010 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+        summary="2-Zimmer Wohnung im 1. Bezirk, 60 m2, Gesamtmiete EUR 1.090.",
+        source_ref="property-scout:review-low-score-1010",
+        external_id="review-low-score-1010",
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/review-low-score/",
+        actor="test",
+        notify_telegram=True,
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/review-low-score/",
+                "listing_title": "Wohnung mieten in 1010 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+                "summary": "2-Zimmer Wohnung im 1. Bezirk, 60 m2, Gesamtmiete EUR 1.090.",
+                "property_facts_json": {
+                    "postal_name": "1010 Wien",
+                    "street_address": "Kärntner Straße 12, 1010 Wien",
+                    "area_sqm": 60,
+                    "rooms": 2,
+                    "total_rent_eur": 1090,
+                },
+            },
+        ),
+        personal_fit_assessment={"fit_score": 50.0, "recommendation": "review"},
+        preference_person_id="self",
+    )
+
+    assert result["status"] == "opened"
+    assert result["telegram_delivery_status"] == "suppressed"
+    assert result["telegram_delivery_error"] == "fit_below_outbound_threshold"
+    assert result["telegram_min_score"] == 60.0
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "property_alert_review_telegram_suppressed"},
+    )
+    assert events.status_code == 200
+    assert any(dict(item["payload"]).get("reason") == "fit_below_outbound_threshold" for item in events.json()["items"])
 
 
 def test_property_alert_review_uses_exact_source_scope_when_saved_location_is_missing(monkeypatch) -> None:
@@ -6891,7 +7154,7 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
 
     assert status["status"] == "failed"
     assert status["summary"]["repair_status"] == "repairing"
-    assert status["summary"]["repair_step_label"] == "Queued a generic repair for the failed search run."
+    assert status["summary"]["repair_step_label"] == "Repairing interrupted run."
     assert status["summary"]["provider_repair_task_opened_total"] == 1
     assert any(event["step"] == "run_repair_queued" for event in status["events"])
     tasks = [

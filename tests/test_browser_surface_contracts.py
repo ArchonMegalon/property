@@ -116,11 +116,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "research the shortlist" in landing.text
     assert "Open search" in landing.text
     assert "Built for focused private search first" in landing.text
-    assert "Pricing mirrors the runtime contract" in landing.text
+    assert "Upgrade only when it helps" in landing.text
 
     pricing = client.get("/pricing")
-    assert "The public pricing page now renders from the runtime contract." in pricing.text
-    assert "How to pick the first paid lane" in pricing.text
+    assert "Pick the search lane you need." in pricing.text
+    assert "Upgrade when the current lane is the bottleneck." in pricing.text
     assert "Typical office path" not in pricing.text
 
     security = client.get("/security")
@@ -133,13 +133,60 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Data deletion request" in deletion.text
 
     sign_in = client.get("/sign-in")
-    assert "Shared review when needed" in sign_in.text
+    assert "Return with the same browser, a secure email link, or your connected identity." in sign_in.text
+    assert "Choose the narrowest sign-in path" not in sign_in.text
 
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")
         assert not href.startswith("/results")
         resolved = client.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
+
+
+def test_pricing_surfaces_payfunnels_checkout_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
+    monkeypatch.setenv("PAYFUNNELS_AGENT_CHECKOUT_URL", "https://checkout.payfunnels.example/agent")
+    client = _client()
+
+    pricing = client.get("/pricing")
+
+    assert pricing.status_code == 200
+    assert "PayFunnels" in pricing.text
+    assert "Sign in to upgrade" in pricing.text
+    assert 'data-rybbit-event="pricing_sign_in_to_upgrade"' in pricing.text
+
+
+def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
+    client = _client()
+
+    public_page = client.get("/")
+    app_page = client.get("/app/search")
+    manifest = client.get("/manifest.webmanifest")
+    service_worker = client.get("/service-worker.js")
+
+    assert public_page.status_code == 200
+    assert app_page.status_code == 200
+    assert '<link rel="manifest" href="/manifest.webmanifest">' in public_page.text
+    assert '<link rel="manifest" href="/manifest.webmanifest">' in app_page.text
+    assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in public_page.text
+    assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in app_page.text
+
+    assert manifest.status_code == 200
+    payload = manifest.json()
+    assert payload["name"] == "PropertyQuarry"
+    assert payload["start_url"] == "/app/search"
+    assert payload["display"] == "standalone"
+    assert payload["scope"] == "/"
+    assert payload["icons"][0]["src"] == "/pwa-icon.svg"
+
+    assert service_worker.status_code == 200
+    assert service_worker.headers["cache-control"] == "no-store"
+    assert service_worker.headers["x-content-type-options"] == "nosniff"
+    assert service_worker.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "caches.open" not in service_worker.text
+    assert "cache.put" not in service_worker.text
+    assert "fetch(event.request)" not in service_worker.text
 
 
 def test_propertyquarry_public_host_blocks_raw_runtime_api_docs() -> None:
@@ -224,7 +271,7 @@ def test_propertyquarry_management_settings_use_property_language() -> None:
 
     usage = client.get("/app/settings/usage", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert "Ranked homes" in usage.text
-    assert "Provider scans" in usage.text
+    assert "Sources used" in usage.text
     assert "Source checks" not in usage.text
     assert "Repair status" in usage.text
 

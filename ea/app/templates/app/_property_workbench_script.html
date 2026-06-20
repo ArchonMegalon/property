@@ -1695,12 +1695,29 @@
       `;
     };
     const rankedCandidatesFromRunPayload = (runPayload) => {
+      const hardFilterReasons = new Set([
+        'area_mismatch',
+        'availability_mismatch',
+        'generic_listing_page',
+        'listing_mode_mismatch',
+        'location_mismatch',
+        'location_scope',
+        'outside_selected_area',
+        'property_location_conflicts_with_active_search',
+        'property_missing_concrete_location',
+        'property_type_mismatch',
+        'transaction_mismatch',
+        'wrong_listing_mode',
+        'wrong_property_type',
+      ]);
       const isRankableCandidate = (candidate) => {
         if (!candidate || typeof candidate !== 'object') return false;
         const status = String(candidate.candidate_status || candidate.status || '').trim().toLowerCase();
         if (['false_positive', 'maybe_false', 'repair_only', 'filtered', 'suppressed'].includes(status)) return false;
         if (candidate.maybe_false || candidate.maybe_false_positive || candidate.false_positive || candidate.flagged_for_repair) return false;
-        if (String(candidate.hard_filter_reason || candidate.filter_reason || '').trim()) return false;
+        if (String(candidate.hard_filter_reason || '').trim()) return false;
+        const filterReason = String(candidate.filter_reason || '').trim().toLowerCase();
+        if (hardFilterReasons.has(filterReason)) return false;
         return true;
       };
       const direct = Array.isArray(runPayload?.summary?.ranked_candidates)

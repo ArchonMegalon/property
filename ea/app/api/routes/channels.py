@@ -963,9 +963,9 @@ def _telegram_general_reply_text(*, container: AppContainer, principal_id: str, 
             if math_answer:
                 return f"Yes. {math_answer}"
             if "http://" in previous_normalized or "https://" in previous_normalized:
-                return "Yes. I captured the link and kept it in Tibor's assistant inbox."
+                return "Yes. I captured the link and kept it in Tibor's PropertyQuarry inbox."
             break
-        return "Yes. I captured your message and kept it in Tibor's assistant flow."
+        return "Yes. I captured your message and kept it in Tibor's workspace flow."
     if ("today" in lower and "day" in lower) or alpha in {"day", "today", "what day", "weekday"}:
         now = datetime.now(ZoneInfo("Europe/Vienna"))
         return f"Today is {now.strftime('%A, %d %B %Y')} in Vienna."
@@ -1131,10 +1131,10 @@ def _telegram_audio_upload_announcement_reply_text(text: str) -> str:
         return ""
     if any(marker in normalized for marker in ("ich ", "schicke", "sende", "aufnahme", "gespräch", "vater")):
         return (
-            "Ja, schick die Audioaufnahme hier in Telegram. Wenn sie von dir und deinem Vater ist, kann EA sie "
+            "Ja, schick die Audioaufnahme hier in Telegram. PropertyQuarry kann sie "
             "entgegennehmen, transkribieren und als private Gesprächsnotiz einordnen."
         )
-    return "Yes, send the audio recording here in Telegram. EA can receive it, transcribe it, and file it as a private conversation note."
+    return "Yes, send the audio recording here in Telegram. PropertyQuarry can receive it, transcribe it, and file it as a private conversation note."
 
 
 def _telegram_parse_relative_date_filter(text: str, *, keyword: str) -> str:
@@ -1568,7 +1568,7 @@ def _telegram_meta_assistant_reply_text(text: str) -> str:
         and not any(marker in lower for marker in schedule_markers)
     ):
         return (
-            "I can answer from grounded EA state when the workspace has the context: schedule, inbox, property scouting, links, and follow-ups."
+            "I can answer from grounded workspace state when PropertyQuarry has the context: schedule, inbox, property scouting, links, and follow-ups."
         )
     if any(
         phrase in lower
@@ -1579,7 +1579,7 @@ def _telegram_meta_assistant_reply_text(text: str) -> str:
             "what are you able to do",
         )
     ):
-        return "I can help with schedule, inbox, property scouting, links, and grounded EA follow-ups. Ask directly."
+        return "I can help with schedule, inbox, property scouting, links, and grounded workspace follow-ups. Ask directly."
     return ""
 
 
@@ -1656,7 +1656,7 @@ def _telegram_google_photos_status_reply_text(
     )
     if not enabled_accounts:
         reply = (
-            "Not yet. I do not see a connected Google account for this EA principal. "
+            "Not yet. I do not see a connected Google account for this PropertyQuarry workspace. "
             "And even with Google Photos access, I can only analyze photos you explicitly select through Google Photos Picker."
         )
         if include_next_step and reconnect_url:
@@ -1677,7 +1677,7 @@ def _telegram_google_photos_status_reply_text(
                 reply += f" Reconnect with Photos Picker here, once per Google account: {reconnect_url}"
             return reply
         reply = (
-            "Not yet. Google is connected, but I do not have Google Photos Picker access on this EA principal. "
+            "Not yet. Google is connected, but I do not have Google Photos Picker access for this PropertyQuarry workspace. "
             "I can only inspect photos you explicitly select."
         )
         if include_next_step and reconnect_url:
@@ -1998,7 +1998,7 @@ def _telegram_answerly_document_reply_text(
     configs = _answerly_document_qa_configs()
     if not configs:
         if "answerly" in normalized.lower():
-            return "Answerly document Q&A is not configured yet in EA."
+            return "Answerly document Q&A is not configured yet in PropertyQuarry."
         return ""
     requested_scope = _telegram_answerly_scope_for_text(normalized)
     if requested_scope:
@@ -2008,7 +2008,7 @@ def _telegram_answerly_document_reply_text(
                 break
         else:
             label = "ShareOne" if requested_scope == "shareone" else "OneDrive"
-            return f"{label} document Q&A is not configured yet in EA."
+            return f"{label} document Q&A is not configured yet in PropertyQuarry."
     elif len(configs) > 1 and all(str(candidate.get("scope") or "").strip() in {"onedrive", "shareone"} for candidate in configs):
         labels = [str(candidate.get("label") or "").strip() for candidate in configs if str(candidate.get("label") or "").strip()]
         joined = " or ".join(labels[:2]) if labels else "OneDrive or ShareOne"
@@ -2229,7 +2229,7 @@ def _telegram_ltd_reply_text(
             if str(getattr(action, "action_key", "") or "").strip()
         ]
         action_text = ", ".join(action_labels[:4]) if action_labels else "no runtime actions"
-        return f"{service_name} is available in EA as {runtime_state} ({tier}). Actions: {action_text}."
+        return f"{service_name} is available in PropertyQuarry as {runtime_state} ({tier}). Actions: {action_text}."
     if not wants_catalog:
         return ""
     actionable = []
@@ -2263,7 +2263,7 @@ def _telegram_ltd_reply_text(
             summary.append(chunk)
     if not summary:
         return ""
-    return "EA can use these LTD/runtime lanes right now: " + " | ".join(summary[:5]) + "."
+    return "PropertyQuarry can use these LTD/runtime lanes right now: " + " | ".join(summary[:5]) + "."
 
 
 def _telegram_google_photos_context_reply(
@@ -2547,7 +2547,7 @@ def _telegram_summary_reply(
             parts.append("Recent activity: " + " | ".join(summaries[:3]))
     if parts:
         return " ".join(parts)
-    return "I do not have enough recent EA state to summarize anything useful right now."
+    return "I do not have enough recent PropertyQuarry state to summarize anything useful right now."
 
 
 def _telegram_email_summary_reply(
@@ -2765,7 +2765,7 @@ def _telegram_direct_calendar_reply_text(*, container: AppContainer, principal_i
         return ""
     events = _telegram_upcoming_calendar_events(container, principal_id=principal_id, limit=3)
     if not events:
-        return "I do not see an upcoming calendar appointment in EA right now."
+        return "I do not see an upcoming calendar appointment in PropertyQuarry right now."
     first = events[0]
     starts = first["start_at"].astimezone(ZoneInfo("Europe/Vienna")).strftime("%A at %H:%M")
     prefix = "Yes. " if any(marker in lower for marker in ("can u", "can you")) else ""
@@ -4097,10 +4097,10 @@ def _telegram_office_grounding_text(container: AppContainer, *, principal_id: st
                 detail += f" with {', '.join(attendees[:3])}"
             lines.append(detail)
     else:
-        lines.append("Upcoming calendar events: none visible in stored EA office signals.")
+        lines.append("Upcoming calendar events: none visible in stored workspace signals.")
     recent_product_events = [row for row in events if str(row.get("channel") or "").strip() == "product"][:4]
     if recent_product_events:
-        lines.append("Recent EA product events:")
+        lines.append("Recent PropertyQuarry product events:")
         for row in recent_product_events:
             lines.append(f"- {str(row.get('event_type') or '').strip()}: {str(row.get('summary') or '').strip()}")
     if brief_items:
@@ -4177,7 +4177,7 @@ def _telegram_real_ea_reply_text(
         {
             "role": "system",
             "content": (
-            "You are Executive Assistant replying inside a Telegram chat. "
+            "You are PropertyQuarry replying inside a Telegram chat. "
             "Be concise, direct, and useful. "
             "Use the supplied grounding as source of truth for schedule, inbox, property, and workspace-state claims. "
             "Treat short follow-ups like 'well?', 'and?', 'why?', or 'again?' as referring to the most recent relevant subject in the conversation and grounding. "
@@ -4541,16 +4541,16 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
     if command == "/start":
         return TelegramTurnDecision(
             reply_text=(
-                f"{handle} is connected to Executive Assistant.\n\n"
+                f"{handle} is connected to PropertyQuarry.\n\n"
                 "You can send messages, links, property alerts, and follow-up requests here. "
-                "EA will capture this chat for Tibor and use it as a live assistant inbox."
+                "PropertyQuarry will capture this chat for Tibor and use it as a property decision inbox."
             )
         )
     if command == "/help":
         return TelegramTurnDecision(
             reply_text=(
                 "Available commands:\n"
-                "/start - connect this chat to Executive Assistant\n"
+                "/start - connect this chat to PropertyQuarry\n"
                 "/help - show this help text\n"
                 "/status - check bot and routing status\n\n"
                 "/scout_update /scout-update /scoutupdate - generate Scout bundle from a listing link\n"
@@ -4560,7 +4560,7 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
     if command == "/status":
         return TelegramTurnDecision(
             reply_text=(
-                "EA is online.\n"
+                "PropertyQuarry is online.\n"
                 "Telegram ingest is active.\n"
                 "Property email sync is active.\n"
                 "Pocket sync is active.\n"
@@ -4602,7 +4602,7 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
     if not bool(callback_packet.get("ok")):
         reason = str(callback_packet.get("reason") or "").strip().lower()
         if reason == "expired":
-            return TelegramTurnDecision(reply_text="That button expired. Send the request again if you still want EA to work on it.")
+            return TelegramTurnDecision(reply_text="That button expired. Send the request again if you still want PropertyQuarry to work on it.")
         return TelegramTurnDecision(reply_text="That Telegram action is no longer valid. Send the request again if needed.")
     action = str(callback_packet.get("action") or "").strip().lower()
     current_message_id = str(callback_packet.get("current_message_id") or "").strip()
@@ -4616,7 +4616,7 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
         status = str(snapshot.get("status") or "").strip().lower()
         failure_reason = str(snapshot.get("error") or "").strip()
         if status == "sent":
-            return TelegramTurnDecision(reply_text="EA already finished that request and sent the reply here.")
+            return TelegramTurnDecision(reply_text="PropertyQuarry already finished that request and sent the reply here.")
         if status == "failed":
             if failure_reason:
                 return TelegramTurnDecision(
@@ -4629,7 +4629,7 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
             return TelegramTurnDecision(reply_text="That request failed after processing. Tap Retry to run it again.")
         return TelegramTurnDecision(
             reply_text=(
-                "EA is still processing that request.\n"
+                "PropertyQuarry is still processing that request.\n"
                 "The message is persisted, deduped, and running off the webhook path."
             )
         )
@@ -4637,18 +4637,18 @@ def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDe
         return TelegramTurnDecision(
             reply_text=(
                 "Use plain language here.\n"
-                "For deterministic things EA answers directly.\n"
-                "For heavier requests EA acknowledges first and finishes the work asynchronously."
+                "For deterministic things PropertyQuarry answers directly.\n"
+                "For heavier requests PropertyQuarry acknowledges first and finishes the work asynchronously."
             )
         )
     if action == "retry":
         status = str(snapshot.get("status") or "").strip().lower()
         if status in {"queued", "processing"}:
-            return TelegramTurnDecision(reply_text="EA is already working on that request.")
+            return TelegramTurnDecision(reply_text="PropertyQuarry is already working on that request.")
         if status == "sent":
-            return TelegramTurnDecision(reply_text="EA already answered that request here. Send a new message if you want a fresh run.")
+            return TelegramTurnDecision(reply_text="PropertyQuarry already answered that request here. Send a new message if you want a fresh run.")
         if not str(snapshot.get("prompt_text") or "").strip():
-            return TelegramTurnDecision(reply_text="EA could not recover the original request text for that button. Send the request again.")
+            return TelegramTurnDecision(reply_text="PropertyQuarry could not recover the original request text for that button. Send the request again.")
         retry_message_id = f"{current_message_id}:retry:{int(time.time())}" if current_message_id else f"retry:{int(time.time())}"
         return TelegramTurnDecision(
             schedule_async=True,
@@ -4772,7 +4772,7 @@ def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecisi
     if local_assistant_reply:
         return TelegramTurnDecision(reply_text=local_assistant_reply)
     return TelegramTurnDecision(
-        reply_text="Link received. EA captured it and will route it into Tibor's assistant workspace for review."
+        reply_text="Link received. PropertyQuarry captured it and will route it into Tibor's workspace for review."
     )
 
 
@@ -5571,14 +5571,14 @@ def _telegram_processing_ack_buttons_payload(
 
 def _telegram_processing_ack_text(text: str, *, render_priority: str = "") -> str:
     normalized = str(text or "").strip()
-    base = "Saved. EA is processing this asynchronously now."
+    base = "Saved. PropertyQuarry is processing this asynchronously now."
     if _telegram_supported_property_link(normalized):
         base = "Saved. PropertyQuarry is processing this listing now."
         if str(render_priority or "").strip().lower() == "paid":
             return f"{base} Your render request is in the paid-priority lane."
         return f"{base} Free-tier requests are processed after paid render requests."
     if "?" in normalized or any(marker in normalized.lower() for marker in ("what", "why", "how", "where", "when", "which")):
-        return "Working on it. EA saved your request and is processing it asynchronously."
+        return "Working on it. PropertyQuarry saved your request and is processing it asynchronously."
     return base
 
 

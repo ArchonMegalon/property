@@ -954,7 +954,8 @@ def test_telegram_ingest_sends_start_reply_for_keyed_bot(monkeypatch: pytest.Mon
     body = resp.json()
     assert body["principal_id"] == "exec-telegram-girschele"
     assert body["reply_sent"] is True
-    assert "connected to Executive Assistant" in body["reply_text"]
+    assert "connected to PropertyQuarry" in body["reply_text"]
+    assert "Executive Assistant" not in body["reply_text"]
     assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token-2/sendMessage"
     assert sent[0]["payload"]["chat_id"] == "1234"
     assert "Girschele_Bot" in sent[0]["payload"]["text"]
@@ -1427,8 +1428,8 @@ def test_telegram_ingest_answers_capability_question_directly(monkeypatch: pytes
     )
     assert resp.status_code == 200
     assert resp.json()["reply_sent"] is True
-    assert "grounded EA state" in resp.json()["reply_text"]
-    assert sent and "grounded EA state" in sent[0]["text"]
+    assert "grounded workspace state" in resp.json()["reply_text"]
+    assert sent and "grounded workspace state" in sent[0]["text"]
 
 
 def test_telegram_ingest_answers_next_appointment_from_calendar_signal(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2464,7 +2465,7 @@ def test_telegram_local_assistant_can_answer_named_ltd_request(monkeypatch: pyte
         principal_id="exec-telegram-ltd-request",
         text="Use MarkupGo for this.",
     )
-    assert "MarkupGo is available in EA" in reply
+    assert "MarkupGo is available in PropertyQuarry" in reply
     assert "inspect_workspace" in reply
 
 
@@ -2636,7 +2637,7 @@ def test_telegram_local_assistant_reports_unconfigured_answerly_when_named(monke
         principal_id="exec-telegram-answerly-missing",
         text="Use Answerly to search the scanned documents.",
     )
-    assert reply == "Answerly document Q&A is not configured yet in EA."
+    assert reply == "Answerly document Q&A is not configured yet in PropertyQuarry."
 
 
 def test_telegram_local_assistant_requires_explicit_source_when_answerly_corpora_are_split(
@@ -4300,7 +4301,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Choose the narrowest sign-in path that works." in sign_in.text
+    assert "Return with the same browser, a secure email link, or your connected identity." in sign_in.text
     assert "Create account" in sign_in.text
     assert "Email me a fresh access link" not in sign_in.text
     assert "Email link" in sign_in.text
@@ -4940,7 +4941,7 @@ def test_fastestvpn_service_provision_uses_no_build_startup(
 
     result = providers_route._ensure_fastestvpn_services(
         service_names=("ea-fastestvpn-proxy",),
-        reason="unit_test",
+        reason="provider_scrape.unit_test",
     )
 
     assert result["returncode"] == 0

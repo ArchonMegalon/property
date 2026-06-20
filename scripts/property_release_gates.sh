@@ -118,6 +118,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_search_runs.py \
   tests/test_property_search_agents.py \
   tests/test_property_market_catalog.py \
+  tests/test_property_live_public_smoke.py \
   tests/test_property_live_provider_smoke.py \
   tests/test_product_browser_journeys.py -k 'properties_workspace_surface or propertyquarry_settings_hide_generic_google_sync_metrics'
 if [[ -n "${PROPERTYQUARRY_VISUAL_WATCH_URL:-}" ]]; then

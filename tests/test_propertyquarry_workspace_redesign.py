@@ -598,10 +598,10 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
 
     assert page.status_code == 200
     assert "Usage and activation" in page.text
-    assert "Search runs, provider coverage, ranked homes, filtered homes" in page.text
+    assert "Search runs, ranked homes, filtered homes" in page.text
     assert "Property usage" in page.text
     assert "Ranked homes" in page.text
-    assert "Provider scans" in page.text
+    assert "Sources used" in page.text
     assert "Source checks" not in page.text
     forbidden_copy = (
         "Current office loop",
@@ -1166,6 +1166,34 @@ def test_propertyquarry_search_route_exposes_theme_toggle() -> None:
     assert 'propertyquarry.theme' in html
     assert 'data-pq-theme' in html
     assert 'Light mode' in html or 'Dark mode' in html
+
+
+def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    workbench = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    sign_in = (repo_root / "ea/app/templates/sign_in.html").read_text(encoding="utf-8")
+    packets = (repo_root / "ea/app/templates/app/property_packets.html").read_text(encoding="utf-8")
+
+    required_dark_selectors = (
+        'html[data-pq-theme="dark"] .pqx-field input:not([type="checkbox"])',
+        'html[data-pq-theme="dark"] .pqx-range-label',
+        'html[data-pq-theme="dark"] .pqx-what-matters-panel',
+        'html[data-pq-theme="dark"] .pqx-automation-thumbnail',
+        'html[data-pq-theme="dark"] .pqx-automation-delete',
+        'html[data-pq-theme="dark"] .pqx-automation-history-table th',
+        'html[data-pq-theme="dark"] .pqx-automation-card',
+        'html[data-pq-theme="dark"] .pqx-account-card',
+        'html[data-pq-theme="dark"] .pqx-billing-card',
+        'html[data-pq-theme="dark"] .pqx-research-value',
+        'html[data-pq-theme="dark"] .pqx-result[aria-selected="true"]',
+    )
+    for selector in required_dark_selectors:
+        assert selector in workbench
+    assert "background: var(--pq-paper);" in workbench
+    assert "color: var(--pq-ink);" in workbench
+    assert "background: color-mix(in srgb, var(--panel) 88%, transparent);" in sign_in
+    assert "auth-provider-card" in sign_in
+    assert "--pq-card: #fffdf8;" in packets
 
 
 def test_propertyquarry_search_route_does_not_scan_active_run_for_initial_form(monkeypatch) -> None:
@@ -2315,15 +2343,38 @@ def test_property_scope_preview_boundary_framing_adds_small_map_breathing_room()
     bounds = (16.356, 48.202, 16.379, 48.216)
 
     west, south, east, north = landing_view_models._expand_geo_bounds(bounds)
+    lon_span = bounds[2] - bounds[0]
+    lat_span = bounds[3] - bounds[1]
+    lon_pad = bounds[0] - west
+    lat_pad = bounds[1] - south
 
     assert west < bounds[0]
     assert south < bounds[1]
     assert east > bounds[2]
     assert north > bounds[3]
-    assert round(bounds[0] - west, 3) >= 0.006
-    assert round(south - bounds[1], 3) <= -0.006
-    assert round(east - bounds[2], 3) >= 0.006
-    assert round(north - bounds[3], 3) >= 0.006
+    assert lon_pad >= lon_span * 0.10
+    assert lat_pad >= lat_span * 0.10
+    assert lon_pad <= lon_span * 0.23
+    assert lat_pad <= lat_span * 0.23
+
+
+def test_property_scope_preview_map_only_never_uses_point_thumbnail(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_build_scope_boundary_preview", lambda **kwargs: {})
+    monkeypatch.setattr(
+        landing_view_models,
+        "_property_scope_point_preview",
+        lambda **kwargs: {
+            "image_url": "/app/api/property/map-previews/point.png",
+            "preview_kind": "osm_point_fallback",
+            "has_district_overlay": False,
+        },
+    )
+
+    preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna")
+
+    assert preview["preview_kind"] == "osm_map_pending"
+    assert preview["image_url"] == "/app/api/property/map-previews/0000000000000000000000000000000000000000.png"
+    assert preview["has_district_overlay"] is False
 
 
 def test_property_scope_preview_uses_region_fallback_when_geocode_fails(monkeypatch) -> None:
@@ -3090,9 +3141,31 @@ def test_property_run_live_board_replaces_duplicate_review_message_with_latest_f
     )
 
     assert snapshot["fraction_label"] == "25 / 60"
-    assert snapshot["summary_label"] == "28 providers · 156 scans · Willhaben · 25 / 60"
+    assert snapshot["summary_label"] == "28 providers · Willhaben · 25 / 60"
+    assert "156 scans" not in snapshot["summary_label"]
     assert snapshot["phase_label"] == "Playground was too far away for candidate 23/60 (score impact only)"
     assert snapshot["source_count_label"] == "25 / 60"
+
+
+def test_property_run_live_board_sanitizes_stale_source_counts_without_source_rows() -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "failed",
+            "progress": 40,
+            "summary": {
+                "provider_total": 3,
+                "source_variant_total": 156,
+                "sources_total": 156,
+                "listing_total": 0,
+                "sources": [],
+            },
+            "events": [{"step": "source_fetching", "message": "Fetching source page for Willhaben."}],
+        },
+        plan_key="plus",
+    )
+
+    assert "156" not in snapshot["source_count_label"]
+    assert snapshot["source_count_label"] in {"0/3 checks", "waiting for source checks"}
 
 
 def test_property_run_live_board_marks_school_route_risk_as_score_only() -> None:
@@ -4691,6 +4764,38 @@ def test_property_workspace_sign_out_redirects_cloudflare_access_to_access_logou
     assert "ea_workspace_session=" in str(signed_out.headers.get("set-cookie") or "")
 
 
+def test_property_workspace_sign_out_works_via_get() -> None:
+    principal_id = "pq-account-sign-out-get"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Get Logout")
+
+    access_session = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Personal Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert access_session.status_code == 200, access_session.text
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened_access = client.get(access_session.json()["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+    assert client.cookies.get("ea_workspace_session")
+
+    signed_out = client.get(
+        "/app/actions/sign-out?return_to=/",
+        follow_redirects=False,
+        headers={"Host": "propertyquarry.com"},
+    )
+    assert signed_out.status_code == 303
+    assert signed_out.headers["location"] == "/"
+    assert "ea_workspace_session=" in str(signed_out.headers.get("set-cookie") or "")
+    assert not client.cookies.get("ea_workspace_session")
+
+
 def test_propertyquarry_workspace_session_root_home_override_stays_public() -> None:
     principal_id = "pq-root-cookie-home"
     client = build_property_client(principal_id=principal_id)
@@ -5774,13 +5879,20 @@ def test_property_live_ranked_candidates_filter_repair_and_false_positive_rows()
     body = _read_workbench_bundle()
     view_model = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
     payload_builder = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+    helper = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_helpers.py").read_text(encoding="utf-8")
 
     assert "const isRankableCandidate = (candidate) => {" in body
     assert "candidate.maybe_false || candidate.maybe_false_positive || candidate.false_positive || candidate.flagged_for_repair" in body
-    assert "String(candidate.hard_filter_reason || candidate.filter_reason || '').trim()" in body
+    assert "String(candidate.hard_filter_reason || '').trim()" in body
+    assert "hardFilterReasons.has(filterReason)" in body
+    assert "String(candidate.hard_filter_reason || candidate.filter_reason || '').trim()" not in body
     assert "topCandidates.forEach((candidate) => {" in body
     assert "if (!isRankableCandidate(candidate)) return;" in body
     assert "Number(right?.ranking_score || right?.investment_score || right?.fit_score || 0)" in body
+    assert "filter_reason in hard_filter_reasons" in helper
+    assert 'candidate.get("hard_filter_reason") or candidate.get("filter_reason")' not in helper
+    assert "filter_reason in hard_filter_reasons" in view_model
+    assert 'candidate.get("hard_filter_reason") or candidate.get("filter_reason")' not in view_model
     assert "_property_candidate_is_rankable(candidate_row)" in view_model
     assert "_property_candidate_is_rankable(candidate)" in payload_builder
 
@@ -5842,10 +5954,12 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
     checked_paths = [
         repo_root / "ea/app/templates/app/property_decision_workbench.html",
         repo_root / "ea/app/templates/app/_property_account_panel.html",
+        repo_root / "ea/app/templates/app/_property_selected_review_panel.html",
         repo_root / "ea/app/templates/app/object_detail.html",
         repo_root / "ea/app/api/routes/landing.py",
         repo_root / "ea/app/api/routes/landing_view_models.py",
         repo_root / "ea/app/api/routes/landing_objects.py",
+        repo_root / "ea/app/api/routes/landing_property_workspace_helpers.py",
     ]
     forbidden = (
         "Artifact receipts",
@@ -5858,6 +5972,13 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
         "account truth",
         "checkout truth",
         "settings noise",
+        "Layout proof rule",
+        "Writing quality check",
+        "Visible proof",
+        "Run proof",
+        "Repair proof",
+        "Manual proof",
+        "Next proof",
         '"OODA"',
         ">OODA<",
     )
@@ -6165,7 +6286,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
                 "ranked_candidates": [],
                 "eta_label": "about 8 hr",
                 "repair_status_label": "Repairing",
-                "repair_step_label": "Queued a generic provider repair.",
+                "repair_step_label": "Repairing interrupted run.",
                 "sources": [],
             },
             "events": [],
@@ -6184,7 +6305,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
-    assert "Queued a generic provider repair." in response.text
+    assert "Repairing interrupted run." in response.text
     assert response.text.count("Filtering diagnostics") == 1
     assert "Filtered by rules: Filtering diagnostics" not in response.text
 
@@ -6202,6 +6323,16 @@ def test_propertyquarry_live_progress_derives_provider_count_before_source_varia
     assert "const selectedProviderTotal = Array.isArray(runPayload?.selected_platforms) ? runPayload.selected_platforms.length : 0;" not in script
     assert "progress || 12" not in script
     assert "statusLabel === 'Starting' ? Math.max(3, Math.min(progress || 3, 6))" in script
+
+
+def test_propertyquarry_console_shell_render_run_uses_provider_display_total() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    console_shell = (repo_root / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+
+    assert "const providerDisplayTotalForRun = (payload, summary = null) =>" in console_shell
+    assert "const providers = providerDisplayTotalForRun(payload, summary);" in console_shell
+    assert "const providerTotal = Number(summary.provider_total || 0);" not in console_shell
+    assert "const sourceVariantTotal = Math.max(0, Number(runSummary.source_variant_total || runSummary.sources_total || 0));" in console_shell
 
 
 def test_propertyquarry_raw_ranked_fallback_excludes_maybe_false_candidates(monkeypatch) -> None:
@@ -7397,7 +7528,7 @@ def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_co
         },
         run_sources=[],
         run_status_value="failed",
-        run_message="Queued a generic provider repair because the search stopped updating before it could finish.",
+        run_message="Repairing interrupted run while the worker restarts.",
         counterfactual_rows=[],
         suppression_rows=[],
     )
@@ -7417,12 +7548,12 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
             "listing_total": 0,
             "repair_status": "repairing",
             "repair_status_label": "Repairing",
-            "repair_step_label": "Queued a generic provider repair.",
+            "repair_step_label": "Repairing interrupted run.",
             "provider_repair_tasks": [{"status": "opened"}],
         },
         run_sources=[],
         run_status_value="failed",
-        run_message="Queued a generic provider repair because the search stopped updating before it could finish.",
+        run_message="Repairing interrupted run while the worker restarts.",
         counterfactual_rows=[],
         suppression_rows=[],
     )

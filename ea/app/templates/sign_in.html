@@ -3,24 +3,19 @@
 <style>
   .access-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.92fr);
-    gap: 18px;
+    grid-template-columns: minmax(0, 760px);
+    justify-content: center;
   }
   .access-panel,
   .access-card {
     border: 1px solid var(--line);
     border-radius: 10px;
-    background: rgba(255,255,255,0.84);
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
     box-shadow: var(--shadow);
   }
   .access-panel,
   .access-card {
-    padding: 24px;
-  }
-  .access-card-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    padding: 20px;
   }
   .access-card strong {
     display: block;
@@ -51,9 +46,50 @@
     display: block;
     margin-bottom: 6px;
   }
+  .auth-provider-stack {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .auth-provider-card {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel-2);
+  }
+  .auth-provider-icon {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    font-weight: 800;
+  }
+  .auth-provider-card strong {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+  }
+  .auth-provider-card p {
+    margin: 2px 0 0;
+    color: var(--text-soft);
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .auth-provider-card .btn {
+    white-space: nowrap;
+  }
   @media (max-width: 1080px) {
-    .access-grid,
-    .access-card-grid {
+    .access-grid {
       grid-template-columns: 1fr;
     }
   }
@@ -73,6 +109,12 @@
     .access-panel .btn {
       width: 100%;
     }
+    .auth-provider-card {
+      grid-template-columns: 32px minmax(0, 1fr);
+    }
+    .auth-provider-card .btn {
+      grid-column: 1 / -1;
+    }
   }
 </style>
 
@@ -80,29 +122,37 @@
   <section class="access-panel">
     <div class="kicker">Sign in</div>
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-    <p class="lead">Use the path that matches how you joined: current session, secure email link, workspace invite, or optional Google or Facebook identity.</p>
+    <p class="lead">Return with the same browser, a secure email link, or your connected identity.</p>
     <div class="cta-row">
       <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open current session</a>
       <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
-    <form class="access-form" method="post" action="/sign-in/google">
-      <label>Google<button class="info-tip" type="button" title="Google is optional and uses identity-only access by default." aria-label="Google is optional and uses identity-only access by default.">?</button></label>
-      <div class="cta-row">
-        <button class="btn primary" type="submit">Continue with Google</button>
-      </div>
-    </form>
+    <div class="auth-provider-stack" aria-label="Sign-in providers">
+      <form class="auth-provider-card" method="post" action="/sign-in/google">
+        <span class="auth-provider-icon" aria-hidden="true">G</span>
+        <span>
+          <strong>Google<button class="info-tip" type="button" title="Google is optional and uses identity-only access by default." aria-label="Google is optional and uses identity-only access by default.">?</button></strong>
+          <p>Identity-only return path.</p>
+        </span>
+        <button class="btn" type="submit">Continue with Google</button>
+      </form>
+      {% if sign_in_facebook_enabled %}
+      <form class="auth-provider-card" method="post" action="/sign-in/facebook">
+        <span class="auth-provider-icon" aria-hidden="true">f</span>
+        <span>
+          <strong>Facebook<button class="info-tip" type="button" title="Facebook is optional and uses identity-only access by default." aria-label="Facebook is optional and uses identity-only access by default.">?</button></strong>
+          <p>Profile/email return path.</p>
+        </span>
+        <button class="btn" type="submit">Continue with Facebook</button>
+      </form>
+      {% endif %}
+    </div>
     {% if sign_in_google_error %}
     <div class="access-feedback">
       <strong>Google sign-in could not start.</strong>
       <p class="copy">{{ sign_in_google_error }}</p>
     </div>
     {% endif %}
-    <form class="access-form" method="post" action="/sign-in/facebook">
-      <label>Facebook<button class="info-tip" type="button" title="Facebook is optional and uses identity-only access by default." aria-label="Facebook is optional and uses identity-only access by default.">?</button></label>
-      <div class="cta-row">
-        <button class="btn" type="submit">Continue with Facebook</button>
-      </div>
-    </form>
     {% if sign_in_facebook_error %}
     <div class="access-feedback">
       <strong>Facebook sign-in could not start.</strong>
@@ -139,33 +189,6 @@
       {% endif %}
     </div>
     {% endif %}
-  </section>
-
-  <section class="access-panel">
-    <div class="kicker">Access</div>
-    <h2>Choose the narrowest sign-in path that works.</h2>
-    <div class="access-card-grid">
-      <section class="access-card">
-        <strong>Current session</strong>
-        <p class="copy">Return directly when this browser is already trusted.</p>
-      </section>
-      <section class="access-card">
-        <strong>Email link</strong>
-        <p class="copy">Use the latest secure link from the inbox that owns access.</p>
-      </section>
-      <section class="access-card">
-        <strong>Shared review when needed</strong>
-        <p class="copy">Open an invite when a partner, advisor, or client has added you to a search.</p>
-      </section>
-      <section class="access-card">
-        <strong>Google</strong>
-        <p class="copy">Google can reopen an existing workspace with identity-only scope.</p>
-      </section>
-      <section class="access-card">
-        <strong>Facebook</strong>
-        <p class="copy">Facebook can reopen an existing workspace with public profile and email only.</p>
-      </section>
-    </div>
   </section>
 </section>
 {% endblock %}

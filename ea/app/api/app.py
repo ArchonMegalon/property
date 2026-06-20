@@ -266,10 +266,12 @@ def create_app() -> FastAPI:
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
-    app.state.container.readiness.register_startup_gate("property_search_shell_prewarm")
-    global _PROPERTY_SEARCH_PREWARM_CONTAINER
-    _PROPERTY_SEARCH_PREWARM_CONTAINER = app.state.container
-    app.router.on_startup.append(_prewarm_property_search_surface_cache)
+    is_memory_backend = str(s.storage_backend or "").strip().lower() == "memory"
+    if not is_memory_backend:
+        app.state.container.readiness.register_startup_gate("property_search_shell_prewarm")
+        global _PROPERTY_SEARCH_PREWARM_CONTAINER
+        _PROPERTY_SEARCH_PREWARM_CONTAINER = app.state.container
+        app.router.on_startup.append(_prewarm_property_search_surface_cache)
     if s.legacy_runtime_surfaces_enabled:
         app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(

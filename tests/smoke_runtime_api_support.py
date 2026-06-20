@@ -94,10 +94,28 @@ def build_client(
     from app.api.app import create_app
 
     client = TestClient(create_app())
+
     if authenticated:
         client.headers.update({"Authorization": f"Bearer {effective_auth_token}"})
     if principal_id:
         client.headers.update({"X-EA-Principal-ID": principal_id})
+
+    if operator and principal_id:
+        start_workspace = client.post(
+            "/v1/onboarding/start",
+            json={
+                "workspace_name": "PropertyQuarry Operator Test",
+                "mode": "executive_ops",
+                "workspace_mode": "executive_ops",
+                "timezone": "Europe/Vienna",
+                "region": "AT",
+                "language": "en",
+                "selected_channels": ["google"],
+            },
+        )
+        if start_workspace.status_code != 200:
+            raise RuntimeError(f"failed_to_seed_operator_workspace:{principal_id}:{start_workspace.status_code}")
+
     if operator:
         _seed_operator_profiles(client)
     return client

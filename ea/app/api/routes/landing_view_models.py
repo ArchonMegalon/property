@@ -219,6 +219,21 @@ def _property_customer_candidate_summary(candidate: dict[str, object]) -> dict[s
 
 
 def _property_customer_candidate_is_rankable(candidate: dict[str, object]) -> bool:
+    hard_filter_reasons = {
+        "area_mismatch",
+        "availability_mismatch",
+        "generic_listing_page",
+        "listing_mode_mismatch",
+        "location_mismatch",
+        "location_scope",
+        "outside_selected_area",
+        "property_location_conflicts_with_active_search",
+        "property_missing_concrete_location",
+        "property_type_mismatch",
+        "transaction_mismatch",
+        "wrong_listing_mode",
+        "wrong_property_type",
+    }
     blocked_statuses = {
         "dismissed",
         "filtered",
@@ -252,7 +267,10 @@ def _property_customer_candidate_is_rankable(candidate: dict[str, object]) -> bo
             return False
         if str(value or "").strip().lower() in {"1", "true", "yes", "on", "y"}:
             return False
-    if str(candidate.get("hard_filter_reason") or candidate.get("filter_reason") or "").strip():
+    if str(candidate.get("hard_filter_reason") or "").strip():
+        return False
+    filter_reason = str(candidate.get("filter_reason") or "").strip().lower()
+    if filter_reason in hard_filter_reasons:
         return False
     return True
 
@@ -1017,11 +1035,15 @@ def _project_lonlat_to_preview_path(
 def _expand_geo_bounds(
     bounds: tuple[float, float, float, float],
     *,
-    padding_ratio: float = 0.14,
+    padding_ratio: float = 0.12,
 ) -> tuple[float, float, float, float]:
     west, south, east, north = bounds
-    lon_pad = max((east - west) * padding_ratio, 0.006)
-    lat_pad = max((north - south) * padding_ratio, 0.006)
+    lon_span = max(east - west, 0.000001)
+    lat_span = max(north - south, 0.000001)
+    base_padding_factor = max(1.0, max(lon_span, lat_span) / max(1e-6, min(lon_span, lat_span)))
+    min_pad = 0.0035 * min(base_padding_factor, 1.6)
+    lon_pad = min(max(lon_span * padding_ratio, min_pad), lon_span * 0.22)
+    lat_pad = min(max(lat_span * padding_ratio, min_pad), lat_span * 0.22)
     return west - lon_pad, south - lat_pad, east + lon_pad, north + lat_pad
 
 
@@ -1493,16 +1515,6 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
         preview_kind = str(dict(boundary_preview).get("preview_kind") or "").strip()
         if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
             return dict(boundary_preview)
-    point_preview = _property_scope_point_preview(
-        country_code=normalized_country,
-        region_code=normalized_region,
-        normalized_query=normalized_query,
-        market_label=market_label,
-        allow_remote_lookup=False,
-    )
-    image_url = str(dict(point_preview).get("image_url") or "").strip()
-    if image_url.startswith("/app/api/property/map-previews/"):
-        return dict(point_preview)
     return _property_scope_map_pending_preview(
         normalized_query=normalized_query,
         market_label=market_label,
@@ -4780,7 +4792,7 @@ def app_section_payload(
                 {"label": "Country", "value": property_country_label},
                 {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
                 {
-                    "label": "Provider scans",
+                    "label": "Sources used",
                     "value": str(int(property_summary.get("source_variant_total") or property_summary.get("sources_total") or 0)),
                 },
                 {"label": "Listings", "value": str(int(property_summary.get("listing_total") or 0))},

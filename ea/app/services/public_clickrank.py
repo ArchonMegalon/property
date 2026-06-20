@@ -39,6 +39,7 @@ _CLICKRANK_PUBLIC_PREFIXES = (
     "/markets/",
     "/blog/",
     "/compare/",
+    "/memorials/",
 )
 
 _CLICKRANK_PRIVATE_PREFIXES = (
@@ -49,7 +50,6 @@ _CLICKRANK_PRIVATE_PREFIXES = (
     "/admin",
     "/results",
     "/tours",
-    "/memorials",
 )
 
 _CLICKRANK_SITE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,120}$")

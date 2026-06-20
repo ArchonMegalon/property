@@ -341,6 +341,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17211c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PropertyQuarry">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/pwa-icon.svg" type="image/svg+xml">
   <title>{{ page_title or 'PropertyQuarry' }}</title>
   {{ rybbit_head_snippet(request) }}
   <script>
@@ -621,6 +627,12 @@
       border-color: rgba(167, 64, 48, 0.28);
       background: #fff3ef;
       color: #8d382e;
+    }
+    html[data-pq-theme="dark"] .pqx-button.danger,
+    html[data-pq-theme="dark"] .pqx-link-button.danger {
+      border-color: rgba(217, 119, 107, 0.42);
+      background: rgba(217, 119, 107, 0.12);
+      color: var(--pq-red);
     }
     .pqx-button:hover,
     .pqx-link-button:hover,
@@ -4651,6 +4663,69 @@
       border-color: rgba(46, 125, 98, 0.42);
       background: linear-gradient(90deg, rgba(229, 245, 236, 0.82), #fffdf8 38%);
     }
+    html[data-pq-theme="dark"] .pqx-loaded-agent,
+    html[data-pq-theme="dark"] .pqx-disclosure-summary,
+    html[data-pq-theme="dark"] .pqx-disclosure-summary-static,
+    html[data-pq-theme="dark"] .pqx-field input:not([type="checkbox"]),
+    html[data-pq-theme="dark"] .pqx-field select,
+    html[data-pq-theme="dark"] .pqx-field select option,
+    html[data-pq-theme="dark"] .pqx-range-label,
+    html[data-pq-theme="dark"] .pqx-what-matters-panel,
+    html[data-pq-theme="dark"] .pqx-automation-summary-card,
+    html[data-pq-theme="dark"] .pqx-automation-focus,
+    html[data-pq-theme="dark"] .pqx-automation-section,
+    html[data-pq-theme="dark"] .pqx-automation-side-card,
+    html[data-pq-theme="dark"] .pqx-automation-history-wrap,
+    html[data-pq-theme="dark"] .pqx-automation-history-table th,
+    html[data-pq-theme="dark"] .pqx-automation-card,
+    html[data-pq-theme="dark"] .pqx-automation-thumbnail,
+    html[data-pq-theme="dark"] .pqx-automation-delete,
+    html[data-pq-theme="dark"] .pqx-account-action-card,
+    html[data-pq-theme="dark"] .pqx-account-summary-card,
+    html[data-pq-theme="dark"] .pqx-account-card,
+    html[data-pq-theme="dark"] .pqx-billing-summary-card,
+    html[data-pq-theme="dark"] .pqx-billing-card,
+    html[data-pq-theme="dark"] .pqx-pref-form input,
+    html[data-pq-theme="dark"] .pqx-pref-form select,
+    html[data-pq-theme="dark"] .pqx-route-evidence a,
+    html[data-pq-theme="dark"] .pqx-route-evidence span,
+    html[data-pq-theme="dark"] .pqx-research-value,
+    html[data-pq-theme="dark"] .pqx-research-task-form input,
+    html[data-pq-theme="dark"] .pqx-guard-item,
+    html[data-pq-theme="dark"] .pqx-suppression-item,
+    html[data-pq-theme="dark"] .pqx-table th {
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+      border-color: var(--pq-line);
+      box-shadow: none;
+    }
+    html[data-pq-theme="dark"] .pqx-workflow-step:hover,
+    html[data-pq-theme="dark"] .pqx-workflow-step:focus-visible,
+    html[data-pq-theme="dark"] .pqx-disclosure-summary:hover,
+    html[data-pq-theme="dark"] .pqx-advanced-panel[open] > .pqx-disclosure-summary,
+    html[data-pq-theme="dark"] .pqx-account-action-card.primary,
+    html[data-pq-theme="dark"] .pqx-automation-card.is-selected,
+    html[data-pq-theme="dark"] .pqx-result[aria-selected="true"] {
+      background: color-mix(in srgb, var(--pq-gold) 14%, var(--pq-paper));
+      color: var(--pq-ink);
+      border-color: color-mix(in srgb, var(--pq-gold) 42%, var(--pq-line));
+    }
+    html[data-pq-theme="dark"] .pqx-empty-results .pqx-run-hero {
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      border-color: var(--pq-line);
+    }
+    html[data-pq-theme="dark"] .pqx-thumb-pin::after {
+      background: var(--pq-panel);
+    }
+    html[data-pq-theme="dark"] .pqx-automation-delete:hover,
+    html[data-pq-theme="dark"] .pqx-automation-delete:focus-visible {
+      background: rgba(217, 119, 107, 0.13);
+      color: var(--pq-red);
+    }
+    html[data-pq-theme="dark"] .pqx-result.is-filter-recovered {
+      background: linear-gradient(90deg, rgba(83, 177, 140, 0.16), var(--pq-paper) 42%);
+    }
     .pqx-result > span {
       min-width: 0;
       display: grid;
@@ -6576,6 +6651,13 @@
 
   <script>
 {% include "app/_property_workbench_script.html" %}
+  </script>
+  <script>
+    if ('serviceWorker' in navigator && window.isSecureContext) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' }).catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>

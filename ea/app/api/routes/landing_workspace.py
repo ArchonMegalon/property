@@ -547,7 +547,7 @@ def settings_usage_detail(
             page_title="PropertyQuarry usage",
             current_nav="settings",
             console_title="Usage and activation",
-            console_summary="Search runs, provider coverage, ranked homes, filtered homes, repair status, and generated artifacts stay visible in one account view.",
+            console_summary="Search runs, ranked homes, filtered homes, repair status, and generated artifacts stay visible in one account view.",
             object_kind="Property usage",
             object_title=f"{property_usage['run_total']} recent search runs",
             object_summary=(
@@ -562,15 +562,15 @@ def settings_usage_detail(
                 {"label": "Repair status", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What usage means here",
-            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, provider scans run, homes ranked, artifacts prepared, and whether repair work is still open.",
+            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, homes ranked, artifacts prepared, and whether repair work is still open.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
                 _object_detail_row("Completed searches", str(property_usage["completed_total"]), "Search"),
                 _object_detail_row("Partial searches", str(property_usage["partial_total"]), "Coverage"),
                 _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Coverage"),
-                _object_detail_row("Provider scans", str(property_usage["source_total"]), "Checks"),
-                _object_detail_row("Scan failures", str(property_usage["failed_source_total"]), "Checks"),
+                _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
+                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
             ],
             object_sections=[
                 {
@@ -592,8 +592,8 @@ def settings_usage_detail(
                     "items": [
                         _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                         _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Providers"),
-                        _object_detail_row("Provider scans", str(property_usage["source_total"]), "Checks"),
+                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
+                        _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
                     ],
                 },
                 {
@@ -611,8 +611,8 @@ def settings_usage_detail(
                     "title": "Repair and delivery posture",
                     "items": [
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Scan failures", str(property_usage["failed_source_total"]), "Checks"),
-                        _object_detail_row("Repairing scans", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
+                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
                         _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Delivery"),
                     ],
@@ -757,22 +757,22 @@ def settings_support_detail(
             page_title="PropertyQuarry support",
             current_nav="settings",
             console_title="Support and recovery",
-            console_summary="Support focuses on provider failures, repair status, delivery health, billing posture, and an exportable bundle for this account.",
+            console_summary="Support focuses on failed sources, repair status, delivery health, billing, and the next useful action.",
             object_kind="Support posture",
             object_title=str(property_usage["repair_status"]),
             object_summary=(
-                f"{property_usage['failed_source_total']} scan failures · "
+                f"{property_usage['failed_source_total']} source failures · "
                 f"{property_usage['ranked_total']} ranked homes · "
                 f"{str(billing.get('support_tier') or 'standard').title()} support"
             ),
             object_meta=[
-                {"label": "Scan failures", "value": str(property_usage["failed_source_total"])},
-                {"label": "Repairing scans", "value": str(property_usage["repairing_source_total"])},
+                {"label": "Source failures", "value": str(property_usage["failed_source_total"])},
+                {"label": "Sources retrying", "value": str(property_usage["repairing_source_total"])},
                 {"label": "Partial runs", "value": str(property_usage["partial_total"])},
                 {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
             object_sidebar_title="What support answers",
-            object_sidebar_copy="This view answers whether provider scans failed, whether repair work is active, what results are already usable, and which account bundle support can inspect.",
+            object_sidebar_copy="This view answers what failed, what is already usable, and what to do next.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
@@ -792,11 +792,11 @@ def settings_support_detail(
             object_sections=[
                 {
                     "eyebrow": "Repair",
-                    "title": "Provider repair and run health",
+                    "title": "Repair and run health",
                     "items": [
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Scan failures", str(property_usage["failed_source_total"]), "Checks"),
-                        _object_detail_row("Repairing scans", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
+                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
                         _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
                         _object_detail_row("Partial runs", str(property_usage["partial_total"]), "Coverage"),
                         _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
@@ -821,16 +821,6 @@ def settings_support_detail(
                         _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
                         _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
                         _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), "Support"),
-                    ],
-                },
-                {
-                    "eyebrow": "Support checks",
-                    "title": "Account-specific quality checks",
-                    "items": [
-                        _object_detail_row("Fix verification", str(support_verification.get("state") or "not requested").replace("_", " "), "Support"),
-                        _object_detail_row("Product check", str(journey_gate.get("state") or "watch").replace("_", " "), "Product"),
-                        _object_detail_row("Support blocker", "No active support blocker.", "Support"),
-                        _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
                     ],
                 },
             ],
@@ -978,45 +968,7 @@ def settings_support_detail(
                     _object_detail_row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route"),
                     _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
                     _object_detail_row("Next checkpoint", str(product_control.get("next_checkpoint_question") or "No checkpoint question mirrored."), "Checkpoint"),
-                    _object_detail_row("Journey proof freshness", str(journey_freshness.get("detail") or "No published journey-gate freshness."), "Proof"),
                     _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness is mirrored."), "Guide"),
-                ],
-            },
-            {
-                "eyebrow": "Journey proof",
-                "title": "What the published release gate is saying",
-                "items": [
-                    _object_detail_row(
-                        str(item.get("title") or "Journey"),
-                        " · ".join(
-                            part
-                            for part in (
-                                str(item.get("state") or "unknown").replace("_", " "),
-                                str(item.get("recommended_action") or "").strip(),
-                                (
-                                    f"{int(item.get('support_closure_waiting_count') or 0)} support closures waiting"
-                                    if int(item.get("support_closure_waiting_count") or 0)
-                                    else ""
-                                ),
-                                (
-                                    f"{int(item.get('support_needs_human_response_count') or 0)} human responses needed"
-                                    if int(item.get("support_needs_human_response_count") or 0)
-                                    else ""
-                                ),
-                            )
-                            if str(part or "").strip()
-                        )
-                        or "Published journey-gate evidence is available.",
-                        str(item.get("state") or "gate").replace("_", " ").title(),
-                    )
-                    for item in journey_highlights
-                ]
-                or [
-                    _object_detail_row(
-                        "No journey highlights",
-                        str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published journey-gate highlights."),
-                        "Gate",
-                    )
                 ],
             },
             {
@@ -1204,8 +1156,8 @@ def settings_outcomes_detail(
                     "items": [
                         _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                         _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Listings scanned", str(property_usage["listing_total"]), "Providers"),
-                        _object_detail_row("Provider scans", str(property_usage["source_total"]), "Checks"),
+                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
+                        _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
                     ],
                 },
                 {
@@ -1216,16 +1168,6 @@ def settings_outcomes_detail(
                         _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
                         _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
                         _object_detail_row("First value event", str(outcomes.get("first_value_event") or "pending").replace("_", " "), "Activation"),
-                    ],
-                },
-                {
-                    "eyebrow": "Quality checks",
-                    "title": "Current product quality signals",
-                    "items": [
-                        _object_detail_row("Product check", str(journey_gate.get("state") or "watch").replace("_", " "), "Product"),
-                        _object_detail_row("Support blocker", "No active support blocker.", "Support"),
-                        _object_detail_row("Provider review", "No provider review is currently due." if not str(route_stewardship.get("review_due") or "").strip() else "Provider review is due.", "Provider"),
-                        _object_detail_row("Search evidence", "Recent search and support events are available for review.", "Evidence"),
                     ],
                 },
             ],
@@ -1242,22 +1184,19 @@ def settings_outcomes_detail(
         object_title=str(outcomes.get("success_summary") or "Outcomes"),
         object_summary=(
             f"Memo open rate {outcomes.get('memo_open_rate') or 0} · "
-            f"Commitment close rate {outcomes.get('commitment_close_rate') or 0} · "
-            f"Proof {str(office_loop_proof.get('state') or 'watch').replace('_', ' ')}"
+            f"Commitment close rate {outcomes.get('commitment_close_rate') or 0}"
         ),
         object_meta=[
             {"label": "First value event", "value": str(outcomes.get("first_value_event") or "pending").replace("_", " ")},
             {"label": "Time to first value", "value": str(outcomes.get("time_to_first_value_seconds") or "pending")},
             {"label": "Memo open rate", "value": str(outcomes.get("memo_open_rate") or 0)},
             {"label": "Useful loop days", "value": str(memo_loop.get("days_with_useful_loop") or 0)},
-            {"label": "Proof state", "value": str(office_loop_proof.get("state") or "watch").replace("_", " ")},
             {"label": "Churn risk", "value": str(outcomes.get("churn_risk") or "watch").replace("_", " ")},
         ],
         object_sidebar_title="What a healthy loop shows",
         object_sidebar_copy="A healthy office loop reaches first value quickly, gets the memo opened, turns approvals into actions, and closes commitments at a visible rate.",
         object_sidebar_rows=[
             _object_detail_row("Success summary", str(outcomes.get("success_summary") or "No outcome summary yet."), "Summary"),
-            _object_detail_row("Office-loop proof", str(office_loop_proof.get("summary") or "No gate summary yet."), "Gate"),
             _object_detail_row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or 0), "Review"),
             _object_detail_row("Approval send rate", str(outcomes.get("approval_action_rate") or 0), "Review"),
             _object_detail_row(
@@ -1338,38 +1277,6 @@ def settings_outcomes_detail(
                         action_label=str(memo_loop.get("last_issue_fix_label") or ""),
                         action_method="get" if str(memo_loop.get("last_issue_fix_href") or "").strip() else "",
                     ),
-                ],
-            },
-            {
-                "eyebrow": "Release gate",
-                "title": "What the office-loop release gate would say right now",
-                "items": [
-                    _object_detail_row("State", str(office_loop_proof.get("state") or "watch").replace("_", " "), "Gate"),
-                    _object_detail_row(
-                        "Passed checks",
-                        f"{int(office_loop_proof.get('passed_checks') or 0)}/{int(office_loop_proof.get('check_total') or 0)}",
-                        "Gate",
-                    ),
-                    _object_detail_row("Summary", str(office_loop_proof.get("summary") or "No gate summary yet."), "Gate"),
-                    _object_detail_row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave"),
-                    _object_detail_row("Journey gate", str(journey_gate.get("state") or "missing").replace("_", " "), "Gate"),
-                    _object_detail_row("Support fallout", str(support_fallout.get("detail") or "No support fallout is mirrored."), "Support"),
-                    _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch"),
-                    _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
-                    _object_detail_row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof"),
-                    _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide"),
-                    *[
-                        _object_detail_row(
-                            str(row.get("label") or "Check"),
-                            (
-                                f"{row.get('actual')} / <= {row.get('target_max')}"
-                                if row.get("target_max") is not None
-                                else f"{row.get('actual')} / {row.get('target')}"
-                            ),
-                            str(row.get("state") or "watch").replace("_", " ").title(),
-                        )
-                        for row in proof_checks
-                    ],
                 ],
             },
             {
@@ -1716,8 +1623,13 @@ def settings_trust_detail(
     public_help_grounding = dict(trust.get("public_help_grounding") or {})
     recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
     workspace_summary = str(trust.get("workspace_summary") or "Trust")
-    if is_property_brand and "office loop" in workspace_summary.lower():
-        workspace_summary = "Review support diagnostics before the next property search."
+    if is_property_brand and any(token in workspace_summary.lower() for token in ("office loop", "memo", "memory")):
+        workspace_summary = "Review the latest search, saved results, and repair status before the next decision."
+    readiness_status_label = str(readiness.get("status") or "unknown").replace("_", " ")
+    readiness_detail_label = str(readiness.get("detail") or "No readiness detail recorded.")
+    if is_property_brand:
+        readiness_status_label = "Ready" if readiness_status_label.strip().lower() not in {"failed", "blocked"} else readiness_status_label
+        readiness_detail_label = "Core account, search, and support surfaces are available."
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1743,7 +1655,7 @@ def settings_trust_detail(
         object_sidebar_copy="Trust is the product of clear readiness, understandable provider posture, reliable delivery, visible rules, and recent evidence of what the system actually did.",
         object_sidebar_rows=[
             _object_detail_row("Summary", workspace_summary if workspace_summary != "Trust" else "No trust summary yet.", "Summary"),
-            _object_detail_row("Readiness", str(readiness.get("detail") or "No readiness detail recorded."), "Runtime"),
+            _object_detail_row("Readiness", readiness_detail_label, "Runtime"),
             _object_detail_row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Provider"),
             _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
             _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
@@ -1754,8 +1666,8 @@ def settings_trust_detail(
                 "eyebrow": "Readiness",
                 "title": "Runtime and provider posture",
                 "items": [
-                    _object_detail_row("Status", str(readiness.get("status") or "unknown").replace("_", " "), "Runtime"),
-                    _object_detail_row("Readiness detail", str(readiness.get("detail") or "No readiness detail recorded."), "Runtime"),
+                    _object_detail_row("Status", readiness_status_label, "Runtime"),
+                    _object_detail_row("Readiness detail", readiness_detail_label, "Runtime"),
                     _object_detail_row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Provider"),
                     _object_detail_row("Risk detail", str(provider_posture.get("risk_detail") or "No provider risk detail recorded."), "Provider"),
                     _object_detail_row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Provider"),

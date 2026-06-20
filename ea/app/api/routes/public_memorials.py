@@ -955,6 +955,53 @@ def _memorial_chat_answer(
             llm_model=requested_model,
             fallback_reason="local_memorial_fast_path",
         )
+    lowered = normalized_question.lower()
+    private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
+    if private_notes and any(
+        token in lowered
+        for token in (
+            "kritik",
+            "schuld",
+            "vater",
+            "mutter",
+            "kind",
+            "kinder",
+            "geschlagen",
+            "schlagen",
+            "strafe",
+            "disziplin",
+            "haushalt",
+            "hemden",
+            "buegel",
+            "bügel",
+            "fenster",
+            "putz",
+            "frau",
+            "ehefrau",
+            "ernaehrer",
+            "ernährer",
+            "kindererziehung",
+            "mfg",
+            "partei",
+            "politik",
+            "corona",
+            "impf",
+            "auslaender",
+            "ausländer",
+            "migration",
+            "fremde",
+            "institution",
+            "adhs",
+            "narz",
+        )
+    ):
+        return _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            llm_model=requested_model,
+            fallback_reason="private_context_deterministic_path",
+        )
     source_labels = _memorial_chat_source_labels(payload)
     messages = _build_memorial_chat_messages(payload, private_profile, normalized_question)
     try:

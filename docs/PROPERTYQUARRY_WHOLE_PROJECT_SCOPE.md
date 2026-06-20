@@ -55,3 +55,20 @@ The additional whole-scope goal is to keep moving PropertyQuarry from run-centri
 - governed provider and content integrations.
 
 This goal remains active until those systems are implemented, tested, and visible in the relevant customer or operator surfaces.
+
+### Current Additional Execution Goal (active)
+
+For this pass, the additional objective is:
+
+1. Harden reliability semantics where user-facing state can look stale or contradictory.
+2. Keep hard/soft filter semantics correct for all postal/selected-district workflows.
+3. Preserve user control surfaces (logout, filtered recovery, run lifecycle, automation surfaces) across both API and live-board payloads.
+
+Acceptance criteria before this pass is considered complete:
+
+- Provider/source counters are always rendered as true provider count + checks, never with source-variant counts mislabeled as providers.
+- Explicit selected district and postal constraints remain hard filters unless intentionally marked fuzzy/adjacent mode.
+- Logout works for browser and API-driven sessions.
+- Run status/repair messaging stays truthful when repair tasks are queued and when repair completes.
+- Scope/automation thumbnails render usable district overlays without clipping key shapes, and map preview payloads reject unsupported image pipelines.
+- Every above is covered by unit/e2e test and a smoke check.

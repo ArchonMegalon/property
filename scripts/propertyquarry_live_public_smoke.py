@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Callable
+
+
+DEFAULT_ROUTES = (
+    "/",
+    "/pricing",
+    "/register",
+    "/sign-in",
+    "/manifest.webmanifest",
+    "/service-worker.js",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/app/properties",
+)
+
+
+def _compact_snippet(text: str, *, limit: int = 180) -> str:
+    return re.sub(r"\s+", " ", str(text or "")[:limit]).strip()
+
+
+def _decode_body(body: bytes) -> str:
+    return body.decode("utf-8", errors="replace")
+
+
+def fetch_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "PropertyQuarry-live-smoke/1.0",
+            "Accept": "text/html,application/json,*/*",
+        },
+    )
+    started = time.perf_counter()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            return {
+                "status_code": int(response.status),
+                "final_url": str(response.geturl()),
+                "headers": dict(response.headers.items()),
+                "body": response.read(220_000),
+                "duration_ms": round((time.perf_counter() - started) * 1000),
+            }
+    except urllib.error.HTTPError as exc:
+        return {
+            "status_code": int(exc.code),
+            "final_url": str(exc.geturl()),
+            "headers": dict(exc.headers.items()),
+            "body": exc.read(220_000),
+            "duration_ms": round((time.perf_counter() - started) * 1000),
+        }
+    except Exception as exc:
+        return {
+            "status_code": 0,
+            "final_url": url,
+            "headers": {},
+            "body": b"",
+            "duration_ms": round((time.perf_counter() - started) * 1000),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> list[tuple[str, bool]]:
+    checks: list[tuple[str, bool]] = []
+    if path in {"/", "/pricing", "/register", "/sign-in"}:
+        checks.extend(
+            (
+                ("contains_propertyquarry", "PropertyQuarry" in text),
+                ("no_chummer_copy", "chummer" not in text.lower()),
+                ("no_generic_ea_copy", "Executive Assistant" not in text and "Morning Memo" not in text),
+            )
+        )
+    if path == "/":
+        checks.append(("home_has_main_copy", "Search once. Rank the right homes. Decide with evidence." in text))
+    elif path == "/pricing":
+        checks.extend(
+            (
+                ("pricing_minimal_copy", "Pick the search lane you need." in text),
+                ("pricing_old_noise_removed", "Choose the lane that matches the real search workload" not in text),
+            )
+        )
+    elif path == "/sign-in":
+        checks.append(
+            (
+                "sign_in_minimal_copy",
+                "Return with the same browser, a secure email link, or your connected identity." in text,
+            )
+        )
+    elif path == "/manifest.webmanifest":
+        checks.append(("manifest_name", "PropertyQuarry" in text and "start_url" in text))
+    elif path == "/service-worker.js":
+        checks.append(("service_worker_no_cache_api", "caches." not in text and "skipWaiting" in text))
+    elif path == "/robots.txt":
+        checks.append(("robots_sitemap", "Sitemap: https://propertyquarry.com/sitemap.xml" in text))
+    elif path == "/sitemap.xml":
+        checks.append(
+            (
+                "sitemap_core",
+                "<loc>https://propertyquarry.com/</loc>" in text
+                and "<loc>https://propertyquarry.com/pricing</loc>" in text,
+            )
+        )
+    elif path == "/app/properties":
+        checks.extend(
+            (
+                (
+                    "app_boundary",
+                    status_code in {200, 401, 403}
+                    or "/sign-in" in final_url
+                    or "/app/search" in final_url
+                    or "/app/properties" in final_url,
+                ),
+                ("not_public_home_leak", "Search once. Rank the right homes. Decide with evidence." not in text),
+            )
+        )
+    return checks
+
+
+def build_live_public_smoke_receipt(
+    *,
+    base_url: str = "https://propertyquarry.com",
+    routes: tuple[str, ...] = DEFAULT_ROUTES,
+    timeout_seconds: float = 12.0,
+    fetcher: Callable[[str, float], dict[str, object]] | None = None,
+) -> dict[str, object]:
+    normalized_base = str(base_url or "").strip().rstrip("/") or "https://propertyquarry.com"
+    fetch = fetcher or (lambda url, timeout: fetch_url(url, timeout_seconds=timeout))
+    checks: list[dict[str, object]] = []
+    for raw_path in routes:
+        path = "/" + str(raw_path or "").strip().lstrip("/")
+        url = f"{normalized_base}{path}"
+        result = fetch(url, timeout_seconds)
+        body = result.get("body")
+        body_bytes = body if isinstance(body, bytes) else str(body or "").encode("utf-8")
+        text = _decode_body(body_bytes)
+        status_code = int(result.get("status_code") or 0)
+        final_url = str(result.get("final_url") or url)
+        route_checks = _route_checks(path=path, status_code=status_code, final_url=final_url, text=text)
+        ok = status_code < 500 and status_code > 0 and all(value for _, value in route_checks)
+        headers = dict(result.get("headers") or {})
+        checks.append(
+            {
+                "path": path,
+                "status_code": status_code,
+                "final_url": final_url,
+                "duration_ms": int(result.get("duration_ms") or 0),
+                "content_type": str(headers.get("Content-Type") or ""),
+                "x_robots_tag": str(headers.get("X-Robots-Tag") or ""),
+                "ok": ok,
+                "checks": [{"name": name, "ok": value} for name, value in route_checks],
+                "error": str(result.get("error") or ""),
+                "snippet": _compact_snippet(text),
+            }
+        )
+    failed = [row for row in checks if not bool(row.get("ok"))]
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "base_url": normalized_base,
+        "status": "pass" if not failed else "fail",
+        "route_count": len(checks),
+        "failed_count": len(failed),
+        "checks": checks,
+        "notes": [
+            "This smoke is public and non-mutating.",
+            "It verifies Cloudflare/origin availability, PropertyQuarry public copy, PWA assets, SEO files, and the app auth boundary.",
+        ],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Smoke the public PropertyQuarry deployment without mutating data.")
+    parser.add_argument("--base-url", default="https://propertyquarry.com")
+    parser.add_argument("--route", action="append", default=[], help="Route to smoke. Defaults to core public routes.")
+    parser.add_argument("--timeout-seconds", type=float, default=12.0)
+    parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
+    args = parser.parse_args()
+    receipt = build_live_public_smoke_receipt(
+        base_url=args.base_url,
+        routes=tuple(args.route or DEFAULT_ROUTES),
+        timeout_seconds=args.timeout_seconds,
+    )
+    output = json.dumps(receipt, indent=2, sort_keys=True)
+    if args.write:
+        Path(args.write).write_text(output + "\n", encoding="utf-8")
+    print(output)
+    return 0 if receipt.get("status") == "pass" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
