@@ -28869,11 +28869,17 @@ class ProductService:
                             )
                         ).encode("utf-8")
                     ).hexdigest()[:16]
-                    matches_candidate = bool(
-                        (normalized_candidate_ref and candidate_identity == normalized_candidate_ref)
-                        or (normalized_source_ref and candidate_source_ref == normalized_source_ref)
-                        or (normalized_property_url and candidate_property_url == normalized_property_url)
-                    )
+                    matches_candidate = False
+                    if normalized_source_ref:
+                        matches_candidate = candidate_source_ref == normalized_source_ref
+                        if matches_candidate and normalized_property_url and candidate_property_url:
+                            matches_candidate = candidate_property_url == normalized_property_url
+                    elif normalized_candidate_ref:
+                        matches_candidate = candidate_identity == normalized_candidate_ref
+                        if matches_candidate and normalized_property_url and candidate_property_url:
+                            matches_candidate = candidate_property_url == normalized_property_url
+                    elif normalized_property_url:
+                        matches_candidate = candidate_property_url == normalized_property_url
                     if matches_candidate:
                         if str(visual_state.get("tour_url") or "").strip():
                             candidate_row["tour_url"] = str(visual_state.get("tour_url") or "").strip()

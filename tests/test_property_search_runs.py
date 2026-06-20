@@ -1135,12 +1135,15 @@ def test_property_search_run_status_fixes_provider_total_from_source_variants() 
     client = build_product_client(principal_id=principal_id)
     service = product_service.build_product_service(client.app.state.container)
     run_id = f"provider-total-fix-{uuid.uuid4().hex}"
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     with product_service._PROPERTY_SEARCH_RUN_LOCK:
         product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
             "run_id": run_id,
             "principal_id": principal_id,
             "status": "in_progress",
+            "created_at": now_iso,
+            "updated_at": now_iso,
             "selected_platforms": ["willhaben", "kalandra", "wiener_wohnen"],
             "summary": {
                 "provider_total": 156,
@@ -1171,6 +1174,78 @@ def test_property_search_run_status_fixes_provider_total_from_source_variants() 
     assert status is not None
     assert int(dict(status.get("summary") or {}).get("provider_total") or 0) == 3
     assert int(dict(status.get("summary") or {}).get("source_variant_total") or 0) == 156
+
+
+def test_property_visual_state_does_not_cross_update_same_source_ref_different_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-visual-state-provider-collision"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"visual-state-collision-{uuid.uuid4().hex}"
+    shared_source_ref = "provider:shared-listing-id"
+    first_url = "https://provider-a.example/listings/shared"
+    second_url = "https://provider-b.example/listings/shared"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(product_service, "_store_property_search_run_record", lambda payload: None)
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        previous_registry = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY)
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Provider A",
+                        "top_candidates": [
+                            {
+                                "title": "Shared listing from provider A",
+                                "source_ref": shared_source_ref,
+                                "property_url": first_url,
+                            }
+                        ],
+                    },
+                    {
+                        "source_label": "Provider B",
+                        "top_candidates": [
+                            {
+                                "title": "Shared listing from provider B",
+                                "source_ref": shared_source_ref,
+                                "property_url": second_url,
+                            }
+                        ],
+                    },
+                ],
+                "ranked_candidates": [],
+            },
+        }
+    try:
+        service._persist_property_search_visual_state(  # noqa: SLF001
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref="",
+            source_ref=shared_source_ref,
+            property_url=second_url,
+            visual_state={"tour_status": "pending", "flythrough_status": "queued"},
+        )
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            sources = list(dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id]["summary"]).get("sources") or [])
+        first_candidate = dict(dict(sources[0]).get("top_candidates")[0])
+        second_candidate = dict(dict(sources[1]).get("top_candidates")[0])
+        assert "tour_status" not in first_candidate
+        assert first_candidate["property_url"] == first_url
+        assert second_candidate["property_url"] == second_url
+        assert second_candidate["tour_status"] == "pending"
+        assert second_candidate["flythrough_status"] == "queued"
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
 
 
 def test_property_search_run_status_fixes_inflated_provider_total_when_source_rows_missing() -> None:
