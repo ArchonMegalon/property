@@ -362,7 +362,7 @@
                   {% for item in row.feedback_summary.risk_signals_visible[:3] %}
                   <li>{{ item.theme|replace("_", " ") }} · {{ item.confidence }} confidence · {{ item.summary }}</li>
                   {% else %}
-                  <li>No visible risk signal yet. Signals stay suppressed until the feedback pattern is strong enough.</li>
+                  <li>No shared market note yet. Feedback needs more confirmation before it appears here.</li>
                   {% endfor %}
                 </ul>
               </section>

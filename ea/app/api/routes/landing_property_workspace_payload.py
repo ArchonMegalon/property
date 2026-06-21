@@ -1120,7 +1120,7 @@ def property_workspace_payload(
             if isinstance(row, dict)
         ]
         if not rows:
-            rows.append({"title": "No published risk signal yet", "detail": "Signals stay suppressed until the privacy threshold is met.", "tag": "Suppressed"})
+            rows.append({"title": "No shared market note yet", "detail": "Feedback needs more confirmation before it appears here.", "tag": "Pending"})
         return rows
 
     def _candidate_followup_rows(candidate: dict[str, object]) -> list[dict[str, str]]:
@@ -1916,7 +1916,7 @@ def property_workspace_payload(
         "research": [
             {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready for inspection.", "href": f"/app/research{run_suffix}"},
             {"label": "Tours", "value": str(tour_ready_total), "detail": "Candidates already backed by a 360 or hosted tour.", "href": f"/app/research{run_suffix}"},
-            {"label": "Signals", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Raw listings considered in the latest run.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Homes considered in the latest run.", "href": f"/app/properties{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest research pass.", "href": f"/app/properties{run_suffix}"},
         ],
         "profile": [
@@ -1939,9 +1939,9 @@ def property_workspace_payload(
         ],
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": f"/app/billing{run_suffix}"},
-            {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "How deep the research lane runs.", "href": f"/app/billing{run_suffix}"},
+            {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "Research depth for each property.", "href": f"/app/billing{run_suffix}"},
             {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Portal allowance for the active plan.", "href": f"/app/billing{run_suffix}"},
-            {"label": "Per source", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked results per provider.", "href": f"/app/billing{run_suffix}"},
+            {"label": "Per provider", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked homes per provider.", "href": f"/app/billing{run_suffix}"},
         ],
         "settings": [
             {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
@@ -1975,7 +1975,7 @@ def property_workspace_payload(
     settings_connection_rows = [
         row_item(
             "Google sign-in",
-            "Identity-only return access. PropertyQuarry should not widen this into office sync on the settings surface.",
+            "Identity-only return access. PropertyQuarry keeps this separate from inbox sync.",
             "Connection",
         ),
         row_item(
@@ -2154,7 +2154,7 @@ def property_workspace_payload(
         billing_decision_rows.append(
             row_item(
                 "Agent posture",
-                "The focus here is not another upgrade. It is making sure the heavier research lane is actually being used productively.",
+                "The focus here is not another upgrade. It is making sure deeper research is actually useful.",
                 "Current tier",
             )
         )
@@ -2602,7 +2602,7 @@ def property_workspace_payload(
             "primary_cards": [
                 {
                     "eyebrow": "Plan",
-                    "title": "Current search access",
+                    "title": "Plan",
                     "body": "",
                     "items": billing_rows,
                 },

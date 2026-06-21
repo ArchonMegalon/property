@@ -21142,7 +21142,8 @@ def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
 
     assert billing.status_code == 200
-    assert "Current search access" in billing.text
+    assert "Your plan" in billing.text
+    assert "Current search access" not in billing.text
     assert "Latest payment" in billing.text
     assert "Failed | EUR 3.00 | payment.failed" in billing.text
     assert "VAT EUR 0.48" in billing.text

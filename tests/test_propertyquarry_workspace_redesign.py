@@ -4270,7 +4270,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Plan unit" not in billing.text
     assert "PayFunnels" not in billing.text
     assert "What is available now" not in billing.text
-    assert billing.text.count("Current search access") == 1
+    assert "Current search access" not in billing.text
+    assert billing.text.count("Plan") >= 1
     assert billing.text.count("Checkout") <= 2
     billing_payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
     assert 'row_item("Provider", str(property_state.get("billing_checkout_provider_label")' not in billing_payload_source
