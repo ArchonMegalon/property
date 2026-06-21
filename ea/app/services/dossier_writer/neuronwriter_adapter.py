@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 
 from app.services.dossier_writer.models import DossierNarrativeDraft, DossierPacketKind, NeuronWriterRecommendation
-from app.services.dossier_writer.redaction import neuronwriter_private_packet_allowed, public_safe_topic_text
+from app.services.dossier_writer.redaction import public_safe_topic_text
 
 
 NEURONWRITER_ENDPOINT = "https://app.neuronwriter.com/neuron-api/0.5/writer"
@@ -36,10 +36,6 @@ def neuronwriter_allowed_for_draft(draft: DossierNarrativeDraft) -> tuple[bool, 
     if mode in {"0", "off", "disabled", "none", "no_external"}:
         return False, "neuronwriter_dossier_mode_disabled"
     if draft.packet_kind in PUBLIC_PACKET_KINDS:
-        return True, ""
-    if mode in {"always", "all", "private_public_safe", "public_safe"}:
-        return True, "neuronwriter_private_packet_public_safe_topic_only"
-    if neuronwriter_private_packet_allowed():
         return True, ""
     return False, "neuronwriter_private_packet_blocked"
 

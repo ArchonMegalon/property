@@ -374,8 +374,7 @@ def create_property_neuronwriter_query(
 ) -> dict[str, object]:
     require_operator_context(context)
     allowed_modes = {"public_content", "public_market_report", "public_city_guide"}
-    private_allowed = str(os.getenv("PROPERTYQUARRY_NEURONWRITER_PRIVATE_PACKET_ALLOWED") or "").strip().lower() in {"1", "true", "yes", "on"}
-    if payload.content_mode not in allowed_modes and not private_allowed:
+    if payload.content_mode not in allowed_modes:
         return {
             "status": "blocked",
             "brief_id": brief_id,

@@ -66,7 +66,7 @@ def test_public_market_report_can_use_neuronwriter_guard_but_stays_disabled_with
     assert recommendation.reason == "neuronwriter_disabled"
 
 
-def test_private_packet_neuronwriter_live_mode_uses_public_safe_topic(monkeypatch) -> None:
+def test_private_packet_neuronwriter_live_mode_still_blocks(monkeypatch) -> None:
     observed: dict[str, object] = {}
 
     def fake_post(method: str, payload: dict[str, object], *, api_key: str) -> dict[str, object]:
@@ -87,11 +87,10 @@ def test_private_packet_neuronwriter_live_mode_uses_public_safe_topic(monkeypatc
 
     recommendation = recommend_for_draft(draft)
 
-    assert recommendation.status == "pending"
-    assert observed["method"] == "new-query"
-    assert observed["api_key"] == "test-key"
-    assert "Executive" in str(observed["payload"]["keyword"])
-    assert "https://" not in str(observed["payload"]["keyword"])
+    assert recommendation.status == "blocked"
+    assert recommendation.reason == "neuronwriter_private_packet_blocked"
+    assert recommendation.mode == "private_packet_guard"
+    assert observed == {}
 
 
 def test_neuronwriter_api_key_alone_does_not_enable_private_packet(monkeypatch) -> None:
@@ -115,8 +114,9 @@ def test_neuronwriter_api_key_alone_does_not_enable_private_packet(monkeypatch) 
 
     recommendation = recommend_for_draft(draft)
 
-    assert recommendation.status == "disabled"
-    assert recommendation.reason == "neuronwriter_disabled"
+    assert recommendation.status == "blocked"
+    assert recommendation.reason == "neuronwriter_private_packet_blocked"
+    assert recommendation.mode == "private_packet_guard"
     assert observed == {}
 
 
@@ -240,6 +240,24 @@ def test_neuronwriter_get_query_normalizes_recommendations(monkeypatch) -> None:
 
 def test_neuronwriter_query_api_blocks_private_content_without_override(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_NEURONWRITER_PRIVATE_PACKET_ALLOWED", raising=False)
+    context = RequestContext(principal_id="operator-local", authenticated=True, auth_source="loopback_no_auth")
+
+    result = create_property_neuronwriter_query(
+        "brief-1",
+        PropertyNeuronWriterQueryIn(
+            keyword="private apartment packet",
+            project_id="propertyquarry-de",
+            content_mode="private_packet",
+        ),
+        context=context,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "neuronwriter_private_or_non_public_content_blocked"
+
+
+def test_neuronwriter_query_api_blocks_private_content_even_with_legacy_override(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_NEURONWRITER_PRIVATE_PACKET_ALLOWED", "1")
     context = RequestContext(principal_id="operator-local", authenticated=True, auth_source="loopback_no_auth")
 
     result = create_property_neuronwriter_query(

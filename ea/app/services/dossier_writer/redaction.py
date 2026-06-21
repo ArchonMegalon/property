@@ -33,9 +33,3 @@ def public_safe_topic_text(value: object, *, limit: int = 4000) -> str:
     for marker in PRIVATE_MARKERS:
         text = text.replace(marker, "")
     return text[:limit].strip()
-
-
-def neuronwriter_private_packet_allowed() -> bool:
-    import os
-
-    return str(os.getenv("PROPERTYQUARRY_NEURONWRITER_PRIVATE_PACKET_ALLOWED") or "").strip().lower() in {"1", "true", "yes", "on"}
