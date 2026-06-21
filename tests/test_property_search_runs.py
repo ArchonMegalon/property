@@ -9219,6 +9219,144 @@ def test_property_search_results_ready_heyy_digest_honors_stop_command(monkeypat
     assert result == {"status": "suppressed", "reason": "heyy_whatsapp_stopped"}
 
 
+def test_property_scout_queued_alert_routes_to_selected_whatsapp_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-scout-whatsapp-preference"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout WhatsApp Preference")
+    headers = {"host": "propertyquarry.com"}
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    updated = client.post(
+        "/app/api/property/account/notifications",
+        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303, updated.text
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_MATCH", "tmpl-property-match")
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("WhatsApp-selected scout alert must not call Telegram"),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: pytest.fail("WhatsApp-selected scout alert must not call email"),
+    )
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: observed.update(kwargs)
+        or {
+            "status": "sent",
+            "provider": "heyy",
+            "channel_id": kwargs.get("channel_id") or "",
+            "message_id": "msg-whatsapp-alert-1",
+            "delivery_status": "queued",
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._send_property_scout_queued_notification(
+        kind="hit",
+        kwargs={
+            "principal_id": principal_id,
+            "actor": "test",
+            "title": "Wohnung mieten in 1010 Wien | 85 m² | 3 Zimmer | EUR 1.900",
+            "summary": "3-Zimmer Wohnung im 1. Bezirk, 85 m2, Gesamtmiete EUR 1.900.",
+            "counterparty": "Willhaben | Austria | Rent | 1010 Vienna",
+            "account_email": "",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/high-fit/",
+            "source_ref": "property-scout:whatsapp-alert-1010",
+            "assessment": {"fit_score": 91.0, "recommendation": "shortlist"},
+            "fit_score": 91.0,
+            "preference_person_id": "self",
+            "review_url": "/app/research/high-fit",
+            "tour_result": {"status": "skipped", "tour_url": ""},
+            "candidate_properties": (
+                {
+                    "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/high-fit/",
+                    "listing_title": "Wohnung mieten in 1010 Wien | 85 m² | 3 Zimmer | EUR 1.900",
+                    "summary": "3-Zimmer Wohnung im 1. Bezirk, 85 m2, Gesamtmiete EUR 1.900.",
+                    "property_facts": {
+                        "postal_name": "1010 Wien",
+                        "street_address": "Kärntner Straße 12, 1010 Wien",
+                        "area_sqm": 85,
+                        "rooms": 3,
+                        "total_rent_eur": 1900,
+                    },
+                },
+            ),
+            "requested_location_hints": ("1010 Vienna",),
+            "requested_country_code": "AT",
+            "requested_region_code": "vienna",
+        },
+    )
+
+    assert result["status"] == "sent"
+    assert result["message_id"] == "msg-whatsapp-alert-1"
+    assert observed["phone_number"] == "+436647916419"
+    assert observed["template_id"] == "tmpl-property-match"
+    assert any(item.get("name") == "fit_score" and item.get("value") == "91/100" for item in list(observed.get("variables") or []))
+    packet_service = build_fliplink_packet_service(client.app.state.container)
+    sent_events = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=10)
+    payload = dict(sent_events[0].get("payload_json") or {})
+    assert payload["template_kind"] == "property_match"
+    assert payload["phone_last4"] == "6419"
+    assert "phone_number" not in payload
+
+
+def test_property_scout_queued_near_miss_respects_nontelegram_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-scout-near-miss-whatsapp-preference"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Near Miss Preference")
+    updated = client.post(
+        "/app/api/property/account/notifications",
+        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303, updated.text
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("near-miss prompts must not leak to Telegram when WhatsApp is selected"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._send_property_scout_queued_notification(
+        kind="near_miss",
+        kwargs={
+            "principal_id": principal_id,
+            "actor": "test",
+            "title": "Near miss",
+            "summary": "Strong candidate held by a soft filter.",
+            "counterparty": "Willhaben",
+            "property_url": "https://example.test/property",
+            "source_ref": "property-scout:near-miss",
+            "preference_person_id": "self",
+            "failed_filter_key": "max_distance_to_supermarket_m",
+            "failed_filter_label": "supermarket distance",
+            "prefilter_score": 84.0,
+        },
+    )
+
+    assert result == {"status": "suppressed", "reason": "preferred_channel_whatsapp"}
+
+
 def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
     if not db_url:

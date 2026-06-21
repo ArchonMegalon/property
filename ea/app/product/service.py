@@ -23484,6 +23484,59 @@ class ProductService:
             )
             return payload
 
+    def _send_property_scout_queued_notification(
+        self,
+        *,
+        kind: str,
+        kwargs: dict[str, object],
+    ) -> dict[str, object]:
+        notification_kwargs = dict(kwargs or {})
+        principal_id = str(notification_kwargs.get("principal_id") or "").strip()
+        preferred_channel = self._property_configured_notification_channel(principal_id=principal_id) if principal_id else ""
+        normalized_kind = str(kind or "").strip().lower()
+        if preferred_channel and preferred_channel != "telegram":
+            if preferred_channel == "whatsapp" and normalized_kind in {"hit", "watch"}:
+                assessment = (
+                    dict(notification_kwargs.get("assessment") or {})
+                    if isinstance(notification_kwargs.get("assessment"), dict)
+                    else {}
+                )
+                return self._send_heyy_property_match_notification(
+                    principal_id=principal_id,
+                    actor=str(notification_kwargs.get("actor") or "").strip() or "property_scout",
+                    template_kind="property_match",
+                    property_ref=str(
+                        notification_kwargs.get("source_ref")
+                        or notification_kwargs.get("property_url")
+                        or notification_kwargs.get("title")
+                        or ""
+                    ).strip(),
+                    property_title=str(notification_kwargs.get("title") or "").strip(),
+                    fit_score=float(notification_kwargs.get("fit_score") or 0.0),
+                    reason=str(assessment.get("recommendation") or "").strip(),
+                    missing_fact=str(assessment.get("question") or "").strip(),
+                    source_id=str(notification_kwargs.get("source_ref") or "").strip(),
+                    property_url=str(notification_kwargs.get("property_url") or "").strip(),
+                    property_summary=str(notification_kwargs.get("summary") or "").strip(),
+                    counterparty=str(notification_kwargs.get("counterparty") or "").strip(),
+                    candidate_properties=tuple(
+                        dict(item)
+                        for item in list(notification_kwargs.get("candidate_properties") or ())
+                        if isinstance(item, dict)
+                    ),
+                    requested_location_hints=tuple(
+                        str(item or "").strip()
+                        for item in list(notification_kwargs.get("requested_location_hints") or ())
+                        if str(item or "").strip()
+                    ),
+                    requested_country_code=str(notification_kwargs.get("requested_country_code") or "").strip(),
+                    requested_region_code=str(notification_kwargs.get("requested_region_code") or "").strip(),
+                )
+            return {"status": "suppressed", "reason": f"preferred_channel_{preferred_channel}"}
+        if normalized_kind == "near_miss":
+            return self._send_property_scout_filter_near_miss_telegram(**notification_kwargs)
+        return self._send_property_scout_hit_telegram(**notification_kwargs)
+
     def _attach_property_alert_review_to_ooda_loop(
         self,
         *,
@@ -33476,9 +33529,9 @@ class ProductService:
                 steps_delta=1,
             )
             if kind == "near_miss":
-                notify_result = self._send_property_scout_filter_near_miss_telegram(**kwargs)
+                notify_result = self._send_property_scout_queued_notification(kind=kind, kwargs=kwargs)
             else:
-                notify_result = self._send_property_scout_hit_telegram(**kwargs)
+                notify_result = self._send_property_scout_queued_notification(kind=kind, kwargs=kwargs)
             if str(notify_result.get("status") or "").strip() != "sent":
                 continue
             notified_total += 1
