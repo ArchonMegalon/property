@@ -3217,6 +3217,8 @@ def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
     labels = [row.get("label") for row in worker_state.get("workers") or []]
     assert labels[:2] == ["DER STANDARD", "immmo"]
     assert worker_state["workers"][0]["shard_count"] == 1
+    assert worker_state["upgrade_copy"] == "Upgrade to Agent for 4 workers. Saved searches are separate."
+    assert worker_state["tooltip"] == "Workers let multiple selected sources run at once. Saved searches are separate."
 
 
 def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fillers() -> None:
@@ -3237,6 +3239,31 @@ def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fille
     assert len(worker_state["workers"]) == 2
     assert [row.get("status_label") for row in worker_state["workers"]] == ["Running", "Fetch failed"]
     assert all(row.get("label") != "Preparing sources" for row in worker_state["workers"])
+
+
+def test_property_search_worker_slots_hide_internal_check_wording() -> None:
+    worker_state = landing_view_models._property_search_worker_slots(
+        {
+            "provider_workers": {"worker_concurrency": 1},
+            "progress": 8,
+            "status": "running",
+            "sources": [],
+        },
+        plan_key="free",
+    )
+
+    combined = " ".join(
+        [
+            str(worker_state.get("upgrade_copy") or ""),
+            str(worker_state.get("tooltip") or ""),
+            " ".join(str(row.get("label") or "") for row in list(worker_state.get("workers") or [])),
+            " ".join(str(row.get("provider") or "") for row in list(worker_state.get("workers") or [])),
+        ]
+    )
+    assert "parallel checks" not in combined
+    assert "source check" not in combined.lower()
+    assert "Preparing source" in combined
+    assert "2 workers" in combined
 
 
 def test_property_run_live_board_replaces_duplicate_review_message_with_latest_filter_reason() -> None:
