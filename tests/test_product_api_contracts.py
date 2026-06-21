@@ -20029,6 +20029,52 @@ def test_workspace_access_launch_link_is_one_time_cookie_exchange() -> None:
     assert stored["access_launch_token_used_at"]
 
 
+def test_workspace_access_hashes_are_keyed_but_legacy_sha_records_still_open() -> None:
+    principal_id = "exec-product-access-keyed-hash"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Keyed Access")
+    product = ProductService(client.app.state.container)
+
+    session = product.issue_workspace_access_session(
+        principal_id=principal_id,
+        email="principal@example.com",
+        role="principal",
+        display_name="Principal Access",
+        source_kind="test_keyed_access",
+        expires_in_hours=24,
+    )
+    raw_access_token = str(session["access_token"])
+    raw_launch_token = str(session["access_launch_token"])
+    assert "access_token_hash" not in session
+    assert "access_launch_token_hash" not in session
+    legacy_access_hash = hashlib.sha256(raw_access_token.encode("utf-8")).hexdigest()
+    legacy_launch_hash = hashlib.sha256(raw_launch_token.encode("utf-8")).hexdigest()
+
+    stored = product.get_workspace_access_session(principal_id=principal_id, session_id=str(session["session_id"]))
+    assert stored is not None
+    assert str(stored["access_token_hash"]).startswith("hmac-sha256:")
+    assert str(stored["access_launch_token_hash"]).startswith("hmac-sha256:")
+    assert stored["access_token_hash"] != legacy_access_hash
+    assert stored["access_launch_token_hash"] != legacy_launch_hash
+
+    from app.product.workspace_access_storage import update_workspace_access_session_record
+
+    update_workspace_access_session_record(
+        principal_id=principal_id,
+        session_id=str(session["session_id"]),
+        updates={
+            "access_token_hash": legacy_access_hash,
+            "access_launch_token_hash": legacy_launch_hash,
+        },
+        database_url="",
+    )
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened = client.get(str(session["access_url"]), follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/properties"
+
+
 def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkeypatch) -> None:
     principal_id = "exec-product-memo-refresh"
     client = build_product_client(principal_id=principal_id)
@@ -20416,6 +20462,8 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     access_body = access_session.json()
     assert access_body["access_url"].startswith("/workspace-access/")
     assert access_body["access_token"]
+    assert "access_token_hash" not in access_body
+    assert "access_launch_token_hash" not in access_body
     assert access_body["default_target"] == "/app/properties"
     assert access_body["status"] == "active"
     assert access_body["issued_at"]

@@ -164,6 +164,7 @@ from app.product.workspace_access_storage import (
     put_workspace_access_session_record,
     update_workspace_access_session_record,
     workspace_access_token_hash,
+    workspace_access_token_hash_candidates,
     workspace_access_token_last4,
 )
 from app.product.property_search_run_state import (
@@ -40231,7 +40232,8 @@ class ProductService:
             "source_kind": str(source_kind or "workspace_access").strip() or "workspace_access",
             "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
         }
-        access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
+        workspace_access_secret = self._workspace_access_secret()
+        access_token = _sign_channel_payload(secret=workspace_access_secret, payload=token_payload)
         resolved_default_target = str(default_target or "").strip()
         if not resolved_default_target:
             resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/properties"
@@ -40258,8 +40260,15 @@ class ProductService:
         )
         payload["access_launch_token"] = launch_token
         payload["access_launch_url"] = f"/workspace-access/{launch_token}"
+        storage_payload = {
+            **payload,
+            "access_token_hash": workspace_access_token_hash(access_token, secret=workspace_access_secret),
+            "access_token_last4": access_token[-4:],
+            "access_launch_token_hash": workspace_access_token_hash(launch_token, secret=workspace_access_secret),
+            "access_launch_token_last4": launch_token[-4:],
+        }
         put_workspace_access_session_record(
-            payload,
+            storage_payload,
             database_url=self._workspace_access_database_url(),
         )
         event_payload = {
@@ -40268,9 +40277,9 @@ class ProductService:
             "access_url": "",
             "access_launch_token": "",
             "access_launch_url": "",
-            "access_token_hash": workspace_access_token_hash(access_token),
+            "access_token_hash": workspace_access_token_hash(access_token, secret=workspace_access_secret),
             "access_token_last4": access_token[-4:],
-            "access_launch_token_hash": workspace_access_token_hash(launch_token),
+            "access_launch_token_hash": workspace_access_token_hash(launch_token, secret=workspace_access_secret),
             "access_launch_token_last4": launch_token[-4:],
         }
         self._record_product_event(
@@ -40329,9 +40338,15 @@ class ProductService:
                     "access_url": "",
                     "access_launch_token": "",
                     "access_launch_url": "",
-                    "access_token_hash": str(payload.get("access_token_hash") or workspace_access_token_hash(legacy_access_token)).strip(),
+                    "access_token_hash": str(
+                        payload.get("access_token_hash")
+                        or workspace_access_token_hash(legacy_access_token, secret=self._workspace_access_secret())
+                    ).strip(),
                     "access_token_last4": str(payload.get("access_token_last4") or workspace_access_token_last4(legacy_access_token)).strip(),
-                    "access_launch_token_hash": str(payload.get("access_launch_token_hash") or workspace_access_token_hash(legacy_launch_token)).strip(),
+                    "access_launch_token_hash": str(
+                        payload.get("access_launch_token_hash")
+                        or workspace_access_token_hash(legacy_launch_token, secret=self._workspace_access_secret())
+                    ).strip(),
                     "access_launch_token_last4": str(payload.get("access_launch_token_last4") or workspace_access_token_last4(legacy_launch_token)).strip(),
                     "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/properties")).strip(),
                 }
@@ -40397,7 +40412,8 @@ class ProductService:
                 str(current.get("access_launch_token_hash") or "").strip(),
             }
             stored_hashes.discard("")
-            if stored_hashes and workspace_access_token_hash(token) not in stored_hashes:
+            presented_hashes = set(workspace_access_token_hash_candidates(token, secret=self._workspace_access_secret()))
+            if stored_hashes and not (presented_hashes & stored_hashes):
                 return None
             current = dict(current)
             access_token = (

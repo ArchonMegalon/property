@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import os
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Any
@@ -18,11 +20,49 @@ def _clean(value: object, *, limit: int = 1000) -> str:
     return str(value or "").strip()[:limit]
 
 
-def workspace_access_token_hash(token: object) -> str:
+def _workspace_access_hash_secret(secret: object = "") -> str:
+    return str(
+        secret
+        or os.getenv("PROPERTYQUARRY_WORKSPACE_ACCESS_HASH_SECRET")
+        or os.getenv("EA_SIGNING_SECRET")
+        or os.getenv("EA_PROVIDER_SECRET_KEY")
+        or ""
+    ).strip()
+
+
+def _workspace_access_legacy_sha256(token: object) -> str:
     normalized = str(token or "").strip()
     if not normalized:
         return ""
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def workspace_access_token_hash(token: object, *, secret: object = "") -> str:
+    normalized = str(token or "").strip()
+    if not normalized:
+        return ""
+    hash_secret = _workspace_access_hash_secret(secret)
+    if hash_secret:
+        digest = hmac.new(hash_secret.encode("utf-8"), normalized.encode("utf-8"), hashlib.sha256).hexdigest()
+        return f"hmac-sha256:{digest}"
+    return _workspace_access_legacy_sha256(normalized)
+
+
+def workspace_access_token_hash_candidates(token: object, *, secret: object = "") -> tuple[str, ...]:
+    normalized = str(token or "").strip()
+    if not normalized:
+        return ()
+    candidates: list[str] = []
+    keyed = workspace_access_token_hash(normalized, secret=secret)
+    if keyed:
+        candidates.append(keyed)
+    legacy = _workspace_access_legacy_sha256(normalized)
+    if legacy and legacy not in candidates:
+        candidates.append(legacy)
+    prefixed_legacy = f"sha256:{legacy}" if legacy else ""
+    if prefixed_legacy and prefixed_legacy not in candidates:
+        candidates.append(prefixed_legacy)
+    return tuple(candidates)
 
 
 def workspace_access_token_last4(token: object) -> str:
