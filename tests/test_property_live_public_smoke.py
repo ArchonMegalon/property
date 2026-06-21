@@ -47,10 +47,11 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
             '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
         ),
         "https://propertyquarry.com/manifest.webmanifest": (
-            '{"name":"PropertyQuarry","id":"/app/search","start_url":"/app/search","display":"standalone","scope":"/",'
-            '"launch_handler":{"client_mode":"navigate-existing"},'
+            '{"name":"PropertyQuarry","lang":"en","dir":"ltr","id":"/app/search","start_url":"/app/search",'
+            '"display":"standalone","display_override":["standalone","minimal-ui","browser"],"scope":"/",'
+            '"launch_handler":{"client_mode":"navigate-existing"},"prefer_related_applications":false,'
             '"icons":[{"src":"/pwa-icon.svg","purpose":"any maskable"}],'
-            '"shortcuts":[{"url":"/app/search"},{"url":"/app/properties"},{"url":"/app/agents"}]}'
+            '"shortcuts":[{"url":"/app/search"},{"url":"/app/properties"},{"url":"/app/shortlist"},{"url":"/app/agents"}]}'
         ),
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",

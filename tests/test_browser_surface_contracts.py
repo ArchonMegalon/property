@@ -190,21 +190,32 @@ def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
     assert app_page.status_code == 200
     assert '<link rel="manifest" href="/manifest.webmanifest">' in public_page.text
     assert '<link rel="manifest" href="/manifest.webmanifest">' in app_page.text
+    assert '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">' in public_page.text
+    assert '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">' in app_page.text
+    assert '<meta name="application-name" content="PropertyQuarry">' in public_page.text
+    assert '<meta name="application-name" content="PropertyQuarry">' in app_page.text
+    assert '<link rel="apple-touch-icon" href="/pwa-icon.svg">' in public_page.text
+    assert '<link rel="apple-touch-icon" href="/pwa-icon.svg">' in app_page.text
     assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in public_page.text
     assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in app_page.text
 
     assert manifest.status_code == 200
     payload = manifest.json()
     assert payload["name"] == "PropertyQuarry"
+    assert payload["lang"] == "en"
+    assert payload["dir"] == "ltr"
     assert payload["id"] == "/app/search"
     assert payload["start_url"] == "/app/search"
     assert payload["display"] == "standalone"
+    assert payload["display_override"] == ["standalone", "minimal-ui", "browser"]
     assert payload["scope"] == "/"
     assert payload["launch_handler"]["client_mode"] == "navigate-existing"
+    assert payload["prefer_related_applications"] is False
     assert payload["icons"][0]["src"] == "/pwa-icon.svg"
     shortcuts = {row["url"]: row for row in payload["shortcuts"]}
     assert shortcuts["/app/search"]["name"] == "Search"
     assert shortcuts["/app/properties"]["name"] == "Results"
+    assert shortcuts["/app/shortlist"]["name"] == "Shortlist"
     assert shortcuts["/app/agents"]["name"] == "Saved Searches"
 
     assert service_worker.status_code == 200

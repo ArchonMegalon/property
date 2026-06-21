@@ -239,13 +239,29 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         checks.extend(
             (
                 ("manifest_name", isinstance(manifest_payload, dict) and manifest_payload.get("name") == "PropertyQuarry"),
+                (
+                    "manifest_language_direction",
+                    isinstance(manifest_payload, dict)
+                    and manifest_payload.get("lang") == "en"
+                    and manifest_payload.get("dir") == "ltr",
+                ),
                 ("manifest_id", isinstance(manifest_payload, dict) and manifest_payload.get("id") == "/app/search"),
                 ("manifest_start_url", isinstance(manifest_payload, dict) and manifest_payload.get("start_url") == "/app/search"),
                 ("manifest_display_scope", isinstance(manifest_payload, dict) and manifest_payload.get("display") == "standalone" and manifest_payload.get("scope") == "/"),
                 (
+                    "manifest_display_override",
+                    isinstance(manifest_payload, dict)
+                    and "standalone" in list(manifest_payload.get("display_override") or []),
+                ),
+                (
                     "manifest_launch_handler",
                     isinstance(manifest_payload, dict)
                     and dict(manifest_payload.get("launch_handler") or {}).get("client_mode") == "navigate-existing",
+                ),
+                (
+                    "manifest_related_apps_disabled",
+                    isinstance(manifest_payload, dict)
+                    and manifest_payload.get("prefer_related_applications") is False,
                 ),
                 (
                     "manifest_maskable_icon",
@@ -253,7 +269,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ),
                 (
                     "manifest_core_shortcuts",
-                    {"/app/search", "/app/properties", "/app/agents"}.issubset(shortcut_urls),
+                    {"/app/search", "/app/properties", "/app/shortlist", "/app/agents"}.issubset(shortcut_urls),
                 ),
             )
         )

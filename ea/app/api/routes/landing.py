@@ -204,15 +204,19 @@ def propertyquarry_web_manifest() -> JSONResponse:
             "name": "PropertyQuarry",
             "short_name": "PropertyQuarry",
             "description": "A focused property search and decision workspace.",
+            "lang": "en",
+            "dir": "ltr",
             "id": "/app/search",
             "start_url": "/app/search",
             "scope": "/",
             "display": "standalone",
+            "display_override": ["standalone", "minimal-ui", "browser"],
             "background_color": "#f4f0e8",
             "theme_color": "#17211c",
             "orientation": "portrait-primary",
             "categories": ["productivity", "lifestyle"],
             "launch_handler": {"client_mode": "navigate-existing"},
+            "prefer_related_applications": False,
             "icons": [
                 {
                     "src": "/pwa-icon.svg",
@@ -234,6 +238,13 @@ def propertyquarry_web_manifest() -> JSONResponse:
                     "short_name": "Results",
                     "description": "Open current ranked homes.",
                     "url": "/app/properties",
+                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                },
+                {
+                    "name": "Shortlist",
+                    "short_name": "Shortlist",
+                    "description": "Open saved shortlisted homes.",
+                    "url": "/app/shortlist",
                     "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
                 },
                 {
