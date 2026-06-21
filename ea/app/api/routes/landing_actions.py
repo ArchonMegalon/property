@@ -411,6 +411,8 @@ async def app_update_morning_memo_settings(
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings"), default="/app/settings")
+    whatsapp_ai_support_phone = _form_value(body, "whatsapp_ai_support_phone", "")
+    whatsapp_notification_opt_in = _form_value(body, "whatsapp_notifications_enabled", "").lower() in {"true", "1", "yes", "on"}
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     container.onboarding.start_workspace(
@@ -439,4 +441,12 @@ async def app_update_morning_memo_settings(
         auto_brief_recipient_email=_form_value(body, "recipient_email", str(morning_memo.get("recipient_email") or "")),
         auto_brief_delivery_channel=str(morning_memo.get("delivery_channel") or "email"),
     )
+    try:
+        container.onboarding.update_assistant_notification_preferences(
+            principal_id=context.principal_id,
+            whatsapp_ai_support_phone=whatsapp_ai_support_phone,
+            whatsapp_notification_opt_in=whatsapp_notification_opt_in,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RedirectResponse(return_to, status_code=303)

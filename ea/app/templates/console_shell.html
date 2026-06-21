@@ -1234,6 +1234,7 @@
               {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
             >
             {% endif %}
+            {% if field.get('help') %}<span class="console-note">{{ field.get('help') }}</span>{% endif %}
             {% if field.get('disabled_reason') %}<span class="console-note" data-property-unavailable-note hidden>{{ field.get('disabled_reason') }}</span>{% endif %}
           </label>
           {% endfor %}

@@ -761,6 +761,8 @@ def workspace_section_payload(
     public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     memo_loop = dict(outcomes.get("memo_loop") or analytics.get("memo_loop") or {})
+    delivery_preferences = dict(diagnostics.get("delivery_preferences") or {})
+    assistant_notifications = dict(delivery_preferences.get("assistant_notifications") or {})
     office_loop_proof = dict(outcomes.get("office_loop_proof") or {})
     proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
     assignment_suggestions = [dict(value) for value in (queue_health.get("assignment_suggestions") or [])]
@@ -1267,6 +1269,22 @@ def workspace_section_payload(
                         "placeholder": "Uses the connected Google email when left blank",
                     },
                     {
+                        "label": "WhatsApp number for AI support only",
+                        "name": "whatsapp_ai_support_phone",
+                        "type": "tel",
+                        "value": str(assistant_notifications.get("whatsapp_ai_support_phone") or ""),
+                        "placeholder": "+436641234567",
+                        "help": "Used only so Executive Assistant AI support can reach out and ask what questions you have. It is not used for sign-in, recovery, marketing, or public profile display.",
+                    },
+                    {
+                        "label": "Allow WhatsApp notifications",
+                        "name": "whatsapp_notifications_enabled",
+                        "type": "checkbox",
+                        "value": "true",
+                        "checked": bool(assistant_notifications.get("whatsapp_notification_opt_in")),
+                        "help": "Enable only when you want morning memo, queue follow-up, support follow-up, or operator handoff notices over WhatsApp.",
+                    },
+                    {
                         "label": "Delivery time",
                         "name": "delivery_time_local",
                         "type": "time",
@@ -1311,6 +1329,33 @@ def workspace_section_payload(
                             str(memo_loop.get("last_issue_reason") or "No current memo blocker"),
                             "Memo",
                             href="/app/settings/outcomes",
+                        ),
+                    ],
+                },
+                {
+                    "eyebrow": "WhatsApp AI support",
+                    "title": "Support contact and notification boundary",
+                    "body": "The WhatsApp number is for AI support outreach only. When support reaches out, it should ask what questions you have before giving workspace guidance.",
+                    "items": [
+                        _row(
+                            "AI support phone",
+                            "Saved" if assistant_notifications.get("whatsapp_ai_support_phone") else "Not set",
+                            "WhatsApp",
+                            href="/app/settings",
+                        ),
+                        _row(
+                            "Support purpose",
+                            str(assistant_notifications.get("whatsapp_ai_support_purpose") or "ai_support_only").replace("_", " "),
+                            "Boundary",
+                            href="/app/settings",
+                        ),
+                        _row(
+                            "WhatsApp notifications",
+                            "Enabled for memo, queue, support, and handoff notices"
+                            if assistant_notifications.get("whatsapp_notification_opt_in")
+                            else "Off unless explicitly enabled",
+                            "Notifications",
+                            href="/app/settings",
                         ),
                     ],
                 },

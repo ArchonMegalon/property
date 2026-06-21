@@ -135,6 +135,11 @@ PROPERTY_WHATSAPP_AI_SUPPORT_PURPOSE = "ai_support_only"
 PROPERTY_WHATSAPP_AI_SUPPORT_OPENING_PROMPT = (
     "Ask what questions the user has about PropertyQuarry before giving property guidance."
 )
+ASSISTANT_WHATSAPP_AI_SUPPORT_PURPOSE = "ai_support_only"
+ASSISTANT_WHATSAPP_AI_SUPPORT_OPENING_PROMPT = (
+    "Ask what questions the user has about the Executive Assistant before giving workspace guidance."
+)
+ASSISTANT_NOTIFICATION_CHANNELS = {"email", "telegram", "whatsapp"}
 
 
 def normalize_property_notification_channel(value: object) -> str:
@@ -162,6 +167,16 @@ def normalize_property_whatsapp_ai_support_phone(value: object) -> str:
     digits = "".join(ch for ch in raw if ch.isdigit())
     if len(digits) < 7:
         raise ValueError("property_whatsapp_ai_support_phone_invalid")
+    return f"+{digits}"
+
+
+def normalize_assistant_whatsapp_ai_support_phone(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) < 7:
+        raise ValueError("assistant_whatsapp_ai_support_phone_invalid")
     return f"+{digits}"
 
 
@@ -1101,6 +1116,7 @@ class OnboardingService(AssistantOnboardingService):
         preview_privacy["auto_briefs_schedule"] = morning_memo_schedule
         preview["privacy_posture"] = preview_privacy
         property_notifications = self._property_notification_preferences(state)
+        assistant_notifications = self._assistant_notification_preferences(state)
         return {
             "principal_id": principal_id,
             "status": state.status if state is not None else "draft",
@@ -1116,6 +1132,7 @@ class OnboardingService(AssistantOnboardingService):
             "privacy": dict(state.privacy_preferences_json) if state is not None else {},
             "delivery_preferences": {
                 "morning_memo": morning_memo_schedule,
+                "assistant_notifications": assistant_notifications,
                 "property_notifications": property_notifications,
             },
             "assistant_modes": [dict(row) for row in ASSISTANT_MODE_CATALOG],
@@ -1136,6 +1153,84 @@ class OnboardingService(AssistantOnboardingService):
         if existing is not None:
             return existing
         return self._repo.upsert_state(principal_id=principal_id, status="draft")
+
+    def _assistant_notification_preferences(self, state: OnboardingState | None) -> dict[str, object]:
+        channel_preferences = dict(getattr(state, "channel_preferences_json", {}) or {}) if state is not None else {}
+        raw_preferences = channel_preferences.get("assistant_notifications")
+        preferences = dict(raw_preferences or {}) if isinstance(raw_preferences, dict) else {}
+        whatsapp_ai_support_phone = str(preferences.get("whatsapp_ai_support_phone") or "").strip()
+        return {
+            "notification_scope": "morning_memo_queue_and_support",
+            "whatsapp_ai_support_phone": whatsapp_ai_support_phone,
+            "whatsapp_ai_support_enabled": bool(whatsapp_ai_support_phone),
+            "whatsapp_notification_opt_in": bool(preferences.get("whatsapp_notification_opt_in")),
+            "whatsapp_ai_support_purpose": ASSISTANT_WHATSAPP_AI_SUPPORT_PURPOSE,
+            "whatsapp_ai_support_opening_prompt": ASSISTANT_WHATSAPP_AI_SUPPORT_OPENING_PROMPT,
+            "channels": [
+                {"key": "email", "label": "Email", "enabled": True, "status": "available"},
+                {"key": "telegram", "label": "Telegram", "enabled": True, "status": "available"},
+                {"key": "whatsapp", "label": "WhatsApp", "enabled": True, "status": "available"},
+            ],
+        }
+
+    def update_assistant_notification_preferences(
+        self,
+        *,
+        principal_id: str,
+        whatsapp_ai_support_phone: object | None = None,
+        whatsapp_notification_opt_in: object | None = None,
+    ) -> dict[str, object]:
+        state = self._ensure_state(principal_id)
+        channel_preferences = dict(state.channel_preferences_json or {})
+        assistant_notifications = dict(channel_preferences.get("assistant_notifications") or {})
+        normalized_support_phone: str | None = None
+        if whatsapp_ai_support_phone is not None:
+            normalized_support_phone = normalize_assistant_whatsapp_ai_support_phone(whatsapp_ai_support_phone)
+        assistant_notifications.update(
+            {
+                "notification_scope": "morning_memo_queue_and_support",
+                "whatsapp_ai_support_purpose": ASSISTANT_WHATSAPP_AI_SUPPORT_PURPOSE,
+                "whatsapp_ai_support_opening_prompt": ASSISTANT_WHATSAPP_AI_SUPPORT_OPENING_PROMPT,
+            }
+        )
+        if whatsapp_notification_opt_in is not None:
+            assistant_notifications["whatsapp_notification_opt_in"] = bool(whatsapp_notification_opt_in)
+        if normalized_support_phone is not None:
+            if normalized_support_phone:
+                assistant_notifications["whatsapp_ai_support_phone"] = normalized_support_phone
+                assistant_notifications["whatsapp_ai_support_status"] = "ready"
+            else:
+                assistant_notifications.pop("whatsapp_ai_support_phone", None)
+                assistant_notifications["whatsapp_ai_support_status"] = "missing"
+        channel_preferences["assistant_notifications"] = assistant_notifications
+        for channel in ASSISTANT_NOTIFICATION_CHANNELS:
+            channel_preferences.setdefault(channel, {})
+        selected = {
+            str(channel or "").strip().lower()
+            for channel in state.selected_channels
+            if str(channel or "").strip()
+        }
+        if (
+            str(assistant_notifications.get("whatsapp_ai_support_phone") or "").strip()
+            or bool(assistant_notifications.get("whatsapp_notification_opt_in"))
+        ):
+            selected.add("whatsapp")
+        saved = self._repo.upsert_state(
+            principal_id=state.principal_id,
+            onboarding_id=state.onboarding_id,
+            workspace_name=state.workspace_name,
+            workspace_mode=state.workspace_mode,
+            region=state.region,
+            language=state.language,
+            timezone=state.timezone,
+            selected_channels=tuple(sorted(selected)),
+            property_search_preferences_json=dict(state.property_search_preferences_json),
+            privacy_preferences_json=dict(state.privacy_preferences_json),
+            channel_preferences_json=channel_preferences,
+            brief_preview_json=dict(state.brief_preview_json),
+            status=state.status,
+        )
+        return self.status(principal_id=principal_id, state_override=saved)
 
     def _property_notification_preferences(self, state: OnboardingState | None) -> dict[str, object]:
         channel_preferences = dict(getattr(state, "channel_preferences_json", {}) or {}) if state is not None else {}

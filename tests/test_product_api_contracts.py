@@ -21,6 +21,7 @@ import pytest
 import app.api.routes.channels as channel_routes
 import app.api.routes.product_api_delivery as product_api_delivery_routes
 import app.product.service as product_service
+from app.api.routes.workspace_sections import workspace_section_payload
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from app.services.fliplink import build_fliplink_packet_service
@@ -20091,6 +20092,60 @@ def test_principal_workspace_session_cannot_mint_operator_access_or_open_operato
 
     operator_center = client.get("/app/api/operator-center")
     assert operator_center.status_code == 403
+
+
+def test_executive_assistant_settings_store_whatsapp_ai_support_contact() -> None:
+    principal_id = "exec-settings-whatsapp-ai-support"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    product = product_service.build_product_service(client.app.state.container)
+    settings_payload = workspace_section_payload(
+        "settings",
+        product.workspace_snapshot(principal_id=principal_id),
+        product.workspace_diagnostics(principal_id=principal_id),
+        product.workspace_outcomes(principal_id=principal_id),
+        brand_key="executive_assistant",
+    )
+    field_names = {field["name"] for field in settings_payload["console_form"]["fields"]}
+    assert "whatsapp_ai_support_phone" in field_names
+    assert "whatsapp_notifications_enabled" in field_names
+    rendered_help = " ".join(str(field.get("help") or "") for field in settings_payload["console_form"]["fields"])
+    assert "AI support can reach out and ask what questions you have" in rendered_help
+    assert "morning memo, queue follow-up, support follow-up, or operator handoff notices" in rendered_help
+
+    updated = client.post(
+        "/app/actions/settings/morning-memo",
+        data={
+            "return_to": "/app/settings",
+            "workspace_name": "Executive Office",
+            "language": "en",
+            "timezone": "Europe/Vienna",
+            "enabled": "true",
+            "cadence": "daily_morning",
+            "recipient_email": "briefs@example.com",
+            "whatsapp_ai_support_phone": "+43 664 123 4567",
+            "whatsapp_notifications_enabled": "true",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    assert updated.headers["location"] == "/app/settings"
+
+    status = client.get("/v1/onboarding/status")
+    assert status.status_code == 200
+    body = status.json()
+    assistant_notifications = body["delivery_preferences"]["assistant_notifications"]
+    assert assistant_notifications["notification_scope"] == "morning_memo_queue_and_support"
+    assert assistant_notifications["whatsapp_ai_support_phone"] == "+436641234567"
+    assert assistant_notifications["whatsapp_ai_support_enabled"] is True
+    assert assistant_notifications["whatsapp_notification_opt_in"] is True
+    assert assistant_notifications["whatsapp_ai_support_purpose"] == "ai_support_only"
+    assert "what questions the user has about the Executive Assistant" in assistant_notifications["whatsapp_ai_support_opening_prompt"]
+    assert "whatsapp" in body["selected_channels"]
 
 
 def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_ready_links() -> None:
