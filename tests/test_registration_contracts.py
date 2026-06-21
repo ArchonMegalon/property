@@ -455,6 +455,22 @@ def test_sign_in_facebook_get_starts_oauth_for_visible_link(monkeypatch: pytest.
     assert response.headers["location"].startswith("https://www.facebook.com/")
 
 
+def test_sign_in_facebook_ignores_stale_email_scope_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_SCOPES", "public_profile,email")
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in/facebook", follow_redirects=False)
+
+    assert response.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(response.headers["location"]).query)
+    assert query["scope"] == ["public_profile"]
+
+
 def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")

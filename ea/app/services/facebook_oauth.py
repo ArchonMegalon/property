@@ -22,6 +22,7 @@ FACEBOOK_CONNECTOR_NAME = "facebook_login"
 FACEBOOK_AUTH_HOST = "https://www.facebook.com"
 FACEBOOK_GRAPH_HOST = "https://graph.facebook.com"
 FACEBOOK_SCOPE_IDENTITY = ("public_profile",)
+_FACEBOOK_SUPPORTED_IDENTITY_SCOPES = frozenset(FACEBOOK_SCOPE_IDENTITY)
 _FACEBOOK_USED_STATE_KEYS: dict[str, float] = {}
 _FACEBOOK_USED_STATE_CACHE_LIMIT = 5000
 
@@ -371,7 +372,7 @@ def _facebook_identity_scopes() -> tuple[str, ...]:
     raw = str(os.environ.get("PROPERTYQUARRY_FACEBOOK_OAUTH_SCOPES") or os.environ.get("EA_FACEBOOK_OAUTH_SCOPES") or "").strip()
     if not raw:
         return FACEBOOK_SCOPE_IDENTITY
-    scopes = _split_scope_text(raw)
+    scopes = tuple(scope for scope in _split_scope_text(raw) if scope in _FACEBOOK_SUPPORTED_IDENTITY_SCOPES)
     if "public_profile" not in scopes:
         scopes = tuple(sorted((*scopes, "public_profile")))
     return scopes
