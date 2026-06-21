@@ -1078,13 +1078,13 @@
       const rows = Array.isArray(sources) ? sources.slice(0, 8) : [];
       if (!rows.length) return '';
       return rows.map((source) => {
-        const label = source?.source_label || source?.platform || 'Provider';
+        const label = compactProviderLabel(source?.source_label || source?.platform || 'Provider');
         const pushdown = source?.provider_filter_pushdown && typeof source.provider_filter_pushdown === 'object' ? source.provider_filter_pushdown : {};
         const weakFilters = pushdown.filter_strength === 'weak_search_then_post_filter'
-          ? `<span class="pqx-note">Some filters had to be checked after the provider returned results.</span>`
+          ? `<span class="pqx-note">This provider returned broad results; PropertyQuarry kept hard rules strict and used optional preferences only for scoring.</span>`
           : '';
         const areaMiss = source?.location_mismatch_reason
-          ? `<span class="pqx-note">No selected-area matches: provider returned ${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the chosen target area.</span>`
+          ? `<span class="pqx-note">${escapeHtml(source?.location_mismatch_candidate_total || 0)} outside the selected area.</span>`
           : '';
         const message = source?.message || source?.error ? `<span class="pqx-note">${escapeHtml(source.message || source.error)}</span>` : '';
         const filtered = Number(source?.filtered_area_total || 0)
@@ -1093,7 +1093,7 @@
           + Number(source?.filtered_floorplan_total || 0)
           + Number(source?.filtered_generic_page_total || 0)
           + Number(source?.filtered_listing_mode_total || 0);
-        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Scanned')}</span><div class="pqx-source-metrics"><span>Reviewed <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>High fit <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Filtered <b>${escapeHtml(filtered)}</b></span><span>Score-demoted <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>Awaiting floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
+        return `<article class="pqx-source-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(source?.source_status || source?.status || 'Checked')}</span><div class="pqx-source-metrics"><span>Checked <b>${escapeHtml(source?.listing_total || source?.scanned_listing_total || 0)}</b></span><span>Ranked <b>${escapeHtml(source?.high_fit_total || 0)}</b></span><span>Hard rules <b>${escapeHtml(filtered)}</b></span><span>Score affected <b>${escapeHtml(source?.filtered_low_fit_total || 0)}</b></span><span>Missing floorplans <b>${escapeHtml(source?.filtered_floorplan_total || 0)}</b></span></div>${weakFilters}${areaMiss}${message}</article>`;
       }).join('');
     };
     const renderRouteEvidence = (routes) => {
@@ -1564,17 +1564,15 @@
       const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
       const filteredLabel = filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(filteredTotal)} candidates filtered by hard rules">${escapeHtml(filteredTotal)} filtered ` +
-        `<span class="pqx-suppression-action">Adjust filters</span></a>`
+        `aria-label="${escapeHtml(filteredTotal)} candidates filtered by hard rules">${escapeHtml(filteredTotal)} filtered</a>`
       ) : '';
       const scoreDemotedLabel = scoreDemotedTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(scoreDemotedTotal)} score-demoted candidates">${escapeHtml(scoreDemotedTotal)} score-demoted ` +
-        `<span class="pqx-suppression-action">Adjust filters</span></a>`
+        `aria-label="${escapeHtml(scoreDemotedTotal)} homes affected by soft preferences">${escapeHtml(scoreDemotedTotal)} score affected</a>`
       ) : '';
       const filteredBreakdown = (filteredTotal > 0 || scoreDemotedTotal > 0) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>Filtering diagnostics</strong><span class="pqx-note">Provider-level details</span></summary>
+            <summary><strong>Why homes stayed out</strong><span class="pqx-note">Hard rules and soft-score effects</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -1591,7 +1589,7 @@
               </div>
             </div>
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
-              <div class="pqx-empty">No ranked homes are ready yet. Open recovery to relax one blocker and rerun.</div>
+              <div class="pqx-empty">No ranked homes are ready yet. Relax one hard rule and rerun.</div>
             </div>
             ${filteredBreakdown}
           </section>

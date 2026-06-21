@@ -256,7 +256,8 @@ def test_propertyquarry_search_results_explain_suppression_and_provider_quality(
     body = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
     assert "Search guard" not in body
-    assert "Recover filtered homes" in body
+    assert "Relax filtered homes" in body
+    assert "Relax one hard rule" in body
     assert "Choose one small change, then rerun." in body
     assert "data-pqx-counterfactual" in body
     assert "Best matches" in body

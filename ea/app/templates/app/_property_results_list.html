@@ -17,8 +17,8 @@
         </a>
         {% endif %}
         {% if score_demoted_total %}
-        <a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ score_demoted_total }} score-demoted">
-          {{ score_demoted_total }} score-demoted
+        <a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ score_demoted_total }} homes affected by soft preferences">
+          {{ score_demoted_total }} score affected
         </a>
         {% endif %}
       </div>
@@ -184,11 +184,11 @@
       </span>
       {% else %}
       <strong>No ranked homes are ready yet.</strong>
-      <span class="pqx-note">Use setup rules first, then open filtered recovery to widen only what is blocking results.</span>
+      <span class="pqx-note">Relax one hard rule and rerun. Optional preferences only affect score.</span>
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/search">Adjust search</a>
         {% if filtered_total or score_demoted_total %}
-        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Recover homes</button>
+        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Relax one rule</button>
         {% endif %}
       </span>
       {% endif %}
@@ -197,18 +197,18 @@
   </div>
   {% if filtered_total %}
   <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-    <summary><strong>Filtering diagnostics</strong><span class="pqx-note">Provider-level details</span></summary>
+    <summary><strong>Why homes stayed out</strong><span class="pqx-note">Hard rules and soft-score effects</span></summary>
     <div class="pqx-source-list" data-pqx-source-breakdown>
       {% for source in run_sources[:8] %}
       <article class="pqx-source-card">
-        <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
-        <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
+        <strong>{{ (source.get('source_label') or source.get('platform') or 'Provider').split('|')[0].strip() }}</strong>
+        <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Checked' }}</span>
         <div class="pqx-source-metrics">
-          <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
-          <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
-          <span>Filtered <b>{{ (source.get('filtered_area_total') or 0) + (source.get('filtered_property_type_total') or 0) + (source.get('filtered_availability_total') or 0) + (source.get('filtered_floorplan_total') or 0) + (source.get('filtered_generic_page_total') or 0) + (source.get('filtered_listing_mode_total') or 0) }}</b></span>
-          <span>Score-demoted <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
-          <span>Awaiting floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
+          <span>Checked <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
+          <span>Ranked <b>{{ source.get('high_fit_total') or 0 }}</b></span>
+          <span>Hard rules <b>{{ (source.get('filtered_area_total') or 0) + (source.get('filtered_property_type_total') or 0) + (source.get('filtered_availability_total') or 0) + (source.get('filtered_floorplan_total') or 0) + (source.get('filtered_generic_page_total') or 0) + (source.get('filtered_listing_mode_total') or 0) }}</b></span>
+          <span>Score affected <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
+          <span>Missing floorplans <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
         </div>
         {% if source.get('message') or source.get('error') %}
         <span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>

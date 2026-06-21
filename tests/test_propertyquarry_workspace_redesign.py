@@ -1298,6 +1298,10 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-reading-card',
         'html[data-pq-theme="dark"] .pqx-event-card',
         'html[data-pq-theme="dark"] .pqx-source-card',
+        'html[data-pq-theme="dark"] .pqx-filtered-dialog-card',
+        'html[data-pq-theme="dark"] .pqx-filtered-dialog-rule',
+        'html[data-pq-theme="dark"] .pqx-filtered-dialog-close',
+        'html[data-pq-theme="dark"] .pqx-filter-radius-control',
         'html[data-pq-theme="dark"] .pqx-route-preview-card',
         'html[data-pq-theme="dark"] .pqx-result',
         'html[data-pq-theme="dark"] .pqx-result.is-top-ranked',
@@ -6131,16 +6135,17 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert '<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open' not in body
     assert "pqx-results-filter-link" in body
     assert "filtered" in body
-    assert "Adjust filters" in body
+    assert "Relax one hard rule" in body
+    assert "Adjust filters" not in body.split("data-pqx-filtered-open", 1)[1].split("</section>", 1)[0]
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "Recover homes" in body
+    assert "Relax one rule" in body
     assert "estimated newly ranked homes after rerun" in body
     assert "data-pqx-filter-slider" in body
     assert "data-pqx-filter-field" in body
     assert "adjustments[fieldName]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
-    assert "No ranked homes are ready yet. Open recovery" in body
+    assert "No ranked homes are ready yet. Relax one hard rule and rerun." in body
     assert "Best homes first" not in body
 
 
@@ -6695,7 +6700,9 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Status" in response.text
     assert "Timing" not in response.text
     assert "Repairing interrupted run." in response.text
-    assert response.text.count("Filtering diagnostics") == 1
+    assert response.text.count("Why homes stayed out") == 1
+    assert "Provider-level details" not in response.text
+    assert "Filtering diagnostics" not in response.text
     assert "Filtered by rules: Filtering diagnostics" not in response.text
 
 
