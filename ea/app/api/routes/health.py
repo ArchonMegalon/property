@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.dependencies import get_container
 from app.container import AppContainer
+from app.product.property_search_storage import property_search_run_retention_policy
 
 router = APIRouter(tags=["system"])
 
@@ -33,9 +34,11 @@ async def health_ready(container: AppContainer = Depends(get_container)) -> dict
 
 @router.get("/version")
 async def version(container: AppContainer = Depends(get_container)) -> dict[str, str]:
-    return {
+    payload = {
         "app_name": container.settings.app_name,
         "version": container.settings.app_version,
         "role": container.settings.role,
         "storage_backend": container.settings.storage_backend,
     }
+    payload.update(property_search_run_retention_policy())
+    return payload

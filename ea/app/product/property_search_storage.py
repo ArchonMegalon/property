@@ -500,6 +500,17 @@ def _property_search_run_retention_seconds() -> int:
     return max(0, min(parsed, 10 * 365 * 24 * 60 * 60))
 
 
+def property_search_run_retention_policy() -> dict[str, str]:
+    retention_seconds = _property_search_run_retention_seconds()
+    return {
+        "property_search_run_retention_status": "enabled" if retention_seconds > 0 else "disabled",
+        "property_search_run_retention_seconds": str(retention_seconds),
+        "property_search_run_retention_days": str(round(retention_seconds / 86400, 2)),
+        "property_search_run_retention_env": "EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS",
+        "property_search_run_retention_default_seconds": str(_PROPERTY_SEARCH_RUN_TTL_SECONDS),
+    }
+
+
 def _property_source_listing_cache_ttl_seconds() -> int:
     raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS") or "").strip()
     if not raw_value:

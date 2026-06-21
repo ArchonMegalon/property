@@ -17,8 +17,12 @@ def test_health_ready_and_version() -> None:
     assert ready.json()["status"] == "ready"
     version = client.get("/version")
     assert version.status_code == 200
-    assert version.json()["app_name"]
-    assert version.json()["version"]
+    version_body = version.json()
+    assert version_body["app_name"]
+    assert version_body["version"]
+    assert version_body["property_search_run_retention_status"] == "enabled"
+    assert version_body["property_search_run_retention_seconds"] == "7776000"
+    assert version_body["property_search_run_retention_days"] == "90.0"
 
 
 def test_rewrite_and_policy_audit_flow() -> None:

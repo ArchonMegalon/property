@@ -7170,6 +7170,14 @@ def test_property_search_runs_can_be_cleared_for_current_principal_only() -> Non
 
 def test_property_search_runs_keep_recent_history_but_prune_stale_payloads_by_default(monkeypatch) -> None:
     monkeypatch.delenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS", raising=False)
+    assert product_service._property_search_run_retention_seconds() == 90 * 24 * 60 * 60
+    assert property_search_storage.property_search_run_retention_policy() == {
+        "property_search_run_retention_status": "enabled",
+        "property_search_run_retention_seconds": "7776000",
+        "property_search_run_retention_days": "90.0",
+        "property_search_run_retention_env": "EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS",
+        "property_search_run_retention_default_seconds": "7776000",
+    }
     run_id = "retained-recent-run"
     stale_run_id = "pruned-stale-run"
     principal_id = "exec-property-search-run-retained"
