@@ -34,6 +34,18 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
             "workspace": {"name": "PropertyQuarry Home", "mode": "personal", "region": "AT", "language": "de"},
             "timezone": "Europe/Vienna",
             "selected_channels": ["email", "telegram"],
+            "delivery_preferences": {
+                "property_notifications": {
+                    "preferred_channel": "whatsapp",
+                    "preferred_label": "WhatsApp",
+                    "notification_scope": "scout_updates",
+                    "whatsapp_notification_opt_in": True,
+                    "whatsapp_ai_support_phone": "+436641234567",
+                    "whatsapp_ai_support_purpose": "propertyquarry_ai_support_only",
+                    "signal_status": "coming_soon",
+                    "telegram_bot": {"status_label": "Open the bot and send /start"},
+                }
+            },
             "property_search_preferences": {
                 "country_code": "AT",
                 "language_code": "de",
@@ -242,6 +254,13 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
 
     assert records["propertyquarry_tenants"][0]["tenant_key"] == "propertyquarry"
     assert records["propertyquarry_users"][0]["principal_id"] == "pq-user-1"
+    assert records["propertyquarry_delivery_settings"][0]["principal_id"] == "pq-user-1"
+    assert records["propertyquarry_delivery_settings"][0]["preferred_channel"] == "whatsapp"
+    assert records["propertyquarry_delivery_settings"][0]["whatsapp_notification_opt_in"] is True
+    assert records["propertyquarry_delivery_settings"][0]["whatsapp_enabled"] is True
+    assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_phone"] == "+436641234567"
+    assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_phone_last4"] == "4567"
+    assert records["propertyquarry_delivery_settings"][0]["signal_status"] == "coming_soon"
     assert records["propertyquarry_subscriptions"][0]["current_plan_key"] == "plus"
     assert "payer_email" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
     assert "billing_email" not in records["propertyquarry_subscriptions"][0]["commercial_json"]

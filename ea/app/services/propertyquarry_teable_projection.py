@@ -9,6 +9,7 @@ from typing import Any
 PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_tenants",
     "propertyquarry_users",
+    "propertyquarry_delivery_settings",
     "propertyquarry_subscriptions",
     "propertyquarry_preferences",
     "propertyquarry_search_agents",
@@ -48,6 +49,27 @@ PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
         {"name": "current_plan_key", "type": "singleLineText"},
         {"name": "subscription_status", "type": "singleLineText"},
         {"name": "is_paid", "type": "checkbox"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_delivery_settings": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "preferred_channel", "type": "singleLineText"},
+        {"name": "preferred_label", "type": "singleLineText"},
+        {"name": "notification_scope", "type": "singleLineText"},
+        {"name": "selected_channels_json", "type": "longText"},
+        {"name": "email_enabled", "type": "checkbox"},
+        {"name": "telegram_enabled", "type": "checkbox"},
+        {"name": "telegram_bot_status", "type": "singleLineText"},
+        {"name": "whatsapp_enabled", "type": "checkbox"},
+        {"name": "whatsapp_notification_opt_in", "type": "checkbox"},
+        {"name": "whatsapp_ai_support_enabled", "type": "checkbox"},
+        {"name": "whatsapp_ai_support_phone", "type": "singleLineText"},
+        {"name": "whatsapp_ai_support_phone_last4", "type": "singleLineText"},
+        {"name": "whatsapp_ai_support_purpose", "type": "singleLineText"},
+        {"name": "signal_status", "type": "singleLineText"},
+        {"name": "settings_json", "type": "longText"},
         {"name": "last_projected_at", "type": "singleLineText"},
     ],
     "propertyquarry_subscriptions": [
@@ -552,6 +574,12 @@ def build_propertyquarry_teable_projection_records(
     status = dict(onboarding_status or {})
     workspace = dict(status.get("workspace") or {})
     preferences = dict(status.get("property_search_preferences") or {})
+    delivery_preferences = dict(status.get("delivery_preferences") or {})
+    property_notifications = (
+        dict(delivery_preferences.get("property_notifications") or {})
+        if isinstance(delivery_preferences.get("property_notifications"), dict)
+        else {}
+    )
     raw_preferences = dict(preferences.get("raw_preferences") or {}) if isinstance(preferences.get("raw_preferences"), dict) else {}
     effective_preferences = raw_preferences or preferences
     safe_preferences = _safe_teable_preferences(effective_preferences)
@@ -572,6 +600,7 @@ def build_propertyquarry_teable_projection_records(
         }
     }
     users: dict[str, dict[str, object]] = {}
+    delivery_settings: dict[str, dict[str, object]] = {}
     subscriptions: dict[str, dict[str, object]] = {}
     preference_rows: dict[str, dict[str, object]] = {}
     search_agent_rows: dict[str, dict[str, object]] = {}
@@ -587,6 +616,29 @@ def build_propertyquarry_teable_projection_records(
     document_rows: dict[str, dict[str, object]] = {}
 
     if normalized_principal:
+        selected_channels = [
+            _text(value, limit=80)
+            for value in list(status.get("selected_channels") or [])
+            if _text(value, limit=80)
+        ]
+        preferred_channel = _text(property_notifications.get("preferred_channel") or "email", limit=80) or "email"
+        whatsapp_ai_support_phone = _text(property_notifications.get("whatsapp_ai_support_phone"), limit=80)
+        whatsapp_ai_support_digits = "".join(ch for ch in whatsapp_ai_support_phone if ch.isdigit())
+        telegram_bot = (
+            dict(property_notifications.get("telegram_bot") or {})
+            if isinstance(property_notifications.get("telegram_bot"), dict)
+            else {}
+        )
+        settings_json = {
+            "preferred_channel": preferred_channel,
+            "preferred_label": _text(property_notifications.get("preferred_label") or preferred_channel.title(), limit=120),
+            "notification_scope": _text(property_notifications.get("notification_scope") or "scout_updates", limit=120),
+            "selected_channels": selected_channels,
+            "whatsapp_notification_opt_in": bool(property_notifications.get("whatsapp_notification_opt_in")),
+            "whatsapp_ai_support_enabled": bool(whatsapp_ai_support_phone),
+            "whatsapp_ai_support_purpose": _text(property_notifications.get("whatsapp_ai_support_purpose"), limit=160),
+            "signal_status": _text(property_notifications.get("signal_status") or "coming_soon", limit=80),
+        }
         users[f"user:{normalized_tenant}:{normalized_principal}"] = {
             "projection_id": f"user:{normalized_tenant}:{normalized_principal}",
             "tenant_key": normalized_tenant,
@@ -600,6 +652,27 @@ def build_propertyquarry_teable_projection_records(
             "current_plan_key": _text(commercial.get("current_plan_key"), limit=80),
             "subscription_status": _text(commercial.get("status"), limit=80),
             "is_paid": bool(commercial.get("is_paid")),
+            "last_projected_at": projected_at,
+        }
+        delivery_settings[f"delivery:{normalized_tenant}:{normalized_principal}:property_alerts"] = {
+            "projection_id": f"delivery:{normalized_tenant}:{normalized_principal}:property_alerts",
+            "tenant_key": normalized_tenant,
+            "principal_id": normalized_principal,
+            "preferred_channel": preferred_channel,
+            "preferred_label": _text(property_notifications.get("preferred_label") or preferred_channel.title(), limit=120),
+            "notification_scope": _text(property_notifications.get("notification_scope") or "scout_updates", limit=120),
+            "selected_channels_json": selected_channels,
+            "email_enabled": "email" in selected_channels or preferred_channel == "email",
+            "telegram_enabled": "telegram" in selected_channels or preferred_channel == "telegram",
+            "telegram_bot_status": _text(telegram_bot.get("status_label"), limit=120),
+            "whatsapp_enabled": "whatsapp" in selected_channels or preferred_channel == "whatsapp" or bool(whatsapp_ai_support_phone),
+            "whatsapp_notification_opt_in": bool(property_notifications.get("whatsapp_notification_opt_in")),
+            "whatsapp_ai_support_enabled": bool(whatsapp_ai_support_phone),
+            "whatsapp_ai_support_phone": whatsapp_ai_support_phone,
+            "whatsapp_ai_support_phone_last4": whatsapp_ai_support_digits[-4:],
+            "whatsapp_ai_support_purpose": _text(property_notifications.get("whatsapp_ai_support_purpose"), limit=160),
+            "signal_status": _text(property_notifications.get("signal_status") or "coming_soon", limit=80),
+            "settings_json": settings_json,
             "last_projected_at": projected_at,
         }
         subscriptions[f"subscription:{normalized_tenant}:{normalized_principal}"] = {
@@ -1018,6 +1091,7 @@ def build_propertyquarry_teable_projection_records(
     return {
         "propertyquarry_tenants": _table_rows(tenants),
         "propertyquarry_users": _table_rows(users),
+        "propertyquarry_delivery_settings": _table_rows(delivery_settings),
         "propertyquarry_subscriptions": _table_rows(subscriptions),
         "propertyquarry_preferences": _table_rows(preference_rows),
         "propertyquarry_search_agents": _table_rows(search_agent_rows),
