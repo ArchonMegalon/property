@@ -527,6 +527,26 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         assert response is not None and response.ok
         expect(mobile_page.get_by_role("heading", name="Search once. Rank the right homes. Decide with evidence.")).to_be_visible()
         expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Create account")).to_be_visible()
+        expect(mobile_page.locator(".topbar .nav")).to_be_hidden()
+        expect(mobile_page.locator(".mobile-nav")).to_be_hidden()
+        expect(mobile_page.locator(".topbar .actions .btn", has_text="Sign in")).to_be_visible()
+        mobile_header_metrics = mobile_page.evaluate(
+            """() => {
+                const action = document.querySelector('.topbar .actions .btn');
+                const brand = document.querySelector('.topbar .brand');
+                const actionRect = action ? action.getBoundingClientRect() : null;
+                const brandRect = brand ? brand.getBoundingClientRect() : null;
+                return {
+                    actionRight: actionRect ? actionRect.right : 0,
+                    actionLeft: actionRect ? actionRect.left : 0,
+                    brandLeft: brandRect ? brandRect.left : 0,
+                    viewportWidth: window.innerWidth,
+                };
+            }"""
+        )
+        assert mobile_header_metrics["brandLeft"] >= 0
+        assert mobile_header_metrics["actionLeft"] >= 0
+        assert mobile_header_metrics["actionRight"] <= mobile_header_metrics["viewportWidth"] + 1
         _assert_no_horizontal_overflow(mobile_page)
         mobile_home = tmp_path / "propertyquarry-public-home-mobile.png"
         mobile_page.screenshot(path=str(mobile_home), full_page=True)
