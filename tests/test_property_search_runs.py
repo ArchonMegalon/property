@@ -5951,7 +5951,7 @@ def test_property_alert_review_suppresses_candidate_outside_active_location() ->
     assert any("Gmunden" in str(item["payload"]) for item in events.json()["items"])
 
 
-def test_property_alert_review_suppresses_candidate_outside_selected_district_even_when_location_query_is_broad() -> None:
+def test_property_alert_review_suppresses_candidate_outside_selected_district_even_when_location_query_is_broad(monkeypatch) -> None:
     principal_id = "exec-property-alert-selected-district-gate"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Review District Gate Office")
@@ -5968,6 +5968,11 @@ def test_property_alert_review_suppresses_candidate_outside_selected_district_ev
         },
     )
     assert stored.status_code == 200, stored.text
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_fetch_property_provider_repair_snapshot",
+        lambda self, *, property_url: {},
+    )
     service = product_service.build_product_service(client.app.state.container)
 
     result = service._open_property_alert_review(
@@ -5999,6 +6004,22 @@ def test_property_alert_review_suppresses_candidate_outside_selected_district_ev
 
     assert result["status"] == "suppressed"
     assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert dict(result["repair_task"])["task_type"] == "property_provider_repair_ooda"
+    assert dict(result["repair_task"])["filter_key"] == "location_scope"
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    repair_input = dict(repair_tasks[0].input_json or {})
+    assert repair_input["filter_key"] == "location_scope"
+    assert dict(repair_input["diagnostics"])["postal_name"] == "1200 Wien"
+    assert dict(repair_input["diagnostics"])["location_hints"] == ["1010 Vienna"]
 
 
 def test_property_alert_review_suppresses_low_score_telegram_even_when_review_opens(monkeypatch) -> None:

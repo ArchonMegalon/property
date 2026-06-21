@@ -22702,6 +22702,48 @@ class ProductService:
             country_code=str(current_preferences.get("country_code") or "").strip(),
             region_code=str(current_preferences.get("region_code") or "").strip(),
         ):
+            candidate_location_evidence_kind = _property_candidate_notification_location_evidence_kind(
+                property_url=candidate_property_url,
+                title=candidate_title,
+                summary=candidate_summary,
+                property_facts=candidate_facts,
+            )
+            repair_task = self._open_property_provider_repair_task(
+                principal_id=principal_id,
+                property_url=candidate_property_url or property_url,
+                title=candidate_title or title or candidate_property_url or property_url,
+                source_url=candidate_property_url or property_url,
+                source_label=str(counterparty or source_ref or "Property scout").strip(),
+                source_platform=str(first_candidate.get("source_platform") or "").strip(),
+                source_family=str(first_candidate.get("source_family") or "").strip(),
+                filter_key="location_scope",
+                source_ref=source_ref,
+                diagnostics={
+                    "provider_host": urllib.parse.urlparse(candidate_property_url or property_url).netloc,
+                    "listing_id": str(first_candidate.get("listing_id") or "").strip(),
+                    "candidate_ref": str(first_candidate.get("source_ref") or source_ref or external_id or "").strip(),
+                    "expected_listing_mode": listing_mode,
+                    "location_hints": list(location_hints),
+                    "source_scope_location_hints": list(source_scope_location_hints),
+                    "postal_name": str(candidate_facts.get("postal_name") or "").strip(),
+                    "district": str(candidate_facts.get("district") or "").strip(),
+                    "location": str(candidate_facts.get("location") or "").strip(),
+                    "street_address": str(candidate_facts.get("street_address") or "").strip(),
+                    "exact_address": str(candidate_facts.get("exact_address") or "").strip(),
+                    "source_scope_location": str(candidate_facts.get("source_scope_location") or "").strip(),
+                    "source_city": str(candidate_facts.get("source_city") or "").strip(),
+                    "source_postal_code": str(candidate_facts.get("source_postal_code") or "").strip(),
+                    "location_evidence_kind": candidate_location_evidence_kind,
+                    "price_display": str(
+                        candidate_facts.get("price_display")
+                        or candidate_facts.get("rent_display")
+                        or candidate_facts.get("purchase_price_display")
+                        or ""
+                    ).strip(),
+                    "summary": compact_text(candidate_summary, fallback="", limit=240),
+                    "title": compact_text(candidate_title, fallback="", limit=200),
+                },
+            )
             payload = {
                 "status": "suppressed",
                 "task_type": "property_alert_review",
@@ -22711,6 +22753,8 @@ class ProductService:
                 "reason": "property_location_conflicts_with_active_search",
                 "location_hints": list(location_hints),
                 "source_scope_location_hints": list(source_scope_location_hints),
+                "repair_task": dict(repair_task),
+                "queue_item_ref": str(repair_task.get("queue_item_ref") or "").strip(),
             }
             self._record_product_event(
                 principal_id=principal_id,
