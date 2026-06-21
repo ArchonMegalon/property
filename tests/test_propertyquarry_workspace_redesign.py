@@ -562,6 +562,46 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert 'href="/app/properties">Open PropertyQuarry</a>' not in onboarding_rules
 
 
+def test_propertyquarry_sign_in_offers_id_austria_only_for_austrian_requests(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID", "https://propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET", "id-austria-secret")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI", "https://propertyquarry.com/id-austria/callback")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET", "id-austria-state-secret")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_ENVIRONMENT", "production")
+
+    client = build_property_client(principal_id="pq-id-austria-gate")
+    client.headers.pop("X-EA-Principal-ID", None)
+
+    outside_austria = client.get("/sign-in", headers={"host": "propertyquarry.com", "cf-ipcountry": "DE"})
+    inside_austria = client.get("/sign-in", headers={"host": "propertyquarry.com", "cf-ipcountry": "AT"})
+
+    assert outside_austria.status_code == 200, outside_austria.text
+    assert inside_austria.status_code == 200, inside_austria.text
+    assert "Continue with ID Austria" not in outside_austria.text
+    assert "Continue with ID Austria" in inside_austria.text
+
+    blocked = client.get(
+        "/sign-in/id-austria",
+        headers={"host": "propertyquarry.com", "cf-ipcountry": "DE"},
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 303
+    assert "id_austria_austria_ip_required" in str(blocked.headers.get("location") or "")
+
+    started = client.get(
+        "/sign-in/id-austria",
+        headers={"host": "propertyquarry.com", "cf-ipcountry": "AT"},
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    started_location = str(started.headers.get("location") or "")
+    parsed = urllib.parse.urlparse(started_location)
+    query = urllib.parse.parse_qs(parsed.query)
+    assert parsed.netloc == "idp.id-austria.gv.at"
+    assert query["redirect_uri"][0] == "https://propertyquarry.com/id-austria/callback"
+    assert query["scope"][0] == "openid profile"
+
+
 def test_public_branding_repo_urls_stay_in_property_repository(monkeypatch) -> None:
     brand = public_branding.brand_from_hostname("propertyquarry.com")
     assert brand["key"] == "propertyquarry"
