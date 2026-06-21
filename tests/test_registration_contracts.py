@@ -1081,7 +1081,7 @@ def test_facebook_connect_links_workspace_and_sign_in_reopens_it(monkeypatch: py
 
     opened = client.get(callback.headers["location"], follow_redirects=False)
     assert opened.status_code == 303
-    assert opened.headers["location"] == "/app/properties"
+    assert opened.headers["location"] == "/app/search"
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 

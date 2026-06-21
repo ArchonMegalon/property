@@ -461,9 +461,9 @@ def facebook_oauth_browser_callback(
             role="principal",
             display_name=workspace_name,
             source_kind="facebook_sign_in",
-            default_target="/app/properties",
+            default_target="/app/search",
         )
-        return RedirectResponse(str(access.get("access_url") or "/app/properties"), status_code=303)
+        return RedirectResponse(str(access.get("access_url") or "/app/search"), status_code=303)
     return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
     if return_to:
         separator = "&" if "?" in return_to else "?"
