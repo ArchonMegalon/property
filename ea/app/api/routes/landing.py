@@ -3839,6 +3839,7 @@ def app_shell(
                     console_form=dict(payload.get("console_form") or {}),
                 ),
                 **payload,
+                "facebook_sign_in_enabled": _facebook_sign_in_enabled(),
                 "id_austria_sign_in_enabled": _id_austria_sign_in_enabled_for_request(request),
             },
         )

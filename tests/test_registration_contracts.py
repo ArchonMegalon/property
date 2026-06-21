@@ -856,7 +856,29 @@ def test_facebook_oauth_start_rejects_cross_host_redirect_override(monkeypatch: 
         )
 
 
-def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+def _patch_facebook_profile_only(monkeypatch: pytest.MonkeyPatch, *, subject: str = "facebook-user-signin", name: str = "Tibor Girschele") -> None:
+    from app.services import facebook_oauth as facebook_service
+
+    monkeypatch.setattr(
+        facebook_service,
+        "_exchange_facebook_code_for_token",
+        lambda **kwargs: {
+            "access_token": "facebook-access-token",
+            "scope": "public_profile",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        facebook_service,
+        "_fetch_facebook_userinfo",
+        lambda **kwargs: {
+            "id": subject,
+            "name": name,
+        },
+    )
+
+
+def test_sign_in_facebook_requires_linked_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
@@ -882,26 +904,54 @@ def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch:
     assert "email" not in query["scope"][0]
     assert query["auth_type"][0] == "rerequest"
 
-    from app.services import facebook_oauth as facebook_service
+    _patch_facebook_profile_only(monkeypatch)
 
-    monkeypatch.setattr(
-        facebook_service,
-        "_exchange_facebook_code_for_token",
-        lambda **kwargs: {
-            "access_token": "facebook-access-token",
-            "scope": "public_profile",
-            "expires_in": 3600,
-        },
+    callback = client.get(
+        "/facebook/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
     )
-    monkeypatch.setattr(
-        facebook_service,
-        "_fetch_facebook_userinfo",
-        lambda **kwargs: {
-            "id": "facebook-user-signin",
-            "email": "tibor.girschele@gmail.com",
-            "name": "Tibor Girschele",
-        },
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "facebook_error=facebook_sign_in_not_found" in callback.headers["location"]
+
+
+def test_facebook_connect_links_workspace_and_sign_in_reopens_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    existing_principal = "user-4a1702ea0e8d9ec5"
+    client.headers.update({"X-EA-Principal-ID": existing_principal})
+    start_workspace(client, mode="personal", workspace_name="Tibor Property Workspace")
+
+    _patch_facebook_profile_only(monkeypatch)
+
+    connect_start = client.get(
+        "/app/actions/facebook/connect",
+        params={"return_to": "/app/account"},
+        follow_redirects=False,
     )
+    assert connect_start.status_code == 303
+    connect_query = urllib.parse.parse_qs(urllib.parse.urlparse(connect_start.headers["location"]).query)
+
+    connected = client.get(
+        "/facebook/callback",
+        params={"code": "code-connect", "state": connect_query["state"][0]},
+        follow_redirects=False,
+    )
+    assert connected.status_code == 303
+    assert connected.headers["location"] == "/app/account?facebook_status=connected"
+
+    sign_in_start = client.post(
+        "/sign-in/facebook",
+        follow_redirects=False,
+    )
+    assert sign_in_start.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)
 
     callback = client.get(
         "/facebook/callback",
@@ -955,8 +1005,9 @@ def test_sign_in_facebook_callback_fails_closed_without_returned_scopes(monkeypa
         follow_redirects=False,
     )
 
-    assert callback.status_code == 400
-    assert "facebook_oauth_granted_scopes_missing" in callback.text
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "facebook_error=facebook_oauth_granted_scopes_missing" in callback.headers["location"]
 
 
 def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytest.MonkeyPatch) -> None:

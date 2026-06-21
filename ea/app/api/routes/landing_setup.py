@@ -396,11 +396,15 @@ def facebook_oauth_browser_callback(
 ) -> HTMLResponse | RedirectResponse:
     if str(error or "").strip():
         detail = str(error_description or error or "facebook_oauth_denied").strip()
+        browser_source = ""
         if str(state or "").strip():
             try:
-                read_facebook_oauth_state(state)
+                state_payload = read_facebook_oauth_state(state)
+                browser_source = str(state_payload.get("browser_source") or "").strip()
             except Exception:
                 pass
+        if browser_source == "sign_in":
+            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"facebook_error": detail}), status_code=303)
         return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=400)
     if not str(code or "").strip() or not str(state or "").strip():
         return _render_facebook_oauth_callback_failure(
@@ -425,9 +429,14 @@ def facebook_oauth_browser_callback(
                     f"{return_to}{separator}facebook_error=facebook_oauth_state_expired",
                     status_code=303,
                 )
+        if str(state_payload.get("browser_source") or "").strip() == "sign_in":
+            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"facebook_error": detail}), status_code=303)
         return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=400)
     except Exception as exc:
-        return _render_facebook_oauth_callback_failure(request, detail=str(exc or "facebook_oauth_callback_failed"), status_code=502)
+        detail = str(exc or "facebook_oauth_callback_failed")
+        if str(state_payload.get("browser_source") or "").strip() == "sign_in":
+            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"facebook_error": detail}), status_code=303)
+        return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=502)
     product = build_product_service(container)
     product.record_surface_event(
         principal_id=account.binding.principal_id,
@@ -456,6 +465,9 @@ def facebook_oauth_browser_callback(
         )
         return RedirectResponse(str(access.get("access_url") or "/app/properties"), status_code=303)
     return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
+    if return_to:
+        separator = "&" if "?" in return_to else "?"
+        return RedirectResponse(f"{return_to}{separator}facebook_status=connected", status_code=303)
     return _render_public_template(
         request,
         "channel_detail.html",

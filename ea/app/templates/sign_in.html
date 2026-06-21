@@ -214,7 +214,15 @@
     {% if sign_in_facebook_error %}
     <div class="access-feedback">
       <strong>Facebook sign-in could not start.</strong>
-      <p class="copy">{{ sign_in_facebook_error }}</p>
+      <p class="copy">
+        {% if sign_in_facebook_error == 'facebook_sign_in_not_found' %}
+        This Facebook identity is not linked to a PropertyQuarry workspace yet. Open your current workspace first, then connect Facebook from Account.
+        {% elif sign_in_facebook_error.startswith('facebook_oauth_') %}
+        Facebook sign-in is not ready on this deployment yet.
+        {% else %}
+        {{ sign_in_facebook_error }}
+        {% endif %}
+      </p>
     </div>
     {% endif %}
     {% if sign_in_id_austria_error %}

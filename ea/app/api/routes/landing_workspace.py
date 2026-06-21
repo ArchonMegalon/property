@@ -22,6 +22,7 @@ from app.product.property_surface_state import normalize_property_search_run_sna
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
 from app.services import id_austria_oidc as id_austria_service
+from app.services.facebook_oauth import build_facebook_oauth_start
 from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
@@ -2335,6 +2336,27 @@ def app_id_austria_connect(
     except RuntimeError as exc:
         error_value = urllib.parse.quote(str(exc or "id_austria_connect_failed"), safe="")
         return RedirectResponse(f"{return_to}{separator}id_austria_error={error_value}", status_code=303)
+    return RedirectResponse(str(packet.auth_url), status_code=303)
+
+
+@router.api_route("/app/actions/facebook/connect", methods=["GET", "HEAD"], include_in_schema=False)
+def app_facebook_connect(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/account")
+    separator = "&" if "?" in return_to else "?"
+    try:
+        packet = build_facebook_oauth_start(
+            principal_id=context.principal_id,
+            redirect_uri_override=f"{_public_app_base_url(request)}/facebook/callback",
+            return_to=return_to,
+            browser_source="settings_facebook",
+        )
+    except RuntimeError as exc:
+        error_value = urllib.parse.quote(str(exc or "facebook_connect_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}facebook_error={error_value}", status_code=303)
     return RedirectResponse(str(packet.auth_url), status_code=303)
 
 

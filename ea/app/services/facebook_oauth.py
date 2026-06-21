@@ -175,15 +175,21 @@ def complete_facebook_oauth_callback(
     facebook_name = str(userinfo.get("name") or "").strip()
     if not facebook_subject:
         raise RuntimeError("facebook_oauth_userinfo_incomplete")
-    if not principal_id:
-        if browser_source == "sign_in":
-            principal_id = f"cf-email:{facebook_email}" if facebook_email else f"facebook:{facebook_subject}"
-        else:
-            raise RuntimeError("facebook_oauth_principal_missing")
     returned_scope_text = str(token_payload.get("scope") or "").strip()
     returned_scopes = _split_scope_text(returned_scope_text)
     if not returned_scopes:
         raise RuntimeError("facebook_oauth_granted_scopes_missing")
+    if not principal_id:
+        if browser_source == "sign_in":
+            principal_id = _find_facebook_principal(
+                container=container,
+                facebook_subject=facebook_subject,
+                facebook_email=facebook_email,
+            )
+            if not principal_id:
+                raise RuntimeError("facebook_sign_in_not_found")
+        else:
+            raise RuntimeError("facebook_oauth_principal_missing")
     granted_scopes = returned_scopes
     granted_scopes_source = "facebook_token_response"
     expires_in = _safe_int(token_payload.get("expires_in"), default=0)
@@ -249,6 +255,28 @@ def complete_facebook_oauth_callback(
 
 def _primary_facebook_binding_id(principal_id: str) -> str:
     return f"{str(principal_id or '').strip()}:{FACEBOOK_PROVIDER_KEY}"
+
+
+def _find_facebook_principal(*, container: AppContainer, facebook_subject: str, facebook_email: str = "") -> str:
+    normalized_subject = str(facebook_subject or "").strip()
+    normalized_email = str(facebook_email or "").strip().lower()
+    if not normalized_subject and not normalized_email:
+        return ""
+    for binding in container.tool_runtime.list_connector_bindings_for_connector(FACEBOOK_CONNECTOR_NAME, limit=5000):
+        if str(binding.status or "").strip().lower() != "enabled":
+            continue
+        metadata = dict(binding.auth_metadata_json or {})
+        candidates = {
+            str(binding.external_account_ref or "").strip(),
+            str(metadata.get("facebook_subject") or "").strip(),
+            str(metadata.get("facebook_email") or "").strip().lower(),
+        }
+        candidates.discard("")
+        if normalized_subject and normalized_subject in candidates:
+            return str(binding.principal_id or "").strip()
+        if normalized_email and normalized_email in candidates:
+            return str(binding.principal_id or "").strip()
+    return ""
 
 
 def _exchange_facebook_code_for_token(

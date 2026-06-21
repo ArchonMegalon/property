@@ -151,6 +151,9 @@
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/google">Google</a>
+        {% if facebook_sign_in_enabled is defined and facebook_sign_in_enabled %}
+        <a class="pqx-link-button" href="/app/actions/facebook/connect?return_to=/app/account">Facebook</a>
+        {% endif %}
         {% if id_austria_sign_in_enabled is defined and id_austria_sign_in_enabled %}
         <a class="pqx-link-button" href="/app/actions/id-austria/connect?return_to=/app/account">ID Austria</a>
         {% endif %}
