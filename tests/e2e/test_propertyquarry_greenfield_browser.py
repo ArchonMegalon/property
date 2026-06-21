@@ -697,6 +697,69 @@ def _assert_visible_component_contrast(page: Page, selectors: list[str], *, mini
     assert offenders == []
 
 
+def _assert_dark_mode_surfaces_stay_readable(page: Page, selectors: list[str]) -> None:
+    offenders = page.evaluate(
+        """
+        ({ selectors }) => {
+          const parseColor = (value) => {
+            const match = String(value || '').match(/rgba?\\(([^)]+)\\)/);
+            if (!match) return null;
+            const parts = match[1].split(',').map((part) => Number.parseFloat(part.trim()));
+            if (parts.length < 3) return null;
+            return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
+          };
+          const light = (color) => color && color.a >= 0.65 && color.r >= 242 && color.g >= 242 && color.b >= 238;
+          const visible = (node) => {
+            const rect = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            return rect.width >= 8 && rect.height >= 8 && style.visibility !== 'hidden' && style.display !== 'none';
+          };
+          const effectiveBackground = (node) => {
+            let current = node;
+            while (current && current.nodeType === Node.ELEMENT_NODE) {
+              const color = parseColor(window.getComputedStyle(current).backgroundColor);
+              if (color && color.a > 0.08) return color;
+              current = current.parentElement;
+            }
+            return parseColor(window.getComputedStyle(document.body).backgroundColor);
+          };
+          const rows = [];
+          for (const selector of selectors) {
+            for (const node of document.querySelectorAll(selector)) {
+              if (!visible(node)) continue;
+              if (node.closest('svg, img, picture, video, canvas, [data-pqx-map-thumbnail]')) continue;
+              const style = window.getComputedStyle(node);
+              const background = effectiveBackground(node);
+              const color = parseColor(style.color);
+              const text = (node.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 96);
+              if (light(background)) {
+                rows.push({
+                  selector,
+                  text,
+                  background: style.backgroundColor,
+                  effectiveBackground: `rgba(${Math.round(background.r)}, ${Math.round(background.g)}, ${Math.round(background.b)}, ${background.a})`,
+                  color: style.color,
+                });
+              }
+              if (text && light(background) && light(color)) {
+                rows.push({
+                  selector: `${selector} (light text on light surface)`,
+                  text,
+                  background: style.backgroundColor,
+                  effectiveBackground: `rgba(${Math.round(background.r)}, ${Math.round(background.g)}, ${Math.round(background.b)}, ${background.a})`,
+                  color: style.color,
+                });
+              }
+            }
+          }
+          return rows;
+        }
+        """,
+        {"selectors": selectors},
+    )
+    assert offenders == []
+
+
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int, max_stage_height: int | None = None) -> None:
     media = page.locator("[data-object-media-stage]").first
     ooda = page.get_by_text("Property details").first
@@ -806,6 +869,91 @@ def test_propertyquarry_dark_mode_keeps_shortlist_cards_readable(
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
     finally:
         context.close()
+
+
+def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    public_selectors = [
+        ".topbar",
+        ".mobile-nav a",
+        ".panel",
+        ".access-panel",
+        ".access-card",
+        ".access-feedback",
+        ".auth-provider-card",
+        ".auth-provider-icon",
+        ".auth-provider-card .btn",
+        ".btn",
+    ]
+    app_selectors = [
+        ".pqx-topbar",
+        ".pqx-primary-nav a",
+        ".pqx-run-chip",
+        ".pqx-button:not(.primary)",
+        ".pqx-link-button:not(.primary)",
+        ".pqx-card",
+        ".pqx-workflow-step",
+        ".pqx-disclosure-summary",
+        ".pqx-field input:not([type='checkbox'])",
+        ".pqx-field select",
+        ".pqx-what-matters-panel",
+        ".pqx-pref-row",
+        ".pqx-account-card",
+        ".pqx-account-channel-option",
+        ".pqx-billing-card",
+        ".pqx-automation-card",
+        ".pqx-automation-thumbnail",
+        ".pqx-automation-summary-card",
+        ".pqx-result",
+        ".pqx-result-fact",
+        ".pqx-progress-button",
+        ".pqx-reliability-strip",
+        ".pqx-worker-strip",
+        ".pqx-worker-lane",
+        ".pqx-source-progress",
+        ".pqx-empty",
+    ]
+
+    public_context = _new_public_context(browser, mobile=False, width=1366, height=960)
+    public_context.add_init_script("window.localStorage.setItem('propertyquarry.theme', 'dark');")
+    try:
+        public_page = public_context.new_page()
+        response = public_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(public_page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+        _assert_dark_mode_surfaces_stay_readable(public_page, public_selectors)
+        public_shot = tmp_path / "propertyquarry-sign-in-dark-surfaces.png"
+        public_page.screenshot(path=str(public_shot), full_page=False, animations="disabled", caret="hide")
+        assert public_shot.exists() and public_shot.stat().st_size > 20_000
+    finally:
+        public_context.close()
+
+    app_context = _new_context(browser, mobile=False, width=1366, height=960)
+    app_context.add_init_script("window.localStorage.setItem('propertyquarry.theme', 'dark');")
+    _issue_browser_workspace_session(client=client, context=app_context, base_url=base_url)
+    try:
+        page = app_context.new_page()
+        for route, screenshot_name in (
+            ("/app/search", "propertyquarry-search-dark-surfaces.png"),
+            ("/app/account", "propertyquarry-account-dark-surfaces.png"),
+            ("/app/agents", "propertyquarry-agents-dark-surfaces.png"),
+            ("/app/shortlist?run_id=run-42", "propertyquarry-shortlist-management-dark-surfaces.png"),
+        ):
+            response = page.goto(f"{base_url}{route}", wait_until="networkidle")
+            assert response is not None and response.ok
+            expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+            _assert_dark_mode_surfaces_stay_readable(page, app_selectors)
+            screenshot = tmp_path / screenshot_name
+            page.screenshot(path=str(screenshot), full_page=False, animations="disabled", caret="hide")
+            assert screenshot.exists() and screenshot.stat().st_size > 20_000
+    finally:
+        app_context.close()
 
 
 def test_propertyquarry_greenfield_workspace_is_mobile_usable(

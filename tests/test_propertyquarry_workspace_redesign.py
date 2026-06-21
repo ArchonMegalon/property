@@ -6465,6 +6465,7 @@ def test_propertyquarry_dark_mode_covers_nested_search_controls() -> None:
         ".pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows=\"true\"]",
         ".pqx-automation-kpis span",
         ".pqx-automation-history-link",
+        ".pqx-workflow-step",
         ".pqx-event-card",
         ".pqx-card",
         ".pqx-reading-card",
