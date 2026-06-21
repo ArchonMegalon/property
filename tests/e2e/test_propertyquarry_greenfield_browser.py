@@ -2440,6 +2440,9 @@ def test_propertyquarry_automation_page_uses_compact_card_cockpit(
                     const src = String(img.getAttribute('src') || '');
                     return src.startsWith('/app/api/property/map-previews/') && src.endsWith('.png');
                   }).length,
+                nonOverlayPreviewKinds: [...document.querySelectorAll('.pqx-automation-thumbnail')]
+                  .map((thumb) => String(thumb.getAttribute('data-scope-preview-kind') || ''))
+                  .filter((kind) => kind !== 'osm_district_overlay'),
                 deleteCount: document.querySelectorAll('.pqx-automation-delete[data-search-agent-action="delete"]').length,
                 formCount: document.querySelectorAll('form.pqx-form').length,
                 tableCount: document.querySelectorAll('.pqx-automation-table').length,
@@ -2458,6 +2461,7 @@ def test_propertyquarry_automation_page_uses_compact_card_cockpit(
         assert layout["overlayThumbCount"] == 2
         assert layout["osmThumbCount"] == 2
         assert layout["previewUrlCount"] == 2
+        assert layout["nonOverlayPreviewKinds"] == []
         assert layout["deleteCount"] == 2
         assert layout["formCount"] == 0
         assert layout["tableCount"] == 0

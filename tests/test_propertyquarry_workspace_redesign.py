@@ -2593,6 +2593,24 @@ def test_property_scope_preview_map_only_rejects_local_layout_thumbnail_pipeline
     assert preview["has_district_overlay"] is False
 
 
+def test_property_scope_preview_map_only_rejects_point_thumbnail_pipeline(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_build_scope_boundary_preview",
+        lambda **kwargs: {
+            "image_url": "/app/api/property/map-previews/point.png",
+            "preview_kind": "osm_point_fallback",
+            "has_district_overlay": False,
+        },
+    )
+
+    preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna")
+
+    assert preview["preview_kind"] == "osm_map_pending"
+    assert preview["image_url"] == "/app/api/property/map-previews/0000000000000000000000000000000000000000.png"
+    assert preview["has_district_overlay"] is False
+
+
 def test_property_scope_preview_map_only_uses_local_boundary_and_async_render(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         landing_view_models,
@@ -5708,6 +5726,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert 'transform: scale(2.18);' not in template
     assert 'transform: scale(3.05);' not in template
     assert '.pqx-automation-thumbnail[data-scope-preview-kind="osm_district_overlay"] img' in template
+    assert 'pqx-automation-thumbnail[data-scope-preview-kind="osm_point_fallback"]' not in template
     assert "object-fit: contain;" in template
     assert "transform: none;" in template
     assert "pqx-automation-scope-empty" not in template

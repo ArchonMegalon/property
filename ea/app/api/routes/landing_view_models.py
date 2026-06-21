@@ -1635,7 +1635,7 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
     if boundary_preview:
         image_url = str(dict(boundary_preview).get("image_url") or "").strip()
         preview_kind = str(dict(boundary_preview).get("preview_kind") or "").strip()
-        if image_url.startswith("/app/api/property/map-previews/") and preview_kind.startswith("osm_"):
+        if image_url.startswith("/app/api/property/map-previews/") and preview_kind == "osm_district_overlay":
             return dict(boundary_preview)
     return _property_scope_map_pending_preview(
         normalized_query=normalized_query,
