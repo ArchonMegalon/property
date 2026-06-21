@@ -1142,8 +1142,12 @@ def test_propertyquarry_teable_portability_gate_reports_restore_coverage() -> No
     assert resume["operator_edits"] == [
         "TEABLE_API_KEY",
         "TEABLE_BASE_URL",
-        "PROPERTYQUARRY_TEABLE_BASE_ID or PROPERTYQUARRY_TEABLE_TENANT_NAME",
     ]
+    assert resume["optional_overrides"] == [
+        "PROPERTYQUARRY_TEABLE_BASE_ID",
+        "PROPERTYQUARRY_TEABLE_TENANT_NAME",
+    ]
+    assert "discovers the default PropertyQuarry Teable base by name" in resume["base_discovery"]
     assert "restore_propertyquarry_from_teable.py" in resume["restore_command"]
     assert "propertyquarry_saved_shortlist" in set(resume["recoverable"])
     assert "propertyquarry_review_artifacts" in set(resume["recoverable"])

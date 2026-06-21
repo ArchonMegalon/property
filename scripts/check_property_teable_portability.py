@@ -213,8 +213,15 @@ def main() -> int:
             "operator_edits": [
                 "TEABLE_API_KEY",
                 "TEABLE_BASE_URL",
-                "PROPERTYQUARRY_TEABLE_BASE_ID or PROPERTYQUARRY_TEABLE_TENANT_NAME",
             ],
+            "optional_overrides": [
+                "PROPERTYQUARRY_TEABLE_BASE_ID",
+                "PROPERTYQUARRY_TEABLE_TENANT_NAME",
+            ],
+            "base_discovery": (
+                "When PROPERTYQUARRY_TEABLE_BASE_ID is unset, the restore command discovers the default "
+                "PropertyQuarry Teable base by name."
+            ),
             "restore_command": (
                 "PYTHONPATH=ea python3 scripts/restore_propertyquarry_from_teable.py "
                 "--principal-id <principal-id> --apply"
