@@ -3429,11 +3429,11 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Duplicate candidate 24 of 60 already seen on another provider.",
-            "Duplicate check linked candidate 24/60 to existing property memory",
+            "Candidate 24/60 matched existing property memory",
         ),
         (
             "Listing freshness check found candidate 25 of 60 is stale and no longer available.",
-            "Listing freshness check flagged candidate 25/60 for repair",
+            "Listing freshness changed for candidate 25/60; repair opened",
         ),
         (
             "Provider repair opened for candidate 26 of 60 after fetch failed in extractor.",
@@ -4638,7 +4638,8 @@ def test_property_workspace_search_form_exposes_austria_evidence_and_eligibility
     assert "enable_auction_legal_review" in template_body
     assert "platform_defaults_by_country_mode" in template_body
     assert "defaultPlatformsForCountryMode" in template_body
-    assert "Official checks" in template_body
+    assert "Public records" in template_body
+    assert "Official checks" not in template_body
     assert "evidence_source_catalog_by_country" in template_body
 
 
@@ -6095,7 +6096,8 @@ def test_property_live_run_has_no_manual_refresh_controls() -> None:
     assert "Refresh status" not in body
     assert ">Refresh<" not in running_panel
     assert "Refresh the provider step" not in body
-    assert "Stop and remove" in running_panel
+    assert "Stop this live search?" in running_panel
+    assert "Stop and remove" not in running_panel
     assert "Refreshing this page will continue to show the completed result desk" not in body
     assert "Refreshing this page will continue to show the completed result desk" not in running_panel
 
@@ -7817,7 +7819,8 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Open to relax one rule and rerun the search." not in page.text
     assert "New search" in page.text
-    assert "checks quietly every 10s" in page.text
+    assert "updates quietly every 10s" in page.text
+    assert "checks quietly every 10s" not in page.text
     assert "refresh this page" not in page.text
     assert "Checking repair status automatically every 10s." not in page.text
     assert "Repair status checked at" not in page.text

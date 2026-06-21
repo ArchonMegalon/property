@@ -529,9 +529,9 @@ def _property_run_candidate_reason_label(value: object) -> str:
         label = label[:1].upper() + label[1:] if label else "Preference"
         return f"{label} missed the preference for candidate {ordinal} (score impact only)"
     if "duplicate" in normalized or "already seen" in normalized or "same listing" in normalized:
-        return f"Duplicate check linked candidate {ordinal} to existing property memory"
+        return f"Candidate {ordinal} matched existing property memory"
     if any(token in normalized for token in ("stale", "removed", "expired", "no longer available")):
-        return f"Listing freshness check flagged candidate {ordinal} for repair"
+        return f"Listing freshness changed for candidate {ordinal}; repair opened"
     if any(token in normalized for token in ("repair", "extractor", "fetch failed", "provider patch")):
         return f"Repair picked up candidate {ordinal}"
     if any(token in normalized for token in ("price per sqm", "price per square", "€/m2", "eur/m2", "eur per m2")):
@@ -1238,7 +1238,7 @@ def build_property_empty_outcome_summary(
     else:
         happened = "The search finished without a candidate clearing the current shortlist."
     if status_value == "failed" and replacement_run_id:
-        still_worked = "The brief was saved; the replacement run is now the active check."
+        still_worked = "The brief was saved; the replacement run is now active."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected sources."
@@ -1250,7 +1250,7 @@ def build_property_empty_outcome_summary(
             else "The brief and selected sources were still saved."
         )
     if status_value == "failed":
-        next_move = "Wait for repair; this page checks quietly every 10s and will move to the usable run when one is ready."
+        next_move = "Wait for repair; this page updates quietly every 10s and will move to the usable run when one is ready."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
     else:
@@ -1267,7 +1267,7 @@ def build_property_empty_outcome_summary(
         else:
             eta_feedback = f"{repair_step_label}. {stopped_context}".strip()
     elif status_value == "failed" and repair_status_label:
-        eta_feedback = f"Repair status: {repair_status_label}. {stopped_context}".strip()
+        eta_feedback = f"Repair: {repair_status_label}. {stopped_context}".strip()
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
         eta_feedback = f"Estimated remaining time: {eta_label}."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
@@ -1275,7 +1275,7 @@ def build_property_empty_outcome_summary(
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":
-        eta_feedback = "Repair has the run queued; this page checks quietly every 10s and will switch when a usable rerun is ready."
+        eta_feedback = "Repair has the run queued; this page updates quietly every 10s and will switch when a usable rerun is ready."
     else:
         eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
     return {
@@ -1428,7 +1428,7 @@ def build_property_workbench_candidate_snapshot(
         costs_display=str(costs_display or "").strip(),
         price_per_sqm_display=str(price_per_sqm_display or "").strip(),
         layout_display=str(layout_display or "").strip() or "n/a",
-        layout_verification_label=str(layout_verification_label or "").strip() or "needs check",
+        layout_verification_label=str(layout_verification_label or "").strip() or "unverified",
         fit_score=max(0, min(100, int(fit_score or 0))),
         fit_label=str(fit_label or "Candidate").strip() or "Candidate",
         fit_summary=str(fit_summary or "").strip(),

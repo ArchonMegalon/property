@@ -853,10 +853,10 @@
         return `${label} missed the preference for candidate ${ordinal} (score impact only)`;
       }
       if (normalized.includes('duplicate') || normalized.includes('already seen') || normalized.includes('same listing')) {
-        return `Duplicate check linked candidate ${ordinal} to existing property memory`;
+        return `Candidate ${ordinal} matched existing property memory`;
       }
       if (['stale', 'removed', 'expired', 'no longer available'].some((token) => normalized.includes(token))) {
-        return `Listing freshness check flagged candidate ${ordinal} for repair`;
+        return `Listing freshness changed for candidate ${ordinal}; repair opened`;
       }
       if (['repair', 'extractor', 'fetch failed', 'provider patch'].some((token) => normalized.includes(token))) {
         return `Repair picked up candidate ${ordinal}`;
@@ -1347,7 +1347,7 @@
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
       const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
-      const workerTooltip = 'Workers let multiple selected sources run at once. Saved searches are separate.';
+      const workerTooltip = 'Parallel search keeps selected portals moving at once. Saved searches are separate.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
@@ -1476,8 +1476,8 @@
         };
       });
       const upgradeCopy = planKey === 'free'
-        ? 'Upgrade to Plus for 2 workers or Agent for 4. Saved searches are separate.'
-        : (planKey === 'plus' ? 'Upgrade to Agent for 4 workers. Saved searches are separate.' : '');
+        ? 'Upgrade to Plus for 2 parallel searches or Agent for 4. Saved searches are separate.'
+        : (planKey === 'plus' ? 'Upgrade to Agent for 4 parallel searches. Saved searches are separate.' : '');
       const workerHtml = workers.map((worker) => `
         <div class="pqx-worker-lane tone-${escapeHtml(worker.tone)}">
           <div class="pqx-worker-lane-head">
@@ -1487,7 +1487,7 @@
           <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
           ${planKey === 'free' ? '' : `
             <div class="pqx-worker-popover">
-              <strong>${escapeHtml(worker.provider)}${worker.shardCount ? ` · +${escapeHtml(worker.shardCount)} more shard${worker.shardCount === 1 ? '' : 's'}` : ''}</strong>
+              <strong>${escapeHtml(worker.provider)}${worker.shardCount ? ` · +${escapeHtml(worker.shardCount)} related search${worker.shardCount === 1 ? '' : 'es'}` : ''}</strong>
               <span class="pqx-note">${escapeHtml(worker.statusLabel)}</span>
               <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: ${escapeHtml(worker.progressPct)}"></i></div>
             </div>
@@ -1513,7 +1513,7 @@
         </div>
         <div class="pqx-worker-strip" data-pqx-worker-strip>
           <div class="pqx-worker-strip-head">
-            <strong>${escapeHtml(planCap > workerCount ? `${workerCount} of ${planCap} workers active` : `${workerCount} active worker${workerCount === 1 ? '' : 's'}`)}</strong>
+            <strong>${escapeHtml(planCap > workerCount ? `${workerCount} of ${planCap} searches running` : `${workerCount} search${workerCount === 1 ? '' : 'es'} running`)}</strong>
             <button type="button" class="pqx-tooltip" title="${escapeHtml(workerTooltip)}" aria-label="${escapeHtml(workerTooltip)}" aria-expanded="false" data-tooltip-trigger>?</button>
             ${upgradeCopy ? `<span class="pqx-note">${escapeHtml(upgradeCopy)}</span>` : ''}
           </div>

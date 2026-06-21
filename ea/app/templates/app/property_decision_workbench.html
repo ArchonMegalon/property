@@ -111,8 +111,8 @@
                       <button
                         type="button"
                         class="pqx-tooltip"
-                        title="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability checks."
-                        aria-label="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability checks."
+                        title="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability changes."
+                        aria-label="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability changes."
                         aria-expanded="false"
                         data-tooltip-trigger
                       >?</button>
@@ -173,7 +173,7 @@
     >
       <div class="pqx-research-task-head">
         <div>
-          <strong>{{ task.get('label') or 'Decision check' }}</strong>
+          <strong>{{ task.get('label') or 'Open detail' }}</strong>
           <span>{{ task.get('title') or 'Property' }}{% if task.get('source_label') %} · {{ task.get('source_label') }}{% endif %}</span>
         </div>
         <span class="pqx-pill{% if task.get('status') == 'filled' %} good{% elif task.get('status') == 'dismissed' %}{% else %} warn{% endif %}" data-research-task-status-label>{{ task.get('status_label') or 'Up next' }}</span>
@@ -5631,7 +5631,7 @@
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
         <span class="pqx-context-actions" data-pw-top-actions></span>
         {% if run_active and run.get('run_id') %}
-        <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop and remove this live search?">Stop and remove</button>
+        <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% elif setup_mode %}
@@ -6371,7 +6371,7 @@
             <section class="pqx-card pqx-evidence-catalog" data-pqx-evidence-catalog hidden>
               <div class="pqx-section-head">
                 <div>
-                  <h2>Official checks</h2>
+                  <h2>Public records</h2>
                   <div class="pqx-note">Public data used for this market.</div>
                 </div>
               </div>
@@ -6661,7 +6661,7 @@
                       <span class="pqx-trust-chip">Rank #{{ candidate.get('rank') or loop.index }}</span>
                       <span class="pqx-trust-chip">Fit {{ candidate.get('fit_score') or 0 }}/100</span>
                       {% set candidate_facts = candidate.get('property_facts') or {} %}
-                      <span class="pqx-trust-chip">Layout {{ 'verified' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'needs check' }}</span>
+                      <span class="pqx-trust-chip">Layout {{ 'verified' if candidate.get('has_floorplan') or candidate.get('floorplan_count') or candidate.get('floorplan_urls_json') or candidate_facts.get('has_floorplan') or candidate_facts.get('floorplan_count') or candidate_facts.get('floorplan_urls_json') else 'unverified' }}</span>
                       {% set tour_status = candidate.get('tour_status') or candidate.get('tour', {}).get('status') or '' %}
                       {% if tour_status and tour_status not in ['not_ready', 'not ready', 'pending', 'blocked', 'unavailable', 'suppressed'] %}
                       <span class="pqx-trust-chip">Tour {{ tour_status|replace('_', ' ')|title }}</span>
@@ -6705,7 +6705,7 @@
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>
-            <div class="pqx-note">{% if run_status == 'failed' %}Repair checks this automatically. Remove one strict rule if the rerun still returns nothing.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
+            <div class="pqx-note">{% if run_status == 'failed' %}Repair runs automatically. Remove one strict rule if the rerun still returns nothing.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
           </section>
           </div>
           {% endif %}

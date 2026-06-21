@@ -1067,7 +1067,7 @@ def property_workspace_payload(
         if pending_missing:
             rows.append(
                 {
-                    "title": "Decision checks queued",
+                    "title": "Open details",
                     "detail": ", ".join(pending_missing[:3]),
                     "tag": "Research",
                 }
@@ -1762,7 +1762,7 @@ def property_workspace_payload(
                 ),
                 price_per_sqm_display=investment_payload["price_per_sqm"],
                 layout_display=" | ".join(part for part in layout_parts if part) or "n/a",
-                layout_verification_label="verified" if layout_verified else "needs check",
+                layout_verification_label="verified" if layout_verified else "unverified",
                 fit_score=fit_score,
                 fit_label=str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
                 fit_summary=_clean_property_candidate_copy(candidate.get("fit_summary") or ""),
@@ -2398,7 +2398,7 @@ def property_workspace_payload(
             "summary": "Turn high-fit candidates into property dossiers with evidence, property pages, and hosted follow-ups.",
             "hero_kicker": "Research pages",
             "hero_title": "Inspect the evidence before you open the raw listing.",
-            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, decision checks, property pages, and hosted tours where they exist.",
+            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, open details, property pages, and hosted tours where they exist.",
             "hero_actions": hero_actions["research"],
             "hero_highlights": hero_highlights["research"],
             "primary_cards": [
