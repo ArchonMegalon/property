@@ -23,6 +23,32 @@ from app.services.propertyquarry_teable_projection import (  # noqa: E402
 )
 
 
+TEABLE_RESTORE_CONTRACT_VERSION = "propertyquarry.teable_restore_coverage.v1"
+
+RECOVERABLE_TEABLE_TABLES: tuple[str, ...] = (
+    "propertyquarry_users",
+    "propertyquarry_delivery_settings",
+    "propertyquarry_subscriptions",
+    "propertyquarry_preferences",
+    "propertyquarry_search_agents",
+    "propertyquarry_saved_shortlist",
+    "propertyquarry_properties",
+    "propertyquarry_property_evaluations",
+    "propertyquarry_review_artifacts",
+    "propertyquarry_research_tasks",
+    "propertyquarry_decision_ledger",
+    "propertyquarry_evidence_claims",
+    "propertyquarry_agent_questions",
+    "propertyquarry_documents",
+)
+
+INTENTIONALLY_LOSSY_TEABLE_TABLES: dict[str, str] = {
+    "propertyquarry_tenants": "tenant metadata is recreated from the new host configuration",
+    "propertyquarry_search_runs": "runs can be lost; saved results and review artifacts are restored",
+    "propertyquarry_provider_sources": "provider crawl/source diagnostics are run-scoped and disposable",
+}
+
+
 def _jsonable(value: object) -> object:
     if isinstance(value, str):
         text = value.strip()

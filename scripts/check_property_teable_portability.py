@@ -11,6 +11,11 @@ from app.services.propertyquarry_teable_projection import (  # noqa: E402
     PROPERTYQUARRY_TEABLE_TABLE_FIELDS,
     PROPERTYQUARRY_TEABLE_TABLE_NAMES,
 )
+from restore_propertyquarry_from_teable import (  # noqa: E402
+    INTENTIONALLY_LOSSY_TEABLE_TABLES,
+    RECOVERABLE_TEABLE_TABLES,
+    TEABLE_RESTORE_CONTRACT_VERSION,
+)
 
 
 REQUIRED_TABLE_FIELDS: dict[str, set[str]] = {
@@ -161,6 +166,8 @@ def _field_names(table_name: str) -> set[str]:
 
 def main() -> int:
     declared_tables = set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+    recoverable_tables = set(RECOVERABLE_TEABLE_TABLES)
+    intentionally_lossy_tables = set(INTENTIONALLY_LOSSY_TEABLE_TABLES)
     failures: list[str] = []
     for table_name, required_fields in sorted(REQUIRED_TABLE_FIELDS.items()):
         if table_name not in declared_tables:
@@ -172,11 +179,26 @@ def main() -> int:
     extra_missing_config = sorted(declared_tables - set(PROPERTYQUARRY_TEABLE_TABLE_FIELDS))
     for table_name in extra_missing_config:
         failures.append(f"missing_field_config:{table_name}")
+    uncategorized_tables = sorted(declared_tables - recoverable_tables - intentionally_lossy_tables)
+    for table_name in uncategorized_tables:
+        failures.append(f"uncategorized_restore_table:{table_name}")
+    missing_declared_tables = sorted((recoverable_tables | intentionally_lossy_tables) - declared_tables)
+    for table_name in missing_declared_tables:
+        failures.append(f"restore_contract_unknown_table:{table_name}")
+    overlap_tables = sorted(recoverable_tables & intentionally_lossy_tables)
+    for table_name in overlap_tables:
+        failures.append(f"restore_contract_ambiguous_table:{table_name}")
+    missing_recoverable_contract = sorted((set(REQUIRED_TABLE_FIELDS) - intentionally_lossy_tables) - recoverable_tables)
+    for table_name in missing_recoverable_contract:
+        failures.append(f"required_table_not_recoverable:{table_name}")
     payload = {
         "contract_name": "propertyquarry.teable_portability.v1",
         "status": "pass" if not failures else "fail",
         "required_table_count": len(REQUIRED_TABLE_FIELDS),
         "declared_table_count": len(declared_tables),
+        "restore_contract_version": TEABLE_RESTORE_CONTRACT_VERSION,
+        "recoverable_table_count": len(recoverable_tables),
+        "intentionally_lossy_tables": dict(sorted(INTENTIONALLY_LOSSY_TEABLE_TABLES.items())),
         "failures": failures,
     }
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -1053,6 +1053,45 @@ def test_propertyquarry_teable_restore_recovers_saved_shortlist_without_runs() -
     assert preferences["saved_shortlist_candidates"][0]["property_facts"]["area_sqm"] == 88
 
 
+def test_propertyquarry_teable_restore_contract_covers_every_projected_table() -> None:
+    namespace = runpy.run_path("scripts/restore_propertyquarry_from_teable.py", run_name="__test__")
+    recoverable_tables = set(namespace["RECOVERABLE_TEABLE_TABLES"])
+    intentionally_lossy_tables = set(namespace["INTENTIONALLY_LOSSY_TEABLE_TABLES"])
+
+    assert namespace["TEABLE_RESTORE_CONTRACT_VERSION"] == "propertyquarry.teable_restore_coverage.v1"
+    assert recoverable_tables.isdisjoint(intentionally_lossy_tables)
+    assert recoverable_tables | intentionally_lossy_tables == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+    assert "propertyquarry_saved_shortlist" in recoverable_tables
+    assert "propertyquarry_property_evaluations" in recoverable_tables
+    assert "propertyquarry_review_artifacts" in recoverable_tables
+    assert "propertyquarry_research_tasks" in recoverable_tables
+    assert "propertyquarry_search_agents" in recoverable_tables
+    assert "propertyquarry_subscriptions" in recoverable_tables
+    assert "propertyquarry_search_runs" in intentionally_lossy_tables
+    assert "saved results" in namespace["INTENTIONALLY_LOSSY_TEABLE_TABLES"]["propertyquarry_search_runs"]
+
+
+def test_propertyquarry_teable_portability_gate_reports_restore_coverage() -> None:
+    script = Path("scripts/check_property_teable_portability.py")
+    result = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["status"] == "pass"
+    assert payload["restore_contract_version"] == "propertyquarry.teable_restore_coverage.v1"
+    assert payload["recoverable_table_count"] >= 14
+    assert set(payload["intentionally_lossy_tables"]) == {
+        "propertyquarry_tenants",
+        "propertyquarry_search_runs",
+        "propertyquarry_provider_sources",
+    }
+
+
 def test_propertyquarry_teable_restore_apply_writes_decision_loop_rows(monkeypatch) -> None:
     namespace = runpy.run_path("scripts/restore_propertyquarry_from_teable.py", run_name="__test__")
     apply_decision_loop_restore_bundle = namespace["apply_decision_loop_restore_bundle"]
