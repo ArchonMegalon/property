@@ -297,6 +297,53 @@ def _saved_candidates_from_saved_shortlist(
     return candidates[:200]
 
 
+def _search_agents_from_rows(
+    *,
+    principal_id: str,
+    records_by_table: dict[str, list[dict[str, object]]],
+) -> tuple[list[dict[str, object]], str]:
+    agents: list[dict[str, object]] = []
+    active_agent_id = ""
+    seen: set[str] = set()
+    for row in records_by_table.get("propertyquarry_search_agents", []):
+        if not _matches_principal(row, principal_id=principal_id):
+            continue
+        agent_id = str(row.get("agent_id") or "").strip()
+        if not agent_id or agent_id in seen:
+            continue
+        seen.add(agent_id)
+        preferences_json = _coerce_dict(row.get("preferences_json"))
+        selected_platforms = _coerce_list(row.get("selected_platforms_json") or preferences_json.get("selected_platforms"))
+        agent = {
+            "agent_id": agent_id,
+            "name": str(row.get("name") or preferences_json.get("name") or "Saved search").strip() or "Saved search",
+            "enabled": bool(row.get("enabled", True)),
+            "is_active": bool(row.get("is_active")),
+            "country_code": str(row.get("country_code") or preferences_json.get("country_code") or "").strip(),
+            "region_code": str(row.get("region_code") or preferences_json.get("region_code") or "").strip(),
+            "location_query": str(row.get("location_query") or preferences_json.get("location_query") or "").strip(),
+            "listing_mode": str(row.get("listing_mode") or preferences_json.get("listing_mode") or "").strip(),
+            "property_type": str(row.get("property_type") or preferences_json.get("property_type") or "").strip(),
+            "selected_platforms": [str(value or "").strip() for value in selected_platforms if str(value or "").strip()],
+            "duration_days": row.get("duration_days"),
+            "notification_limit": row.get("notification_limit"),
+            "notification_period": str(row.get("notification_period") or "").strip(),
+            "sent_in_current_window": row.get("sent_in_current_window"),
+            "last_run_at": str(row.get("last_run_at") or "").strip(),
+            "next_run_at": str(row.get("next_run_at") or "").strip(),
+            "preferences_json": preferences_json,
+        }
+        for key, value in preferences_json.items():
+            agent.setdefault(str(key), value)
+        agents.append(agent)
+        if bool(row.get("is_active")) and not active_agent_id:
+            active_agent_id = agent_id
+    if not active_agent_id and agents:
+        active_agent_id = str(agents[0].get("agent_id") or "").strip()
+        agents[0]["is_active"] = True
+    return agents[:200], active_agent_id
+
+
 def _decision_loop_rows_from_records(
     *,
     principal_id: str,
@@ -427,6 +474,14 @@ def build_restore_bundle(
     preferences.setdefault("location_query", str(preferences_row.get("location_query") or "").strip())
     if not preferences.get("selected_platforms"):
         preferences["selected_platforms"] = _coerce_list(preferences_row.get("selected_platforms_json"))
+    restored_agents, restored_active_agent_id = _search_agents_from_rows(
+        principal_id=normalized_principal,
+        records_by_table=records_by_table,
+    )
+    if restored_agents and not isinstance(preferences.get("search_agents"), list):
+        preferences["search_agents"] = restored_agents
+    if restored_active_agent_id and not str(preferences.get("active_search_agent_id") or "").strip():
+        preferences["active_search_agent_id"] = restored_active_agent_id
     saved_candidates = list(preferences.get("saved_shortlist_candidates") or [])
     if not saved_candidates:
         saved_candidates = _saved_candidates_from_saved_shortlist(

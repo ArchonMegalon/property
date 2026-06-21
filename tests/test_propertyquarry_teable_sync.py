@@ -762,6 +762,33 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
                     "preferences_json": {"min_area_m2": 80},
                 }
             ],
+            "propertyquarry_search_agents": [
+                {
+                    "principal_id": principal_alias,
+                    "agent_id": "agent-vienna-family",
+                    "name": "Vienna family watch",
+                    "enabled": True,
+                    "is_active": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Wien",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "selected_platforms_json": ["willhaben"],
+                    "duration_days": 30,
+                    "notification_limit": 5,
+                    "notification_period": "day",
+                    "sent_in_current_window": 2,
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "location_query": "1020 Wien",
+                        "listing_mode": "rent",
+                        "property_type": "apartment",
+                        "selected_platforms": ["willhaben"],
+                        "min_area_m2": 80,
+                    },
+                }
+            ],
             "propertyquarry_properties": [
                 {
                     "property_ref": "property:restore-1",
@@ -864,6 +891,11 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
     preferences = state["property_search_preferences_json"]
     assert preferences["location_query"] == "1020 Wien"
     assert preferences["selected_platforms"] == ["willhaben"]
+    assert preferences["active_search_agent_id"] == "agent-vienna-family"
+    assert preferences["search_agents"][0]["agent_id"] == "agent-vienna-family"
+    assert preferences["search_agents"][0]["is_active"] is True
+    assert preferences["search_agents"][0]["selected_platforms"] == ["willhaben"]
+    assert preferences["search_agents"][0]["preferences_json"]["min_area_m2"] == 80
     assert preferences["saved_shortlist_candidates"][0]["title"] == "Restored flat"
     assert preferences["saved_shortlist_candidates"][0]["saved_from_run_id"] == "lost-run"
     assert bundle["decision_loop_counts"] == {
