@@ -143,7 +143,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     sign_in = client.get("/sign-in")
     assert "Use your current session, secure email link, or connected identity." in sign_in.text
-    assert "Identity-only." in sign_in.text
+    assert "Identity only" in sign_in.text
     assert "Choose the narrowest sign-in path" not in sign_in.text
 
     for href in _internal_links(landing.text):

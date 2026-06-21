@@ -208,7 +208,8 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 (
                     "sign_in_minimal_copy",
                     "Use your current session, secure email link, or connected identity." in text
-                    and "Identity-only." in text
+                    and "Identity only" in text
+                    and "Identity-only." not in text
                     and "Google?" not in text
                     and "Facebook?" not in text,
                 ),

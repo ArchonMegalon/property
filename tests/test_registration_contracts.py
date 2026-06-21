@@ -197,7 +197,10 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert "Google?" not in response.text
     assert "Facebook?" not in response.text
     assert "Continue with ID Austria" not in response.text
-    assert "Identity-only." in response.text
+    assert "Identity only" in response.text
+    assert "Identity-only." not in response.text
+    assert "grid-template-columns: 28px minmax(0, 1fr) max-content;" in response.text
+    assert "background: transparent;" in response.text
     assert "Choose the narrowest sign-in path" not in response.text
 
 

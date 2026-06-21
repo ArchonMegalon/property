@@ -43,7 +43,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/disclaimers": "PropertyQuarry Disclaimers Generated visualization",
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
         "https://propertyquarry.com/sign-in": (
-            'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+            'PropertyQuarry Use your current session, secure email link, or connected identity. Identity only '
             '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
         ),
         "https://propertyquarry.com/manifest.webmanifest": (
@@ -58,7 +58,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
         "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc>",
-        "https://propertyquarry.com/app/properties": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only.",
+        "https://propertyquarry.com/app/properties": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity only",
     }
 
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
@@ -155,7 +155,7 @@ def test_live_public_smoke_fails_broken_google_sign_in_redirect_without_network(
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity only '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
                 final_url=url,
             )
@@ -179,7 +179,7 @@ def test_live_public_smoke_fails_facebook_email_scope_without_network() -> None:
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity only '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<a href="/sign-in/facebook" data-submitting-label="Opening Facebook...">Continue with Facebook</a>',
                 final_url=url,
@@ -221,7 +221,7 @@ def test_live_public_smoke_accepts_id_austria_identity_redirect_without_network(
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity only '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
                 final_url=url,
@@ -264,7 +264,7 @@ def test_live_public_smoke_fails_broken_id_austria_redirect_without_network() ->
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity only '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
                 final_url=url,
