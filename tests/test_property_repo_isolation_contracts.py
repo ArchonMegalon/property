@@ -10,6 +10,32 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def test_property_release_scripts_bootstrap_repo_local_app_imports() -> None:
+    script_paths = [
+        *sorted((ROOT / "scripts").glob("propertyquarry_*.py")),
+        *sorted((ROOT / "scripts").glob("check_property_*.py")),
+        *sorted((ROOT / "scripts").glob("verify_*property*.py")),
+    ]
+    offenders: list[str] = []
+    for path in script_paths:
+        body = path.read_text(encoding="utf-8")
+        if "from app." not in body and "import app." not in body:
+            continue
+        bootstraps_ea = (
+            "sys.path.insert" in body
+            and (
+                'ROOT / "ea"' in body
+                or "ROOT / 'ea'" in body
+                or 'EA_ROOT = ROOT / "ea"' in body
+                or "EA_ROOT = ROOT / 'ea'" in body
+            )
+        )
+        if not bootstraps_ea:
+            offenders.append(str(path.relative_to(ROOT)))
+
+    assert offenders == []
+
+
 def test_repo_isolation_quarantines_inherited_docs() -> None:
     script = _read("scripts/check_property_repo_isolation.py")
     dockerignore = _read(".dockerignore")
