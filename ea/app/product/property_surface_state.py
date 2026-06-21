@@ -227,7 +227,7 @@ def build_property_run_repair_snapshot(
             failed_total += 1
     repair_step = str(summary.get("repair_step_label") or "").strip()
     if not repair_step and failed_total:
-        repair_step = f"Retrying {failed_total} selected source{'s' if failed_total != 1 else ''}"
+        repair_step = f"Retrying {failed_total} provider check{'s' if failed_total != 1 else ''}"
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
@@ -261,11 +261,11 @@ def build_property_run_repair_snapshot(
     repair_outcome_summary = str(summary.get("repair_outcome_summary") or "").strip()
     if not repair_outcome_summary:
         if status == "completed_partial":
-            repair_outcome_summary = "The shortlist is ready, but one or more sources finished degraded."
+            repair_outcome_summary = "The shortlist is ready, but one or more provider checks finished degraded."
         elif failed_total and results_total > 0:
-            repair_outcome_summary = "Some selected sources are retrying, but the current shortlist is already usable."
+            repair_outcome_summary = "Some provider checks are retrying, but the current shortlist is already usable."
         elif failed_total:
-            repair_outcome_summary = "Some selected sources are retrying before the shortlist can settle."
+            repair_outcome_summary = "Some provider checks are retrying before the shortlist can settle."
     return PropertyRunRepairSnapshot(
         repair_status=repair_status,
         repair_status_label=repair_status_label,
@@ -306,19 +306,19 @@ def build_property_run_reliability_snapshot(
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
-            customer_status = message or "Search finished with partial coverage after one or more selected sources degraded."
+            customer_status = message or "Search finished with partial coverage after one or more provider checks degraded."
         elif status == "failed":
             customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
-            customer_status = "Some selected sources are retrying, but the current shortlist is already usable."
+            customer_status = "Some provider checks are retrying, but the current shortlist is already usable."
         elif failed_total:
-            customer_status = "Some selected sources are retrying before the shortlist can settle."
+            customer_status = "Some provider checks are retrying before the shortlist can settle."
         elif results_total > 0:
             customer_status = "Strongest verified matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
-            customer_status = "Selected sources are being checked and the first shortlist is still building."
+            customer_status = "Provider checks are running and the first shortlist is still building."
         else:
-            customer_status = message or "Preparing the first source lanes."
+            customer_status = message or "Preparing provider checks."
     if status in {"processed", "completed"}:
         health_tone = "good"
         health_label = "Healthy"
@@ -368,7 +368,7 @@ def build_property_run_reliability_snapshot(
 def _compact_run_message(value: object) -> str:
     text = str(value or "").strip()
     if not text:
-        return "Waiting for the first source update."
+        return "Waiting for the first provider update."
     candidate_match = re.search(r"(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
     if candidate_match:
         return f"{candidate_match.group(1)} / {candidate_match.group(2)}"
@@ -385,7 +385,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "raw": "",
             "fraction_label": "",
             "source_label": "",
-            "phase_label": "Waiting for the first source update.",
+            "phase_label": "Waiting for the first provider update.",
         }
     source_match = re.search(r"\sfor\s+(.+?)\.?$", text, flags=re.IGNORECASE)
     candidate_match = re.search(r"^(Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)", text, flags=re.IGNORECASE)
@@ -706,13 +706,13 @@ def build_property_run_live_board_snapshot(
     aggregate_label = f"{reviewed_total} homes reviewed"
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} still waiting on floorplans"
-    phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first source update."
+    phase_label = str(current_info.get("phase_label") or "").strip() or "Waiting for the first provider update."
     candidate_reason_label = _latest_property_run_candidate_reason_label(payload)
     if current_info.get("fraction_label") and candidate_reason_label:
         phase_label = candidate_reason_label
-    if phase_label == "Waiting for the first source update." and packet_prepared > 0 and str(payload.get("current_step") or "").strip().lower() == "source_review_packet":
+    if phase_label == "Waiting for the first provider update." and packet_prepared > 0 and str(payload.get("current_step") or "").strip().lower() == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
-    elif phase_label == "Waiting for the first source update." and shortlist_ready > 0 and str(payload.get("current_step") or "").strip().lower() == "source_shortlist":
+    elif phase_label == "Waiting for the first provider update." and shortlist_ready > 0 and str(payload.get("current_step") or "").strip().lower() == "source_shortlist":
         phase_label = f"{shortlist_ready} shortlist homes ready"
 
     normalized_rows: list[dict[str, object]] = []
@@ -788,12 +788,12 @@ def build_property_run_live_board_snapshot(
             tone = "warn"
         else:
             tone = "queued"
-        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing selected source" if status_label == "Starting" else ("Waiting for a selected source" if source_rows else "Ready when you start")))
+        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing provider check" if status_label == "Starting" else ("Waiting for a provider check" if source_rows else "Ready when you start")))
         group_key = _source_provider_group(source or {})
         shard_count = max(0, len([row for row in raw_worker_queue if _source_provider_group(row) == group_key]) - 1) if source else 0
         worker_lanes.append(
             {
-                "label": _compact_property_provider_label(provider) if source else ("Preparing source" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
+                "label": _compact_property_provider_label(provider) if source else ("Preparing" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
                 "provider": provider,
                 "shard_count": shard_count,
                 "status_label": status_label,
@@ -822,7 +822,7 @@ def build_property_run_live_board_snapshot(
             )
         ):
             provider_total = inferred_provider_total
-    scan_total_label = f"{provider_total} providers" if provider_total else f"{source_total} sources"
+    scan_total_label = f"{provider_total} providers" if provider_total else f"{source_total} provider checks"
     provider_label = _compact_property_provider_label(provider_full_label or scan_total_label)
     provider_total = _positive_int(summary.get("provider_total"))
     if not source_rows and source_total and provider_total and source_total > provider_total and source_total > 3:
@@ -831,9 +831,9 @@ def build_property_run_live_board_snapshot(
         elif provider_total and source_total > provider_total + 2:
             source_total = provider_total
     if source_rows:
-        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} sources"
+        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} provider checks"
     else:
-        source_count_label = live_info.get("fraction_label") or ("waiting for selected sources" if source_total == 0 else f"0/{source_total} sources")
+        source_count_label = live_info.get("fraction_label") or ("waiting for provider checks" if source_total == 0 else f"0/{source_total} provider checks")
     summary_label = (
         f"{scan_total_label} · {provider_label} · {live_info.get('fraction_label')}"
         if provider_full_label and live_info.get("fraction_label")
@@ -1241,13 +1241,13 @@ def build_property_empty_outcome_summary(
         still_worked = "The brief was saved; the replacement run is now active."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected sources."
+            f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
         )
     else:
         still_worked = (
-            f"The selected sources covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"The selected providers covered {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
-            else "The brief and selected sources were still saved."
+            else "The brief and selected providers were still saved."
         )
     if status_value == "failed":
         next_move = "Wait for repair; this page updates quietly every 10s and will move to the usable run when one is ready."

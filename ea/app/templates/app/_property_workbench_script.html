@@ -715,7 +715,7 @@
     ]);
     const compactRunMessage = (value) => {
       const text = String(value || '').trim();
-      if (!text) return 'Waiting for the first source update.';
+      if (!text) return 'Waiting for the first provider update.';
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) return `${candidateMatch[1]} / ${candidateMatch[2]}`;
       const shortlistMatch = text.match(/^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$/i);
@@ -724,7 +724,7 @@
     };
     const parseRunMessageInfo = (value) => {
       const text = String(value || '').trim();
-      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first source update.' };
+      if (!text) return { raw: '', fraction: '', sourceLabel: '', phaseLabel: 'Waiting for the first provider update.' };
       const sourceMatch = text.match(/\sfor\s+(.+?)\.?$/i);
       const candidateMatch = text.match(/^(Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) {
@@ -1046,7 +1046,7 @@
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
-      const checkedLabel = reviewed > 0 ? `${reviewed} homes reviewed` : 'checking selected sources';
+      const checkedLabel = reviewed > 0 ? `${reviewed} homes reviewed` : 'checking';
       const scanLabel = providerDisplayTotal
         ? `${providerDisplayTotal} providers · ${checkedLabel}`
         : checkedLabel;
@@ -1328,10 +1328,10 @@
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
-      const checkedLabel = reviewed > 0 ? `${reviewed} homes checked` : 'Checking selected sources';
+      const checkedLabel = reviewed > 0 ? `${reviewed} homes checked` : 'checking';
       const scanCountLabel = providerDisplayTotal
         ? `${providerDisplayTotal} providers · ${checkedLabel}`
-        : (reviewed > 0 ? checkedLabel : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking selected sources' : 'Search warming up'));
+        : (reviewed > 0 ? checkedLabel : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking providers' : 'Search warming up'));
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -1354,7 +1354,7 @@
         return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
       }).join('');
       const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
-      let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first source update.';
+      let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first provider update.';
       const latestReason = latestCandidateReasonLabel(runPayload);
       if (liveInfo.fraction && latestReason) {
         phaseMeta = latestReason;
@@ -1465,7 +1465,7 @@
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting for selected sources' : 'Ready when you start')));
+        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting for providers' : 'Ready when you start')));
         return {
           label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting' : 'Ready')),
           provider,

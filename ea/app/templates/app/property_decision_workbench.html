@@ -217,13 +217,13 @@
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
 {% set provider_display_total = (run.get('provider_display_total') or provider_total)|int %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
-{% set checked_label = listing_total|string ~ ' homes checked' if listing_total > 0 else 'Checking selected sources' %}
+{% set checked_label = listing_total|string ~ ' homes checked' if listing_total > 0 else 'checking' %}
 {% if provider_display_total > 0 %}
 {% set scan_count_label = provider_display_total|string ~ ' providers · ' ~ checked_label %}
 {% elif listing_total > 0 %}
 {% set scan_count_label = checked_label %}
 {% elif source_completed > 0 or source_total > 0 %}
-{% set scan_count_label = 'Checking selected sources' %}
+{% set scan_count_label = 'Checking providers' %}
 {% else %}
 {% set scan_count_label = 'Search warming up' %}
 {% endif %}
@@ -246,7 +246,7 @@
       <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
       <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
     </div>
-    <span class="pqx-note">{{ run.get('message') or 'Waiting for the first source update.' }}</span>
+    <span class="pqx-note">{{ run.get('message') or 'Waiting for the first provider update.' }}</span>
     <div class="pqx-progress-meter under-source" aria-hidden="true">
       <i class="pqx-progress-meter-fill" style="--progress: {{ run_progress if run_progress > 0 else (100 if status in ['processed', 'completed', 'completed_partial'] else 4) }}"></i>
     </div>

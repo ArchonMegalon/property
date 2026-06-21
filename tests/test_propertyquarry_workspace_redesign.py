@@ -3608,7 +3608,8 @@ def test_property_run_live_board_sanitizes_stale_source_counts_without_source_ro
     )
 
     assert "156" not in snapshot["source_count_label"]
-    assert snapshot["source_count_label"] in {"0/3 sources", "waiting for selected sources"}
+    assert snapshot["source_count_label"] in {"0/3 provider checks", "waiting for provider checks"}
+    assert "selected sources" not in snapshot["source_count_label"]
 
 
 def test_property_run_live_board_marks_school_route_risk_as_score_only() -> None:
@@ -3789,9 +3790,11 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Repairing"
-    assert reliability["repair_step_label"] == "Retrying 1 selected source"
+    assert reliability["repair_step_label"] == "Retrying 1 provider check"
     assert reliability["coverage_label"] == "2/4 provider checks · 2 still running"
     assert "sources checked" not in reliability["coverage_label"]
+    assert "selected source" not in reliability["repair_step_label"].lower()
+    assert "selected sources" not in reliability["customer_status_message"].lower()
     assert reliability["result_label"] == "3 ranked results ready"
     assert reliability["filtered_label"] == "7 filtered by active rules"
     assert reliability["repair"]["repair_status"] == "repairing"
@@ -3841,8 +3844,9 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
 
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Repairing"
-    assert repair["repair_step_label"] == "Retrying 1 selected source"
-    assert repair["repair_outcome_summary"] == "Some selected sources are retrying, but the current shortlist is already usable."
+    assert repair["repair_step_label"] == "Retrying 1 provider check"
+    assert repair["repair_outcome_summary"] == "Some provider checks are retrying, but the current shortlist is already usable."
+    assert "selected sources" not in " ".join(str(value) for value in repair.values()).lower()
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
 
@@ -3866,7 +3870,7 @@ def test_property_surface_state_builds_run_reliability_snapshot() -> None:
     )
 
     assert reliability["health_label"] == "Partial coverage"
-    assert reliability["repair_step_label"] == "Retrying 1 selected source"
+    assert reliability["repair_step_label"] == "Retrying 1 provider check"
     assert reliability["repair"]["repair_status"] == "degraded"
     assert reliability["customer_status_message"] == "One provider stayed degraded."
 
@@ -6953,7 +6957,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
     assert "<span>Providers</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
-    assert "The selected sources covered 2160 listings." in response.text
+    assert "The selected providers covered 2160 listings." in response.text
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
@@ -8229,7 +8233,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
 
     combined = " ".join(str(value) for value in summary.values())
     assert summary["happened"] == "Repair is retrying the interrupted search."
-    assert "The brief and selected sources were still saved." in combined
+    assert "The brief and selected providers were still saved." in combined
     assert "Repair took over before any listing inspection completed." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
@@ -8265,7 +8269,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "No valid homes survived inside the selected area."
-    assert "361 candidates returned by the selected sources" in summary["still_worked"]
+    assert "361 candidates returned by the selected providers" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "provider overview pages" in summary["eta_feedback"]
     assert "receipts" not in " ".join(summary.values()).lower()
