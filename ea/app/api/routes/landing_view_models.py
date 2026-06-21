@@ -686,10 +686,12 @@ def _png_file_to_data_url(path: Path) -> str:
 def _preview_zoom_for_bounds(
     bounds: tuple[float, float, float, float],
     *,
+    fit_bounds: tuple[float, float, float, float] | None = None,
     width: int = 640,
     height: int = 368,
     min_zoom: int = 3,
     max_zoom: int = 16,
+    min_margin_px: float = 16.0,
 ) -> int:
     west, south, east, north = bounds
     lon_span = max(abs(east - west), 0.0005)
@@ -699,8 +701,33 @@ def _preview_zoom_for_bounds(
     mercator_south = _mercator_fraction_y(south)
     y_span = max(abs(mercator_south - mercator_north), 0.000001)
     zoom_y = math.log2(height / (y_span * world_width))
-    zoom = int(max(min_zoom, min(max_zoom, math.floor(min(zoom_x, zoom_y) - 0.05))))
-    return zoom
+    base_zoom = int(max(min_zoom, min(max_zoom, math.floor(min(zoom_x, zoom_y) - 0.05))))
+    center_lon = (west + east) / 2.0
+    center_lat = (south + north) / 2.0
+    fit_west, fit_south, fit_east, fit_north = fit_bounds or bounds
+    rect_points = [(fit_west, fit_south), (fit_east, fit_south), (fit_east, fit_north), (fit_west, fit_north)]
+    for zoom in range(min(max_zoom, base_zoom + 2), min_zoom - 1, -1):
+        preview_bounds = _tile_crop_geo_bounds(
+            center_lat=center_lat,
+            center_lon=center_lon,
+            zoom=zoom,
+            width=width,
+            height=height,
+        )
+        path, _ = _project_lonlat_to_preview_path(rect_points, preview_bounds, width=float(width), height=float(height))
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
+        xs = numbers[0::2]
+        ys = numbers[1::2]
+        if not xs or not ys:
+            continue
+        if (
+            min(xs) >= min_margin_px
+            and max(xs) <= width - min_margin_px
+            and min(ys) >= min_margin_px
+            and max(ys) <= height - min_margin_px
+        ):
+            return zoom
+    return base_zoom
 
 
 def _cached_preview_png_path(
@@ -1218,7 +1245,7 @@ def _build_scope_boundary_preview(
 
     center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
     center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
-    zoom = _preview_zoom_for_bounds(render_bounds)
+    zoom = _preview_zoom_for_bounds(render_bounds, fit_bounds=union_bounds)
     preview_bounds = _tile_crop_geo_bounds(center_lat=center_lat, center_lon=center_lon, zoom=zoom, width=640, height=368)
 
     district_rows: list[dict[str, object]] = []

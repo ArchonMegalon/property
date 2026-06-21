@@ -2513,6 +2513,22 @@ def test_property_scope_preview_boundary_framing_adds_small_map_breathing_room()
     assert lat_pad <= lat_span * 0.23
 
 
+def test_property_scope_preview_zoom_uses_tightest_unclipped_tile_crop() -> None:
+    single_district_raw_bounds = (16.365, 48.197, 16.456, 48.235)
+    single_district_bounds = landing_view_models._expand_geo_bounds(single_district_raw_bounds)
+    assert landing_view_models._preview_zoom_for_bounds(
+        single_district_bounds,
+        fit_bounds=single_district_raw_bounds,
+    ) == 13
+
+    adjacent_district_raw_bounds = (16.35, 48.197, 16.456, 48.26)
+    adjacent_district_bounds = landing_view_models._expand_geo_bounds(adjacent_district_raw_bounds)
+    assert landing_view_models._preview_zoom_for_bounds(
+        adjacent_district_bounds,
+        fit_bounds=adjacent_district_raw_bounds,
+    ) == 12
+
+
 def test_property_scope_preview_map_only_never_uses_point_thumbnail(monkeypatch) -> None:
     monkeypatch.setattr(landing_view_models, "_build_scope_boundary_preview", lambda **kwargs: {})
     monkeypatch.setattr(
