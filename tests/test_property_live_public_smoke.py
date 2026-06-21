@@ -214,6 +214,91 @@ def test_live_public_smoke_fails_facebook_email_scope_without_network() -> None:
     assert any(check["name"] == "facebook_no_email_scope" and check["ok"] is False for check in rows["/sign-in/facebook"]["checks"])
 
 
+def test_live_public_smoke_accepts_id_austria_identity_redirect_without_network() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/sign-in"):
+            return _fake_response(
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+                '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
+                final_url=url,
+            )
+        if url.endswith("/sign-in/google"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={
+                    "Location": (
+                        "https://accounts.google.com/o/oauth2/v2/auth?"
+                        "scope=openid+email+profile&redirect_uri=https%3A%2F%2Fpropertyquarry.com%2Fgoogle%2Fcallback&state=s"
+                    )
+                },
+            )
+        if url.endswith("/sign-in/id-austria"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={
+                    "Location": (
+                        "https://idp.id-austria.gv.at/auth/idp/profile/oidc/authorize?"
+                        "scope=openid+profile&redirect_uri=https%3A%2F%2Fpropertyquarry.com%2Fid-austria%2Fcallback&state=s"
+                    )
+                },
+            )
+        return _fake_response("PropertyQuarry", final_url=url)
+
+    receipt = build_live_public_smoke_receipt(routes=("/sign-in",), fetcher=fetcher)
+
+    assert receipt["status"] == "pass"
+    rows = {row["path"]: row for row in receipt["checks"]}
+    assert any(check["name"] == "id_austria_redirect_host" and check["ok"] is True for check in rows["/sign-in/id-austria"]["checks"])
+    assert any(check["name"] == "id_austria_identity_scope" and check["ok"] is True for check in rows["/sign-in/id-austria"]["checks"])
+
+
+def test_live_public_smoke_fails_broken_id_austria_redirect_without_network() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/sign-in"):
+            return _fake_response(
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+                '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
+                final_url=url,
+            )
+        if url.endswith("/sign-in/google"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={
+                    "Location": (
+                        "https://accounts.google.com/o/oauth2/v2/auth?"
+                        "scope=openid+email+profile&redirect_uri=https%3A%2F%2Fpropertyquarry.com%2Fgoogle%2Fcallback&state=s"
+                    )
+                },
+            )
+        if url.endswith("/sign-in/id-austria"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={
+                    "Location": (
+                        "https://evil.example.test/auth?"
+                        "scope=openid+profile&redirect_uri=https%3A%2F%2Fpropertyquarry.com%2Fid-austria%2Fcallback&state=s"
+                    )
+                },
+            )
+        return _fake_response("PropertyQuarry", final_url=url)
+
+    receipt = build_live_public_smoke_receipt(routes=("/sign-in",), fetcher=fetcher)
+
+    assert receipt["status"] == "fail"
+    rows = {row["path"]: row for row in receipt["checks"]}
+    assert any(check["name"] == "id_austria_redirect_host" and check["ok"] is False for check in rows["/sign-in/id-austria"]["checks"])
+
+
 def test_live_public_smoke_accepts_localhost_sitemap_origin_without_network() -> None:
     receipt = build_live_public_smoke_receipt(
         base_url="http://localhost:18101",
