@@ -164,6 +164,7 @@ from app.product.workspace_access_storage import (
     put_workspace_access_session_record,
     update_workspace_access_session_record,
     workspace_access_token_hash,
+    workspace_access_token_last4,
 )
 from app.product.property_search_run_state import (
     property_search_run_apply_event as _state_property_search_run_apply_event,
@@ -36656,8 +36657,11 @@ class ProductService:
                 if payload_property_url:
                     if payload_property_url != wanted_property_url:
                         continue
-                elif urllib.parse.urldefrag(wanted_source)[0] != wanted_property_url:
-                    continue
+                else:
+                    source_url_candidate = urllib.parse.urldefrag(wanted_source)[0]
+                    parsed_source_url = urllib.parse.urlparse(source_url_candidate)
+                    if parsed_source_url.scheme and parsed_source_url.netloc and source_url_candidate != wanted_property_url:
+                        continue
             return {
                 "event_type": str(getattr(row, "event_type", "") or "").strip(),
                 "payload": payload,
@@ -40306,6 +40310,8 @@ class ProductService:
                 continue
             if event_type == "workspace_access_session_issued" and session_id not in sessions:
                 normalized_role = str(payload.get("role") or "principal").strip().lower() or "principal"
+                legacy_access_token = str(payload.get("access_token") or "").strip()
+                legacy_launch_token = str(payload.get("access_launch_token") or "").strip()
                 sessions[session_id] = {
                     "session_id": session_id,
                     "principal_id": str(payload.get("principal_id") or principal_id).strip(),
@@ -40319,10 +40325,14 @@ class ProductService:
                     "revoked_at": "",
                     "revoked_by": "",
                     "expires_at": str(payload.get("expires_at") or "").strip(),
-                    "access_token": str(payload.get("access_token") or "").strip(),
-                    "access_url": str(payload.get("access_url") or "").strip(),
-                    "access_launch_token": str(payload.get("access_launch_token") or "").strip(),
-                    "access_launch_url": str(payload.get("access_launch_url") or "").strip(),
+                    "access_token": "",
+                    "access_url": "",
+                    "access_launch_token": "",
+                    "access_launch_url": "",
+                    "access_token_hash": str(payload.get("access_token_hash") or workspace_access_token_hash(legacy_access_token)).strip(),
+                    "access_token_last4": str(payload.get("access_token_last4") or workspace_access_token_last4(legacy_access_token)).strip(),
+                    "access_launch_token_hash": str(payload.get("access_launch_token_hash") or workspace_access_token_hash(legacy_launch_token)).strip(),
+                    "access_launch_token_last4": str(payload.get("access_launch_token_last4") or workspace_access_token_last4(legacy_launch_token)).strip(),
                     "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/properties")).strip(),
                 }
             elif event_type == "workspace_access_session_revoked" and session_id in sessions:

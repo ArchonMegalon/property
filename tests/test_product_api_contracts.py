@@ -19949,6 +19949,49 @@ def test_workspace_access_revocation_survives_recent_observation_window_noise() 
     assert blocked.status_code == 404
 
 
+def test_legacy_workspace_access_events_do_not_rehydrate_raw_tokens() -> None:
+    principal_id = "exec-product-access-legacy-token-redaction"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Legacy Access Redaction")
+    product = ProductService(client.app.state.container)
+
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="test",
+        event_type="workspace_access_session_issued",
+        payload={
+            "session_id": "legacy-access-session",
+            "principal_id": principal_id,
+            "email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Access",
+            "source_kind": "legacy_event",
+            "issued_at": "2026-06-21T10:00:00+00:00",
+            "status": "active",
+            "expires_at": "2026-06-22T10:00:00+00:00",
+            "access_token": "raw-session-token",
+            "access_url": "/workspace-access/raw-session-token",
+            "access_launch_token": "raw-launch-token",
+            "access_launch_url": "/workspace-access/raw-launch-token",
+            "default_target": "/app/properties",
+        },
+        source_id="legacy-access-session",
+    )
+
+    sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=20)
+    legacy = next(row for row in sessions if row.get("session_id") == "legacy-access-session")
+    assert legacy["access_token"] == ""
+    assert legacy["access_url"] == ""
+    assert legacy["access_launch_token"] == ""
+    assert legacy["access_launch_url"] == ""
+    assert legacy["access_token_hash"]
+    assert legacy["access_launch_token_hash"]
+    assert legacy["access_token_last4"] == "oken"
+    assert legacy["access_launch_token_last4"] == "oken"
+    assert "raw-session-token" not in json.dumps(legacy)
+    assert "raw-launch-token" not in json.dumps(legacy)
+
+
 def test_workspace_access_launch_link_is_one_time_cookie_exchange() -> None:
     principal_id = "exec-product-access-launch-one-time"
     client = build_product_client(principal_id=principal_id)
