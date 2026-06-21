@@ -174,8 +174,10 @@ def complete_facebook_oauth_callback(
             raise RuntimeError("facebook_oauth_principal_missing")
     returned_scope_text = str(token_payload.get("scope") or "").strip()
     returned_scopes = _split_scope_text(returned_scope_text)
-    granted_scopes = returned_scopes or FACEBOOK_SCOPE_IDENTITY
-    granted_scopes_source = "facebook_token_response" if returned_scopes else "requested_scope_fallback"
+    if not returned_scopes:
+        raise RuntimeError("facebook_oauth_granted_scopes_missing")
+    granted_scopes = returned_scopes
+    granted_scopes_source = "facebook_token_response"
     expires_in = _safe_int(token_payload.get("expires_in"), default=0)
     access_token_expires_at = _utc_iso_after_seconds(expires_in) if expires_in > 0 else ""
     binding_id = _primary_facebook_binding_id(principal_id)
