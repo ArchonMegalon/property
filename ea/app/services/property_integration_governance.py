@@ -232,6 +232,29 @@ def property_integration_governance_lanes() -> tuple[PropertyIntegrationLane, ..
             fail_closed_rule="Audio remains a candidate artifact until transcript, disclosure, rights, and human-review gates pass.",
         ),
         PropertyIntegrationLane(
+            provider_key="brilliant_directories",
+            title="Brilliant Directories",
+            priority=6,
+            product_lane="public_directory_projection",
+            rollout_state="directory_projection_disabled",
+            allowed_use="Public partner, provider, agent, relocation, and local-service directory profile projection after rights review.",
+            forbidden_use=(
+                "Cannot own property facts, listing truth, ranking, search scope, user preferences, billing, publication approval, "
+                "or private contact details."
+            ),
+            source_of_truth="PropertyQuarry owns directory publication approval, property state, ranking, search context, and all customer data.",
+            allowed_inputs=("public_directory_profile", "category_filter", "public_profile_import_receipt"),
+            forbidden_inputs=_COMMON_FORBIDDEN_INPUTS
+            + ("private_contact_detail", "property_fact_payload", "ranking_context", "search_run_payload"),
+            allowed_data_classes=("public_directory_profile", "directory_import_receipt", "directory_export_receipt"),
+            exact_address_allowed=False,
+            private_documents_allowed=False,
+            enabled_env=("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED"),
+            kill_switch_env=("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED",),
+            verification_required=("api_key_receipt", "allowed_host_receipt", "public_field_rights_review", "delete_export_behavior"),
+            fail_closed_rule="Directory output remains unpublished until public-field rights and human approval are recorded.",
+        ),
+        PropertyIntegrationLane(
             provider_key="deftform",
             title="Deftform",
             priority=6,

@@ -24,6 +24,7 @@ def test_property_integration_governance_covers_recommended_ltd_lanes(monkeypatc
         "internxt",
         "approvethis",
         "unmixr",
+        "brilliant_directories",
         "deftform",
     } <= set(lanes)
     assert lanes["metasurvey"].priority == 1
@@ -45,6 +46,7 @@ def test_property_integration_governance_keeps_propertyquarry_canonical() -> Non
     assert "cannot ingest the whole repository" in forbidden_text
     assert "not live storage" in forbidden_text
     assert "cannot replace propertyquarry policy" in forbidden_text
+    assert "cannot own property facts" in forbidden_text
 
 
 def test_property_integration_governance_privacy_defaults_fail_closed() -> None:

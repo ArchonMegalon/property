@@ -34,6 +34,7 @@ Runs the focused PropertyQuarry release bundle:
   - PayFunnels checkout, webhook, refund, mismatch, and billing-surface contracts
   - live provider smoke receipt contracts
   - property artifact provider and sent-link manifest contracts
+  - Brilliant Directories public-directory projection contracts
   - privacy-safe Rybbit analytics snippet contracts
   - Telegram titled-link delivery contracts
   - property browser journey contracts
@@ -56,6 +57,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_teable_portability.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
@@ -94,6 +96,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_media_factory.py \
   tests/test_property_artifact_contracts.py \
   tests/test_property_integration_governance.py \
+  tests/test_brilliant_directories_integration.py \
   tests/test_subscribr_client_contracts.py \
   tests/test_property_content_source_packets.py \
   tests/test_property_content_validation.py \

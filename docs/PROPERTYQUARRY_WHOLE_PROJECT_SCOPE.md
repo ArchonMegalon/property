@@ -24,7 +24,7 @@ Whole-project work includes every system below:
 14. Accessibility, responsive layout, keyboard navigation, focus state, contrast, reduced motion, and screen-reader labels.
 15. Observability: SLOs, structured logs, queue depth, provider success, cost per run, incident signals, and live smoke checks.
 16. Documentation, help center, legal pages, provider attribution, generated-tour disclaimers, and localization.
-17. Integration governance for LTD/provider lanes such as Subscribr, MetaSurvey, ApiX-Drive, Invoiless, Lunacal, Documentation.AI, Paperguide, Internxt, ApproveThis, and Unmixr.
+17. Integration governance for LTD/provider lanes such as Subscribr, MetaSurvey, ApiX-Drive, Invoiless, Lunacal, Documentation.AI, Paperguide, Internxt, ApproveThis, Unmixr, and Brilliant Directories.
 
 ## Definition Of Done
 
