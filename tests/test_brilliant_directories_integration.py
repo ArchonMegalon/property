@@ -16,11 +16,40 @@ from app.services.brilliant_directories import (
     build_brilliant_directories_projection_packet,
     build_brilliant_directories_verification_receipt,
     build_directory_profile_projection,
+    execute_brilliant_directories_api_request,
+    fetch_brilliant_directories_member_projection_packet,
     load_brilliant_directories_config,
 )
+from app.services import brilliant_directories as brilliant_directories_service
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class _FakeBrilliantDirectoriesResponse:
+    def __init__(self, body: bytes, *, content_type: str = "application/json") -> None:
+        self._body = body
+        self._content_type = content_type
+
+    def getheader(self, name: str, default: str = "") -> str:
+        if name.lower() == "content-type":
+            return self._content_type
+        return default
+
+    def read(self, size: int = -1) -> bytes:
+        if size is not None and size >= 0:
+            return self._body[:size]
+        return self._body
+
+
+class _FakeBrilliantDirectoriesOpener:
+    def __init__(self, response: _FakeBrilliantDirectoriesResponse) -> None:
+        self.response = response
+        self.requests: list[object] = []
+
+    def open(self, request, timeout: float = 0):  # noqa: ANN001
+        self.requests.append(request)
+        return self.response
 
 
 def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,6 +177,108 @@ def test_brilliant_directories_member_search_request_uses_official_form_payload(
     assert "limit=100" in body
 
 
+def test_brilliant_directories_member_search_request_does_not_duplicate_api_v2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example/api/v2")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+
+    request = build_brilliant_directories_member_search_request(
+        load_brilliant_directories_config(),
+        keyword="relocation",
+    )
+
+    assert request.url == "https://directory.example/api/v2/user/search"
+    assert "/api/v2/api/v2/" not in request.url
+
+
+def test_brilliant_directories_executor_reads_json_without_leaking_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    config = load_brilliant_directories_config()
+    request = build_brilliant_directories_member_search_request(config, keyword="relocation")
+    opener = _FakeBrilliantDirectoriesOpener(
+        _FakeBrilliantDirectoriesResponse(b'{"message":[{"user_id":"7","company":"Public Advisor"}]}')
+    )
+
+    payload = execute_brilliant_directories_api_request(request, opener=opener)
+
+    assert payload["message"][0]["company"] == "Public Advisor"  # type: ignore[index]
+    assert opener.requests
+    sent = opener.requests[0]
+    assert sent.get_full_url() == "https://directory.example/api/v2/user/search"
+    assert sent.get_header("X-api-key") == "bd-secret-token" or sent.get_header("X-Api-Key") == "bd-secret-token"
+    assert request.redacted_receipt()["headers"]["X-Api-Key"] == "[redacted]"
+    assert "bd-secret-token" not in json.dumps(request.redacted_receipt())
+
+
+def test_brilliant_directories_executor_rejects_non_json_and_oversized_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    request = build_brilliant_directories_member_search_request(load_brilliant_directories_config())
+
+    with pytest.raises(BrilliantDirectoriesApiError) as content_type_error:
+        execute_brilliant_directories_api_request(
+            request,
+            opener=_FakeBrilliantDirectoriesOpener(
+                _FakeBrilliantDirectoriesResponse(b"<html></html>", content_type="text/html")
+            ),
+        )
+    assert str(content_type_error.value) == "brilliant_directories_unexpected_content_type"
+
+    monkeypatch.setattr(brilliant_directories_service, "BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES", 8)
+    with pytest.raises(BrilliantDirectoriesApiError) as oversized_error:
+        execute_brilliant_directories_api_request(
+            request,
+            opener=_FakeBrilliantDirectoriesOpener(
+                _FakeBrilliantDirectoriesResponse(b'{"message":[1,2,3]}')
+            ),
+        )
+    assert str(oversized_error.value) == "brilliant_directories_response_too_large"
+
+
+def test_brilliant_directories_executor_blocks_redirects(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    request = build_brilliant_directories_member_search_request(load_brilliant_directories_config())
+
+    class _RedirectingOpener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            import urllib.error
+
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "brilliant_directories_redirect_blocked",
+                {},
+                None,
+            )
+
+    with pytest.raises(BrilliantDirectoriesApiError) as redirect_error:
+        execute_brilliant_directories_api_request(request, opener=_RedirectingOpener())
+    assert str(redirect_error.value) == "brilliant_directories_redirect_blocked"
+
+
 def test_brilliant_directories_projection_allows_public_directory_fields() -> None:
     profile = build_directory_profile_projection(
         {
@@ -217,6 +348,54 @@ def test_brilliant_directories_search_response_strips_private_member_fields() ->
     assert "48.2" not in serialized
     assert "16.3" not in serialized
     assert "Public profile text" not in serialized
+
+
+def test_brilliant_directories_live_style_search_projection_uses_public_fields_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example/api/v2")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    opener = _FakeBrilliantDirectoriesOpener(
+        _FakeBrilliantDirectoriesResponse(
+            json.dumps(
+                {
+                    "message": [
+                        {
+                            "user_id": "24",
+                            "company": "Vienna Relocation Advisors",
+                            "email": "private@example.test",
+                            "phone_number": "+43 1 555",
+                            "filename": "austria/vienna/vienna-relocation-advisors",
+                            "city": "Vienna",
+                            "state_ln": "Vienna",
+                            "country_code": "AT",
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+        )
+    )
+
+    packet = fetch_brilliant_directories_member_projection_packet(
+        load_brilliant_directories_config(),
+        purpose="Public relocation directory",
+        keyword="relocation",
+        city="Vienna",
+        country_code="AT",
+        opener=opener,
+    )
+    payload = packet.as_dict()
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert opener.requests[0].get_full_url() == "https://directory.example/api/v2/user/search"
+    assert payload["profile_count"] == 1
+    assert payload["profiles"][0]["display_name"] == "Vienna Relocation Advisors"
+    assert "private@example.test" not in serialized
+    assert "+43 1 555" not in serialized
 
 
 def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

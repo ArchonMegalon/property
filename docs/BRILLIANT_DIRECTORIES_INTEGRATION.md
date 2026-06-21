@@ -35,7 +35,7 @@ PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR=_completion/brilliant_directories
 ```
 
-The adapter requires HTTPS and an explicit allowed-host list before API requests can be built. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
+The adapter requires HTTPS and an explicit allowed-host list before API requests can be built or executed. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
 
 ## Implemented Local Contract
 
@@ -43,6 +43,7 @@ The runtime contract is intentionally narrow:
 
 - Build redacted, host-allowlisted Brilliant Directories API requests.
 - Build public member-search requests for `/api/v2/user/search`.
+- Execute bounded JSON API requests with redirects blocked, non-JSON responses rejected, and a 2 MB response cap.
 - Project returned member rows into `public_directory_profile` records only.
 - Strip provider contact, address, location-coordinate, billing, token, ranking, property-fact, and private preference fields from provider responses.
 - Keep publication disabled until rights review and human approval exist.
@@ -55,7 +56,7 @@ The adapter does not create users, posts, leads, invoices, reviews, property lis
 PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py
 ```
 
-The default verification is dry and makes no live network request. It writes a redacted provider receipt that records whether configuration is disabled or ready.
+The default verification is dry and makes no live network request. It writes a redacted provider receipt that records whether configuration is disabled or ready, and whether the local request executor, redirect blocking, byte limit, public projection, and private-field stripping contracts are present.
 
 ## Provider Sources
 

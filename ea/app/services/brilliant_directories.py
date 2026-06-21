@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import urllib.error
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
@@ -12,6 +14,7 @@ from typing import Any, Iterable, Mapping
 BRILLIANT_DIRECTORIES_PROVIDER_KEY = "brilliant_directories"
 BRILLIANT_DIRECTORIES_CONTRACT_NAME = "propertyquarry.brilliant_directories_projection.v1"
 BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME = "propertyquarry.brilliant_directories_provider_verification.v1"
+BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 BRILLIANT_DIRECTORIES_PUBLIC_PROFILE_FIELDS = frozenset(
     {
@@ -193,6 +196,11 @@ class BrilliantDirectoriesApiRequest:
             "headers": redacted_headers,
             "body_sha256": hashlib.sha256(self.body or b"").hexdigest() if self.body is not None else "",
         }
+
+
+class _BrilliantDirectoriesNoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        raise urllib.error.HTTPError(req.full_url, code, "brilliant_directories_redirect_blocked", headers, fp)
 
 
 def load_brilliant_directories_config() -> BrilliantDirectoriesConfig:
@@ -442,6 +450,70 @@ def build_brilliant_directories_api_request(
     )
 
 
+def execute_brilliant_directories_api_request(
+    request: BrilliantDirectoriesApiRequest,
+    *,
+    timeout_seconds: float = 30.0,
+    opener: object | None = None,
+) -> dict[str, object]:
+    normalized_url = str(request.url or "").strip()
+    parsed = urllib.parse.urlparse(normalized_url)
+    if parsed.scheme != "https":
+        raise BrilliantDirectoriesApiError(400, "brilliant_directories_https_required")
+    opener = opener or urllib.request.build_opener(_BrilliantDirectoriesNoRedirectHandler())
+    urllib_request = urllib.request.Request(
+        normalized_url,
+        data=request.body,
+        headers=dict(request.headers or {}),
+        method=str(request.method or "GET").upper(),
+    )
+    try:
+        response = opener.open(urllib_request, timeout=float(timeout_seconds or 30.0))  # type: ignore[attr-defined]
+    except urllib.error.HTTPError as exc:
+        reason = str(getattr(exc, "reason", "") or getattr(exc, "msg", "") or exc or "")
+        detail = (
+            "brilliant_directories_redirect_blocked"
+            if int(exc.code) in {301, 302, 303, 307, 308} and "brilliant_directories_redirect_blocked" in reason
+            else f"brilliant_directories_http_{int(exc.code)}"
+        )
+        raise BrilliantDirectoriesApiError(int(exc.code), detail) from exc
+    except urllib.error.URLError as exc:
+        raise BrilliantDirectoriesApiError(502, "brilliant_directories_unreachable") from exc
+
+    content_type = ""
+    try:
+        content_type = str(response.getheader("Content-Type", "") or "").lower()
+    except Exception:
+        content_type = "application/json"
+    if content_type and "json" not in content_type:
+        raise BrilliantDirectoriesApiError(502, "brilliant_directories_unexpected_content_type")
+    try:
+        body = response.read(BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES + 1)
+    except TypeError:
+        body = response.read()
+    if len(body) > BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES:
+        raise BrilliantDirectoriesApiError(502, "brilliant_directories_response_too_large")
+    if not body:
+        return {}
+    try:
+        parsed_body = json.loads(body.decode("utf-8"))
+    except Exception as exc:
+        raise BrilliantDirectoriesApiError(502, "brilliant_directories_invalid_json") from exc
+    if isinstance(parsed_body, dict):
+        return parsed_body
+    if isinstance(parsed_body, list):
+        return {"message": parsed_body}
+    return {"value": parsed_body}
+
+
+def _brilliant_directories_api_v2_path(config: BrilliantDirectoriesConfig, suffix: str) -> str:
+    parsed = urllib.parse.urlparse(config.base_url)
+    normalized_path = "/" + str(parsed.path or "").strip("/")
+    if normalized_path.rstrip("/").endswith("/api/v2"):
+        return "/" + str(suffix or "").strip().lstrip("/")
+    return "/api/v2/" + str(suffix or "").strip().lstrip("/")
+
+
 def build_brilliant_directories_member_search_request(
     config: BrilliantDirectoriesConfig,
     *,
@@ -464,10 +536,40 @@ def build_brilliant_directories_member_search_request(
     return build_brilliant_directories_api_request(
         config,
         "POST",
-        "/api/v2/user/search",
+        _brilliant_directories_api_v2_path(config, "user/search"),
         payload=payload,
         body_format="form",
     )
+
+
+def fetch_brilliant_directories_member_projection_packet(
+    config: BrilliantDirectoriesConfig,
+    *,
+    purpose: str,
+    keyword: str = "",
+    category: str = "",
+    city: str = "",
+    country_code: str = "",
+    page: int = 1,
+    limit: int = 25,
+    timeout_seconds: float = 30.0,
+    opener: object | None = None,
+) -> BrilliantDirectoriesProjectionPacket:
+    request = build_brilliant_directories_member_search_request(
+        config,
+        keyword=keyword,
+        category=category,
+        city=city,
+        country_code=country_code,
+        page=page,
+        limit=limit,
+    )
+    response_payload = execute_brilliant_directories_api_request(
+        request,
+        timeout_seconds=timeout_seconds,
+        opener=opener,
+    )
+    return build_brilliant_directories_projection_packet_from_search_response(response_payload, purpose=purpose)
 
 
 def build_brilliant_directories_projection_packet_from_search_response(
@@ -509,6 +611,9 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
             "api_key_config_contract": True,
             "https_base_url_required": True,
             "allowed_host_required": True,
+            "json_response_executor_contract": True,
+            "response_byte_limit": BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES,
+            "redirects_blocked": True,
             "form_encoded_request_contract": True,
             "public_member_search_projection_contract": True,
             "public_profile_projection_contract": True,
