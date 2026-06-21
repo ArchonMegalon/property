@@ -8,10 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import app.product.service as product_service
+import app.services.propertyquarry_teable_projection as pq_teable_projection
 from app.domain.models import ToolInvocationResult
 from app.services.propertyquarry_teable_projection import (
     PROPERTYQUARRY_TEABLE_TABLE_NAMES,
     build_propertyquarry_teable_projection_records,
+    discover_propertyquarry_teable_table_config,
 )
 from tests.product_test_helpers import build_product_client, start_workspace
 
@@ -448,12 +450,19 @@ def test_propertyquarry_teable_sync_discovers_property_tables_from_base_credenti
     monkeypatch.delenv("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
     monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
     monkeypatch.setenv("TEABLE_API_KEY", "teable-key")
-    monkeypatch.setenv("PROPERTYQUARRY_TEABLE_BASE_ID", "base-propertyquarry")
+    monkeypatch.delenv("PROPERTYQUARRY_TEABLE_BASE_ID", raising=False)
+    monkeypatch.delenv("TEABLE_BASE_ID", raising=False)
     monkeypatch.setenv("TEABLE_BASE_URL", "https://teable.example")
+    discovery_calls: list[dict[str, object]] = []
+
+    def _discover(**kwargs):
+        discovery_calls.append(dict(kwargs))
+        return _propertyquarry_teable_mapping()
+
     monkeypatch.setattr(
         product_service,
         "discover_propertyquarry_teable_table_config",
-        lambda **kwargs: _propertyquarry_teable_mapping(),
+        _discover,
     )
     monkeypatch.setattr(
         container.provider_registry,
@@ -490,6 +499,54 @@ def test_propertyquarry_teable_sync_discovers_property_tables_from_base_credenti
     assert body["provider"]["table_sync_configured"] is True
     assert body["provider"]["missing_tables"] == []
     assert set(body["sync_payload_json"]["table_config_json"]) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+    assert discovery_calls[0]["base_id"] == ""
+    assert discovery_calls[0]["base_name"] == "PropertyQuarry"
+
+
+def test_propertyquarry_teable_table_discovery_resolves_propertyquarry_base_by_name(monkeypatch) -> None:
+    class _FakeResponse:
+        def __init__(self, payload: object) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return self._payload
+
+    def _urlopen(request, timeout=20):  # noqa: ANN001
+        url = str(getattr(request, "full_url", request))
+        if url == "https://teable.example/api/space":
+            return _FakeResponse({"spaces": [{"id": "space-1", "role": "owner"}]})
+        if url == "https://teable.example/api/space/space-1/base":
+            return _FakeResponse(
+                {
+                    "data": [
+                        {"id": "base-other", "name": "Other"},
+                        {"id": "base-pq", "name": "PropertyQuarry"},
+                    ]
+                }
+            )
+        if url == "https://teable.example/api/base/base-pq/table":
+            return _FakeResponse(
+                {"tables": [{"id": f"tbl_{table_name}", "name": table_name} for table_name in PROPERTYQUARRY_TEABLE_TABLE_NAMES]}
+            )
+        raise AssertionError(f"unexpected Teable URL: {url}")
+
+    monkeypatch.setattr(pq_teable_projection.urllib.request, "urlopen", _urlopen)
+
+    config = discover_propertyquarry_teable_table_config(
+        base_url="https://teable.example",
+        api_key="teable-key",
+        base_id="",
+        base_name="PropertyQuarry",
+    )
+
+    assert set(config) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+    assert config["propertyquarry_delivery_settings"]["table_id"] == "tbl_propertyquarry_delivery_settings"
 
 
 def test_propertyquarry_teable_sync_keeps_projection_state_when_migrating_teable_host(monkeypatch) -> None:

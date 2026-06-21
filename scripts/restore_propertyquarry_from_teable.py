@@ -31,7 +31,7 @@ def _jsonable(value: object) -> object:
     return value
 
 
-def _table_config_from_env(*, base_url: str, api_key: str, base_id: str) -> dict[str, dict[str, object]]:
+def _table_config_from_env(*, base_url: str, api_key: str, base_id: str, base_name: str) -> dict[str, dict[str, object]]:
     raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
     if not raw:
         raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
@@ -40,6 +40,7 @@ def _table_config_from_env(*, base_url: str, api_key: str, base_id: str) -> dict
             base_url=base_url,
             api_key=api_key,
             base_id=base_id,
+            base_name=base_name,
         )
         if discovered:
             return discovered
@@ -309,6 +310,7 @@ def main() -> int:
     parser.add_argument("--principal-id", required=True)
     parser.add_argument("--base-url", default=os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai")
     parser.add_argument("--base-id", default=os.environ.get("PROPERTYQUARRY_TEABLE_BASE_ID") or os.environ.get("TEABLE_BASE_ID") or "")
+    parser.add_argument("--base-name", default=os.environ.get("PROPERTYQUARRY_TEABLE_TENANT_NAME") or "PropertyQuarry")
     parser.add_argument("--api-key", default=os.environ.get("TEABLE_API_KEY") or "")
     parser.add_argument("--output", default="")
     parser.add_argument("--apply", action="store_true")
@@ -324,6 +326,7 @@ def main() -> int:
             base_url=str(args.base_url or "https://app.teable.ai"),
             api_key=api_key,
             base_id=str(args.base_id or ""),
+            base_name=str(args.base_name or "PropertyQuarry"),
         ),
     )
     bundle = build_restore_bundle(principal_id=str(args.principal_id), records_by_table=records)

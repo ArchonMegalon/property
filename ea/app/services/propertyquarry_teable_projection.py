@@ -376,19 +376,24 @@ def propertyquarry_teable_table_config_from_table_ids(table_ids: dict[str, str])
     }
 
 
-def discover_propertyquarry_teable_table_config(
-    *,
-    base_url: str,
-    api_key: str,
-    base_id: str,
-) -> dict[str, dict[str, object]]:
+def _teable_items(payload: object, keys: tuple[str, ...]) -> list[dict[str, object]]:
+    if isinstance(payload, list):
+        return [dict(item) for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in keys:
+            rows = payload.get(key)
+            if isinstance(rows, list):
+                return [dict(item) for item in rows if isinstance(item, dict)]
+    return []
+
+
+def _teable_request_json(*, base_url: str, api_key: str, path: str, timeout: int = 20) -> object:
     normalized_base_url = str(base_url or "https://app.teable.ai").strip().rstrip("/")
     normalized_api_key = str(api_key or "").strip()
-    normalized_base_id = str(base_id or "").strip()
-    if not normalized_api_key or not normalized_base_id:
+    if not normalized_api_key:
         return {}
     request = urllib.request.Request(
-        f"{normalized_base_url}/api/base/{urllib.parse.quote(normalized_base_id)}/table",
+        f"{normalized_base_url}{path}",
         method="GET",
         headers={
             "Authorization": f"Bearer {normalized_api_key}",
@@ -397,29 +402,106 @@ def discover_propertyquarry_teable_table_config(
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = response.read().decode("utf-8")
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
         return {}
     try:
-        loaded = json.loads(payload)
+        return json.loads(payload)
     except Exception:
         return {}
-    candidates: list[dict[str, object]] = []
-    if isinstance(loaded, list):
-        candidates = [dict(item) for item in loaded if isinstance(item, dict)]
-    elif isinstance(loaded, dict):
-        for key in ("tables", "data", "items"):
-            rows = loaded.get(key)
-            if isinstance(rows, list):
-                candidates = [dict(item) for item in rows if isinstance(item, dict)]
-                break
+
+
+def _propertyquarry_teable_table_ids_for_base(
+    *,
+    base_url: str,
+    api_key: str,
+    base_id: str,
+) -> dict[str, str]:
+    normalized_base_id = str(base_id or "").strip()
+    if not normalized_base_id:
+        return {}
+    loaded = _teable_request_json(
+        base_url=base_url,
+        api_key=api_key,
+        path=f"/api/base/{urllib.parse.quote(normalized_base_id)}/table",
+    )
     table_ids: dict[str, str] = {}
-    for item in candidates:
+    for item in _teable_items(loaded, ("tables", "data", "items")):
         name = str(item.get("name") or item.get("tableName") or "").strip()
         table_id = str(item.get("id") or item.get("tableId") or "").strip()
         if name and table_id:
             table_ids[name] = table_id
+    return table_ids
+
+
+def discover_propertyquarry_teable_base_id(
+    *,
+    base_url: str,
+    api_key: str,
+    base_name: str = "",
+) -> str:
+    target_name = str(base_name or propertyquarry_teable_tenant_name()).strip().lower() or "propertyquarry"
+    spaces_payload = _teable_request_json(base_url=base_url, api_key=api_key, path="/api/space")
+    spaces = [
+        item
+        for item in _teable_items(spaces_payload, ("spaces", "data", "items"))
+        if str(item.get("id") or "").strip()
+    ]
+    candidate_bases: list[dict[str, object]] = []
+    for space in spaces:
+        space_id = str(space.get("id") or "").strip()
+        bases_payload = _teable_request_json(
+            base_url=base_url,
+            api_key=api_key,
+            path=f"/api/space/{urllib.parse.quote(space_id)}/base",
+        )
+        candidate_bases.extend(_teable_items(bases_payload, ("bases", "data", "items")))
+    normalized_candidates = [
+        {
+            "id": str(item.get("id") or item.get("baseId") or "").strip(),
+            "name": str(item.get("name") or item.get("baseName") or "").strip(),
+        }
+        for item in candidate_bases
+        if str(item.get("id") or item.get("baseId") or "").strip()
+    ]
+    for item in normalized_candidates:
+        if str(item.get("name") or "").strip().lower() == target_name:
+            return str(item.get("id") or "").strip()
+    for item in normalized_candidates:
+        base_id = str(item.get("id") or "").strip()
+        table_ids = _propertyquarry_teable_table_ids_for_base(
+            base_url=base_url,
+            api_key=api_key,
+            base_id=base_id,
+        )
+        if all(str(table_ids.get(table_name) or "").strip() for table_name in PROPERTYQUARRY_TEABLE_TABLE_NAMES):
+            return base_id
+    if len(normalized_candidates) == 1:
+        return str(normalized_candidates[0].get("id") or "").strip()
+    return ""
+
+
+def discover_propertyquarry_teable_table_config(
+    *,
+    base_url: str,
+    api_key: str,
+    base_id: str,
+    base_name: str = "",
+) -> dict[str, dict[str, object]]:
+    normalized_api_key = str(api_key or "").strip()
+    normalized_base_id = str(base_id or "").strip() or discover_propertyquarry_teable_base_id(
+        base_url=base_url,
+        api_key=normalized_api_key,
+        base_name=base_name,
+    )
+    if not normalized_api_key or not normalized_base_id:
+        return {}
+    table_ids = _propertyquarry_teable_table_ids_for_base(
+        base_url=base_url,
+        api_key=normalized_api_key,
+        base_id=normalized_base_id,
+    )
     return propertyquarry_teable_table_config_from_table_ids(table_ids)
 
 

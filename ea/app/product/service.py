@@ -17728,6 +17728,7 @@ class ProductService:
             base_url=str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/"),
             api_key=str(os.environ.get("TEABLE_API_KEY") or "").strip(),
             base_id=str(os.environ.get("PROPERTYQUARRY_TEABLE_BASE_ID") or os.environ.get("TEABLE_BASE_ID") or "").strip(),
+            base_name=str(os.environ.get("PROPERTYQUARRY_TEABLE_TENANT_NAME") or "PropertyQuarry").strip(),
         )
 
     def _propertyquarry_teable_missing_table_mappings(self, config: dict[str, dict[str, object]]) -> list[str]:
