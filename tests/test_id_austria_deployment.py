@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.services.id_austria_oidc import id_austria_provider_readiness
 from scripts.verify_id_austria_provider import build_id_austria_verification_receipt
 
 
@@ -59,6 +60,21 @@ def test_id_austria_verifier_fails_when_required_credentials_are_absent(monkeypa
     assert receipt["configured"] is False
 
 
+def test_id_austria_runtime_readiness_is_safe_for_version_payload(monkeypatch) -> None:
+    _clear_id_austria_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_REQUIRED", "1")
+
+    readiness = id_austria_provider_readiness()
+
+    assert readiness["id_austria_sign_in_status"] == "blocked_missing_configuration"
+    assert readiness["id_austria_sign_in_required"] == "true"
+    assert readiness["id_austria_sign_in_configured"] == "false"
+    assert "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID" in readiness["id_austria_sign_in_missing_env"]
+    assert "PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI" not in readiness["id_austria_sign_in_missing_env"]
+    assert "id_austria_client_id_missing" == readiness["id_austria_sign_in_error"]
+    assert readiness["id_austria_redirect_uri"] == "https://propertyquarry.com/id-austria/callback"
+
+
 def test_id_austria_requires_its_own_state_secret(monkeypatch) -> None:
     _clear_id_austria_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID", "https://propertyquarry.com")
@@ -89,6 +105,14 @@ def test_id_austria_verifier_accepts_configured_oidc_contract(monkeypatch) -> No
     assert receipt["redirect_uri"] == "https://propertyquarry.com/id-austria/callback"
     assert "id-austria-secret" not in serialized
     assert "id-austria-state-secret" not in serialized
+
+    readiness = id_austria_provider_readiness()
+    readiness_serialized = json.dumps(readiness, sort_keys=True)
+    assert readiness["id_austria_sign_in_status"] == "dry_verified_configured"
+    assert readiness["id_austria_sign_in_configured"] == "true"
+    assert readiness["id_austria_sign_in_missing_env"] == ""
+    assert "id-austria-secret" not in readiness_serialized
+    assert "id-austria-state-secret" not in readiness_serialized
 
 
 def test_id_austria_verifier_script_writes_receipt(monkeypatch, tmp_path: Path) -> None:

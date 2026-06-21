@@ -23,6 +23,13 @@ def test_health_ready_and_version() -> None:
     assert version_body["property_search_run_retention_status"] == "enabled"
     assert version_body["property_search_run_retention_seconds"] == "7776000"
     assert version_body["property_search_run_retention_days"] == "90.0"
+    assert version_body["id_austria_sign_in_status"] in {
+        "disabled",
+        "dry_verified_configured",
+        "blocked_missing_configuration",
+    }
+    assert version_body["id_austria_sign_in_configured"] in {"true", "false"}
+    assert "id_austria_sign_in_missing_env" in version_body
 
 
 def test_rewrite_and_policy_audit_flow() -> None:

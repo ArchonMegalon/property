@@ -93,6 +93,13 @@ def test_property_release_gate_runs_heyy_whatsapp_contracts() -> None:
     assert "tests/test_property_heyy_api_contracts.py" in release_gate
 
 
+def test_property_release_gate_runs_id_austria_readiness_contract() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "ID Austria OIDC readiness receipt and Austrian-IP sign-in gating" in release_gate
+    assert "scripts/verify_id_austria_provider.py" in release_gate
+
+
 def test_property_release_gate_runs_offline_ranking_benchmark() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 

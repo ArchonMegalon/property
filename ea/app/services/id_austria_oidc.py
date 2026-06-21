@@ -28,6 +28,12 @@ ID_AUSTRIA_REFERENCE_ISSUER = "https://idp.ref.id-austria.gv.at"
 ID_AUSTRIA_ALLOWED_ALGORITHMS = ("RS256", "RS384", "RS512", "ES256", "ES384", "ES512")
 _ID_AUSTRIA_USED_STATE_KEYS: dict[str, float] = {}
 _ID_AUSTRIA_USED_STATE_CACHE_LIMIT = 5000
+_ID_AUSTRIA_CONFIG_KEYS = (
+    "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID",
+    "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET",
+    "PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI",
+    "PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET",
+)
 
 
 @dataclass(frozen=True)
@@ -68,7 +74,10 @@ class IdAustriaAccount:
 def load_id_austria_oidc_config() -> IdAustriaOidcConfig:
     client_id = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID") or "").strip()
     client_secret = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET") or "").strip()
-    redirect_uri = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI") or "").strip()
+    redirect_uri = str(
+        os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI")
+        or "https://propertyquarry.com/id-austria/callback"
+    ).strip()
     state_secret = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET") or "").strip()
     environment = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_ENVIRONMENT") or "production").strip().lower()
     default_issuer = ID_AUSTRIA_REFERENCE_ISSUER if environment in {"reference", "ref", "test"} else ID_AUSTRIA_PRODUCTION_ISSUER
@@ -123,6 +132,44 @@ def id_austria_sign_in_configured() -> bool:
     except RuntimeError:
         return False
     return True
+
+
+def _env_truth(name: str) -> bool:
+    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def id_austria_provider_readiness() -> dict[str, str]:
+    required = _env_truth("PROPERTYQUARRY_ID_AUSTRIA_REQUIRED")
+    missing = tuple(
+        key
+        for key in _ID_AUSTRIA_CONFIG_KEYS
+        if key != "PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI" and not str(os.getenv(key) or "").strip()
+    )
+    try:
+        config = load_id_austria_oidc_config()
+    except RuntimeError as exc:
+        return {
+            "id_austria_sign_in_status": "blocked_missing_configuration" if required else "disabled",
+            "id_austria_sign_in_required": "true" if required else "false",
+            "id_austria_sign_in_configured": "false",
+            "id_austria_sign_in_missing_env": ",".join(missing),
+            "id_austria_sign_in_error": str(exc or "id_austria_not_configured"),
+            "id_austria_redirect_uri": str(
+                os.getenv("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI")
+                or "https://propertyquarry.com/id-austria/callback"
+            ).strip(),
+        }
+    return {
+        "id_austria_sign_in_status": "dry_verified_configured",
+        "id_austria_sign_in_required": "true" if required else "false",
+        "id_austria_sign_in_configured": "true",
+        "id_austria_sign_in_missing_env": "",
+        "id_austria_issuer": config.issuer,
+        "id_austria_authorization_endpoint": config.authorization_endpoint,
+        "id_austria_token_endpoint": config.token_endpoint,
+        "id_austria_jwks_uri": config.jwks_uri,
+        "id_austria_redirect_uri": config.redirect_uri,
+    }
 
 
 def build_id_austria_oidc_start(

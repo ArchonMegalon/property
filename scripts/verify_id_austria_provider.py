@@ -13,50 +13,30 @@ for candidate in (ROOT, EA_ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from app.services.id_austria_oidc import load_id_austria_oidc_config  # noqa: E402
-
-
-_CONFIG_KEYS = (
-    "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID",
-    "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET",
-    "PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI",
-    "PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET",
-)
-
-
-def _env_truth(name: str) -> bool:
-    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+from app.services.id_austria_oidc import id_austria_provider_readiness  # noqa: E402
 
 
 def build_id_austria_verification_receipt() -> dict[str, object]:
-    required = _env_truth("PROPERTYQUARRY_ID_AUSTRIA_REQUIRED")
-    missing = tuple(key for key in _CONFIG_KEYS if not str(os.getenv(key) or "").strip())
-    try:
-        config = load_id_austria_oidc_config()
-    except RuntimeError as exc:
-        return {
-            "contract_name": "propertyquarry.id_austria_provider_verification.v1",
-            "provider": "id_austria",
-            "status": "blocked_missing_configuration" if required else "disabled",
-            "required": required,
-            "configured": False,
-            "missing_env": list(missing),
-            "error": str(exc or "id_austria_not_configured"),
-            "redirect_uri": str(os.getenv("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI") or "").strip(),
-        }
-    return {
+    readiness = id_austria_provider_readiness()
+    receipt = {
         "contract_name": "propertyquarry.id_austria_provider_verification.v1",
         "provider": "id_austria",
-        "status": "dry_verified_configured",
-        "required": required,
-        "configured": True,
-        "missing_env": [],
-        "issuer": config.issuer,
-        "authorization_endpoint": config.authorization_endpoint,
-        "token_endpoint": config.token_endpoint,
-        "jwks_uri": config.jwks_uri,
-        "redirect_uri": config.redirect_uri,
+        "status": readiness.get("id_austria_sign_in_status", "disabled"),
+        "required": readiness.get("id_austria_sign_in_required") == "true",
+        "configured": readiness.get("id_austria_sign_in_configured") == "true",
+        "missing_env": [
+            value
+            for value in str(readiness.get("id_austria_sign_in_missing_env") or "").split(",")
+            if value
+        ],
+        "error": readiness.get("id_austria_sign_in_error", ""),
+        "issuer": readiness.get("id_austria_issuer", ""),
+        "authorization_endpoint": readiness.get("id_austria_authorization_endpoint", ""),
+        "token_endpoint": readiness.get("id_austria_token_endpoint", ""),
+        "jwks_uri": readiness.get("id_austria_jwks_uri", ""),
+        "redirect_uri": readiness.get("id_austria_redirect_uri", ""),
     }
+    return receipt
 
 
 def main() -> int:

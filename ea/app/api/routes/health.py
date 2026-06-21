@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.dependencies import get_container
 from app.container import AppContainer
 from app.product.property_search_storage import property_search_run_retention_policy
+from app.services.id_austria_oidc import id_austria_provider_readiness
 
 router = APIRouter(tags=["system"])
 
@@ -41,4 +42,5 @@ async def version(container: AppContainer = Depends(get_container)) -> dict[str,
         "storage_backend": container.settings.storage_backend,
     }
     payload.update(property_search_run_retention_policy())
+    payload.update(id_austria_provider_readiness())
     return payload

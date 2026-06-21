@@ -33,6 +33,7 @@ Runs the focused PropertyQuarry release bundle:
   - property market catalog contracts
   - PayFunnels checkout, webhook, refund, mismatch, and billing-surface contracts
   - workspace access token redaction, keyed hashes, revocation, and one-time launch-link contracts
+  - ID Austria OIDC readiness receipt and Austrian-IP sign-in gating
   - live provider smoke receipt contracts
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
