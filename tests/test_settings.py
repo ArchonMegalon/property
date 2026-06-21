@@ -50,7 +50,7 @@ def _clear_env() -> None:
 def test_settings_defaults() -> None:
     _clear_env()
     s = get_settings()
-    assert s.core.app_name == "ea-rewrite"
+    assert s.core.app_name == "PropertyQuarry"
     assert s.core.role == "api"
     assert s.runtime.mode == "dev"
     assert s.storage.backend == "auto"

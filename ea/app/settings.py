@@ -414,7 +414,7 @@ def validate_startup_settings(settings: Settings) -> RuntimeProfile:
 
 
 def get_settings() -> Settings:
-    app_name = (os.environ.get("EA_APP_NAME") or "ea-rewrite").strip() or "ea-rewrite"
+    app_name = (os.environ.get("EA_APP_NAME") or "PropertyQuarry").strip() or "PropertyQuarry"
     app_version = (os.environ.get("EA_APP_VERSION") or "0.3.0").strip() or "0.3.0"
     role = (os.environ.get("EA_ROLE") or "api").strip().lower() or "api"
     host = (os.environ.get("EA_HOST") or "0.0.0.0").strip() or "0.0.0.0"
