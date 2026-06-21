@@ -9451,6 +9451,103 @@ def test_property_scout_queued_alert_routes_to_selected_whatsapp_channel(monkeyp
     assert "phone_number" not in payload
 
 
+def test_property_scout_queued_whatsapp_suppresses_wrong_area_and_opens_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-scout-whatsapp-wrong-area"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout WhatsApp Wrong Area")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    updated = client.post(
+        "/app/api/property/account/notifications",
+        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303, updated.text
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_MATCH", "tmpl-property-match")
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: pytest.fail("wrong-area WhatsApp scout alert must not be sent"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    title = "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit großem Ess- & Wohnbereich"
+    summary = "Moderne Zwei-Zimmer Wohnung mit Terrasse in Salzburg."
+    result = service._send_property_scout_queued_notification(
+        kind="hit",
+        kwargs={
+            "principal_id": principal_id,
+            "actor": "test",
+            "title": title,
+            "summary": summary,
+            "counterparty": "Willhaben | Austria | Rent | 1010 Vienna",
+            "account_email": "",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+            "source_ref": "property-scout:whatsapp-salzburg-dirty-scope",
+            "assessment": {"fit_score": 82.0, "recommendation": "review"},
+            "fit_score": 82.0,
+            "preference_person_id": "self",
+            "review_url": "/app/research/wrong-area",
+            "tour_result": {"status": "skipped", "tour_url": ""},
+            "candidate_properties": (
+                {
+                    "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+                    "listing_title": title,
+                    "summary": summary,
+                    "source_platform": "willhaben",
+                    "source_family": "core_portal",
+                    "property_facts_json": {
+                        "postal_name": "1010 Vienna",
+                        "source_scope_location": "1010 Vienna",
+                        "source_postal_code": "1010",
+                        "source_city": "Vienna",
+                        "price_display": "€ 1.190",
+                    },
+                },
+            ),
+            "requested_location_hints": (),
+            "requested_country_code": "AT",
+            "requested_region_code": "vienna",
+        },
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    assert repair_tasks[0].priority == "urgent"
+    assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+    diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
+    assert diagnostics["location_hints"] == ["1010 Vienna"]
+    assert diagnostics["location_evidence_kind"] == "url_region"
+    packet_service = build_fliplink_packet_service(client.app.state.container)
+    sent_events = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=10)
+    assert sent_events == []
+
+
 def test_property_scout_queued_near_miss_respects_nontelegram_channel(monkeypatch: pytest.MonkeyPatch) -> None:
     principal_id = "exec-property-scout-near-miss-whatsapp-preference"
     client = build_property_client(principal_id=principal_id)
