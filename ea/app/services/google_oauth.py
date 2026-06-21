@@ -106,6 +106,9 @@ SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
     "all": GOOGLE_SCOPE_FULL_WORKSPACE,
 }
 
+_GOOGLE_USED_STATE_KEYS: dict[str, float] = {}
+_GOOGLE_USED_STATE_CACHE_LIMIT = 5000
+
 SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
     "identity": {
         "label": "Google sign-in",
@@ -604,6 +607,7 @@ def complete_google_oauth_callback(
         str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri,
         config=config,
     )
+    _consume_google_oauth_state(state_payload)
     token_payload = _exchange_google_code_for_tokens(
         code=code,
         client_id=config.client_id,
@@ -2411,6 +2415,42 @@ def _decode_signed_state(state: str, *, secret: str, verify_age: bool = True) ->
     if verify_age and (issued_at <= 0 or time.time() - issued_at > max_age_seconds):
         raise RuntimeError("google_oauth_state_expired")
     return payload
+
+
+def _google_oauth_state_replay_key(payload: dict[str, Any]) -> str:
+    nonce = str(payload.get("nonce") or "").strip()
+    issued_at = _safe_int(payload.get("issued_at"), default=0)
+    if not nonce or issued_at <= 0:
+        raise RuntimeError("google_oauth_state_nonce_missing")
+    material = json.dumps(
+        {
+            "browser_source": str(payload.get("browser_source") or "").strip(),
+            "issued_at": issued_at,
+            "nonce": nonce,
+            "principal_id": str(payload.get("principal_id") or "").strip(),
+            "redirect_uri": str(payload.get("redirect_uri") or "").strip(),
+            "scope_bundle": str(payload.get("scope_bundle") or "").strip(),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _consume_google_oauth_state(payload: dict[str, Any]) -> None:
+    replay_key = _google_oauth_state_replay_key(payload)
+    now = time.time()
+    max_age_seconds = max(_safe_int(os.environ.get("EA_GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS"), default=21600), 300)
+    expired_before = now - max_age_seconds
+    for key, consumed_at in list(_GOOGLE_USED_STATE_KEYS.items()):
+        if consumed_at < expired_before:
+            _GOOGLE_USED_STATE_KEYS.pop(key, None)
+    if replay_key in _GOOGLE_USED_STATE_KEYS:
+        raise RuntimeError("google_oauth_state_replayed")
+    if len(_GOOGLE_USED_STATE_KEYS) >= _GOOGLE_USED_STATE_CACHE_LIMIT:
+        oldest_key = min(_GOOGLE_USED_STATE_KEYS, key=_GOOGLE_USED_STATE_KEYS.get)
+        _GOOGLE_USED_STATE_KEYS.pop(oldest_key, None)
+    _GOOGLE_USED_STATE_KEYS[replay_key] = now
 
 
 def _encrypt_secret(value: str, *, key: str) -> str:

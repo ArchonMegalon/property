@@ -274,6 +274,51 @@ def test_id_austria_unknown_identity_returns_to_sign_in(monkeypatch: pytest.Monk
     assert "id_austria_error=id_austria_sign_in_not_found" in callback.headers["location"]
 
 
+def test_sign_in_id_austria_callback_rejects_replayed_state_before_second_token_exchange(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_id_austria(monkeypatch)
+    client = _client(monkeypatch)
+
+    sign_in_start = client.get("/sign-in/id-austria", headers={"CF-IPCountry": "AT"}, follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    state = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)["state"][0]
+
+    from app.services import id_austria_oidc
+
+    id_austria_oidc._ID_AUSTRIA_USED_STATE_KEYS.clear()  # noqa: SLF001
+    token_exchanges = {"count": 0}
+
+    def _exchange(**kwargs):  # noqa: ANN003
+        token_exchanges["count"] += 1
+        return {"id_token": "header.payload.signature", "expires_in": 3600}
+
+    monkeypatch.setattr(id_austria_oidc, "_exchange_id_austria_code_for_tokens", _exchange)
+    monkeypatch.setattr(
+        id_austria_oidc,
+        "_decode_id_austria_id_token",
+        lambda **kwargs: _id_austria_claims(bpk="ZP-MH:unknown-bpk", subject="unknown-subject"),
+    )
+
+    first_callback = client.get(
+        "/id-austria/callback",
+        params={"code": "code-123", "state": state},
+        follow_redirects=False,
+    )
+    assert first_callback.status_code == 303
+    assert "id_austria_error=id_austria_sign_in_not_found" in first_callback.headers["location"]
+    assert token_exchanges["count"] == 1
+
+    second_callback = client.get(
+        "/id-austria/callback",
+        params={"code": "code-456", "state": state},
+        follow_redirects=False,
+    )
+    assert second_callback.status_code == 303
+    assert "id_austria_error=id_austria_state_replayed" in second_callback.headers["location"]
+    assert token_exchanges["count"] == 1
+
+
 def test_id_austria_connect_links_workspace_and_sign_in_reopens_it(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_id_austria(monkeypatch)
     principal_id = "user-id-austria-linked"
@@ -822,6 +867,63 @@ def test_sign_in_google_callback_fails_closed_without_returned_scopes(monkeypatc
     assert callback.status_code == 303
     assert callback.headers["location"].startswith("/sign-in?")
     assert "google_error=google_oauth_granted_scopes_missing" in callback.headers["location"]
+
+
+def test_sign_in_google_callback_rejects_replayed_state_before_second_token_exchange(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    sign_in_start = client.post("/sign-in/google", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    state = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)["state"][0]
+
+    from app.services import google_oauth as google_service
+
+    google_service._GOOGLE_USED_STATE_KEYS.clear()  # noqa: SLF001
+    token_exchanges = {"count": 0}
+
+    def _exchange(**kwargs):  # noqa: ANN003
+        token_exchanges["count"] += 1
+        return {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile",
+            "expires_in": 3600,
+        }
+
+    monkeypatch.setattr(google_service, "_exchange_google_code_for_tokens", _exchange)
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-unknown",
+            "email": "unknown.google@example.com",
+        },
+    )
+
+    first_callback = client.get(
+        "/google/callback",
+        params={"code": "code-123", "state": state},
+        follow_redirects=False,
+    )
+    assert first_callback.status_code == 303
+    assert "google_error=workspace_google_sign_in_not_found" in first_callback.headers["location"]
+    assert token_exchanges["count"] == 1
+
+    second_callback = client.get(
+        "/google/callback",
+        params={"code": "code-456", "state": state},
+        follow_redirects=False,
+    )
+    assert second_callback.status_code == 303
+    assert "google_error=google_oauth_state_replayed" in second_callback.headers["location"]
+    assert token_exchanges["count"] == 1
 
 
 def test_google_oauth_start_rejects_cross_host_redirect_override(monkeypatch: pytest.MonkeyPatch) -> None:

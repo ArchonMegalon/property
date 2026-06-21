@@ -19827,6 +19827,7 @@ class ProductService:
         if not principal_id:
             raise RuntimeError("google_location_history_principal_missing")
         redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
+        google_oauth_service._consume_google_oauth_state(state_payload)
         token_payload = google_oauth_service._exchange_google_code_for_tokens(
             code=code,
             client_id=config.client_id,

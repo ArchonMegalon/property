@@ -26,6 +26,8 @@ ID_AUSTRIA_SCOPES = ("openid", "profile")
 ID_AUSTRIA_PRODUCTION_ISSUER = "https://idp.id-austria.gv.at"
 ID_AUSTRIA_REFERENCE_ISSUER = "https://idp.ref.id-austria.gv.at"
 ID_AUSTRIA_ALLOWED_ALGORITHMS = ("RS256", "RS384", "RS512", "ES256", "ES384", "ES512")
+_ID_AUSTRIA_USED_STATE_KEYS: dict[str, float] = {}
+_ID_AUSTRIA_USED_STATE_CACHE_LIMIT = 5000
 
 
 @dataclass(frozen=True)
@@ -198,6 +200,7 @@ def complete_id_austria_oidc_callback(
         str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri,
         config=config,
     )
+    _consume_id_austria_oidc_state(state_payload)
     token_payload = _exchange_id_austria_code_for_tokens(
         code=code,
         client_id=config.client_id,
@@ -432,6 +435,41 @@ def _decode_signed_state(state: str, *, secret: str, verify_age: bool = True) ->
     if verify_age and (issued_at <= 0 or time.time() - issued_at > max_age_seconds):
         raise RuntimeError("id_austria_state_expired")
     return payload
+
+
+def _id_austria_oidc_state_replay_key(payload: dict[str, Any]) -> str:
+    nonce = str(payload.get("nonce") or "").strip()
+    issued_at = _safe_int(payload.get("issued_at"), default=0)
+    if not nonce or issued_at <= 0:
+        raise RuntimeError("id_austria_state_nonce_missing")
+    material = json.dumps(
+        {
+            "browser_source": str(payload.get("browser_source") or "").strip(),
+            "issued_at": issued_at,
+            "nonce": nonce,
+            "principal_id": str(payload.get("principal_id") or "").strip(),
+            "redirect_uri": str(payload.get("redirect_uri") or "").strip(),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _consume_id_austria_oidc_state(payload: dict[str, Any]) -> None:
+    replay_key = _id_austria_oidc_state_replay_key(payload)
+    now = time.time()
+    max_age_seconds = max(_safe_int(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_STATE_MAX_AGE_SECONDS"), default=21600), 300)
+    expired_before = now - max_age_seconds
+    for key, consumed_at in list(_ID_AUSTRIA_USED_STATE_KEYS.items()):
+        if consumed_at < expired_before:
+            _ID_AUSTRIA_USED_STATE_KEYS.pop(key, None)
+    if replay_key in _ID_AUSTRIA_USED_STATE_KEYS:
+        raise RuntimeError("id_austria_state_replayed")
+    if len(_ID_AUSTRIA_USED_STATE_KEYS) >= _ID_AUSTRIA_USED_STATE_CACHE_LIMIT:
+        oldest_key = min(_ID_AUSTRIA_USED_STATE_KEYS, key=_ID_AUSTRIA_USED_STATE_KEYS.get)
+        _ID_AUSTRIA_USED_STATE_KEYS.pop(oldest_key, None)
+    _ID_AUSTRIA_USED_STATE_KEYS[replay_key] = now
 
 
 def _safe_int(value: Any, *, default: int) -> int:
