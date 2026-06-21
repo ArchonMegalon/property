@@ -94,7 +94,10 @@ def build_facebook_oauth_start(
     browser_source: str | None = None,
 ) -> FacebookOAuthStartPacket:
     config = load_facebook_oauth_config()
-    redirect_uri = str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri
+    redirect_uri = _validated_facebook_redirect_uri(
+        str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri,
+        config=config,
+    )
     state_payload: dict[str, Any] = {
         "principal_id": str(principal_id or "").strip(),
         "redirect_uri": redirect_uri,
@@ -148,7 +151,10 @@ def complete_facebook_oauth_callback(
     state_payload = _decode_signed_state(state, secret=config.state_secret)
     principal_id = str(state_payload.get("principal_id") or "").strip()
     browser_source = str(state_payload.get("browser_source") or "").strip()
-    redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
+    redirect_uri = _validated_facebook_redirect_uri(
+        str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri,
+        config=config,
+    )
     token_payload = _exchange_facebook_code_for_token(
         code=code,
         app_id=config.app_id,
@@ -265,6 +271,40 @@ def _exchange_facebook_code_for_token(
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _validated_facebook_redirect_uri(raw: str, *, config: FacebookOAuthConfig) -> str:
+    candidate = str(raw or "").strip() or str(config.redirect_uri or "").strip()
+    parsed = urllib.parse.urlparse(candidate)
+    if not parsed.scheme or not parsed.netloc:
+        raise RuntimeError("facebook_oauth_redirect_uri_invalid")
+    allowed = _facebook_redirect_uri_allowlist(config)
+    if candidate.rstrip("/") not in allowed:
+        raise RuntimeError("facebook_oauth_redirect_uri_invalid")
+    return candidate
+
+
+def _facebook_redirect_uri_allowlist(config: FacebookOAuthConfig) -> set[str]:
+    allowed: set[str] = set()
+
+    def add(raw: str, *, browser_callback: bool = False) -> None:
+        value = str(raw or "").strip()
+        if not value:
+            return
+        parsed = urllib.parse.urlparse(value)
+        if not parsed.scheme or not parsed.netloc:
+            return
+        origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        if browser_callback:
+            allowed.add(f"{origin}/facebook/callback")
+        else:
+            allowed.add(value.rstrip("/"))
+
+    add(config.redirect_uri)
+    add(config.redirect_uri, browser_callback=True)
+    add(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "", browser_callback=True)
+    add(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "", browser_callback=True)
+    return allowed
 
 
 def _fetch_facebook_userinfo(*, access_token: str, app_secret: str, graph_version: str) -> dict[str, Any]:

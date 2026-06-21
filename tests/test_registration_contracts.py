@@ -538,6 +538,81 @@ def test_sign_in_google_identity_only_callback_redirects_as_google_identity_only
     assert "google_error=google_identity_only" in callback.headers["location"]
 
 
+def test_sign_in_google_callback_fails_closed_without_returned_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    sign_in_start = client.post("/sign-in/google", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-signin",
+            "email": "tibor.girschele@gmail.com",
+        },
+    )
+
+    callback = client.get(
+        "/google/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "google_error=google_oauth_granted_scopes_missing" in callback.headers["location"]
+
+
+def test_google_oauth_start_rejects_cross_host_redirect_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+
+    from app.services import google_oauth as google_service
+
+    with pytest.raises(RuntimeError, match="google_oauth_redirect_uri_invalid"):
+        google_service.build_google_oauth_start(
+            principal_id="user-google-redirect",
+            scope_bundle="identity",
+            redirect_uri_override="https://evil.example/google/callback",
+        )
+
+
+def test_facebook_oauth_start_rejects_cross_host_redirect_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+
+    from app.services import facebook_oauth as facebook_service
+
+    with pytest.raises(RuntimeError, match="facebook_oauth_redirect_uri_invalid"):
+        facebook_service.build_facebook_oauth_start(
+            principal_id="user-facebook-redirect",
+            redirect_uri_override="https://evil.example/facebook/callback",
+        )
+
+
 def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")

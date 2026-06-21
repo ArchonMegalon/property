@@ -539,7 +539,10 @@ def build_google_oauth_start(
     config = load_google_oauth_config()
     normalized_bundle = normalize_scope_bundle(scope_bundle)
     requested_scopes = SCOPE_BUNDLES[normalized_bundle]
-    redirect_uri = str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri
+    redirect_uri = _validated_google_redirect_uri(
+        str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri,
+        config=config,
+    )
     state_payload: dict[str, Any] = {
         "principal_id": principal_id,
         "scope_bundle": normalized_bundle,
@@ -597,7 +600,10 @@ def complete_google_oauth_callback(
     principal_id = str(state_payload.get("principal_id") or "").strip()
     browser_source = str(state_payload.get("browser_source") or "").strip()
     scope_bundle = normalize_scope_bundle(str(state_payload.get("scope_bundle") or "identity"))
-    redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
+    redirect_uri = _validated_google_redirect_uri(
+        str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri,
+        config=config,
+    )
     token_payload = _exchange_google_code_for_tokens(
         code=code,
         client_id=config.client_id,
@@ -619,8 +625,10 @@ def complete_google_oauth_callback(
     returned_granted_scopes = tuple(
         sorted({scope.strip() for scope in returned_scope_text.split(" ") if scope.strip()})
     )
-    granted_scopes = returned_granted_scopes or SCOPE_BUNDLES[scope_bundle]
-    granted_scopes_source = "google_token_response" if returned_granted_scopes else "requested_scope_fallback"
+    if not returned_granted_scopes:
+        raise RuntimeError("google_oauth_granted_scopes_missing")
+    granted_scopes = returned_granted_scopes
+    granted_scopes_source = "google_token_response"
     if set(granted_scopes).issubset(set(GOOGLE_SCOPE_IDENTITY)):
         consent_stage = "identity"
     elif GOOGLE_SCOPE_METADATA in granted_scopes:
@@ -1303,6 +1311,40 @@ def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _validated_google_redirect_uri(raw: str, *, config: GoogleOAuthConfig) -> str:
+    candidate = str(raw or "").strip() or str(config.redirect_uri or "").strip()
+    parsed = urllib.parse.urlparse(candidate)
+    if not parsed.scheme or not parsed.netloc:
+        raise RuntimeError("google_oauth_redirect_uri_invalid")
+    allowed = _google_redirect_uri_allowlist(config)
+    if candidate.rstrip("/") not in allowed:
+        raise RuntimeError("google_oauth_redirect_uri_invalid")
+    return candidate
+
+
+def _google_redirect_uri_allowlist(config: GoogleOAuthConfig) -> set[str]:
+    allowed: set[str] = set()
+
+    def add(raw: str, *, browser_callback: bool = False) -> None:
+        value = str(raw or "").strip()
+        if not value:
+            return
+        parsed = urllib.parse.urlparse(value)
+        if not parsed.scheme or not parsed.netloc:
+            return
+        origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        if browser_callback:
+            allowed.add(f"{origin}/google/callback")
+        else:
+            allowed.add(value.rstrip("/"))
+
+    add(config.redirect_uri)
+    add(config.redirect_uri, browser_callback=True)
+    add(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "", browser_callback=True)
+    add(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "", browser_callback=True)
+    return allowed
 
 
 def _resolve_google_binding_access_token(
