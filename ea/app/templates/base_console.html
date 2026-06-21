@@ -1230,6 +1230,25 @@
       background: rgba(255, 253, 248, 0.94);
       box-shadow: 0 14px 44px rgba(38, 32, 22, 0.16);
     }
+    html[data-pq-theme="dark"] .account-menu summary,
+    html[data-pq-theme="dark"] .pq-rail,
+    html[data-pq-theme="dark"] .pq-appbar,
+    html[data-pq-theme="dark"] .pq-mobile-nav {
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      border-color: var(--line);
+      color: var(--text-soft);
+      box-shadow: var(--shadow);
+    }
+    html[data-pq-theme="dark"] .pq-rail {
+      box-shadow: 12px 0 36px rgba(0, 0, 0, 0.22);
+    }
+    html[data-pq-theme="dark"] .pq-mobile-nav a {
+      color: var(--text-dim);
+    }
+    html[data-pq-theme="dark"] .pq-mobile-nav a.active {
+      background: var(--accent-soft);
+      color: var(--text);
+    }
 </style>
 </head>
 <body>

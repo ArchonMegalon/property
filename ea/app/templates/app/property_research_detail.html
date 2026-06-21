@@ -201,6 +201,10 @@
     background:
       linear-gradient(180deg, rgba(250, 248, 242, 0.95), rgba(239, 235, 225, 0.95));
   }
+  html[data-pq-theme="dark"] .prd-media-frame.prd-media-image-failed::before {
+    color: var(--text-soft);
+    background: linear-gradient(180deg, var(--panel-2), var(--bg-elevated));
+  }
   .prd-media-frame.prd-media-image-failed img[data-prd-hero-image] {
     display: none;
   }
@@ -227,6 +231,16 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+  }
+  html[data-pq-theme="dark"] .prd-media-badge {
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    border-color: var(--line);
+    color: var(--text);
+  }
+  html[data-pq-theme="dark"] .prd-status-badge {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
+    color: var(--warn);
   }
   .prd-media-caption {
     position: absolute;

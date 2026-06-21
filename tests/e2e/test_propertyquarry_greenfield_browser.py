@@ -1825,6 +1825,35 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
         assert page.get_by_text("At a glance").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
+
+        page.evaluate(
+            """
+            () => {
+              window.localStorage.setItem('propertyquarry.theme', 'dark');
+              document.documentElement.setAttribute('data-pq-theme', 'dark');
+            }
+            """
+        )
+        page.wait_for_timeout(80)
+        dark_backgrounds = page.evaluate(
+            """
+            () => {
+              const selectors = ['.pq-appbar', '.prd-panel', '.prd-media-frame', '.prd-media-badge'];
+              return selectors
+                .filter((selector) => document.querySelector(selector))
+                .map((selector) => {
+                  const element = document.querySelector(selector);
+                  return [selector, window.getComputedStyle(element).backgroundColor];
+                });
+            }
+            """
+        )
+        assert dark_backgrounds
+        for selector, background in dark_backgrounds:
+            assert not str(background).startswith(("rgb(255", "rgba(255")), f"{selector} stayed light in dark mode: {background}"
+        dark_screenshot_path = tmp_path / "property_research_detail_first_screen_dark.png"
+        page.screenshot(path=str(dark_screenshot_path), full_page=False, animations="disabled", caret="hide")
+        assert dark_screenshot_path.exists() and dark_screenshot_path.stat().st_size > 20_000
     finally:
         context.close()
 

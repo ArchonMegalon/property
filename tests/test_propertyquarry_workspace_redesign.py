@@ -1457,6 +1457,22 @@ def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:
     assert "background: var(--panel);" in console_shell
     assert "color: var(--text);" in console_shell
     assert "background: #ffffff;" not in console_shell
+    assert 'html[data-pq-theme="dark"] .console-form[data-console-form-variant="property_search"] .console-advanced-panel' in console_shell
+    assert 'html[data-pq-theme="dark"] .console-form[data-console-form-variant="property_search"] .console-range-help[data-tooltip-open="true"]::after' in console_shell
+    assert 'html[data-pq-theme="dark"] .console-choice[data-school-stage-parent]' in console_shell
+    assert 'html[data-pq-theme="dark"] .console-choice[data-school-stage-variant]' in console_shell
+
+    base_console = (repo_root / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
+    assert 'html[data-pq-theme="dark"] .pq-rail' in base_console
+    assert 'html[data-pq-theme="dark"] .pq-appbar' in base_console
+    assert 'html[data-pq-theme="dark"] .pq-mobile-nav' in base_console
+
+    base_public = (repo_root / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
+    assert 'html[data-pq-theme="dark"] .mobile-nav a' in base_public
+
+    research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
+    assert 'html[data-pq-theme="dark"] .prd-media-badge' in research_detail
+    assert 'html[data-pq-theme="dark"] .prd-media-frame.prd-media-image-failed::before' in research_detail
 
 
 def test_propertyquarry_search_route_does_not_scan_active_run_for_initial_form(monkeypatch) -> None:

@@ -11,6 +11,8 @@ import pytest
 from app.services.brilliant_directories import (
     BrilliantDirectoriesApiError,
     build_brilliant_directories_api_request,
+    build_brilliant_directories_member_search_request,
+    build_brilliant_directories_projection_packet_from_search_response,
     build_brilliant_directories_projection_packet,
     build_brilliant_directories_verification_receipt,
     build_directory_profile_projection,
@@ -29,6 +31,7 @@ def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER",
         "BRILLIANT_DIRECTORIES_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -87,9 +90,62 @@ def test_brilliant_directories_request_builder_keeps_api_key_out_of_url_and_body
 
     assert request.url == "https://directory.example/api/v2/members/search?limit=10"
     assert request.headers["X-Api-Key"] == "bd-secret-token"
+    assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
     assert b"bd-secret-token" not in (request.body or b"")
+    assert request.body == b"category=relocation+advisor"
     assert "bd-secret-token" not in request.url
     assert request.redacted_receipt()["headers"]["X-Api-Key"] == "[redacted]"
+
+
+def test_brilliant_directories_request_builder_supports_explicit_json_without_making_it_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example/api/v2")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+
+    request = build_brilliant_directories_api_request(
+        load_brilliant_directories_config(),
+        "POST",
+        "/widgets/render",
+        payload={"widget": "public_directory"},
+        body_format="json",
+    )
+
+    assert request.headers["Content-Type"] == "application/json"
+    assert request.body == b'{"widget": "public_directory"}'
+
+
+def test_brilliant_directories_member_search_request_uses_official_form_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+
+    request = build_brilliant_directories_member_search_request(
+        load_brilliant_directories_config(),
+        keyword="relocation",
+        category="advisor",
+        city="Vienna",
+        country_code="at",
+        limit=250,
+    )
+
+    assert request.method == "POST"
+    assert request.url == "https://directory.example/api/v2/user/search"
+    assert request.headers["Content-Type"] == "application/x-www-form-urlencoded"
+    assert request.body is not None
+    body = request.body.decode("utf-8")
+    assert "q=relocation" in body
+    assert "category=advisor" in body
+    assert "city=Vienna" in body
+    assert "country_code=AT" in body
+    assert "limit=100" in body
 
 
 def test_brilliant_directories_projection_allows_public_directory_fields() -> None:
@@ -126,6 +182,43 @@ def test_brilliant_directories_projection_rejects_private_property_and_contact_f
     assert "private_field_blocked" in str(ranking_error.value)
 
 
+def test_brilliant_directories_search_response_strips_private_member_fields() -> None:
+    packet = build_brilliant_directories_projection_packet_from_search_response(
+        {
+            "status": "success",
+            "message": [
+                {
+                    "user_id": "17",
+                    "company": "Vienna Relocation Advisors",
+                    "email": "agent@example.test",
+                    "phone_number": "+43 1 555",
+                    "address1": "Secret Street 1",
+                    "lat": "48.2",
+                    "lon": "16.3",
+                    "filename": "austria/vienna/vienna-relocation-advisors",
+                    "city": "Vienna",
+                    "state_ln": "Vienna",
+                    "country_code": "AT",
+                    "search_description": "Public profile text with no contact detail.",
+                }
+            ],
+        },
+        purpose="Public relocation directory",
+    )
+
+    payload = packet.as_dict()
+    serialized = json.dumps(payload, sort_keys=True)
+    assert payload["profile_count"] == 1
+    assert payload["profiles"][0]["display_name"] == "Vienna Relocation Advisors"
+    assert payload["profiles"][0]["public_url"] == "austria/vienna/vienna-relocation-advisors"
+    assert "agent@example.test" not in serialized
+    assert "+43 1 555" not in serialized
+    assert "Secret Street" not in serialized
+    assert "48.2" not in serialized
+    assert "16.3" not in serialized
+    assert "Public profile text" not in serialized
+
+
 def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR", str(tmp_path))
@@ -145,3 +238,5 @@ def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytes
     assert payload["provider"] == "brilliant_directories"
     assert payload["status"] == "disabled"
     assert payload["live_network_called"] is False
+    assert payload["verified_capabilities"]["form_encoded_request_contract"] is True
+    assert payload["verified_capabilities"]["private_provider_contact_fields_stripped"] is True

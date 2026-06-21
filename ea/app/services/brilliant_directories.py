@@ -6,7 +6,7 @@ import os
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 
 BRILLIANT_DIRECTORIES_PROVIDER_KEY = "brilliant_directories"
@@ -267,25 +267,70 @@ def _tags(value: object) -> tuple[str, ...]:
     return ()
 
 
-def build_directory_profile_projection(raw_profile: dict[str, object]) -> BrilliantDirectoriesDirectoryProfile:
-    _assert_no_forbidden_keys(raw_profile)
-    profile_id = _string(
-        raw_profile.get("profile_id")
+def _public_profile_dict(raw_profile: Mapping[str, object], *, include_summary: bool = True) -> dict[str, object]:
+    first_name = _string(raw_profile.get("first_name"), max_length=70)
+    last_name = _string(raw_profile.get("last_name"), max_length=70)
+    full_name = " ".join(item for item in (first_name, last_name) if item)
+    profile: dict[str, object] = {
+        "profile_id": raw_profile.get("profile_id")
         or raw_profile.get("member_id")
         or raw_profile.get("id")
         or raw_profile.get("user_id"),
+        "display_name": raw_profile.get("display_name")
+        or raw_profile.get("name")
+        or raw_profile.get("company_name")
+        or raw_profile.get("company")
+        or raw_profile.get("title")
+        or full_name,
+        "category": raw_profile.get("category")
+        or raw_profile.get("profession")
+        or raw_profile.get("service")
+        or raw_profile.get("profession_name"),
+        "public_url": raw_profile.get("public_url")
+        or raw_profile.get("url")
+        or raw_profile.get("profile_url")
+        or raw_profile.get("filename"),
+        "city": raw_profile.get("city"),
+        "region": raw_profile.get("region") or raw_profile.get("state") or raw_profile.get("province") or raw_profile.get("state_ln"),
+        "country_code": raw_profile.get("country_code") or raw_profile.get("country"),
+        "tags": raw_profile.get("tags") or raw_profile.get("specialties"),
+    }
+    if include_summary:
+        profile["summary"] = raw_profile.get("summary") or raw_profile.get("description") or raw_profile.get("bio")
+    return profile
+
+
+def build_directory_profile_projection(
+    raw_profile: dict[str, object],
+    *,
+    strict_private_keys: bool = True,
+    include_summary: bool = True,
+) -> BrilliantDirectoriesDirectoryProfile:
+    if strict_private_keys:
+        _assert_no_forbidden_keys(raw_profile)
+        projected_profile: Mapping[str, object] = raw_profile
+    else:
+        projected_profile = _public_profile_dict(raw_profile, include_summary=include_summary)
+    profile_id = _string(
+        projected_profile.get("profile_id")
+        or projected_profile.get("member_id")
+        or projected_profile.get("id")
+        or projected_profile.get("user_id"),
         max_length=96,
     )
     display_name = _string(
-        raw_profile.get("display_name")
-        or raw_profile.get("name")
-        or raw_profile.get("company_name")
-        or raw_profile.get("title"),
+        projected_profile.get("display_name")
+        or projected_profile.get("name")
+        or projected_profile.get("company_name")
+        or projected_profile.get("title"),
         max_length=140,
     )
     if not profile_id or not display_name:
         raise BrilliantDirectoriesApiError(422, "brilliant_directories_profile_identity_missing")
-    public_url = _string(raw_profile.get("public_url") or raw_profile.get("url") or raw_profile.get("profile_url"), max_length=500)
+    public_url = _string(
+        projected_profile.get("public_url") or projected_profile.get("url") or projected_profile.get("profile_url"),
+        max_length=500,
+    )
     if public_url:
         parsed = urllib.parse.urlparse(public_url)
         if parsed.scheme not in {"https", ""}:
@@ -293,14 +338,21 @@ def build_directory_profile_projection(raw_profile: dict[str, object]) -> Brilli
     return BrilliantDirectoriesDirectoryProfile(
         profile_id=profile_id,
         display_name=display_name,
-        category=_string(raw_profile.get("category") or raw_profile.get("profession") or raw_profile.get("service"), max_length=96),
+        category=_string(
+            projected_profile.get("category") or projected_profile.get("profession") or projected_profile.get("service"),
+            max_length=96,
+        ),
         public_url=public_url,
-        city=_string(raw_profile.get("city"), max_length=96),
-        region=_string(raw_profile.get("region") or raw_profile.get("state") or raw_profile.get("province"), max_length=96),
-        country_code=_string(raw_profile.get("country_code") or raw_profile.get("country"), max_length=12).upper(),
-        summary=_string(raw_profile.get("summary") or raw_profile.get("description") or raw_profile.get("bio"), max_length=500),
-        tags=_tags(raw_profile.get("tags") or raw_profile.get("specialties")),
+        city=_string(projected_profile.get("city"), max_length=96),
+        region=_string(projected_profile.get("region") or projected_profile.get("state") or projected_profile.get("province"), max_length=96),
+        country_code=_string(projected_profile.get("country_code") or projected_profile.get("country"), max_length=12).upper(),
+        summary=_string(projected_profile.get("summary") or projected_profile.get("description") or projected_profile.get("bio"), max_length=500),
+        tags=_tags(projected_profile.get("tags") or projected_profile.get("specialties")),
     )
+
+
+def build_directory_profile_projection_from_provider(raw_profile: dict[str, object]) -> BrilliantDirectoriesDirectoryProfile:
+    return build_directory_profile_projection(raw_profile, strict_private_keys=False, include_summary=False)
 
 
 def build_brilliant_directories_projection_packet(
@@ -322,6 +374,23 @@ def build_brilliant_directories_projection_packet(
     )
 
 
+def _flatten_form_payload(payload: dict[str, object]) -> dict[str, object]:
+    flattened: dict[str, object] = {}
+    for key, value in payload.items():
+        if isinstance(value, dict):
+            raise BrilliantDirectoriesApiError(400, "brilliant_directories_nested_form_payload_not_allowed")
+        if isinstance(value, (list, tuple, set)):
+            safe_values: list[str] = []
+            for item in value:
+                if isinstance(item, (dict, list, tuple, set)):
+                    raise BrilliantDirectoriesApiError(400, "brilliant_directories_nested_form_payload_not_allowed")
+                safe_values.append(_string(item, max_length=500))
+            flattened[str(key)] = safe_values
+        else:
+            flattened[str(key)] = _string(value, max_length=500)
+    return flattened
+
+
 def build_brilliant_directories_api_request(
     config: BrilliantDirectoriesConfig,
     method: str,
@@ -329,6 +398,7 @@ def build_brilliant_directories_api_request(
     *,
     payload: dict[str, object] | None = None,
     query: dict[str, object] | None = None,
+    body_format: str = "form",
 ) -> BrilliantDirectoriesApiRequest:
     if not config.configured:
         raise BrilliantDirectoriesApiError(503, "brilliant_directories_not_configured")
@@ -345,20 +415,77 @@ def build_brilliant_directories_api_request(
         if safe_query:
             url = f"{url}?{urllib.parse.urlencode(safe_query)}"
     body = None
+    content_type = ""
     if payload is not None:
         _assert_no_forbidden_keys(payload)
-        body = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+        normalized_body_format = str(body_format or "").strip().lower()
+        if normalized_body_format == "form":
+            body = urllib.parse.urlencode(_flatten_form_payload(payload), doseq=True).encode("utf-8")
+            content_type = "application/x-www-form-urlencoded"
+        elif normalized_body_format == "json":
+            body = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+            content_type = "application/json"
+        else:
+            raise BrilliantDirectoriesApiError(400, "brilliant_directories_body_format_not_allowed")
+    headers = {
+        "Accept": "application/json",
+        config.api_key_header: config.api_key,
+        "User-Agent": "PropertyQuarry-BrilliantDirectories/1.0",
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
     return BrilliantDirectoriesApiRequest(
         method=normalized_method,
         url=url,
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            config.api_key_header: config.api_key,
-            "User-Agent": "PropertyQuarry-BrilliantDirectories/1.0",
-        },
+        headers=headers,
         body=body,
     )
+
+
+def build_brilliant_directories_member_search_request(
+    config: BrilliantDirectoriesConfig,
+    *,
+    keyword: str = "",
+    category: str = "",
+    city: str = "",
+    country_code: str = "",
+    page: int = 1,
+    limit: int = 25,
+) -> BrilliantDirectoriesApiRequest:
+    payload: dict[str, object] = {
+        "q": _string(keyword, max_length=140),
+        "category": _string(category, max_length=96),
+        "city": _string(city, max_length=96),
+        "country_code": _string(country_code, max_length=12).upper(),
+        "page": max(1, int(page or 1)),
+        "limit": min(100, max(1, int(limit or 25))),
+    }
+    payload = {key: value for key, value in payload.items() if value not in {"", None}}
+    return build_brilliant_directories_api_request(
+        config,
+        "POST",
+        "/api/v2/user/search",
+        payload=payload,
+        body_format="form",
+    )
+
+
+def build_brilliant_directories_projection_packet_from_search_response(
+    response_payload: dict[str, object],
+    *,
+    purpose: str,
+) -> BrilliantDirectoriesProjectionPacket:
+    rows = response_payload.get("message")
+    if rows is None and isinstance(response_payload.get("data"), list):
+        rows = response_payload.get("data")
+    if not isinstance(rows, list):
+        raise BrilliantDirectoriesApiError(502, "brilliant_directories_search_response_rows_missing")
+    profiles = tuple(
+        build_directory_profile_projection_from_provider(row)
+        for row in rows
+        if isinstance(row, dict)
+    )
+    return build_brilliant_directories_projection_packet(profiles, purpose=purpose)
 
 
 def build_brilliant_directories_verification_receipt() -> dict[str, object]:
@@ -382,8 +509,11 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
             "api_key_config_contract": True,
             "https_base_url_required": True,
             "allowed_host_required": True,
+            "form_encoded_request_contract": True,
+            "public_member_search_projection_contract": True,
             "public_profile_projection_contract": True,
             "private_property_truth_blocked": True,
+            "private_provider_contact_fields_stripped": True,
             "direct_publication_disabled": True,
         },
         "sources": [

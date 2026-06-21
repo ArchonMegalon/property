@@ -476,6 +476,22 @@
     border-style: dashed;
     background: rgba(250, 246, 238, 0.92);
   }
+  html[data-pq-theme="dark"] .console-form[data-console-form-variant="property_search"] .console-advanced-panel,
+  html[data-pq-theme="dark"] .console-form[data-console-form-variant="property_search"] .console-range-help[data-tooltip-open="true"]::after,
+  html[data-pq-theme="dark"] .console-choice[data-school-stage-parent],
+  html[data-pq-theme="dark"] .console-choice[data-school-stage-variant] {
+    background: var(--panel-2);
+    color: var(--text);
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  html[data-pq-theme="dark"] .console-choice[data-school-stage-parent] {
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--line) 66%);
+    background: color-mix(in srgb, var(--accent-soft) 18%, var(--panel) 82%);
+  }
+  html[data-pq-theme="dark"] .console-choice[data-school-stage-variant] {
+    background: color-mix(in srgb, var(--panel-2) 82%, var(--accent-soft) 18%);
+  }
   .console-choice input {
     width: auto;
     margin-top: 2px;
