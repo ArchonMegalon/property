@@ -136,7 +136,7 @@ def test_premium_dossier_html_contains_core_sections() -> None:
     html = render_premium_dossier_html(compiled)
     assert "Executive decision" in html
     assert "Hosted 360 and media" in html
-    assert "Risk register and next proof" in html
+    assert "Risk register and next evidence" in html
     assert "Property portrait" in html
     assert "Route context" in html
     assert "Video feedback follow-up" in html

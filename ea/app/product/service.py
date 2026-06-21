@@ -6921,6 +6921,34 @@ def _property_candidate_has_concrete_location(property_facts: dict[str, object] 
     return False
 
 
+def _property_candidate_notification_location_evidence_kind(
+    *,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> str:
+    facts = dict(property_facts or {})
+    if _property_listing_observed_postal_codes(title=title, summary=summary, property_facts=facts):
+        return "listing_postal"
+    if _property_candidate_url_has_exact_location_probe(property_url):
+        return "url_postal"
+    if _property_candidate_has_concrete_location(facts):
+        return "listing_concrete"
+    if _property_candidate_url_has_location_probe(property_url):
+        return "url_region"
+    if any(
+        str(facts.get(key) or "").strip()
+        for key in ("source_scope_location", "source_postal_code", "source_city")
+    ):
+        return "source_scope_only"
+    return "missing"
+
+
+def _property_candidate_notification_location_evidence_is_concrete(evidence_kind: object) -> bool:
+    return str(evidence_kind or "").strip() in {"listing_postal", "url_postal", "listing_concrete"}
+
+
 def _property_candidate_has_concrete_area(property_facts: dict[str, object] | None) -> bool:
     facts = dict(property_facts or {})
     return isinstance(_property_investment_area_sqm(facts), float)
@@ -36776,6 +36804,12 @@ class ProductService:
             summary=candidate_summary,
             property_facts=candidate_facts,
         )
+        candidate_location_evidence_kind = _property_candidate_notification_location_evidence_kind(
+            property_url=candidate_property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        )
         candidate_semantic_probe_available = any(
             str(candidate_facts.get(key) or "").strip()
             for key in (
@@ -36809,7 +36843,9 @@ class ProductService:
                 "buy_price_eur",
             )
         )
-        candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
+        candidate_has_listing_location_probe = _property_candidate_notification_location_evidence_is_concrete(
+            candidate_location_evidence_kind
+        )
         candidate_has_notification_location = candidate_has_listing_location_probe
         candidate_location_mismatch = bool(
             (candidate_semantic_probe_available or candidate_listing_postal_codes)
@@ -36870,6 +36906,7 @@ class ProductService:
                     "location": str(candidate_facts.get("location") or "").strip(),
                     "street_address": str(candidate_facts.get("street_address") or "").strip(),
                     "exact_address": str(candidate_facts.get("exact_address") or "").strip(),
+                    "location_evidence_kind": candidate_location_evidence_kind,
                     "price_display": str(candidate_facts.get("price_display") or candidate_facts.get("rent_display") or "").strip(),
                     "summary": compact_text(candidate_summary, fallback="", limit=240),
                     "title": compact_text(candidate_title, fallback="", limit=200),
@@ -36892,6 +36929,7 @@ class ProductService:
                     "summary": candidate_summary,
                     "counterparty": str(counterparty or "").strip(),
                     "location_hints": list(location_hints),
+                    "location_evidence_kind": candidate_location_evidence_kind,
                     "actor": str(actor or "").strip() or "property_scout",
                 },
                 source_id=str(source_ref or candidate_property_url or property_url).strip(),
@@ -37700,6 +37738,12 @@ class ProductService:
             summary=candidate_summary,
             property_facts=candidate_facts,
         )
+        candidate_location_evidence_kind = _property_candidate_notification_location_evidence_kind(
+            property_url=candidate_property_url,
+            title=candidate_title,
+            summary=candidate_summary,
+            property_facts=candidate_facts,
+        )
         candidate_semantic_probe_available = any(
             str(candidate_facts.get(key) or "").strip()
             for key in (
@@ -37733,7 +37777,9 @@ class ProductService:
                 "buy_price_eur",
             )
         )
-        candidate_has_listing_location_probe = bool(candidate_listing_postal_codes) or _property_candidate_has_concrete_location(candidate_facts)
+        candidate_has_listing_location_probe = _property_candidate_notification_location_evidence_is_concrete(
+            candidate_location_evidence_kind
+        )
         candidate_has_notification_location = candidate_has_listing_location_probe
         candidate_location_mismatch = bool(
             (candidate_semantic_probe_available or candidate_listing_postal_codes)
@@ -37794,6 +37840,7 @@ class ProductService:
                     "location": str(candidate_facts.get("location") or "").strip(),
                     "street_address": str(candidate_facts.get("street_address") or "").strip(),
                     "exact_address": str(candidate_facts.get("exact_address") or "").strip(),
+                    "location_evidence_kind": candidate_location_evidence_kind,
                     "price_display": str(candidate_facts.get("price_display") or candidate_facts.get("rent_display") or "").strip(),
                     "summary": compact_text(candidate_summary, fallback="", limit=240),
                     "title": compact_text(candidate_title, fallback="", limit=200),
@@ -37816,6 +37863,7 @@ class ProductService:
                     "summary": candidate_summary,
                     "counterparty": str(counterparty or "").strip(),
                     "location_hints": list(location_hints),
+                    "location_evidence_kind": candidate_location_evidence_kind,
                     "actor": str(actor or "").strip() or "property_scout",
                 },
                 source_id=str(source_ref or candidate_property_url or property_url).strip(),

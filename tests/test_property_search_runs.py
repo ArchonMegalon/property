@@ -2690,6 +2690,60 @@ def test_property_postal_extraction_ignores_source_scope_locality_noise() -> Non
     assert product_service._property_postal_location_evidence("requested 1010 search area") == ()
 
 
+def test_property_notification_location_evidence_kind_never_treats_source_scope_as_listing_truth() -> None:
+    source_scope_facts = {
+        "postal_name": "1010 Vienna",
+        "source_scope_location": "1010 Vienna",
+        "source_postal_code": "1010",
+        "source_city": "Vienna",
+    }
+
+    source_scope_only = product_service._property_candidate_notification_location_evidence_kind(
+        property_url="https://www.willhaben.at/iad/object?adId=1631373932",
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung",
+        summary="Provider card from selected search scope.",
+        property_facts=source_scope_facts,
+    )
+    assert source_scope_only == "source_scope_only"
+    assert not product_service._property_candidate_notification_location_evidence_is_concrete(source_scope_only)
+
+    listing_postal = product_service._property_candidate_notification_location_evidence_kind(
+        property_url="https://www.derstandard.at/immobilien/wohnung-1220-wien",
+        title="Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer",
+        summary="2-Zimmer Wohnung mit Traumblick in 1220 Wien.",
+        property_facts=source_scope_facts,
+    )
+    assert listing_postal == "listing_postal"
+    assert product_service._property_candidate_notification_location_evidence_is_concrete(listing_postal)
+
+    url_postal = product_service._property_candidate_notification_location_evidence_kind(
+        property_url="https://www.raiffeisen-wohnbau.at/de/projects/id/1090-vienna/augasse-17/70",
+        title="Augasse 17",
+        summary="Provider card from selected search scope.",
+        property_facts=source_scope_facts,
+    )
+    assert url_postal == "url_postal"
+    assert product_service._property_candidate_notification_location_evidence_is_concrete(url_postal)
+
+    street_address = product_service._property_candidate_notification_location_evidence_kind(
+        property_url="https://example.test/listing",
+        title="Wohnung beim Stephansplatz",
+        summary="2-Zimmer Wohnung.",
+        property_facts={**source_scope_facts, "street_address": "Kärntner Straße 12, 1010 Wien"},
+    )
+    assert street_address == "listing_concrete"
+    assert product_service._property_candidate_notification_location_evidence_is_concrete(street_address)
+
+    url_region = product_service._property_candidate_notification_location_evidence_kind(
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung",
+        summary="Provider card from selected search scope.",
+        property_facts=source_scope_facts,
+    )
+    assert url_region == "url_region"
+    assert not product_service._property_candidate_notification_location_evidence_is_concrete(url_region)
+
+
 @pytest.mark.parametrize(
     ("title", "summary", "property_url", "expected_postal"),
     [
