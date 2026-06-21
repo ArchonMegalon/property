@@ -5420,6 +5420,17 @@
       .pqx-shell[data-pqx-surface="billing"] .pqx-mobile-switch {
         position: static;
       }
+      .pqx-shell[data-pqx-surface="agents"] .pqx-brief-drawer-panel,
+      .pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel,
+      .pqx-shell[data-pqx-surface="billing"] .pqx-brief-drawer-panel {
+        max-height: none;
+        overflow: visible;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-pref-list,
+      .pqx-shell[data-pqx-surface="billing"] .pqx-pref-list {
+        max-height: none;
+        overflow: visible;
+      }
       .pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel > .pqx-section-head {
         display: none;
       }
@@ -5561,6 +5572,13 @@
       }
       .pqx-automation-card {
         min-height: 0;
+      }
+      .pqx-account-summary-card,
+      .pqx-account-card,
+      .pqx-billing-summary-card,
+      .pqx-billing-card {
+        content-visibility: visible;
+        contain-intrinsic-size: auto;
       }
       .pqx-automation-thumbnail,
       .pqx-automation-thumbnail img {
@@ -5774,7 +5792,7 @@
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
-        {% elif setup_mode %}
+        {% elif setup_mode and surface_mode == 'search' %}
         <span class="pqx-inline-status pqx-launch-status" data-property-launch-status aria-live="polite"></span>
         <button class="pqx-button primary" type="button" data-pqx-launch-top>Launch search</button>
         {% endif %}

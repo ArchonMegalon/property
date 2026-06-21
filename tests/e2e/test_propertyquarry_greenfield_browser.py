@@ -529,6 +529,23 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         sign_in_shot = tmp_path / "propertyquarry-sign-in-desktop.png"
         desktop_page.screenshot(path=str(sign_in_shot), full_page=True)
         assert sign_in_shot.exists()
+
+        response = mobile_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(mobile_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
+        expect(mobile_page.get_by_role("button", name="Continue with Google")).to_be_visible()
+        _assert_no_horizontal_overflow(mobile_page)
+        mobile_sign_in_shot = tmp_path / "propertyquarry-sign-in-mobile.png"
+        mobile_page.screenshot(path=str(mobile_sign_in_shot), full_page=True)
+        assert mobile_sign_in_shot.exists()
+
+        response = mobile_page.goto(f"{base_url}/pricing", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(mobile_page.get_by_role("heading", name="Pricing")).to_be_visible()
+        _assert_no_horizontal_overflow(mobile_page)
+        mobile_pricing_shot = tmp_path / "propertyquarry-pricing-mobile.png"
+        mobile_page.screenshot(path=str(mobile_pricing_shot), full_page=True)
+        assert mobile_pricing_shot.exists()
     finally:
         desktop.close()
         mobile.close()
@@ -2029,6 +2046,86 @@ def test_propertyquarry_automation_page_uses_compact_card_cockpit(
             page.locator(".pqx-automation-thumbnail").first.click()
         assert "/app/search" in page.url
         assert "load_agent=watch-1020" in page.url
+    finally:
+        context.close()
+
+
+def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "selected_platforms": ["willhaben", "derstandard_at"],
+            "search_agents": [
+                {
+                    "agent_id": "watch-1020-mobile",
+                    "name": "Leopoldstadt mobile watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "duration_days": 90,
+                    "notification_limit": 3,
+                    "notification_period": "day",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                        "property_type": "apartment",
+                        "selected_platforms": ["willhaben", "derstandard_at"],
+                    },
+                },
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    routes = [
+        ("/app/agents", "Automation", "propertyquarry-agents-mobile.png"),
+        ("/app/account", "Account", "propertyquarry-account-mobile.png"),
+        ("/app/billing", "Billing", "propertyquarry-billing-mobile.png"),
+    ]
+    try:
+        page = context.new_page()
+        for route, mobile_mode_name, screenshot_name in routes:
+            response = page.goto(f"{base_url}{route}", wait_until="networkidle")
+            assert response is not None and response.ok
+            _assert_no_horizontal_overflow(page)
+            _assert_property_shell_visual_gates(page, max_appbar_height=130)
+
+            switch = page.locator("[data-property-mobile-dock]").first
+            expect(switch).to_be_visible()
+            expect(page.get_by_role("button", name=mobile_mode_name)).to_be_visible()
+            expect(page.locator("[data-pqx-launch-top]")).to_have_count(0)
+
+            if route == "/app/agents":
+                expect(page.locator("[data-property-search-agent-grid]")).to_be_visible()
+                expect(page.locator(".pqx-automation-thumbnail").first).to_be_visible()
+            elif route == "/app/account":
+                expect(page.locator("body", has_text="Notification type")).to_be_visible()
+                expect(page.locator("body", has_text="Export account data")).to_be_visible()
+            else:
+                expect(page.locator("body", has_text="Billing history")).to_be_visible()
+                expect(page.locator("body", has_text="Cancellation and refunds")).to_be_visible()
+
+            screenshot_path = tmp_path / screenshot_name
+            page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
+            assert screenshot_path.exists() and screenshot_path.stat().st_size > 16_000
     finally:
         context.close()
 
