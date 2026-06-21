@@ -13,6 +13,10 @@
 {% for item in public_items %}
   {% if item.get('title') == 'Security' %}{% set security_item.value = item %}{% endif %}
 {% endfor %}
+{% set account_status = status if status is defined and status else {} %}
+{% set delivery_preferences = account_status.get('delivery_preferences') or {} %}
+{% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
+{% set preferred_notification_channel = property_notifications.get('preferred_channel') or 'email' %}
 
 <section class="pqx-card pqx-account-board is-compact">
   <div class="pqx-section-head">
@@ -30,6 +34,35 @@
         <p>{{ profile_item.get('detail') or 'Market, areas, providers, budget, and what matters are edited in the Search workflow.' }}</p>
       </div>
       <a class="pqx-link-button primary" href="{{ profile_item.get('action_href') or '/app/search' }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
+    </section>
+
+    <section class="pqx-account-action-card notification" id="delivery">
+      <div>
+        <span class="pqx-small">Alerts</span>
+        <h2>Property alerts</h2>
+        <p>Choose where new strong matches should arrive.</p>
+        <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
+          <div class="pqx-account-channel-options" role="radiogroup" aria-label="Property alert destination">
+            <label class="pqx-account-channel-option">
+              <input type="radio" name="preferred_channel" value="email"{% if preferred_notification_channel == 'email' %} checked{% endif %}>
+              <span>Email</span>
+            </label>
+            <label class="pqx-account-channel-option">
+              <input type="radio" name="preferred_channel" value="telegram"{% if preferred_notification_channel == 'telegram' %} checked{% endif %}>
+              <span>Telegram bot</span>
+            </label>
+            <label class="pqx-account-channel-option">
+              <input type="radio" name="preferred_channel" value="whatsapp"{% if preferred_notification_channel == 'whatsapp' %} checked{% endif %}>
+              <span>WhatsApp</span>
+            </label>
+            <label class="pqx-account-channel-option disabled" aria-disabled="true">
+              <input type="radio" name="preferred_channel_disabled" value="signal" disabled>
+              <span>Signal <small>later</small></span>
+            </label>
+          </div>
+          <button class="pqx-link-button primary" type="submit">Save alerts</button>
+        </form>
+      </div>
     </section>
 
     <section class="pqx-account-action-card" id="plans">

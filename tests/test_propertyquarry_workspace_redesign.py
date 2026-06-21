@@ -8540,6 +8540,13 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
     assert 'href="/cookies"' in account.text
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
+    assert "Property alerts" in account.text
+    assert 'action="/app/api/property/account/notifications"' in account.text
+    assert 'value="email"' in account.text
+    assert 'value="telegram"' in account.text
+    assert "Telegram bot" in account.text
+    assert 'value="whatsapp"' in account.text
+    assert 'value="signal" disabled' in account.text
     access_links = client.get("/app/settings/access", headers=headers)
     assert access_links.status_code == 200
     assert "Create an access link" in access_links.text
@@ -8556,6 +8563,21 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
     assert payload["property_passport_summary"]["property_count"] == 0
     assert isinstance(payload["property_passport_summary"]["properties"], list)
     assert "access_token" not in json.dumps(payload)
+
+    notification_update = client.post(
+        "/app/api/property/account/notifications",
+        data={"preferred_channel": "telegram"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert notification_update.status_code == 303
+    assert notification_update.headers["location"] == "/app/account?notifications_saved=1#delivery"
+    export_after_update = client.get("/app/api/property/account/export", headers=headers)
+    assert export_after_update.status_code == 200
+    assert (
+        export_after_update.json()["delivery_preferences"]["property_notifications"]["preferred_channel"]
+        == "telegram"
+    )
 
     download = client.get("/app/api/property/account/export?download=1", headers=headers)
     assert download.status_code == 200

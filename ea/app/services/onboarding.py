@@ -124,6 +124,30 @@ DEFAULT_AUTO_BRIEF_QUIET_HOURS_START = "20:00"
 DEFAULT_AUTO_BRIEF_QUIET_HOURS_END = "07:00"
 DEFAULT_AUTO_BRIEF_DELIVERY_WINDOW_MINUTES = 120
 DEFAULT_AUTO_BRIEF_RETRY_AFTER_MINUTES = 60
+PROPERTY_NOTIFICATION_CHANNELS = {"email", "telegram", "whatsapp"}
+PROPERTY_NOTIFICATION_CHANNEL_LABELS = {
+    "email": "Email",
+    "telegram": "Telegram",
+    "whatsapp": "WhatsApp",
+}
+
+
+def normalize_property_notification_channel(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "mail": "email",
+        "e_mail": "email",
+        "e-mail": "email",
+        "telegram_bot": "telegram",
+        "propertyquarry_bot": "telegram",
+        "propertyquarry_telegram": "telegram",
+        "heyy": "whatsapp",
+        "whats_app": "whatsapp",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in PROPERTY_NOTIFICATION_CHANNELS:
+        raise ValueError("property_notification_channel_invalid")
+    return normalized
 
 
 class OnboardingService(AssistantOnboardingService):
@@ -1022,6 +1046,7 @@ class OnboardingService(AssistantOnboardingService):
         preview_privacy = dict(preview.get("privacy_posture") or {})
         preview_privacy["auto_briefs_schedule"] = morning_memo_schedule
         preview["privacy_posture"] = preview_privacy
+        property_notifications = self._property_notification_preferences(state)
         return {
             "principal_id": principal_id,
             "status": state.status if state is not None else "draft",
@@ -1035,7 +1060,10 @@ class OnboardingService(AssistantOnboardingService):
             "selected_channels": list(state.selected_channels if state is not None else ()),
             "property_search_preferences": raw_property_preferences,
             "privacy": dict(state.privacy_preferences_json) if state is not None else {},
-            "delivery_preferences": {"morning_memo": morning_memo_schedule},
+            "delivery_preferences": {
+                "morning_memo": morning_memo_schedule,
+                "property_notifications": property_notifications,
+            },
             "assistant_modes": [dict(row) for row in ASSISTANT_MODE_CATALOG],
             "featured_domains": [dict(row) for row in FEATURED_DOMAIN_CATALOG],
             "storage_posture": {
@@ -1054,6 +1082,72 @@ class OnboardingService(AssistantOnboardingService):
         if existing is not None:
             return existing
         return self._repo.upsert_state(principal_id=principal_id, status="draft")
+
+    def _property_notification_preferences(self, state: OnboardingState | None) -> dict[str, object]:
+        channel_preferences = dict(getattr(state, "channel_preferences_json", {}) or {}) if state is not None else {}
+        raw_preferences = channel_preferences.get("property_notifications")
+        preferences = dict(raw_preferences or {}) if isinstance(raw_preferences, dict) else {}
+        configured_channel = str(preferences.get("preferred_channel") or "").strip().lower()
+        if configured_channel:
+            try:
+                preferred_channel = normalize_property_notification_channel(configured_channel)
+            except ValueError:
+                preferred_channel = "email"
+        else:
+            preferred_channel = "email"
+        return {
+            "preferred_channel": preferred_channel,
+            "preferred_label": PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(preferred_channel, "Email"),
+            "configured": bool(configured_channel),
+            "channels": [
+                {"key": "email", "label": "Email", "enabled": True, "status": "available"},
+                {"key": "telegram", "label": "Telegram bot", "enabled": True, "status": "available"},
+                {"key": "whatsapp", "label": "WhatsApp", "enabled": True, "status": "available"},
+                {"key": "signal", "label": "Signal", "enabled": False, "status": "coming_soon"},
+            ],
+        }
+
+    def update_property_notification_preferences(
+        self,
+        *,
+        principal_id: str,
+        preferred_channel: object,
+    ) -> dict[str, object]:
+        state = self._ensure_state(principal_id)
+        normalized_channel = normalize_property_notification_channel(preferred_channel)
+        channel_preferences = dict(state.channel_preferences_json or {})
+        property_notifications = dict(channel_preferences.get("property_notifications") or {})
+        property_notifications.update(
+            {
+                "preferred_channel": normalized_channel,
+                "signal_status": "coming_soon",
+            }
+        )
+        channel_preferences["property_notifications"] = property_notifications
+        for channel in PROPERTY_NOTIFICATION_CHANNELS:
+            channel_preferences.setdefault(channel, {})
+        selected = {
+            str(channel or "").strip().lower()
+            for channel in state.selected_channels
+            if str(channel or "").strip()
+        }
+        selected.add(normalized_channel)
+        saved = self._repo.upsert_state(
+            principal_id=state.principal_id,
+            onboarding_id=state.onboarding_id,
+            workspace_name=state.workspace_name,
+            workspace_mode=state.workspace_mode,
+            region=state.region,
+            language=state.language,
+            timezone=state.timezone,
+            selected_channels=tuple(sorted(selected)),
+            property_search_preferences_json=dict(state.property_search_preferences_json),
+            privacy_preferences_json=dict(state.privacy_preferences_json),
+            channel_preferences_json=channel_preferences,
+            brief_preview_json=dict(state.brief_preview_json),
+            status=state.status,
+        )
+        return self.status(principal_id=principal_id, state_override=saved)
 
     def _replace_channel_pref(
         self,

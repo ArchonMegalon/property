@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.product_api_contracts import (
@@ -23,6 +24,7 @@ from app.container import AppContainer
 from app.product.property_canonical_graph import build_property_passport_snapshot
 from app.product.property_tour_hosting import revoke_hosted_property_tour_bundle
 from app.product.service import build_product_service
+from app.services.onboarding import normalize_property_notification_channel
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 
@@ -169,6 +171,37 @@ def export_property_account_data(
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{_property_account_export_filename(bundle)}"'
     return JSONResponse(content=bundle, headers=headers)
+
+
+@router.post("/property/account/notifications")
+async def update_property_account_notifications(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    raw_body = (await request.body()).decode("utf-8", "ignore")
+    parsed_body = urllib.parse.parse_qs(raw_body, keep_blank_values=True)
+    preferred_channel = str((parsed_body.get("preferred_channel") or ["email"])[0] or "email")
+    try:
+        normalized_channel = normalize_property_notification_channel(preferred_channel)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    container.onboarding.update_property_notification_preferences(
+        principal_id=context.principal_id,
+        preferred_channel=normalized_channel,
+    )
+    service = build_product_service(container)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="property_notification_preferences_updated",
+        surface="property_account_lifecycle",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        metadata={"preferred_channel": normalized_channel},
+    )
+    return RedirectResponse(
+        url="/app/account?notifications_saved=1#delivery",
+        status_code=303,
+    )
 
 
 @router.post("/property/public-tours/{slug}/revoke")

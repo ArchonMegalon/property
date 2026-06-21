@@ -53,6 +53,7 @@ except Exception:  # pragma: no cover - optional OCR fallback
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot, property_worker_cap
+from app.services.onboarding import normalize_property_notification_channel
 from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
 from app.services.property_media_factory import MediaRequirement, route_property_media_task
 from app.product import property_search_storage as _property_search_storage
@@ -22871,6 +22872,14 @@ class ProductService:
             dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-created",
         )
         telegram_suppression_reason = ""
+        configured_notification_channel = self._property_configured_notification_channel(principal_id=principal_id)
+        if configured_notification_channel:
+            payload["preferred_notification_channel"] = configured_notification_channel
+        notify_email = bool(notify_telegram and configured_notification_channel == "email")
+        if notify_telegram and configured_notification_channel and configured_notification_channel != "telegram":
+            notify_telegram = False
+            telegram_suppression_reason = f"preferred_channel_{configured_notification_channel}"
+            payload["telegram_delivery_error"] = telegram_suppression_reason
         outbound_min_score = _property_scout_outbound_notification_min_score()
         if notify_telegram and float(fit_score or 0.0) < outbound_min_score:
             notify_telegram = False
@@ -22982,6 +22991,26 @@ class ProductService:
                 source_id=str(source_ref or external_id or task.human_task_id).strip(),
                 dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-telegram-suppressed",
             )
+        if notify_email:
+            email_result = self._send_property_scout_hit_email(
+                principal_id=principal_id,
+                actor=actor,
+                title=title,
+                summary=summary,
+                counterparty=display_counterparty,
+                property_url=property_url,
+                source_ref=str(source_ref or external_id or task.human_task_id).strip(),
+                assessment=dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
+                review_url=review_url,
+                tour_result={"tour_url": normalized_tour_url} if normalized_tour_url else {},
+                candidate_properties=candidate_properties,
+                render_dossier=False,
+            )
+            payload["email_delivery_status"] = str(email_result.get("status") or "").strip()
+            if str(email_result.get("message_id") or "").strip():
+                payload["email_message_id"] = str(email_result.get("message_id") or "").strip()
+            if str(email_result.get("reason") or "").strip():
+                payload["email_delivery_error"] = str(email_result.get("reason") or "").strip()
         heyy_result = self._send_heyy_property_match_notification(
             principal_id=principal_id,
             actor=actor,
@@ -36676,6 +36705,32 @@ class ProductService:
         )
         return result
 
+    def _property_configured_notification_channel(self, *, principal_id: str) -> str:
+        try:
+            status = self._container.onboarding.status(principal_id=principal_id)
+        except Exception:
+            return ""
+        delivery_preferences = dict(status.get("delivery_preferences") or {})
+        property_notifications = dict(delivery_preferences.get("property_notifications") or {})
+        if not bool(property_notifications.get("configured")):
+            return ""
+        try:
+            return normalize_property_notification_channel(property_notifications.get("preferred_channel"))
+        except ValueError:
+            return ""
+
+    def _property_notification_channel_allows(self, *, principal_id: str, channel: str) -> tuple[bool, str]:
+        configured_channel = self._property_configured_notification_channel(principal_id=principal_id)
+        if not configured_channel:
+            return True, ""
+        try:
+            normalized_channel = normalize_property_notification_channel(channel)
+        except ValueError:
+            return False, "property_notification_channel_invalid"
+        if configured_channel == normalized_channel:
+            return True, ""
+        return False, f"preferred_channel_{configured_channel}"
+
     def _heyy_whatsapp_selected_for_principal(self, *, principal_id: str) -> bool:
         try:
             status = self._container.onboarding.status(principal_id=principal_id)
@@ -36822,6 +36877,12 @@ class ProductService:
         missing_fact: str,
         source_id: str,
     ) -> dict[str, object]:
+        allowed_by_preference, preference_reason = self._property_notification_channel_allows(
+            principal_id=principal_id,
+            channel="whatsapp",
+        )
+        if not allowed_by_preference:
+            return {"status": "suppressed", "reason": preference_reason}
         if not heyy_enabled():
             return {"status": "suppressed", "reason": "heyy_disabled"}
         template_kind_normalized = str(template_kind or "").strip().lower() or "property_match"
@@ -36924,6 +36985,12 @@ class ProductService:
         requested_country_code: str = "",
         requested_region_code: str = "",
     ) -> dict[str, object]:
+        allowed_by_preference, preference_reason = self._property_notification_channel_allows(
+            principal_id=principal_id,
+            channel="telegram",
+        )
+        if not allowed_by_preference:
+            return {"status": "suppressed", "reason": preference_reason}
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
         source_scope_location_hints = _property_exact_source_scope_location_hints(
             source_url="",
@@ -37858,6 +37925,12 @@ class ProductService:
         requested_country_code: str = "",
         requested_region_code: str = "",
     ) -> dict[str, object]:
+        allowed_by_preference, preference_reason = self._property_notification_channel_allows(
+            principal_id=principal_id,
+            channel="email",
+        )
+        if not allowed_by_preference:
+            return {"status": "suppressed", "reason": preference_reason}
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
         source_scope_location_hints = _property_exact_source_scope_location_hints(
             source_url="",

@@ -3296,6 +3296,10 @@
       border-color: rgba(189, 139, 47, 0.30);
       background: #fff8ea;
     }
+    .pqx-account-action-card.notification {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
     .pqx-account-action-card h2 {
       margin: 2px 0 0;
       color: var(--pq-ink);
@@ -3307,6 +3311,43 @@
       color: var(--pq-muted);
       font-size: 12px;
       line-height: 1.42;
+    }
+    .pqx-account-channel-form {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .pqx-account-channel-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-account-channel-option {
+      display: flex;
+      align-items: center;
+      min-height: 38px;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .pqx-account-channel-option input {
+      accent-color: var(--pq-gold);
+    }
+    .pqx-account-channel-option small {
+      display: inline;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .pqx-account-channel-option.disabled {
+      opacity: 0.56;
+      cursor: not-allowed;
     }
     .pqx-account-summary {
       display: grid;
@@ -4709,9 +4750,10 @@
     html[data-pq-theme="dark"] .pqx-automation-history-table th,
     html[data-pq-theme="dark"] .pqx-automation-card,
     html[data-pq-theme="dark"] .pqx-automation-thumbnail,
-    html[data-pq-theme="dark"] .pqx-automation-delete,
-    html[data-pq-theme="dark"] .pqx-account-action-card,
-    html[data-pq-theme="dark"] .pqx-account-summary-card,
+	    html[data-pq-theme="dark"] .pqx-automation-delete,
+	    html[data-pq-theme="dark"] .pqx-account-action-card,
+	    html[data-pq-theme="dark"] .pqx-account-channel-option,
+	    html[data-pq-theme="dark"] .pqx-account-summary-card,
     html[data-pq-theme="dark"] .pqx-account-card,
     html[data-pq-theme="dark"] .pqx-billing-summary-card,
     html[data-pq-theme="dark"] .pqx-billing-card,

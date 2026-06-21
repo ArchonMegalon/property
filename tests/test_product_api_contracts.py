@@ -922,6 +922,78 @@ def test_property_scout_heyy_notification_honors_stop_command(monkeypatch) -> No
     assert result == {"status": "suppressed", "reason": "heyy_whatsapp_stopped"}
 
 
+def test_property_notification_preference_suppresses_unselected_channels(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "cf-email:notification-preference@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(
+        client,
+        mode="personal",
+        workspace_name="Notification Preference Office",
+        selected_channels=["google", "telegram", "whatsapp"],
+    )
+    onboarding = client.app.state.container.onboarding
+    onboarding.update_property_notification_preferences(
+        principal_id=principal_id,
+        preferred_channel="email",
+    )
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    onboarding._replace_channel_pref(  # noqa: SLF001
+        state,
+        "whatsapp",
+        {"mode": "business", "phone_number": "+436647916419"},
+        status="in_progress",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_MATCH", "tmpl-property-match")
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: pytest.fail("WhatsApp sent despite email preference"),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    assert service._property_notification_channel_allows(  # noqa: SLF001
+        principal_id=principal_id,
+        channel="email",
+    ) == (True, "")
+    assert service._property_notification_channel_allows(  # noqa: SLF001
+        principal_id=principal_id,
+        channel="telegram",
+    ) == (False, "preferred_channel_email")
+    result = service._send_heyy_property_match_notification(
+        principal_id=principal_id,
+        actor="property_scout",
+        template_kind="property_match",
+        property_ref="property-scout:preference",
+        property_title="Preferred email property",
+        fit_score=91.0,
+        reason="shortlist",
+        missing_fact="Operating costs",
+        source_id="property-scout:preference",
+    )
+    assert result == {"status": "suppressed", "reason": "preferred_channel_email"}
+
+    onboarding.update_property_notification_preferences(
+        principal_id=principal_id,
+        preferred_channel="telegram",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: pytest.fail("Email sent despite Telegram preference"),
+    )
+    email_result = service._send_property_scout_hit_email(
+        principal_id=principal_id,
+        actor="test",
+        title="Scout alert for 1050 Vienna",
+        summary="New Neubau listing with lift and storage room.",
+        counterparty="ImmoScout24 Austria",
+        property_url="https://www.immobilienscout24.at/expose/notification-preference",
+        source_ref="notification-preference",
+        assessment={"fit_score": 91.0, "recommendation": "shortlist"},
+    )
+    assert email_result == {"status": "suppressed", "reason": "preferred_channel_telegram"}
+
+
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
