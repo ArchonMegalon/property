@@ -2448,6 +2448,13 @@ def sign_in_page(
     google_prefill_email = str(request.query_params.get("google_prefill_email") or "").strip()
     facebook_error = str(request.query_params.get("facebook_error") or "").strip()
     id_austria_error = str(request.query_params.get("id_austria_error") or "").strip()
+    connected_provider = ""
+    if str(request.query_params.get("google_connected") or "").strip() == "1":
+        connected_provider = "Google"
+    elif str(request.query_params.get("facebook_connected") or "").strip() == "1":
+        connected_provider = "Facebook"
+    elif str(request.query_params.get("id_austria_connected") or "").strip() == "1":
+        connected_provider = "ID Austria"
     return _render_public_template(
         request,
         "sign_in.html",
@@ -2468,6 +2475,7 @@ def sign_in_page(
                 "sign_in_google_error": google_error,
                 "sign_in_facebook_error": facebook_error,
                 "sign_in_id_austria_error": id_austria_error,
+                "sign_in_connected_provider": connected_provider,
                 "sign_in_facebook_enabled": _facebook_sign_in_enabled(),
                 "sign_in_id_austria_enabled": _id_austria_sign_in_enabled_for_request(request),
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",

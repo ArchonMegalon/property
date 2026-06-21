@@ -208,6 +208,27 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert "Choose the narrowest sign-in path" not in response.text
 
 
+@pytest.mark.parametrize(
+    ("query", "provider"),
+    (
+        ("google_connected=1", "Google"),
+        ("facebook_connected=1", "Facebook"),
+        ("id_austria_connected=1", "ID Austria"),
+    ),
+)
+def test_sign_in_page_shows_provider_return_status(monkeypatch: pytest.MonkeyPatch, query: str, provider: str) -> None:
+    client = _client(monkeypatch)
+
+    response = client.get(f"/sign-in?{query}")
+
+    assert response.status_code == 200
+    assert f"{provider} returned to PropertyQuarry." in response.text
+    assert "Open the current session if this identity is already linked" in response.text
+    assert 'data-sign-in-provider-connected' in response.text
+    assert 'href="/sign-in/current-session"' in response.text
+    assert 'href="#sign_in_email"' in response.text
+
+
 def test_sign_in_page_shows_id_austria_when_oidc_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_id_austria(monkeypatch)
     client = _client(monkeypatch)

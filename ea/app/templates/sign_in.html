@@ -203,6 +203,16 @@
       {% endif %}
       <div class="auth-provider-status" data-auth-provider-status role="status" aria-live="polite"></div>
     </div>
+    {% if sign_in_connected_provider %}
+    <div class="access-feedback" data-sign-in-provider-connected>
+      <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>
+      <p class="copy">Open the current session if this identity is already linked, or use the secure email link for this account.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="/sign-in/current-session">Open current session</a>
+        <a class="btn" href="#sign_in_email">Use email link</a>
+      </div>
+    </div>
+    {% endif %}
     {% if sign_in_google_error %}
     <div class="access-feedback">
       <strong>Google sign-in could not complete.</strong>
