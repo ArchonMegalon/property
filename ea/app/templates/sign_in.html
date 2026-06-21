@@ -145,8 +145,12 @@
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
     <p class="lead">Use your current session, secure email link, or connected identity.</p>
     <div class="cta-row">
+      {% if public_signed_in %}
       <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open current session</a>
       <a class="btn" href="/register">{{ brand.create_label }}</a>
+      {% else %}
+      <a class="btn primary" href="/register">{{ brand.create_label }}</a>
+      {% endif %}
     </div>
     <div class="auth-provider-stack" aria-label="Sign-in providers">
       <form class="auth-provider-card" method="post" action="/sign-in/google" data-auth-provider-form data-submitting-label="Opening Google...">

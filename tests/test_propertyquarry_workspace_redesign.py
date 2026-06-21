@@ -56,7 +56,7 @@ class _RenderedInteractiveElementParser(HTMLParser):
         self.elements: list[tuple[str, dict[str, str], str]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag not in {"a", "button"}:
+        if tag not in {"a", "button", "form"}:
             return
         self.elements.append((tag, {key: value or "" for key, value in attrs}, ""))
 
@@ -107,14 +107,25 @@ def test_property_results_empty_state_uses_saved_search_language() -> None:
 def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_noise() -> None:
     client = build_property_client(principal_id="pq-rendered-surface-click-audit")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
-    paths = (
+    public_client = build_property_client(principal_id="pq-rendered-public-click-audit")
+    public_client.headers.pop("X-EA-Principal-ID", None)
+    audited_paths = (
+        (client, "/app/search"),
+        (client, "/app/properties"),
+        (client, "/app/shortlist"),
+        (client, "/app/agents"),
+        (client, "/app/account"),
+        (client, "/app/billing"),
+        (client, "/data-deletion"),
+        (public_client, "/"),
+        (public_client, "/?home=1"),
+        (public_client, "/sign-in"),
+        (public_client, "/pricing"),
+        (public_client, "/data-deletion"),
+    )
+    protected_paths = (
         "/app/search",
-        "/app/properties",
         "/app/shortlist",
-        "/app/agents",
-        "/app/account",
-        "/app/billing",
-        "/data-deletion",
     )
     noisy_phrases = (
         "Use stored feedback preferences",
@@ -159,8 +170,8 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
         "operational artifacts tied to your workspace",
         "operational artifacts tied to your account",
     )
-    for path in paths:
-        response = client.get(path, headers={"host": "propertyquarry.com"})
+    for audit_client, path in audited_paths:
+        response = audit_client.get(path, headers={"host": "propertyquarry.com"})
         assert response.status_code == 200, path
         rendered_text = re.sub(
             r"<script.*?</script>|<style.*?</style>",
@@ -180,6 +191,8 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
                 href = str(attrs.get("href") or "").strip()
                 assert href and href != "#", f"dead link on {path}: {text!r}"
                 assert not href.lower().startswith("javascript:"), f"javascript link on {path}: {text!r}"
+                if audit_client is public_client and href.split("#", 1)[0] in protected_paths:
+                    assert "current session" not in text.lower(), f"anonymous page links current-session action to protected route on {path}"
             if tag == "button" and "disabled" not in attrs:
                 button_type = str(attrs.get("type") or "submit").strip().lower() or "submit"
                 has_data_handler = any(key.startswith("data-") for key in attrs)
@@ -189,6 +202,13 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
                     or has_data_handler
                     or has_form_action
                 ), f"enabled button without action wiring on {path}: {text!r}"
+            if tag == "form":
+                action = str(attrs.get("action") or "").strip()
+                method = str(attrs.get("method") or "get").strip().lower() or "get"
+                has_data_handler = any(key.startswith("data-") for key in attrs)
+                assert action or has_data_handler, f"form without action or client handler on {path}"
+                assert not action.lower().startswith("javascript:"), f"javascript form action on {path}: {action!r}"
+                assert method in {"get", "post", "dialog"}, f"unexpected form method on {path}: {method!r}"
 
 
 def test_property_result_title_display_cleans_provider_url_garbage() -> None:
@@ -442,16 +462,23 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
 
 def test_propertyquarry_register_surface_uses_property_search_language() -> None:
     client = build_property_client(principal_id="pq-register-copy")
+    public_client = build_property_client(principal_id="pq-register-copy-public")
+    public_client.headers.pop("X-EA-Principal-ID", None)
 
     page = client.get("/register", headers={"host": "propertyquarry.com"})
-    sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
+    sign_in = public_client.get("/sign-in", headers={"host": "propertyquarry.com"})
+    signed_in_sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
     assert sign_in.status_code == 200
+    assert signed_in_sign_in.status_code == 200
     assert "Start an account that finds and ranks the right properties" in page.text
     assert "Create the account and start the first search" in page.text
     assert 'href="/app/search"' in page.text
-    assert 'href="/app/search"' in sign_in.text
+    assert 'href="/app/search"' not in sign_in.text
+    assert "Open current session" not in sign_in.text
+    assert 'href="/app/search"' in signed_in_sign_in.text
+    assert "Open current session" in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
     assert "Google?" not in sign_in.text
     assert "Facebook?" not in sign_in.text
@@ -8788,6 +8815,8 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     principal_id = "pq-primary-link-audit"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Link Audit")
+    public_client = build_property_client(principal_id="pq-primary-public-link-audit")
+    public_client.headers.pop("X-EA-Principal-ID", None)
     headers = {"host": "propertyquarry.com"}
     channel_redirect = client.get("/app/channels", headers=headers, follow_redirects=False)
     assert channel_redirect.status_code == 307
@@ -8799,22 +8828,31 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     assert automation_singular_redirect.status_code == 307
     assert automation_singular_redirect.headers["location"] == "/app/agents"
     pages = [
-        "/app/search",
-        "/app/properties",
-        "/app/shortlist",
-        "/app/agents",
-        "/app/account",
-        "/app/account#profile",
-        "/app/profile",
-        "/app/alerts",
-        "/app/settings/access",
+        (client, "/app/search"),
+        (client, "/app/properties"),
+        (client, "/app/shortlist"),
+        (client, "/app/agents"),
+        (client, "/app/account"),
+        (client, "/app/account#profile"),
+        (client, "/app/profile"),
+        (client, "/app/alerts"),
+        (client, "/app/settings/access"),
+        (public_client, "/"),
+        (public_client, "/?home=1"),
+        (public_client, "/sign-in"),
+        (public_client, "/pricing"),
+        (public_client, "/data-deletion"),
     ]
+    protected_current_session_targets = {"/app/search", "/app/properties", "/app/shortlist"}
     checked: set[str] = set()
     failures: list[str] = []
     fragment_failures: list[str] = []
     button_failures: list[str] = []
-    for page_path in pages:
-        page = client.get(page_path, headers=headers, follow_redirects=True)
+    form_failures: list[str] = []
+    audited_page_paths: set[str] = set()
+    for page_client, page_path in pages:
+        audited_page_paths.add(page_path.split("#", 1)[0])
+        page = page_client.get(page_path, headers=headers, follow_redirects=True)
         assert page.status_code == 200, page.text[:500]
         assert not re.search(r'href="/app/settings(?=[?#"])', page.text), page_path
         for href in re.findall(r'href="([^"]+)"', page.text):
@@ -8827,20 +8865,39 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
                 continue
             if href.startswith(("http://", "https://", "//")):
                 continue
+            target, _, fragment = href.partition("#")
+            if page_client is public_client and target in protected_current_session_targets:
+                failures.append(f"{page_path} offers protected current-session target {href} to an anonymous visitor")
+                continue
             if "__" in href or href.startswith("/app/api/"):
                 continue
-            target, _, fragment = href.partition("#")
             target = target or page_path.split("#", 1)[0]
             if not target.startswith("/"):
                 continue
             if target in checked:
                 continue
             checked.add(target)
-            response = client.get(target, headers=headers, follow_redirects=True)
+            response = page_client.get(target, headers=headers, follow_redirects=True)
+            if page_client is public_client and target.startswith("/app/") and response.status_code in {401, 403}:
+                failures.append(f"{page_path} offers protected link {href} to an anonymous visitor")
+                continue
             if response.status_code >= 400:
                 failures.append(f"{page_path} offers {href} -> {response.status_code}")
             elif fragment and f'id="{fragment}"' not in response.text and f"id='{fragment}'" not in response.text:
                 fragment_failures.append(f"{page_path} offers {href} but {target} has no matching id")
+        for form_attrs in re.findall(r"<form([^>]*)>", page.text, flags=re.DOTALL):
+            attrs = dict(re.findall(r'([a-zA-Z_:][-a-zA-Z0-9_:.]*)="([^"]*)"', form_attrs))
+            action = str(attrs.get("action") or "").strip()
+            method = str(attrs.get("method") or "get").strip().lower() or "get"
+            has_data_handler = any(key.startswith("data-") for key in attrs)
+            if not action and not has_data_handler:
+                form_failures.append(f"{page_path} renders form without action or client handler")
+            if action.lower().startswith("javascript:"):
+                form_failures.append(f"{page_path} renders javascript form action {action!r}")
+            if method not in {"get", "post", "dialog"}:
+                form_failures.append(f"{page_path} renders unsupported form method {method!r}")
+            if page_client is public_client and action in protected_current_session_targets:
+                form_failures.append(f"{page_path} renders anonymous form to protected target {action!r}")
         for button_attrs, button_label in re.findall(r"<button([^>]*)>(.*?)</button>", page.text, flags=re.DOTALL):
             attrs = button_attrs.strip()
             if "disabled" in attrs:
@@ -8855,8 +8912,10 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     assert not failures
     assert not fragment_failures
     assert not button_failures
+    assert not form_failures
     assert "/app/account" in checked
     assert "/app/search" in checked
+    assert "/sign-in" in audited_page_paths
 
 
 def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
