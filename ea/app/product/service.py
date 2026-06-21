@@ -25410,7 +25410,7 @@ class ProductService:
         source_ref: str = "",
         external_id: str = "",
         google_account_email: str = "",
-        auto_deliver: bool = True,
+        auto_deliver: bool = False,
         actor: str = "",
         allow_floorplan_only: bool = False,
         enforce_360_media: bool = True,
@@ -29162,7 +29162,7 @@ class ProductService:
         external_id: str = "",
         run_id: str = "",
         candidate_ref: str = "",
-        auto_deliver: bool = True,
+        auto_deliver: bool = False,
         allow_floorplan_only: bool = False,
         actor: str = "",
     ) -> dict[str, object]:

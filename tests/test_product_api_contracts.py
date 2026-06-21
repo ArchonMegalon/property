@@ -11419,6 +11419,49 @@ def test_willhaben_property_tour_route_accepts_floorplan_only_requests(monkeypat
     assert observed["auto_deliver"] is False
 
 
+def test_willhaben_property_tour_route_defaults_to_no_auto_delivery(monkeypatch) -> None:
+    principal_id = "tour-default-no-auto-delivery"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    observed: dict[str, object] = {}
+
+    def _fake_create_willhaben_property_tour(_self: object, **kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {
+            "generated_at": "2026-06-21T12:00:00+00:00",
+            "status": "queued",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "listing_id": "",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "artifact_id": "",
+            "execution_session_id": "",
+            "connector_binding_id": "",
+            "tour_url": "",
+            "vendor_tour_url": "",
+            "editor_url": "",
+            "delivery_email": "",
+            "delivery_status": "skipped",
+            "blocked_reason": "",
+            "human_task_id": "",
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+            "tour_media_mode": "request_only",
+            "personal_fit_assessment": {},
+        }
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={"property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/default-no-auto"},
+    )
+
+    assert created.status_code == 200, created.text
+    assert observed["auto_deliver"] is False
+    assert created.json()["delivery_status"] == "skipped"
+
+
 def test_preference_profile_teable_projection_endpoints_return_live_rows() -> None:
     principal_id = "pref-teable-api"
     client = build_product_client(principal_id=principal_id)

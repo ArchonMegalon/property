@@ -1499,7 +1499,7 @@ class WillhabenPropertyTourIn(BaseModel):
     external_id: str = ""
     run_id: str = ""
     candidate_ref: str = ""
-    auto_deliver: bool = True
+    auto_deliver: bool = False
     allow_floorplan_only: bool = False
 
 

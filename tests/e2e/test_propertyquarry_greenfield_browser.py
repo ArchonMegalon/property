@@ -887,6 +887,16 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         ".topbar",
         ".mobile-nav a",
         ".panel",
+        ".summary",
+        ".preview-top",
+        ".preview-main > section",
+        ".nav-card",
+        ".nav-card a",
+        ".mini-card",
+        ".pill",
+        ".tier-card",
+        ".tier-card *",
+        ".pricing-head",
         ".access-panel",
         ".access-panel *",
         ".access-card",
@@ -934,13 +944,18 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
     public_context.add_init_script("window.localStorage.setItem('propertyquarry.theme', 'dark');")
     try:
         public_page = public_context.new_page()
-        response = public_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
-        assert response is not None and response.ok
-        expect(public_page.locator("html")).to_have_attribute("data-pq-theme", "dark")
-        _assert_dark_mode_surfaces_stay_readable(public_page, public_selectors)
-        public_shot = tmp_path / "propertyquarry-sign-in-dark-surfaces.png"
-        public_page.screenshot(path=str(public_shot), full_page=False, animations="disabled", caret="hide")
-        assert public_shot.exists() and public_shot.stat().st_size > 20_000
+        for route, screenshot_name in (
+            ("/sign-in", "propertyquarry-sign-in-dark-surfaces.png"),
+            ("/?home=1", "propertyquarry-home-dark-surfaces.png"),
+            ("/pricing", "propertyquarry-pricing-dark-surfaces.png"),
+        ):
+            response = public_page.goto(f"{base_url}{route}", wait_until="networkidle")
+            assert response is not None and response.ok
+            expect(public_page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+            _assert_dark_mode_surfaces_stay_readable(public_page, public_selectors)
+            public_shot = tmp_path / screenshot_name
+            public_page.screenshot(path=str(public_shot), full_page=False, animations="disabled", caret="hide")
+            assert public_shot.exists() and public_shot.stat().st_size > 20_000
     finally:
         public_context.close()
 
