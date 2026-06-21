@@ -1876,11 +1876,14 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const body = document.querySelector('.prd-body');
               const media = document.querySelector('.prd-media-frame');
               const actions = document.querySelector('.prd-actions');
+              const meta = document.querySelector('.prd-summary-stack .prd-meta');
+              const metaCards = Array.from(document.querySelectorAll('.prd-summary-stack .prd-meta-card'));
               const shell = document.querySelector('[data-property-research-detail]');
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
               const mediaRect = media ? media.getBoundingClientRect() : null;
               const actionsStyle = actions ? getComputedStyle(actions) : null;
+              const metaStyle = meta ? getComputedStyle(meta) : null;
               const shellRect = shell ? shell.getBoundingClientRect() : null;
               return {
                 viewportWidth: window.innerWidth,
@@ -1892,6 +1895,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 mediaHeight: mediaRect ? Math.round(mediaRect.height) : 0,
                 actionsDisplay: actionsStyle ? actionsStyle.display : '',
                 actionsColumns: actionsStyle ? actionsStyle.gridTemplateColumns : '',
+                metaColumns: metaStyle ? metaStyle.gridTemplateColumns.split(' ').length : 0,
+                metaCardCount: metaCards.length,
+                metaTallestCard: Math.max(0, ...metaCards.map((card) => Math.round(card.getBoundingClientRect().height))),
               };
             }
             """
@@ -1903,6 +1909,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert 220 <= layout["mediaHeight"] <= 360
         assert layout["actionsDisplay"] == "grid"
         assert "px" in layout["actionsColumns"]
+        assert layout["metaColumns"] == 2
+        assert layout["metaCardCount"] >= 4
+        assert layout["metaTallestCard"] <= 76
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 

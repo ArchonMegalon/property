@@ -916,6 +916,23 @@
   }
   @media (max-width: 520px) {
     .prd-meta {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+    .prd-meta-card {
+      padding: 9px;
+    }
+    .prd-meta-card span {
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+    .prd-meta-card strong {
+      font-size: 0.88rem;
+      line-height: 1.16;
+    }
+  }
+  @media (max-width: 340px) {
+    .prd-meta {
       grid-template-columns: 1fr;
     }
   }
