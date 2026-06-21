@@ -227,7 +227,7 @@ def build_property_run_repair_snapshot(
             failed_total += 1
     repair_step = str(summary.get("repair_step_label") or "").strip()
     if not repair_step and failed_total:
-        repair_step = f"Retrying {failed_total} source check{'s' if failed_total != 1 else ''}"
+        repair_step = f"Retrying {failed_total} selected source{'s' if failed_total != 1 else ''}"
     next_useful_eta = str(summary.get("next_useful_update_eta_label") or "").strip()
     if not next_useful_eta and timing.get("first_shortlist_ready_at") and results_total > 0:
         next_useful_eta = "new shortlist already ready"
@@ -263,9 +263,9 @@ def build_property_run_repair_snapshot(
         if status == "completed_partial":
             repair_outcome_summary = "The shortlist is ready, but one or more sources finished degraded."
         elif failed_total and results_total > 0:
-            repair_outcome_summary = "Some source checks are retrying, but the current shortlist is already usable."
+            repair_outcome_summary = "Some selected sources are retrying, but the current shortlist is already usable."
         elif failed_total:
-            repair_outcome_summary = "Some source checks are retrying before the shortlist can settle."
+            repair_outcome_summary = "Some selected sources are retrying before the shortlist can settle."
     return PropertyRunRepairSnapshot(
         repair_status=repair_status,
         repair_status_label=repair_status_label,
@@ -306,13 +306,13 @@ def build_property_run_reliability_snapshot(
         if status in {"processed", "completed"}:
             customer_status = "Search finished cleanly."
         elif status == "completed_partial":
-            customer_status = message or "Search finished with partial coverage after one or more source checks degraded."
+            customer_status = message or "Search finished with partial coverage after one or more selected sources degraded."
         elif status == "failed":
             customer_status = message or "Search interrupted before the final pass completed."
         elif failed_total and results_total > 0:
-            customer_status = "Some source checks are retrying, but the current shortlist is already usable."
+            customer_status = "Some selected sources are retrying, but the current shortlist is already usable."
         elif failed_total:
-            customer_status = "Some source checks are retrying before the shortlist can settle."
+            customer_status = "Some selected sources are retrying before the shortlist can settle."
         elif results_total > 0:
             customer_status = "Strongest verified matches are already ready while the rest of the search finishes."
         elif source_checked > 0:
@@ -339,7 +339,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Starting"
     coverage_label = ""
     if source_total:
-        coverage_label = f"{source_checked}/{source_total} source checks"
+        coverage_label = f"{source_checked}/{source_total} sources checked"
         if pending_total:
             coverage_label += f" · {pending_total} still running"
     result_label = ""
@@ -788,12 +788,12 @@ def build_property_run_live_board_snapshot(
             tone = "warn"
         else:
             tone = "queued"
-        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing source check" if status_label == "Starting" else ("Waiting for a source check" if source_rows else "Ready when you start")))
+        provider = str((source or {}).get("source_label") or (source or {}).get("label") or ("Preparing selected source" if status_label == "Starting" else ("Waiting for a selected source" if source_rows else "Ready when you start")))
         group_key = _source_provider_group(source or {})
         shard_count = max(0, len([row for row in raw_worker_queue if _source_provider_group(row) == group_key]) - 1) if source else 0
         worker_lanes.append(
             {
-                "label": _compact_property_provider_label(provider) if source else ("Preparing source check" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
+                "label": _compact_property_provider_label(provider) if source else ("Preparing source" if status_label == "Starting" else ("Waiting" if source_rows else "Ready")),
                 "provider": provider,
                 "shard_count": shard_count,
                 "status_label": status_label,
@@ -822,7 +822,7 @@ def build_property_run_live_board_snapshot(
             )
         ):
             provider_total = inferred_provider_total
-    scan_total_label = f"{provider_total} providers" if provider_total else f"{source_total} source checks"
+    scan_total_label = f"{provider_total} providers" if provider_total else f"{source_total} sources"
     provider_label = _compact_property_provider_label(provider_full_label or scan_total_label)
     provider_total = _positive_int(summary.get("provider_total"))
     if not source_rows and source_total and provider_total and source_total > provider_total and source_total > 3:
@@ -831,9 +831,9 @@ def build_property_run_live_board_snapshot(
         elif provider_total and source_total > provider_total + 2:
             source_total = provider_total
     if source_rows:
-        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} checks"
+        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} sources"
     else:
-        source_count_label = live_info.get("fraction_label") or ("waiting for source checks" if source_total == 0 else f"0/{source_total} checks")
+        source_count_label = live_info.get("fraction_label") or ("waiting for selected sources" if source_total == 0 else f"0/{source_total} sources")
     summary_label = (
         f"{scan_total_label} · {provider_label} · {live_info.get('fraction_label')}"
         if provider_full_label and live_info.get("fraction_label")

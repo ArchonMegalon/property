@@ -279,9 +279,9 @@
       {% set available_worker_count = (worker_state.get('slot_cap') or visible_worker_count or 0)|int %}
       <strong>
         {% if available_worker_count > visible_worker_count %}
-          {{ visible_worker_count }} of {{ available_worker_count }} parallel checks active
+          {{ visible_worker_count }} of {{ available_worker_count }} workers active
         {% else %}
-          {{ visible_worker_count }} parallel check{% if visible_worker_count != 1 %}s{% endif %}
+          {{ visible_worker_count }} active worker{% if visible_worker_count != 1 %}s{% endif %}
         {% endif %}
       </strong>
       <button type="button" class="pqx-tooltip" title="{{ worker_state.get('tooltip') }}" aria-label="{{ worker_state.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>

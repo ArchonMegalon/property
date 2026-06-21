@@ -30491,12 +30491,12 @@ class ProductService:
         provider_group_total = _property_search_provider_group_total(specs)
         source_variant_total = len(specs)
         source_resolution_label = (
-            f"Resolved {provider_total} provider(s) across {source_variant_total} source variant(s) for scanning."
+            f"Selected {provider_total} provider(s) with expanded coverage."
             if provider_total and source_variant_total > provider_total
             else (
-                f"Resolved {provider_total} provider(s) for scanning."
+                f"Selected {provider_total} provider(s)."
                 if provider_total
-                else f"Resolved {source_variant_total} source check(s)."
+                else f"Selected {source_variant_total} source(s)."
             )
         )
         prefetched_source_results = _property_search_prefetch_listing_urls(

@@ -3294,7 +3294,7 @@ def test_property_run_live_board_sanitizes_stale_source_counts_without_source_ro
     )
 
     assert "156" not in snapshot["source_count_label"]
-    assert snapshot["source_count_label"] in {"0/3 checks", "waiting for source checks"}
+    assert snapshot["source_count_label"] in {"0/3 sources", "waiting for selected sources"}
 
 
 def test_property_run_live_board_marks_school_route_risk_as_score_only() -> None:
@@ -3475,8 +3475,8 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
         results_total=3,
     )
     assert reliability["health_label"] == "Repairing"
-    assert reliability["repair_step_label"] == "Retrying 1 source check"
-    assert reliability["coverage_label"] == "2/4 source checks · 2 still running"
+    assert reliability["repair_step_label"] == "Retrying 1 selected source"
+    assert reliability["coverage_label"] == "2/4 sources checked · 2 still running"
     assert reliability["result_label"] == "3 ranked results ready"
     assert reliability["filtered_label"] == "7 filtered by active rules"
     assert reliability["repair"]["repair_status"] == "repairing"
@@ -3526,8 +3526,8 @@ def test_property_surface_state_builds_run_repair_snapshot() -> None:
 
     assert repair["repair_status"] == "repairing"
     assert repair["repair_status_label"] == "Repairing"
-    assert repair["repair_step_label"] == "Retrying 1 source check"
-    assert repair["repair_outcome_summary"] == "Some source checks are retrying, but the current shortlist is already usable."
+    assert repair["repair_step_label"] == "Retrying 1 selected source"
+    assert repair["repair_outcome_summary"] == "Some selected sources are retrying, but the current shortlist is already usable."
     assert repair["eta_confidence_label"] == "Medium"
     assert repair["can_auto_repair"] is True
 
@@ -3551,7 +3551,7 @@ def test_property_surface_state_builds_run_reliability_snapshot() -> None:
     )
 
     assert reliability["health_label"] == "Partial coverage"
-    assert reliability["repair_step_label"] == "Retrying 1 source check"
+    assert reliability["repair_step_label"] == "Retrying 1 selected source"
     assert reliability["repair"]["repair_status"] == "degraded"
     assert reliability["customer_status_message"] == "One provider stayed degraded."
 
@@ -4294,7 +4294,9 @@ def test_property_search_progress_copy_names_providers_not_generic_sources() -> 
 
     assert "Resolved {source_variant_total} source(s) for scanning." not in service_source
     assert "Resolved {provider_total or source_variant_total} provider(s) for scanning." not in service_source
-    assert "Resolved {source_variant_total} source check(s)." in service_source
+    assert "Resolved {source_variant_total} source check(s)." not in service_source
+    assert "source variant(s)" not in service_source
+    assert "Selected {provider_total} provider(s) with expanded coverage." in service_source
     assert "provider_total = _property_search_provider_total(specs)" in service_source
     assert "provider_group_total = _property_search_provider_group_total(specs)" in service_source
     assert 'else "Sources"' not in view_model_source
