@@ -11353,6 +11353,13 @@ def _saved_link_fallback_id(url_text: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
+def _registration_principal_id_for_email(email: str) -> str:
+    normalized = str(email or "").strip().lower()
+    if "@" not in normalized or "." not in normalized.rsplit("@", 1)[-1]:
+        return ""
+    return f"user-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]}"
+
+
 def _saved_link_tag_summary(value: object) -> str:
     if isinstance(value, str):
         return ", ".join(part.strip() for part in value.split(",") if part.strip())
@@ -40668,6 +40675,12 @@ class ProductService:
             if not previous or connector_ts > previous:
                 principal_last_seen[principal_id] = connector_ts
             connector_principals.add(principal_id)
+        registration_principal_id = _registration_principal_id_for_email(normalized_email)
+        if registration_principal_id and registration_principal_id not in principal_last_seen:
+            status = self._container.onboarding.status(principal_id=registration_principal_id)
+            workspace = dict(status.get("workspace") or {})
+            if str(workspace.get("name") or "").strip():
+                principal_last_seen[registration_principal_id] = _now_iso()
         candidates: list[dict[str, object]] = []
         for principal_id, last_seen_at in sorted(principal_last_seen.items(), key=lambda item: item[1], reverse=True):
             status = self._container.onboarding.status(principal_id=principal_id)
@@ -40704,6 +40717,19 @@ class ProductService:
                 )
                 continue
             if principal_id in connector_principals:
+                candidates.append(
+                    {
+                        "kind": "access",
+                        "principal_id": principal_id,
+                        "workspace_name": workspace_name,
+                        "email": normalized_email,
+                        "role": "principal",
+                        "display_name": workspace_name,
+                        "operator_id": "",
+                    }
+                )
+                continue
+            if principal_id == registration_principal_id:
                 candidates.append(
                     {
                         "kind": "access",

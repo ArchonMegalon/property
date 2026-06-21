@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.parse
 
@@ -168,7 +169,8 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert response.status_code == 200
     assert "Continue with Google" in response.text
     assert "Continue with Facebook" not in response.text
-    assert 'action="/sign-in/facebook"' not in response.text
+    assert 'href="/sign-in/google"' in response.text
+    assert 'href="/sign-in/facebook"' not in response.text
     assert 'class="auth-provider-card"' in response.text
     assert 'class="auth-provider-icon"' in response.text
     assert "Google?" not in response.text
@@ -177,7 +179,7 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert "Choose the narrowest sign-in path" not in response.text
 
 
-def test_sign_in_page_hides_facebook_until_explicitly_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sign_in_page_shows_facebook_when_oauth_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
@@ -187,8 +189,8 @@ def test_sign_in_page_hides_facebook_until_explicitly_enabled(monkeypatch: pytes
     response = client.get("/sign-in")
 
     assert response.status_code == 200
-    assert "Continue with Facebook" not in response.text
-    assert 'action="/sign-in/facebook"' not in response.text
+    assert "Continue with Facebook" in response.text
+    assert 'href="/sign-in/facebook"' in response.text
 
 
 def test_sign_in_page_only_shows_facebook_when_configured_and_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,10 +205,25 @@ def test_sign_in_page_only_shows_facebook_when_configured_and_enabled(monkeypatc
 
     assert response.status_code == 200
     assert "Continue with Facebook" in response.text
-    assert 'action="/sign-in/facebook"' in response.text
+    assert 'href="/sign-in/facebook"' in response.text
+
+
+def test_sign_in_google_get_starts_oauth_for_visible_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in/google", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
 
 
 def test_sign_in_facebook_post_fails_closed_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "0")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
     monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
@@ -217,6 +234,19 @@ def test_sign_in_facebook_post_fails_closed_when_disabled(monkeypatch: pytest.Mo
 
     assert response.status_code == 303
     assert "facebook_error=facebook_sign_in_disabled" in response.headers["location"]
+
+
+def test_sign_in_facebook_get_starts_oauth_for_visible_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in/facebook", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("https://www.facebook.com/")
 
 
 def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -421,6 +451,58 @@ def test_sign_in_google_reopens_existing_cf_email_workspace_without_access_sessi
     assert access["access_url"].startswith("/workspace-access/")
 
 
+def test_sign_in_google_reopens_registered_workspace_without_access_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    email = "returner@example.com"
+    registered_principal = f"user-{hashlib.sha256(email.encode('utf-8')).hexdigest()[:16]}"
+    client.headers.update({"X-EA-Principal-ID": registered_principal})
+    start_workspace(client, mode="personal", workspace_name="Returner Property Workspace")
+
+    sign_in_start = client.post("/sign-in/google", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-returner",
+            "email": email,
+        },
+    )
+
+    callback = client.get(
+        "/google/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/workspace-access/")
+    opened = client.get(callback.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/search"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+
 def test_sign_in_google_does_not_create_wrong_workspace_for_unknown_email(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
@@ -505,7 +587,7 @@ def test_sign_in_page_shows_friendly_identity_only_google_error(monkeypatch: pyt
     assert response.status_code == 200
     assert "Google returned identity-only access." in response.text
     assert "Retry Google sign-in" in response.text
-    assert 'action="/sign-in/google"' in response.text
+    assert 'href="/sign-in/google"' in response.text
     assert "data-submitting-label=\"Opening Google...\"" in response.text
     assert "Create account" in response.text
 
@@ -721,7 +803,7 @@ def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytes
     response = client.get("/sign-in")
 
     assert response.status_code == 200
-    assert 'action="/sign-in/google"' in response.text
+    assert 'href="/sign-in/google"' in response.text
     assert "Continue with Google" in response.text
     assert "Continue with Facebook" not in response.text
     assert 'id="google_sign_in_email"' not in response.text

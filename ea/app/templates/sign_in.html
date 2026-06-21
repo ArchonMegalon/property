@@ -153,23 +153,23 @@
       <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
     <div class="auth-provider-stack" aria-label="Sign-in providers">
-      <form class="auth-provider-card" method="post" action="/sign-in/google" data-auth-provider-form data-submitting-label="Opening Google...">
+      <div class="auth-provider-card" data-auth-provider-card>
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
           <p>Identity-only.</p>
         </span>
-        <button class="btn" type="submit">Continue with Google</button>
-      </form>
+        <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
+      </div>
       {% if sign_in_facebook_enabled %}
-      <form class="auth-provider-card" method="post" action="/sign-in/facebook">
+      <div class="auth-provider-card" data-auth-provider-card>
         <span class="auth-provider-icon" aria-hidden="true">f</span>
         <span>
           <strong>Facebook</strong>
           <p>Identity-only.</p>
         </span>
-        <button class="btn" type="submit">Continue with Facebook</button>
-      </form>
+        <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
+      </div>
       {% endif %}
     </div>
     {% if sign_in_google_error %}
@@ -197,9 +197,7 @@
         {% if sign_in_google_error == 'workspace_google_sign_in_not_found' or sign_in_google_error == 'google_identity_only' or "identity-only" in (sign_in_google_error or "").lower() %}
         <a class="btn" href="/register">Create account</a>
         {% endif %}
-        <form method="post" action="/sign-in/google" data-auth-provider-form data-submitting-label="Opening Google...">
-          <button class="btn" type="submit">Retry Google sign-in</button>
-        </form>
+        <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Retry Google sign-in</a>
       </div>
     </div>
     {% endif %}
@@ -242,16 +240,20 @@
   </section>
 </section>
 <script>
-  document.querySelectorAll('[data-auth-provider-form]').forEach((form) => {
-    form.addEventListener('submit', () => {
-      const button = form.querySelector('button[type="submit"]');
-      form.classList.add('is-submitting');
-      if (button) {
-        button.dataset.originalLabel = button.textContent || '';
-        button.textContent = form.dataset.submittingLabel || 'Opening...';
-        button.disabled = true;
-        button.setAttribute('aria-busy', 'true');
-      }
+  document.querySelectorAll('[data-auth-provider-link]').forEach((link) => {
+    link.addEventListener('click', () => {
+      const card = link.closest('[data-auth-provider-card]') || link.closest('.access-feedback');
+      if (card) card.classList.add('is-submitting');
+      link.dataset.originalLabel = link.textContent || '';
+      link.textContent = link.dataset.submittingLabel || 'Opening...';
+      link.setAttribute('aria-busy', 'true');
+      window.setTimeout(() => {
+        if (document.visibilityState === 'visible' && link.getAttribute('aria-busy') === 'true') {
+          link.textContent = link.dataset.originalLabel || 'Try again';
+          link.removeAttribute('aria-busy');
+          if (card) card.classList.remove('is-submitting');
+        }
+      }, 8000);
     });
   });
 </script>

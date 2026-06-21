@@ -557,8 +557,8 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
         expect(desktop_page.get_by_text("Use your current session, secure email link, or connected identity.")).to_be_visible()
         expect(desktop_page.get_by_role("link", name="Open current session")).to_be_visible()
-        expect(desktop_page.get_by_role("button", name="Continue with Google")).to_be_visible()
-        expect(desktop_page.get_by_role("button", name="Continue with Facebook")).to_have_count(0)
+        expect(desktop_page.get_by_role("link", name="Continue with Google")).to_be_visible()
+        expect(desktop_page.get_by_role("link", name="Continue with Facebook")).to_have_count(0)
         _assert_no_horizontal_overflow(desktop_page)
         sign_in_shot = tmp_path / "propertyquarry-sign-in-desktop.png"
         desktop_page.screenshot(path=str(sign_in_shot), full_page=True)
@@ -567,7 +567,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = mobile_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         expect(mobile_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(mobile_page.get_by_role("button", name="Continue with Google")).to_be_visible()
+        expect(mobile_page.get_by_role("link", name="Continue with Google")).to_be_visible()
         _assert_no_horizontal_overflow(mobile_page)
         mobile_sign_in_shot = tmp_path / "propertyquarry-sign-in-mobile.png"
         mobile_page.screenshot(path=str(mobile_sign_in_shot), full_page=True)

@@ -145,9 +145,9 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / 
 
 def _facebook_sign_in_enabled() -> bool:
     enabled_flag = str(os.environ.get("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN") or "").strip().lower()
-    if enabled_flag not in {"1", "true", "yes", "on"}:
+    if enabled_flag in {"0", "false", "no", "off", "disabled"}:
         return False
-    return all(
+    configured = all(
         str(os.environ.get(key) or "").strip()
         for key in (
             "EA_FACEBOOK_OAUTH_APP_ID",
@@ -163,6 +163,9 @@ def _facebook_sign_in_enabled() -> bool:
             or ""
         ).strip()
     )
+    if enabled_flag:
+        return enabled_flag in {"1", "true", "yes", "on", "enabled"} and configured
+    return configured
 
 
 @router.get("/manifest.webmanifest", response_class=JSONResponse, include_in_schema=False)
@@ -2428,7 +2431,7 @@ async def sign_in_email_link(
     return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
 
 
-@router.post("/sign-in/google")
+@router.api_route("/sign-in/google", methods=["GET", "POST"], response_model=None, include_in_schema=False)
 async def sign_in_google(
     request: Request,
     container: AppContainer = Depends(get_container),
@@ -2456,7 +2459,7 @@ async def sign_in_google(
     return RedirectResponse(str(packet.auth_url), status_code=303)
 
 
-@router.post("/sign-in/facebook")
+@router.api_route("/sign-in/facebook", methods=["GET", "POST"], response_model=None, include_in_schema=False)
 async def sign_in_facebook(
     request: Request,
     container: AppContainer = Depends(get_container),
