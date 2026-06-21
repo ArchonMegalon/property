@@ -20,6 +20,13 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_DADAN_WEBHOOK_ALLOW_BASIC_AUTH=0",
         "DADAN_API_KEY=",
         "DADAN_WEBHOOK_SECRET=",
+        "PROPERTYQUARRY_ID_AUSTRIA_REQUIRED=0",
+        "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID=",
+        "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET=",
+        "PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI=https://propertyquarry.com/id-austria/callback",
+        "PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET=",
+        "PROPERTYQUARRY_ID_AUSTRIA_ENVIRONMENT=production",
+        "PROPERTYQUARRY_ID_AUSTRIA_COMPLETION_DIR=_completion/id_austria",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED=0",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED=0",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED=0",
@@ -86,6 +93,25 @@ def test_property_release_gate_runs_repair_fleet_canary() -> None:
     gate = (ROOT / "scripts/property_release_gates.sh").read_text(encoding="utf-8")
 
     assert "scripts/propertyquarry_repair_fleet_canary.py" in gate
+    assert "scripts/verify_id_austria_provider.py" in gate
+
+
+def test_property_compose_passes_id_austria_deployment_env() -> None:
+    compose = (ROOT / "docker-compose.property.yml").read_text(encoding="utf-8")
+
+    for key in (
+        "PROPERTYQUARRY_ID_AUSTRIA_REQUIRED",
+        "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID",
+        "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET",
+        "PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI",
+        "PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET",
+        "PROPERTYQUARRY_ID_AUSTRIA_ENVIRONMENT",
+        "PROPERTYQUARRY_ID_AUSTRIA_ISSUER",
+        "PROPERTYQUARRY_ID_AUSTRIA_AUTHORIZATION_ENDPOINT",
+        "PROPERTYQUARRY_ID_AUSTRIA_TOKEN_ENDPOINT",
+        "PROPERTYQUARRY_ID_AUSTRIA_JWKS_URI",
+    ):
+        assert key in compose
 
 
 def test_env_example_keeps_external_investment_feeds_fail_closed_and_durable() -> None:

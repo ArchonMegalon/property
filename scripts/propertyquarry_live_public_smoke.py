@@ -95,7 +95,12 @@ def _security_header_checks(*, path: str, final_url: str, headers: dict[str, obj
     return checks
 
 
-def fetch_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        return None
+
+
+def fetch_url(url: str, *, timeout_seconds: float, follow_redirects: bool = True) -> dict[str, object]:
     request = urllib.request.Request(
         url,
         headers={
@@ -105,7 +110,8 @@ def fetch_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
     )
     started = time.perf_counter()
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        opener = urllib.request.build_opener() if follow_redirects else urllib.request.build_opener(_NoRedirectHandler)
+        with opener.open(request, timeout=timeout_seconds) as response:
             return {
                 "status_code": int(response.status),
                 "final_url": str(response.geturl()),
@@ -197,15 +203,26 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             )
         )
     elif path == "/sign-in":
-        checks.append(
+        checks.extend(
             (
-                "sign_in_minimal_copy",
-                "Use your current session, secure email link, or connected identity." in text
-                and "Identity-only." in text
-                and "Google?" not in text
-                and "Facebook?" not in text,
+                (
+                    "sign_in_minimal_copy",
+                    "Use your current session, secure email link, or connected identity." in text
+                    and "Identity-only." in text
+                    and "Google?" not in text
+                    and "Facebook?" not in text,
+                ),
+                ("sign_in_google_control", 'href="/sign-in/google"' in text and "Continue with Google" in text),
+                ("sign_in_google_feedback", 'data-submitting-label="Opening Google..."' in text),
             )
         )
+        if "Continue with Facebook" in text or 'href="/sign-in/facebook"' in text:
+            checks.extend(
+                (
+                    ("sign_in_facebook_control", 'href="/sign-in/facebook"' in text),
+                    ("sign_in_facebook_feedback", 'data-submitting-label="Opening Facebook..."' in text),
+                )
+            )
     elif path == "/manifest.webmanifest":
         try:
             manifest_payload = json.loads(text)
@@ -273,6 +290,107 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     return checks
 
 
+def _redirect_location(result: dict[str, object]) -> str:
+    headers = dict(result.get("headers") or {})
+    return _header_value(headers, "Location")
+
+
+def _oauth_redirect_row(
+    *,
+    path: str,
+    result: dict[str, object],
+    checks: list[tuple[str, bool]],
+) -> dict[str, object]:
+    status_code = int(result.get("status_code") or 0)
+    final_url = str(result.get("final_url") or "")
+    headers = dict(result.get("headers") or {})
+    location = _redirect_location(result)
+    ok = status_code in {302, 303, 307, 308} and bool(location) and all(value for _, value in checks)
+    return {
+        "path": path,
+        "status_code": status_code,
+        "final_url": final_url,
+        "duration_ms": int(result.get("duration_ms") or 0),
+        "content_type": str(headers.get("Content-Type") or ""),
+        "x_robots_tag": str(headers.get("X-Robots-Tag") or ""),
+        "ok": ok,
+        "checks": [{"name": name, "ok": value} for name, value in checks],
+        "error": str(result.get("error") or ""),
+        "snippet": _compact_snippet(location),
+    }
+
+
+def _sign_in_provider_redirect_checks(
+    *,
+    normalized_base: str,
+    sign_in_text: str,
+    timeout_seconds: float,
+    redirect_fetcher: Callable[[str, float], dict[str, object]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    if 'href="/sign-in/google"' in sign_in_text:
+        path = "/sign-in/google"
+        result = redirect_fetcher(f"{normalized_base}{path}", timeout_seconds)
+        location = _redirect_location(result)
+        parsed = urllib.parse.urlparse(location)
+        query = urllib.parse.parse_qs(parsed.query)
+        scopes = set(str(query.get("scope", [""])[0]).replace(",", " ").split())
+        rows.append(
+            _oauth_redirect_row(
+                path=path,
+                result=result,
+                checks=[
+                    ("google_redirect_host", parsed.scheme == "https" and parsed.netloc == "accounts.google.com"),
+                    ("google_identity_scope", {"openid", "email", "profile"}.issubset(scopes)),
+                    ("google_callback_uri", str(query.get("redirect_uri", [""])[0]).endswith("/google/callback")),
+                    ("google_state_present", bool(query.get("state", [""])[0])),
+                ],
+            )
+        )
+    if 'href="/sign-in/facebook"' in sign_in_text:
+        path = "/sign-in/facebook"
+        result = redirect_fetcher(f"{normalized_base}{path}", timeout_seconds)
+        location = _redirect_location(result)
+        parsed = urllib.parse.urlparse(location)
+        query = urllib.parse.parse_qs(parsed.query)
+        scope_text = str(query.get("scope", [""])[0])
+        scopes = set(scope_text.replace(",", " ").split())
+        rows.append(
+            _oauth_redirect_row(
+                path=path,
+                result=result,
+                checks=[
+                    ("facebook_redirect_host", parsed.scheme == "https" and parsed.netloc == "www.facebook.com"),
+                    ("facebook_public_profile_scope", scopes == {"public_profile"}),
+                    ("facebook_no_email_scope", "email" not in scopes and "email" not in scope_text),
+                    ("facebook_callback_uri", str(query.get("redirect_uri", [""])[0]).endswith("/facebook/callback")),
+                    ("facebook_state_present", bool(query.get("state", [""])[0])),
+                ],
+            )
+        )
+    if 'href="/sign-in/id-austria"' in sign_in_text:
+        path = "/sign-in/id-austria"
+        result = redirect_fetcher(f"{normalized_base}{path}", timeout_seconds)
+        location = _redirect_location(result)
+        parsed = urllib.parse.urlparse(location)
+        query = urllib.parse.parse_qs(parsed.query)
+        scopes = set(str(query.get("scope", [""])[0]).replace(",", " ").split())
+        rows.append(
+            _oauth_redirect_row(
+                path=path,
+                result=result,
+                checks=[
+                    ("id_austria_redirect_host", parsed.scheme == "https" and parsed.netloc.endswith("id-austria.gv.at")),
+                    ("id_austria_authorize_path", parsed.path.endswith("/authorize")),
+                    ("id_austria_identity_scope", {"openid", "profile"}.issubset(scopes)),
+                    ("id_austria_callback_uri", str(query.get("redirect_uri", [""])[0]).endswith("/id-austria/callback")),
+                    ("id_austria_state_present", bool(query.get("state", [""])[0])),
+                ],
+            )
+        )
+    return rows
+
+
 def build_live_public_smoke_receipt(
     *,
     base_url: str = "https://propertyquarry.com",
@@ -282,7 +400,9 @@ def build_live_public_smoke_receipt(
 ) -> dict[str, object]:
     normalized_base = str(base_url or "").strip().rstrip("/") or "https://propertyquarry.com"
     fetch = fetcher or (lambda url, timeout: fetch_url(url, timeout_seconds=timeout))
+    redirect_fetch = fetcher or (lambda url, timeout: fetch_url(url, timeout_seconds=timeout, follow_redirects=False))
     checks: list[dict[str, object]] = []
+    sign_in_text = ""
     for raw_path in routes:
         path = "/" + str(raw_path or "").strip().lstrip("/")
         url = f"{normalized_base}{path}"
@@ -293,6 +413,8 @@ def build_live_public_smoke_receipt(
         status_code = int(result.get("status_code") or 0)
         final_url = str(result.get("final_url") or url)
         headers = dict(result.get("headers") or {})
+        if path == "/sign-in":
+            sign_in_text = text
         route_checks = _route_checks(path=path, status_code=status_code, final_url=final_url, text=text)
         route_checks.extend(_security_header_checks(path=path, final_url=final_url, headers=headers))
         ok = status_code < 500 and status_code > 0 and all(value for _, value in route_checks)
@@ -309,6 +431,15 @@ def build_live_public_smoke_receipt(
                 "error": str(result.get("error") or ""),
                 "snippet": _compact_snippet(text),
             }
+        )
+    if sign_in_text:
+        checks.extend(
+            _sign_in_provider_redirect_checks(
+                normalized_base=normalized_base,
+                sign_in_text=sign_in_text,
+                timeout_seconds=timeout_seconds,
+                redirect_fetcher=redirect_fetch,
+            )
         )
     failed = [row for row in checks if not bool(row.get("ok"))]
     return {

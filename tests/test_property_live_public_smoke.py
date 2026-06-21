@@ -42,7 +42,10 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/refunds": "PropertyQuarry Refunds and Cancellation failed payment recovery",
         "https://propertyquarry.com/disclaimers": "PropertyQuarry Disclaimers Generated visualization",
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only.",
+        "https://propertyquarry.com/sign-in": (
+            'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+            '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+        ),
         "https://propertyquarry.com/manifest.webmanifest": (
             '{"name":"PropertyQuarry","id":"/app/search","start_url":"/app/search","display":"standalone","scope":"/",'
             '"launch_handler":{"client_mode":"navigate-existing"},'
@@ -55,14 +58,27 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/app/properties": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only.",
     }
 
-    receipt = build_live_public_smoke_receipt(
-        fetcher=lambda url, _timeout: _fake_response(
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/sign-in/google"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={
+                    "Location": (
+                        "https://accounts.google.com/o/oauth2/v2/auth?"
+                        "scope=openid+email+profile&redirect_uri=https%3A%2F%2Fpropertyquarry.com%2Fgoogle%2Fcallback&state=s"
+                    )
+                },
+            )
+        return _fake_response(
             bodies[url],
             final_url="https://propertyquarry.com/sign-in?return_to=%2Fapp%2Fproperties"
             if url.endswith("/app/properties")
             else url,
         )
-    )
+
+    receipt = build_live_public_smoke_receipt(fetcher=fetcher)
 
     assert receipt["status"] == "pass"
     assert receipt["failed_count"] == 0
@@ -129,6 +145,72 @@ def test_live_public_smoke_fails_weak_pwa_manifest_without_network() -> None:
     assert any(check["name"] == "manifest_display_scope" and check["ok"] is False for check in row["checks"])
     assert any(check["name"] == "manifest_maskable_icon" and check["ok"] is False for check in row["checks"])
     assert any(check["name"] == "manifest_core_shortcuts" and check["ok"] is False for check in row["checks"])
+
+
+def test_live_public_smoke_fails_broken_google_sign_in_redirect_without_network() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/sign-in"):
+            return _fake_response(
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
+                final_url=url,
+            )
+        if url.endswith("/sign-in/google"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={"Location": "https://evil.example.test/oauth?scope=openid+email+profile&state=s"},
+            )
+        return _fake_response("PropertyQuarry", final_url=url)
+
+    receipt = build_live_public_smoke_receipt(routes=("/sign-in",), fetcher=fetcher)
+
+    assert receipt["status"] == "fail"
+    rows = {row["path"]: row for row in receipt["checks"]}
+    assert any(check["name"] == "google_redirect_host" and check["ok"] is False for check in rows["/sign-in/google"]["checks"])
+
+
+def test_live_public_smoke_fails_facebook_email_scope_without_network() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/sign-in"):
+            return _fake_response(
+                'PropertyQuarry Use your current session, secure email link, or connected identity. Identity-only. '
+                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+                '<a href="/sign-in/facebook" data-submitting-label="Opening Facebook...">Continue with Facebook</a>',
+                final_url=url,
+            )
+        if url.endswith("/sign-in/google"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={
+                    "Location": (
+                        "https://accounts.google.com/o/oauth2/v2/auth?"
+                        "scope=openid+email+profile&redirect_uri=https%3A%2F%2Fpropertyquarry.com%2Fgoogle%2Fcallback&state=s"
+                    )
+                },
+            )
+        if url.endswith("/sign-in/facebook"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={
+                    "Location": (
+                        "https://www.facebook.com/v21.0/dialog/oauth?"
+                        "scope=public_profile,email&redirect_uri=https%3A%2F%2Fpropertyquarry.com%2Ffacebook%2Fcallback&state=s"
+                    )
+                },
+            )
+        return _fake_response("PropertyQuarry", final_url=url)
+
+    receipt = build_live_public_smoke_receipt(routes=("/sign-in",), fetcher=fetcher)
+
+    assert receipt["status"] == "fail"
+    rows = {row["path"]: row for row in receipt["checks"]}
+    assert any(check["name"] == "facebook_no_email_scope" and check["ok"] is False for check in rows["/sign-in/facebook"]["checks"])
 
 
 def test_live_public_smoke_accepts_localhost_sitemap_origin_without_network() -> None:
