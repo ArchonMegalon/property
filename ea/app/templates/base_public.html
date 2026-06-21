@@ -26,6 +26,16 @@
   {{ clickrank_head_snippet(request) }}
   {{ rybbit_head_snippet(request) }}
   {{ heyy_live_chat_head_snippet(request) }}
+  <script>
+    (() => {
+      try {
+        const stored = window.localStorage.getItem('propertyquarry.theme');
+        document.documentElement.setAttribute('data-pq-theme', stored === 'dark' ? 'dark' : 'light');
+      } catch (_error) {
+        document.documentElement.setAttribute('data-pq-theme', 'light');
+      }
+    })();
+  </script>
   <style>
     :root {
       --bg: #f4f6f3;
@@ -50,6 +60,27 @@
       --touch-target: 40px;
       --touch-target-coarse: 44px;
       --focus-ring: 3px solid rgba(214, 166, 63, 0.46);
+      color-scheme: light;
+    }
+    html[data-pq-theme="dark"] {
+      --bg: #121512;
+      --bg-elevated: #1b211d;
+      --panel: #171c18;
+      --panel-2: #202720;
+      --panel-3: #293229;
+      --line: #354034;
+      --line-strong: #526150;
+      --text: #f2eee6;
+      --text-soft: #c2bbae;
+      --text-dim: #948d83;
+      --accent: #d0a14c;
+      --accent-soft: rgba(208, 161, 76, 0.16);
+      --good: #62b996;
+      --warn: #d0a14c;
+      --danger: #d9776b;
+      --shadow: 0 16px 38px rgba(0, 0, 0, 0.38);
+      --focus-ring: 3px solid rgba(208, 161, 76, 0.42);
+      color-scheme: dark;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -58,6 +89,9 @@
       color: var(--text);
       font: 15px/1.6 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif;
       letter-spacing: 0;
+    }
+    html[data-pq-theme="dark"] body {
+      background: linear-gradient(180deg, #181d19 0%, var(--bg) 48%, #0f120f 100%);
     }
     a { color: inherit; text-decoration: none; }
     .wrap { width: min(var(--max), calc(100vw - 40px)); margin: 0 auto; }
@@ -68,6 +102,10 @@
       background: rgba(248, 250, 247, 0.92);
       border-bottom: 1px solid rgba(174, 188, 172, 0.72);
       backdrop-filter: blur(10px);
+    }
+    html[data-pq-theme="dark"] .topbar {
+      background: rgba(18, 21, 18, 0.9);
+      border-bottom-color: rgba(82, 97, 80, 0.72);
     }
     .topbar-inner {
       min-height: 68px;
@@ -134,6 +172,11 @@
       border-color: #17211c;
       color: #f8faf7;
     }
+    html[data-pq-theme="dark"] .btn.primary {
+      background: #f0e6d6;
+      border-color: #f0e6d6;
+      color: #171411;
+    }
     .btn.ghost {
       background: transparent;
       color: var(--text-soft);
@@ -183,6 +226,9 @@
       border: 1px solid var(--line);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
+    }
+    html[data-pq-theme="dark"] .panel {
+      background: linear-gradient(180deg, var(--panel), var(--panel-2));
     }
     .hero-copy {
       padding: 28px;

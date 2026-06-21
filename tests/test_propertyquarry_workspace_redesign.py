@@ -1403,6 +1403,22 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
     assert "--pq-card: #fffdf8;" in packets
 
 
+def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    for relative in ("ea/app/templates/base_public.html", "ea/app/templates/base_console.html"):
+        body = (repo_root / relative).read_text(encoding="utf-8")
+        assert "propertyquarry.theme" in body
+        assert 'html[data-pq-theme="dark"]' in body
+        assert "--panel: #171c18;" in body
+        assert "--text: #f2eee6;" in body
+        assert "color-scheme: dark;" in body
+
+    console_shell = (repo_root / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+    assert "background: var(--panel);" in console_shell
+    assert "color: var(--text);" in console_shell
+    assert "background: #ffffff;" not in console_shell
+
+
 def test_propertyquarry_search_route_does_not_scan_active_run_for_initial_form(monkeypatch) -> None:
     principal_id = "pq-search-live-run-banner"
     client = build_property_client(principal_id=principal_id)

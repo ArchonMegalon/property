@@ -1296,6 +1296,22 @@ def test_property_tour_event_lookup_does_not_reuse_same_source_ref_for_other_lis
     assert dict(matched["payload"])["tour_url"].endswith("/provider-a-shared")
 
 
+def test_property_scout_listing_ref_host_qualifies_weak_provider_ids() -> None:
+    willhaben_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-123456789/"
+    provider_a_url = "https://provider-a.example/listings/123456789/"
+    provider_b_url = "https://provider-b.example/listings/123456789/"
+
+    assert product_service._property_scout_listing_ref("123456789", willhaben_url) == "123456789"  # type: ignore[attr-defined]
+    assert (  # type: ignore[attr-defined]
+        product_service._property_scout_listing_ref("123456789", provider_a_url) == "provider-a.example:123456789"
+    )
+    assert (  # type: ignore[attr-defined]
+        product_service._property_scout_listing_ref("123456789", provider_b_url) == "provider-b.example:123456789"
+    )
+    assert product_service._property_scout_listing_ref("", provider_a_url) == "provider-a.example:123456789"  # type: ignore[attr-defined]
+    assert product_service._property_scout_listing_ref("provider:123", provider_a_url) == "provider:123"  # type: ignore[attr-defined]
+
+
 def test_property_search_run_status_fixes_inflated_provider_total_when_source_rows_missing() -> None:
     principal_id = "exec-property-run-provider-count-no-sources"
     client = build_property_client(principal_id=principal_id)

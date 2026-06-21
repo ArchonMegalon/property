@@ -2600,12 +2600,36 @@ def _property_scout_derived_listing_id(property_url: object) -> str:
     return ""
 
 
+def _property_scout_listing_host_prefix(property_url: object) -> str:
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return ""
+    host = str(parsed.netloc or "").strip().lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if not host or host.endswith("willhaben.at"):
+        return ""
+    return re.sub(r"[^a-z0-9.-]+", "-", host).strip("-")
+
+
 def _property_scout_listing_ref(listing_id: object, property_url: object) -> str:
     raw_listing_id = str(listing_id or "").strip()
     if raw_listing_id and not raw_listing_id.lower().startswith(("http://", "https://")):
+        if ":" in raw_listing_id:
+            return raw_listing_id
+        host_prefix = _property_scout_listing_host_prefix(property_url)
+        if host_prefix:
+            return f"{host_prefix}:{raw_listing_id}"
         return raw_listing_id
     derived = _property_scout_derived_listing_id(raw_listing_id) or _property_scout_derived_listing_id(property_url)
     if derived:
+        host_prefix = _property_scout_listing_host_prefix(property_url or raw_listing_id)
+        if host_prefix:
+            return f"{host_prefix}:{derived}"
         return derived
     return raw_listing_id or str(property_url or "").strip()
 

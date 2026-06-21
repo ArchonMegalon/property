@@ -195,7 +195,8 @@ def _check_accessibility_primitives(path: Path, text: str, failures: list[str]) 
 def _check_contrast_tokens(path: Path, text: str, failures: list[str]) -> None:
     relative = str(path.relative_to(ROOT))
     if relative in {"ea/app/templates/base_public.html", "ea/app/templates/base_console.html"}:
-        tokens = _css_vars(text, ":root")
+        light_tokens = _css_vars(text, ":root")
+        dark_tokens = _css_vars(text, 'html[data-pq-theme="dark"]')
         pairs = (
             ("text", "panel", 4.5),
             ("text-soft", "panel", 4.5),
@@ -203,6 +204,14 @@ def _check_contrast_tokens(path: Path, text: str, failures: list[str]) -> None:
             ("text", "bg", 4.5),
             ("text-soft", "bg", 4.5),
         )
+        for label, tokens in (("light", light_tokens), ("dark", dark_tokens)):
+            for foreground, background, minimum in pairs:
+                ratio = _contrast_ratio(tokens.get(foreground, ""), tokens.get(background, ""))
+                if ratio is None or ratio < minimum:
+                    failures.append(
+                        f"{path} {label} contrast {foreground} on {background} must be >= {minimum:g}:1"
+                    )
+        return
     elif relative == "ea/app/templates/app/property_decision_workbench.html":
         light_tokens = _css_vars(text, ":root")
         dark_tokens = _css_vars(text, 'html[data-pq-theme="dark"]')
