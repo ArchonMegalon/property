@@ -559,6 +559,14 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(desktop_page.get_by_role("link", name="Open current session")).to_be_visible()
         expect(desktop_page.get_by_role("link", name="Continue with Google")).to_be_visible()
         expect(desktop_page.get_by_role("link", name="Continue with Facebook")).to_have_count(0)
+        desktop_page.route("**/sign-in/google", lambda route: route.abort())
+        desktop_page.get_by_role("link", name="Continue with Google").click(no_wait_after=True)
+        opening_google = desktop_page.get_by_role("link", name="Opening Google...")
+        expect(opening_google).to_be_visible()
+        assert opening_google.get_attribute("aria-busy") == "true"
+        desktop_page.unroute("**/sign-in/google")
+        response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
+        assert response is not None and response.ok
         _assert_no_horizontal_overflow(desktop_page)
         sign_in_shot = tmp_path / "propertyquarry-sign-in-desktop.png"
         desktop_page.screenshot(path=str(sign_in_shot), full_page=True)

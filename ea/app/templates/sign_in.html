@@ -279,12 +279,22 @@
 </section>
 <script>
   document.querySelectorAll('[data-auth-provider-link]').forEach((link) => {
-    link.addEventListener('click', () => {
+    link.addEventListener('click', (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target && link.target !== '_self') return;
+      if (link.getAttribute('aria-busy') === 'true') {
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      const href = link.href;
       const card = link.closest('[data-auth-provider-card]') || link.closest('.access-feedback');
       if (card) card.classList.add('is-submitting');
       link.dataset.originalLabel = link.textContent || '';
       link.textContent = link.dataset.submittingLabel || 'Opening...';
       link.setAttribute('aria-busy', 'true');
+      window.setTimeout(() => {
+        window.location.href = href;
+      }, 120);
       window.setTimeout(() => {
         if (document.visibilityState === 'visible' && link.getAttribute('aria-busy') === 'true') {
           link.textContent = link.dataset.originalLabel || 'Try again';
