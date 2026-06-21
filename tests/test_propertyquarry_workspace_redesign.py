@@ -6731,6 +6731,17 @@ def test_propertyquarry_console_shell_render_run_uses_provider_display_total() -
     assert "const sourceVariantTotal = Math.max(0, Number(runSummary.source_variant_total || runSummary.sources_total || 0));" in console_shell
 
 
+def test_propertyquarry_run_hero_never_exposes_source_variant_count_as_search_scope() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    payload_builder = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+
+    assert '"label": "Search scope"' in payload_builder
+    assert '"value": "Selected"' in payload_builder
+    assert '"detail": "Checking the saved brief."' in payload_builder
+    assert '"value": str(run_source_variant_total)' not in payload_builder
+    assert '"Selected sources are checking the saved brief."' not in payload_builder
+
+
 def test_propertyquarry_raw_ranked_fallback_excludes_maybe_false_candidates(monkeypatch) -> None:
     principal_id = "pq-raw-ranked-rankable"
     client = build_property_client(principal_id=principal_id)

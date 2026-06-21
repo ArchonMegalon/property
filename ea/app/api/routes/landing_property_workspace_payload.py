@@ -2351,8 +2351,8 @@ def property_workspace_payload(
                     and run_source_variant_total > run_provider_display_total
                     else {
                         "label": "Search scope",
-                        "value": str(run_source_variant_total),
-                        "detail": "Selected sources are checking the saved brief.",
+                        "value": "Selected",
+                        "detail": "Checking the saved brief.",
                     }
                 ),
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
