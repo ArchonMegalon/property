@@ -279,9 +279,9 @@
       {% set available_worker_count = (worker_state.get('slot_cap') or visible_worker_count or 0)|int %}
       <strong>
         {% if available_worker_count > visible_worker_count %}
-          {{ visible_worker_count }} of {{ available_worker_count }} workers active
+          {{ visible_worker_count }} of {{ available_worker_count }} searches running
         {% else %}
-          {{ visible_worker_count }} active worker{% if visible_worker_count != 1 %}s{% endif %}
+          {{ visible_worker_count }} search{% if visible_worker_count != 1 %}es{% endif %} running
         {% endif %}
       </strong>
       <button type="button" class="pqx-tooltip" title="{{ worker_state.get('tooltip') }}" aria-label="{{ worker_state.get('tooltip') }}" aria-expanded="false" data-tooltip-trigger>?</button>
@@ -296,7 +296,7 @@
         </div>
         <div class="pqx-worker-progress" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         <div class="pqx-worker-popover">
-          <strong>{{ worker.get('provider') or 'Waiting for a provider scan' }}{% if worker.get('shard_count') %} · +{{ worker.get('shard_count') }} more scan{% if worker.get('shard_count') != 1 %}s{% endif %}{% endif %}</strong>
+          <strong>{{ worker.get('provider') or 'Waiting for the next search update' }}{% if worker.get('shard_count') %} · +{{ worker.get('shard_count') }} related search{% if worker.get('shard_count') != 1 %}es{% endif %}{% endif %}</strong>
           <span class="pqx-note">{{ worker.get('status_label') or 'Idle' }}</span>
           <div class="pqx-worker-progress detailed" aria-hidden="true"><i style="--progress: {{ worker.get('progress_pct') or 0 }}"></i></div>
         </div>
@@ -6619,7 +6619,7 @@
           {% endif %}
           {% if run.get('events') %}
           <details class="pqx-card">
-            <summary><strong>Search progress details</strong><span class="pqx-note">Open if you need to troubleshoot.</span></summary>
+            <summary><strong>Search log</strong><span class="pqx-note">Open if something looks stuck.</span></summary>
           <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
           <div class="pqx-event-list" data-pqx-run-events>
             {% for event in (run.get('events') or [])|reverse %}

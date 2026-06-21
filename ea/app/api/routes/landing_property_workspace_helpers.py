@@ -313,8 +313,8 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         progress = _source_progress(source_row) if source_row else (max(8, min(run_progress, 24)) if status_label == "Starting" else 0)
         worker_rows.append(
             {
-                "label": compact_label if source_row else ("Preparing source" if status_label == "Starting" else ("Waiting" if active_sources or source_rows else "Ready")),
-                "provider": source_label or ("Preparing selected source" if status_label == "Starting" else ("Waiting for a selected source" if active_sources or source_rows else "Ready when you start")),
+                "label": compact_label if source_row else ("Preparing search" if status_label == "Starting" else ("Waiting" if active_sources or source_rows else "Ready")),
+                "provider": source_label or ("Preparing selected searches" if status_label == "Starting" else ("Waiting for selected searches" if active_sources or source_rows else "Ready when you start")),
                 "shard_count": shard_count,
                 "status_label": status_label,
                 "progress_pct": progress,
@@ -322,20 +322,14 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
             }
         )
 
-    upgrade_copy = ""
-    if normalized_plan == "free":
-        upgrade_copy = "Upgrade to Plus for 2 workers or Agent for 4. Saved searches are separate."
-    elif normalized_plan == "plus":
-        upgrade_copy = "Upgrade to Agent for 4 workers. Saved searches are separate."
-
     return {
         "plan_key": normalized_plan,
         "visible_workers": visible_workers,
         "slot_cap": slot_cap,
         "configured_workers": configured_workers,
         "workers": worker_rows,
-        "upgrade_copy": upgrade_copy,
-        "tooltip": "Workers let multiple selected sources run at once. Saved searches are separate.",
+        "upgrade_copy": "",
+        "tooltip": "Parallel search keeps selected portals moving at once. Saved searches are separate.",
     }
 
 

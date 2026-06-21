@@ -3223,8 +3223,8 @@ def test_property_search_worker_slots_prioritize_distinct_providers() -> None:
     labels = [row.get("label") for row in worker_state.get("workers") or []]
     assert labels[:2] == ["DER STANDARD", "immmo"]
     assert worker_state["workers"][0]["shard_count"] == 1
-    assert worker_state["upgrade_copy"] == "Upgrade to Agent for 4 workers. Saved searches are separate."
-    assert worker_state["tooltip"] == "Workers let multiple selected sources run at once. Saved searches are separate."
+    assert worker_state["upgrade_copy"] == ""
+    assert worker_state["tooltip"] == "Parallel search keeps selected portals moving at once. Saved searches are separate."
 
 
 def test_property_search_worker_slots_only_show_real_lanes_instead_of_plan_fillers() -> None:
@@ -3268,8 +3268,9 @@ def test_property_search_worker_slots_hide_internal_check_wording() -> None:
     )
     assert "parallel checks" not in combined
     assert "source check" not in combined.lower()
-    assert "Preparing source" in combined
-    assert "2 workers" in combined
+    assert "worker" not in combined.lower()
+    assert "provider scan" not in combined.lower()
+    assert "Preparing search" in combined
 
 
 def test_property_run_live_board_replaces_duplicate_review_message_with_latest_filter_reason() -> None:
@@ -6204,6 +6205,11 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
         "Repair proof",
         "Manual proof",
         "Next proof",
+        "workers active",
+        "active worker",
+        "provider scan",
+        "more scans",
+        "Search progress details",
         '"OODA"',
         ">OODA<",
     )
