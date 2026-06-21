@@ -2315,6 +2315,28 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             else:
                 expect(page.locator("body", has_text="Billing history")).to_be_visible()
                 expect(page.locator("body", has_text="Cancellation and refunds")).to_be_visible()
+                billing_mobile_metrics = page.evaluate(
+                    """() => {
+                        const summary = document.querySelector('.pqx-billing-summary');
+                        const cards = Array.from(document.querySelectorAll('.pqx-billing-summary-card'));
+                        const genericLinks = cards
+                            .flatMap((card) => Array.from(card.querySelectorAll('.pqx-link-button')))
+                            .filter((link) => {
+                                const style = window.getComputedStyle(link);
+                                return style.display !== 'none' && style.visibility !== 'hidden';
+                            });
+                        return {
+                            columns: summary ? window.getComputedStyle(summary).gridTemplateColumns.split(' ').length : 0,
+                            cardCount: cards.length,
+                            visibleGenericLinks: genericLinks.length,
+                            tallestCard: Math.max(0, ...cards.map((card) => card.getBoundingClientRect().height)),
+                        };
+                    }"""
+                )
+                assert billing_mobile_metrics["columns"] == 2
+                assert billing_mobile_metrics["cardCount"] >= 4
+                assert billing_mobile_metrics["visibleGenericLinks"] == 0
+                assert billing_mobile_metrics["tallestCard"] <= 120
 
             screenshot_path = tmp_path / screenshot_name
             page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")

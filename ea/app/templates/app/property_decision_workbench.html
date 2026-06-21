@@ -5669,6 +5669,34 @@
         align-items: flex-start;
         flex-direction: column;
       }
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card {
+        gap: 4px;
+        min-height: 82px;
+        padding: 10px;
+      }
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card strong {
+        font-size: 1rem;
+      }
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card small {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card .pqx-link-button {
+        display: none;
+      }
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card {
+        gap: 7px;
+        padding: 10px;
+      }
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card .pqx-section-head {
+        margin-bottom: 0;
+      }
       .pqx-automation-card {
         min-height: 0;
       }
