@@ -564,6 +564,91 @@ def test_propertyquarry_teable_sync_keeps_projection_state_when_migrating_teable
     )
 
 
+def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_settings() -> None:
+    namespace = runpy.run_path("scripts/restore_propertyquarry_from_teable.py", run_name="__test__")
+    build_restore_bundle = namespace["build_restore_bundle"]
+
+    bundle = build_restore_bundle(
+        principal_id="pq-restore-user",
+        records_by_table={
+            "propertyquarry_users": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "workspace_name": "Restored PropertyQuarry",
+                    "workspace_mode": "personal",
+                    "region": "AT",
+                    "language": "de",
+                    "timezone": "Europe/Vienna",
+                    "selected_channels_json": ["email"],
+                }
+            ],
+            "propertyquarry_delivery_settings": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "preferred_channel": "whatsapp",
+                    "preferred_label": "WhatsApp",
+                    "notification_scope": "scout_updates",
+                    "selected_channels_json": ["email", "whatsapp"],
+                    "whatsapp_notification_opt_in": True,
+                    "whatsapp_ai_support_phone": "+436641234567",
+                    "whatsapp_ai_support_purpose": "propertyquarry_ai_support_only",
+                    "signal_status": "coming_soon",
+                }
+            ],
+            "propertyquarry_preferences": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "location_query": "1020 Wien",
+                    "selected_platforms_json": ["willhaben"],
+                    "preferences_json": {"min_area_m2": 80},
+                }
+            ],
+            "propertyquarry_properties": [
+                {
+                    "property_ref": "property:restore-1",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=restore-1",
+                    "listing_id": "restore-1",
+                    "title": "Restored flat",
+                    "source_label": "Willhaben",
+                    "facts_json": {"area_sqm": 91, "rooms": 3, "postal_name": "1020 Wien"},
+                }
+            ],
+            "propertyquarry_property_evaluations": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "run_id": "lost-run",
+                    "property_ref": "property:restore-1",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=restore-1",
+                    "source_label": "Willhaben",
+                    "fit_score": 84,
+                    "recommendation": "strong_fit",
+                    "fit_summary": "Strong fit",
+                    "review_url": "https://propertyquarry.com/app/research/restore-1",
+                    "tour_url": "https://propertyquarry.com/tours/restore-1",
+                    "tour_status": "ready",
+                    "facts_json": {"area_sqm": 91, "rooms": 3, "postal_name": "1020 Wien"},
+                }
+            ],
+        },
+    )
+
+    state = bundle["onboarding_state"]
+    assert bundle["saved_result_count"] == 1
+    assert state["workspace_name"] == "Restored PropertyQuarry"
+    assert state["selected_channels"] == ["email", "whatsapp"]
+    notifications = state["channel_preferences_json"]["property_notifications"]
+    assert notifications["preferred_channel"] == "whatsapp"
+    assert notifications["whatsapp_ai_support_phone"] == "+436641234567"
+    preferences = state["property_search_preferences_json"]
+    assert preferences["location_query"] == "1020 Wien"
+    assert preferences["selected_platforms"] == ["willhaben"]
+    assert preferences["saved_shortlist_candidates"][0]["title"] == "Restored flat"
+    assert preferences["saved_shortlist_candidates"][0]["saved_from_run_id"] == "lost-run"
+
+
 def test_propertyquarry_teable_bootstrap_preview_has_all_property_tables() -> None:
     script = Path("scripts/bootstrap_propertyquarry_teable_tenant.py")
     result = subprocess.run(
