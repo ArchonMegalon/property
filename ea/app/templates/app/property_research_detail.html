@@ -120,6 +120,9 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+  .prd-media-actions {
+    display: none;
+  }
   .prd-actions .console-action,
   .prd-actions .pqx-button {
     min-height: 32px;
@@ -884,9 +887,16 @@
       align-items: stretch;
     }
     .prd-actions,
+    .prd-media-actions,
     .object-actions {
       display: grid;
       grid-template-columns: 1fr;
+    }
+    .prd-media-actions {
+      margin-top: -6px;
+    }
+    .prd-headline-panel .prd-visual-hero-action {
+      display: none;
     }
     .prd-media-frame {
       min-height: 220px;
@@ -940,6 +950,24 @@
         <span data-prd-hero-summary>{{ research_summary }}</span>
       </div>
     </section>
+    {% set mobile_visual_actions = research_actions|selectattr('kind')|list %}
+    {% if mobile_visual_actions %}
+    <div class="prd-actions prd-media-actions" aria-label="Media requests">
+      {% for action in mobile_visual_actions %}
+      <button
+        class="console-action prd-visual-hero-action"
+        type="button"
+        data-pw-visual-request="{{ action.get('kind') }}"
+        data-pw-visual-state="{{ action.get('state') or 'idle' }}"
+        data-property-url="{{ action.get('property_url') }}"
+        data-source-ref="{{ research_source_ref or '' }}"
+        data-run-id="{{ research_run_id or '' }}"
+        data-candidate-ref="{{ research_candidate_ref or '' }}"
+        aria-label="{{ action.get('label') or 'Request visual review' }}"
+      >{{ action.get('label') }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     <section class="prd-headline">
       <section class="prd-panel prd-headline-panel">
@@ -966,7 +994,7 @@
             <a class="console-action" href="{{ action.get('href') }}"{% if action.get('external') %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.get('label') }}</a>
             {% elif action.get('kind') %}
             <button
-              class="console-action"
+              class="console-action prd-visual-hero-action"
               type="button"
               data-pw-visual-request="{{ action.get('kind') }}"
               data-pw-visual-state="{{ action.get('state') or 'idle' }}"

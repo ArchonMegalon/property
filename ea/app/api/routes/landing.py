@@ -2828,7 +2828,13 @@ def property_research_packet(
     fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "No fit summary captured.").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     tour_url = str(candidate.get("tour_url") or "").strip()
-    property_url = str(candidate.get("property_url") or "").strip()
+    property_url = str(
+        candidate.get("property_url")
+        or candidate.get("listing_url")
+        or candidate.get("source_url")
+        or candidate.get("url")
+        or ""
+    ).strip()
     source_label = str(candidate.get("source_label") or "Property scout").strip() or "Property scout"
     display_source_label = _compact_provider_label(source_label) or source_label
     title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"

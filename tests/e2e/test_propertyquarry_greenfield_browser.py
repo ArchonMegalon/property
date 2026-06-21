@@ -483,10 +483,24 @@ def _assert_no_horizontal_overflow(page: Page) -> None:
             innerWidth: window.innerWidth,
             scrollWidth: document.documentElement.scrollWidth,
             bodyScrollWidth: document.body ? document.body.scrollWidth : 0,
+            offenders: Array.from(document.querySelectorAll('body *'))
+              .map((node) => {
+                const rect = node.getBoundingClientRect();
+                return {
+                  tag: node.tagName,
+                  className: String(node.className || ''),
+                  text: String(node.textContent || '').trim().slice(0, 90),
+                  left: Math.round(rect.left),
+                  right: Math.round(rect.right),
+                  width: Math.round(rect.width),
+                };
+              })
+              .filter((row) => row.right > window.innerWidth + 1 || row.left < -1)
+              .slice(0, 8),
         })"""
     )
-    assert overflow["scrollWidth"] <= overflow["innerWidth"] + 1
-    assert overflow["bodyScrollWidth"] <= overflow["innerWidth"] + 1
+    assert overflow["scrollWidth"] <= overflow["innerWidth"] + 1, overflow
+    assert overflow["bodyScrollWidth"] <= overflow["innerWidth"] + 1, overflow
 
 
 def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
@@ -1737,6 +1751,114 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
         assert page.get_by_text("At a glance").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_in(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+
+    def _capture_visual_request(route) -> None:
+        request = route.request
+        payload = request.post_data_json
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-06-21T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Listing URL only loft",
+                    "request_kind": visual_requests[-1].get("request_kind", "flythrough"),
+                    "tour_url": "",
+                    "flythrough_url": "",
+                    "flythrough_status": "pending",
+                    "status_label": "Walkthrough queued",
+                    "status_detail": "Walkthrough is queued after your request.",
+                    "delivery_status": "skipped",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    screenshot_path = tmp_path / "property-research-detail-mobile.png"
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        row = page.locator("[data-workbench-row]", has_text="Listing URL only loft").first
+        row.wait_for(timeout=5000)
+        packet_href = str(row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("[data-property-research-detail]")).to_be_visible()
+        expect(page.locator(".prd-media-frame")).to_be_visible()
+        expect(page.get_by_role("button", name=re.compile("Request walkthrough", re.I))).to_be_visible()
+        assert visual_requests == []
+        _assert_no_horizontal_overflow(page)
+        layout = page.evaluate(
+            """
+            () => {
+              const hero = document.querySelector('[data-pqx-screenfit-target="research-detail-hero"]');
+              const body = document.querySelector('.prd-body');
+              const media = document.querySelector('.prd-media-frame');
+              const actions = document.querySelector('.prd-actions');
+              const shell = document.querySelector('[data-property-research-detail]');
+              const heroRect = hero ? hero.getBoundingClientRect() : null;
+              const bodyRect = body ? body.getBoundingClientRect() : null;
+              const mediaRect = media ? media.getBoundingClientRect() : null;
+              const actionsStyle = actions ? getComputedStyle(actions) : null;
+              const shellRect = shell ? shell.getBoundingClientRect() : null;
+              return {
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+                shellWidth: shellRect ? shellRect.width : 0,
+                heroWidth: heroRect ? heroRect.width : 0,
+                heroBottom: heroRect ? Math.round(heroRect.bottom) : 0,
+                bodyTop: bodyRect ? Math.round(bodyRect.top) : 0,
+                mediaHeight: mediaRect ? Math.round(mediaRect.height) : 0,
+                actionsDisplay: actionsStyle ? actionsStyle.display : '',
+                actionsColumns: actionsStyle ? actionsStyle.gridTemplateColumns : '',
+              };
+            }
+            """
+        )
+        assert layout["shellWidth"] <= layout["viewportWidth"] + 1
+        assert layout["heroWidth"] <= layout["viewportWidth"] + 1
+        assert layout["heroBottom"] > 0
+        assert layout["bodyTop"] > layout["heroBottom"]
+        assert 220 <= layout["mediaHeight"] <= 360
+        assert layout["actionsDisplay"] == "grid"
+        assert "px" in layout["actionsColumns"]
+        page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
+        assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
+
+        request_button = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
+        request_button.click()
+        page.wait_for_timeout(500)
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "flythrough"
+        assert payload["auto_deliver"] is False
+        assert payload["allow_floorplan_only"] is True
+        assert payload["run_id"] == "run-42"
+        assert str(payload["property_url"]).endswith("/listing-url-only-loft")
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request")
     finally:
         context.close()
 
