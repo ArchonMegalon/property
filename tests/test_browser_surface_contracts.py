@@ -185,6 +185,8 @@ def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
     app_page = client.get("/app/search")
     manifest = client.get("/manifest.webmanifest")
     service_worker = client.get("/service-worker.js")
+    icon_192 = client.get("/pwa-icon-192.png")
+    icon_512 = client.get("/pwa-icon-512.png")
 
     assert public_page.status_code == 200
     assert app_page.status_code == 200
@@ -194,8 +196,8 @@ def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
     assert '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">' in app_page.text
     assert '<meta name="application-name" content="PropertyQuarry">' in public_page.text
     assert '<meta name="application-name" content="PropertyQuarry">' in app_page.text
-    assert '<link rel="apple-touch-icon" href="/pwa-icon.svg">' in public_page.text
-    assert '<link rel="apple-touch-icon" href="/pwa-icon.svg">' in app_page.text
+    assert '<link rel="apple-touch-icon" href="/pwa-icon-192.png">' in public_page.text
+    assert '<link rel="apple-touch-icon" href="/pwa-icon-192.png">' in app_page.text
     assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in public_page.text
     assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in app_page.text
 
@@ -211,7 +213,10 @@ def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
     assert payload["scope"] == "/"
     assert payload["launch_handler"]["client_mode"] == "navigate-existing"
     assert payload["prefer_related_applications"] is False
-    assert payload["icons"][0]["src"] == "/pwa-icon.svg"
+    icons = {(row["src"], row.get("sizes"), row["type"], row.get("purpose")) for row in payload["icons"]}
+    assert ("/pwa-icon.svg", "any", "image/svg+xml", "any maskable") in icons
+    assert ("/pwa-icon-192.png", "192x192", "image/png", "any maskable") in icons
+    assert ("/pwa-icon-512.png", "512x512", "image/png", "any maskable") in icons
     shortcuts = {row["url"]: row for row in payload["shortcuts"]}
     assert shortcuts["/app/search"]["name"] == "Search"
     assert shortcuts["/app/properties"]["name"] == "Results"
@@ -225,6 +230,12 @@ def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
     assert "caches.open" not in service_worker.text
     assert "cache.put" not in service_worker.text
     assert "fetch(event.request)" not in service_worker.text
+    assert icon_192.status_code == 200
+    assert icon_192.headers["content-type"] == "image/png"
+    assert icon_192.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert icon_512.status_code == 200
+    assert icon_512.headers["content-type"] == "image/png"
+    assert icon_512.content.startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_propertyquarry_public_host_blocks_raw_runtime_api_docs() -> None:

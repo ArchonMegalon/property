@@ -268,6 +268,17 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     any(str(row.get("src") or "") == "/pwa-icon.svg" and "maskable" in str(row.get("purpose") or "") for row in icon_rows),
                 ),
                 (
+                    "manifest_png_install_icons",
+                    {
+                        (str(row.get("src") or ""), str(row.get("sizes") or ""), str(row.get("type") or ""))
+                        for row in icon_rows
+                    }
+                    >= {
+                        ("/pwa-icon-192.png", "192x192", "image/png"),
+                        ("/pwa-icon-512.png", "512x512", "image/png"),
+                    },
+                ),
+                (
                     "manifest_core_shortcuts",
                     {"/app/search", "/app/properties", "/app/shortlist", "/app/agents"}.issubset(shortcut_urls),
                 ),

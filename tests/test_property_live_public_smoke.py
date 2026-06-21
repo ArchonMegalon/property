@@ -50,7 +50,9 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
             '{"name":"PropertyQuarry","lang":"en","dir":"ltr","id":"/app/search","start_url":"/app/search",'
             '"display":"standalone","display_override":["standalone","minimal-ui","browser"],"scope":"/",'
             '"launch_handler":{"client_mode":"navigate-existing"},"prefer_related_applications":false,'
-            '"icons":[{"src":"/pwa-icon.svg","purpose":"any maskable"}],'
+            '"icons":[{"src":"/pwa-icon.svg","purpose":"any maskable"},'
+            '{"src":"/pwa-icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},'
+            '{"src":"/pwa-icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}],'
             '"shortcuts":[{"url":"/app/search"},{"url":"/app/properties"},{"url":"/app/shortlist"},{"url":"/app/agents"}]}'
         ),
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
@@ -145,6 +147,7 @@ def test_live_public_smoke_fails_weak_pwa_manifest_without_network() -> None:
     row = receipt["checks"][0]
     assert any(check["name"] == "manifest_display_scope" and check["ok"] is False for check in row["checks"])
     assert any(check["name"] == "manifest_maskable_icon" and check["ok"] is False for check in row["checks"])
+    assert any(check["name"] == "manifest_png_install_icons" and check["ok"] is False for check in row["checks"])
     assert any(check["name"] == "manifest_core_shortcuts" and check["ok"] is False for check in row["checks"])
 
 

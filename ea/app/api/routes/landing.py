@@ -4,6 +4,7 @@ import contextlib
 import html
 import hmac
 import hashlib
+import io
 import json
 import os
 import re
@@ -223,6 +224,18 @@ def propertyquarry_web_manifest() -> JSONResponse:
                     "sizes": "any",
                     "type": "image/svg+xml",
                     "purpose": "any maskable",
+                },
+                {
+                    "src": "/pwa-icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "any maskable",
+                },
+                {
+                    "src": "/pwa-icon-512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any maskable",
                 }
             ],
             "shortcuts": [
@@ -231,28 +244,28 @@ def propertyquarry_web_manifest() -> JSONResponse:
                     "short_name": "Search",
                     "description": "Open the property search brief.",
                     "url": "/app/search",
-                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                    "icons": [{"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png"}],
                 },
                 {
                     "name": "Results",
                     "short_name": "Results",
                     "description": "Open current ranked homes.",
                     "url": "/app/properties",
-                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                    "icons": [{"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png"}],
                 },
                 {
                     "name": "Shortlist",
                     "short_name": "Shortlist",
                     "description": "Open saved shortlisted homes.",
                     "url": "/app/shortlist",
-                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                    "icons": [{"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png"}],
                 },
                 {
                     "name": "Saved Searches",
                     "short_name": "Saved",
                     "description": "Open saved search automation.",
                     "url": "/app/agents",
-                    "icons": [{"src": "/pwa-icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+                    "icons": [{"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png"}],
                 },
             ],
         },
@@ -264,6 +277,55 @@ def propertyquarry_web_manifest() -> JSONResponse:
 def propertyquarry_pwa_icon() -> Response:
     svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PropertyQuarry"><rect width="512" height="512" rx="96" fill="#17211c"/><path d="M144 336V188l112-64 112 64v148h-74v-92h-76v92z" fill="#f8faf7"/><path d="M171 354h170" stroke="#bd8b2f" stroke-width="24" stroke-linecap="round"/></svg>"""
     return Response(content=svg, media_type="image/svg+xml")
+
+
+@lru_cache(maxsize=2)
+def _propertyquarry_pwa_png_icon(size: int) -> bytes:
+    from PIL import Image, ImageDraw
+
+    normalized_size = 512 if int(size) >= 512 else 192
+    scale = normalized_size / 512
+
+    image = Image.new("RGBA", (normalized_size, normalized_size), "#17211c")
+    draw = ImageDraw.Draw(image)
+    radius = int(96 * scale)
+    draw.rounded_rectangle(
+        [0, 0, normalized_size, normalized_size],
+        radius=radius,
+        fill="#17211c",
+    )
+    house = [
+        (144 * scale, 336 * scale),
+        (144 * scale, 188 * scale),
+        (256 * scale, 124 * scale),
+        (368 * scale, 188 * scale),
+        (368 * scale, 336 * scale),
+        (294 * scale, 336 * scale),
+        (294 * scale, 244 * scale),
+        (218 * scale, 244 * scale),
+        (218 * scale, 336 * scale),
+    ]
+    draw.polygon([(int(x), int(y)) for x, y in house], fill="#f8faf7")
+    draw.line(
+        [(int(171 * scale), int(354 * scale)), (int(341 * scale), int(354 * scale))],
+        fill="#bd8b2f",
+        width=max(8, int(24 * scale)),
+        joint="curve",
+    )
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+@router.get("/pwa-icon-{size}.png", response_class=Response, include_in_schema=False)
+def propertyquarry_pwa_png_icon(size: int) -> Response:
+    if size not in {192, 512}:
+        raise HTTPException(status_code=404, detail="pwa_icon_size_not_found")
+    return Response(
+        content=_propertyquarry_pwa_png_icon(size),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @router.get("/service-worker.js", response_class=PlainTextResponse, include_in_schema=False)
