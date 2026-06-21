@@ -1935,7 +1935,7 @@ def property_workspace_payload(
             {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring briefs available for editing and rerunning.", "href": f"/app/agents{run_suffix}"},
             {"label": "Active", "value": str(sum(1 for agent in property_search_agents if agent.get("enabled"))), "detail": "Agents allowed to send matching updates.", "href": f"/app/agents{run_suffix}"},
             {"label": "Delivery", "value": str(property_search_agent.get("notification_label") or "Set per agent"), "detail": "Each recurring search ranks down to the allowed message budget.", "href": f"/app/agents{run_suffix}"},
-            {"label": "Reports", "value": "Email", "detail": "Digests, repair notes, and market watches leave from this lane.", "href": f"/app/agents{run_suffix}"},
+            {"label": "Reports", "value": "Alerts", "detail": "Digests, repair notes, and market watches use the saved delivery channel.", "href": f"/app/agents{run_suffix}"},
         ],
         "billing": [
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": f"/app/billing{run_suffix}"},
@@ -1980,7 +1980,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Notification delivery",
-            "Good matches can leave through Telegram or email once the shortlist is credible enough to notify.",
+            "Good matches can leave through Email, Telegram, or WhatsApp once the shortlist is credible enough to notify.",
             "Alerts",
         ),
         row_item(
@@ -2280,7 +2280,7 @@ def property_workspace_payload(
         },
         {
             "title": "Delivery path",
-            "detail": "Telegram and email stay secondary until the shortlist is credible enough to notify.",
+            "detail": "Email, Telegram, and WhatsApp stay quiet until the shortlist is credible enough to notify.",
             "tag": "Alerts",
             "action_href": "/app/account#delivery",
             "action_method": "get",
@@ -2534,7 +2534,7 @@ def property_workspace_payload(
                     "body": "",
                     "items": [
                         row_item("Delivery", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly delivery cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
-                        row_item("Reports", "Daily, weekly, and repair digests can leave through email.", "Email"),
+                        row_item("Reports", "Daily, weekly, and repair digests use the saved delivery channel.", "Alerts"),
                         row_item(
                             "Latest outcome",
                             (
@@ -2687,7 +2687,7 @@ def property_workspace_payload(
                     "body": "",
                     "items": [
                         row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Automation"),
-                        row_item("Delivery", "Email digests and recurring market watches use your saved-search settings.", "Reports"),
+                        row_item("Delivery", "Digests and recurring market watches use your saved-search settings and chosen channel.", "Reports"),
                         row_item("Return access", str(google.get("connected_account_email") or "Sign-in without widening scope."), "Identity"),
                     ],
                 },

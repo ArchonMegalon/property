@@ -9117,6 +9117,12 @@ def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None
 
     assert '"eyebrow": "Operating posture"' not in payload_source
     assert '"title": "Commercial posture"' not in payload_source
+    assert "Telegram and email" not in payload_source
+    assert "Telegram or email" not in payload_source
+    assert "through email" not in payload_source
+    assert '"value": "Email"' not in payload_source
+    assert "Email, Telegram, and WhatsApp stay quiet" in payload_source
+    assert "saved delivery channel" in payload_source
     assert '"title": "Edit"' in payload_source
     assert '"title": "Plan access"' in payload_source
 
