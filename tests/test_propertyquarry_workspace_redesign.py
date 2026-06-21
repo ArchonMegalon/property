@@ -3790,7 +3790,8 @@ def test_property_run_reliability_summary_surfaces_repair_and_eta_state() -> Non
     )
     assert reliability["health_label"] == "Repairing"
     assert reliability["repair_step_label"] == "Retrying 1 selected source"
-    assert reliability["coverage_label"] == "2/4 sources checked · 2 still running"
+    assert reliability["coverage_label"] == "2/4 provider checks · 2 still running"
+    assert "sources checked" not in reliability["coverage_label"]
     assert reliability["result_label"] == "3 ranked results ready"
     assert reliability["filtered_label"] == "7 filtered by active rules"
     assert reliability["repair"]["repair_status"] == "repairing"

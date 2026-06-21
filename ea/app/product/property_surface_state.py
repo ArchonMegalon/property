@@ -339,7 +339,7 @@ def build_property_run_reliability_snapshot(
         health_label = "Starting"
     coverage_label = ""
     if source_total:
-        coverage_label = f"{source_checked}/{source_total} sources checked"
+        coverage_label = f"{source_checked}/{source_total} provider checks"
         if pending_total:
             coverage_label += f" · {pending_total} still running"
     result_label = ""
