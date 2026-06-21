@@ -31,6 +31,11 @@ from app.services.google_oauth import (
     read_google_oauth_state,
     read_google_oauth_state_unchecked,
 )
+from app.services.id_austria_oidc import (
+    complete_id_austria_oidc_callback,
+    read_id_austria_oidc_state,
+    read_id_austria_oidc_state_unchecked,
+)
 
 router = APIRouter(tags=["landing"])
 
@@ -671,4 +676,108 @@ def google_oauth_browser_callback(
         sync_result=sync_result,
         sync_detail=_google_sync_detail(sync_result),
         register_signal_payload=register_signal_payload,
+    )
+
+
+@router.get("/id-austria/callback", response_class=HTMLResponse, response_model=None, name="id_austria_oidc_browser_callback")
+def id_austria_oidc_browser_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
+    container: AppContainer = Depends(get_container),
+) -> HTMLResponse | RedirectResponse:
+    state_payload = {}
+    try:
+        state_payload = read_id_austria_oidc_state(state) if str(state or "").strip() else {}
+    except Exception:
+        state_payload = {}
+    browser_source = str(state_payload.get("browser_source") or "").strip()
+    if str(error or "").strip():
+        detail = str(error_description or error or "id_austria_oidc_denied").strip()
+        if browser_source == "sign_in":
+            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+        return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
+    if not str(code or "").strip() or not str(state or "").strip():
+        detail = "ID Austria did not return a valid OIDC code and state."
+        if browser_source == "sign_in":
+            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+        return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
+    try:
+        account = complete_id_austria_oidc_callback(container=container, code=code, state=state)
+    except RuntimeError as exc:
+        detail = str(exc or "id_austria_oidc_callback_failed")
+        if detail == "id_austria_state_expired" and str(state or "").strip():
+            try:
+                expired_state = read_id_austria_oidc_state_unchecked(state)
+            except Exception:
+                expired_state = {}
+            return_to = _normalize_browser_return_to(str(expired_state.get("return_to") or ""), default="")
+            if return_to:
+                separator = "&" if "?" in return_to else "?"
+                return RedirectResponse(f"{return_to}{separator}id_austria_error=id_austria_state_expired", status_code=303)
+        if browser_source == "sign_in":
+            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+        return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
+    except Exception as exc:
+        detail = str(exc or "id_austria_oidc_callback_failed")
+        if browser_source == "sign_in":
+            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+        return _render_google_oauth_callback_failure(request, detail=detail, status_code=502)
+
+    product = build_product_service(container)
+    actor = str(account.given_name or account.family_name or account.subject or account.bpk or "id_austria").strip()
+    product.record_surface_event(
+        principal_id=account.binding.principal_id,
+        event_type="id_austria_identity_connected",
+        surface="id_austria_oidc_browser_callback",
+        actor=actor,
+        metadata={
+            "binding_id": str(account.binding.binding_id or "").strip(),
+            "issuer": account.issuer,
+            "id_austria_bpk_hash": str(dict(account.binding.probe_details_json or {}).get("id_austria_bpk_hash") or "").strip(),
+        },
+    )
+    return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
+    if browser_source == "sign_in":
+        status = container.onboarding.status(principal_id=account.binding.principal_id)
+        workspace = dict(status.get("workspace") or {})
+        display_name = str(workspace.get("name") or account.given_name or "PropertyQuarry account").strip()
+        access = product.issue_workspace_access_session(
+            principal_id=account.binding.principal_id,
+            email="",
+            role="principal",
+            display_name=display_name,
+            source_kind="id_austria_sign_in",
+            default_target="/app/search",
+        )
+        return RedirectResponse(str(access.get("access_url") or "/app/search"), status_code=303)
+    if return_to:
+        separator = "&" if "?" in return_to else "?"
+        return RedirectResponse(f"{return_to}{separator}id_austria_status=connected", status_code=303)
+    return _render_public_template(
+        request,
+        "channel_detail.html",
+        page_title="ID Austria connected",
+        public_nav=PUBLIC_NAV,
+        current_nav="integrations",
+        access_identity=None,
+        principal_id=account.binding.principal_id,
+        channel_title="ID Austria connected",
+        channel_eyebrow="ID Austria",
+        channel={
+            "status": "connected",
+            "detail": "ID Austria is connected as a verified Austrian identity for this PropertyQuarry workspace.",
+            "capabilities": ["Sign in with ID Austria", "Return to the same PropertyQuarry workspace"],
+            "limitations": ["ID Austria is used for identity only; it does not change search ranking or delivery settings"],
+        },
+        detail_points=(
+            f"Issuer: {account.issuer}",
+            f"Name: {' '.join(part for part in (account.given_name, account.family_name) if part) or 'Not supplied'}",
+        ),
+        body_points=(
+            "You can close this page or return to PropertyQuarry.",
+            "Use account settings later to manage identity providers.",
+        ),
     )

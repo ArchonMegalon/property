@@ -168,6 +168,35 @@ def _facebook_sign_in_enabled() -> bool:
     return configured
 
 
+def _id_austria_sign_in_enabled() -> bool:
+    from app.services.id_austria_oidc import id_austria_sign_in_configured
+
+    return id_austria_sign_in_configured()
+
+
+def _request_country_code(request: Request) -> str:
+    for header in (
+        "cf-ipcountry",
+        "cloudfront-viewer-country",
+        "x-vercel-ip-country",
+        "x-country-code",
+        "x-geo-country",
+        "x-appengine-country",
+    ):
+        value = str(request.headers.get(header) or "").strip().upper()
+        if value:
+            return value
+    return ""
+
+
+def _request_is_austrian_ip(request: Request) -> bool:
+    return _request_country_code(request) == "AT"
+
+
+def _id_austria_sign_in_enabled_for_request(request: Request) -> bool:
+    return _id_austria_sign_in_enabled() and _request_is_austrian_ip(request)
+
+
 @router.get("/manifest.webmanifest", response_class=JSONResponse, include_in_schema=False)
 def propertyquarry_web_manifest() -> JSONResponse:
     return JSONResponse(
@@ -2345,6 +2374,7 @@ def sign_in_page(
     google_error = str(request.query_params.get("google_error") or "").strip()
     google_prefill_email = str(request.query_params.get("google_prefill_email") or "").strip()
     facebook_error = str(request.query_params.get("facebook_error") or "").strip()
+    id_austria_error = str(request.query_params.get("id_austria_error") or "").strip()
     return _render_public_template(
         request,
         "sign_in.html",
@@ -2364,7 +2394,9 @@ def sign_in_page(
                 "sign_in_link_error": link_error,
                 "sign_in_google_error": google_error,
                 "sign_in_facebook_error": facebook_error,
+                "sign_in_id_austria_error": id_austria_error,
                 "sign_in_facebook_enabled": _facebook_sign_in_enabled(),
+                "sign_in_id_austria_enabled": _id_austria_sign_in_enabled_for_request(request),
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",
             },
         ),
@@ -2489,6 +2521,43 @@ async def sign_in_facebook(
             + urllib.parse.urlencode(
                 {
                     "facebook_error": str(exc or "facebook_oauth_not_ready"),
+                }
+            ),
+            status_code=303,
+        )
+    return RedirectResponse(str(packet.auth_url), status_code=303)
+
+
+@router.api_route("/sign-in/id-austria", methods=["GET", "POST"], response_model=None, include_in_schema=False)
+async def sign_in_id_austria(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> RedirectResponse:
+    from app.services.id_austria_oidc import build_id_austria_oidc_start
+
+    if not _request_is_austrian_ip(request):
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "id_austria_error": "id_austria_austria_ip_required",
+                }
+            ),
+            status_code=303,
+        )
+    try:
+        packet = build_id_austria_oidc_start(
+            principal_id="",
+            redirect_uri_override=f"{_public_app_base_url(request)}/id-austria/callback",
+            return_to="/sign-in?id_austria_connected=1",
+            browser_source="sign_in",
+        )
+    except RuntimeError as exc:
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "id_austria_error": str(exc or "id_austria_oidc_not_ready"),
                 }
             ),
             status_code=303,
@@ -3770,6 +3839,7 @@ def app_shell(
                     console_form=dict(payload.get("console_form") or {}),
                 ),
                 **payload,
+                "id_austria_sign_in_enabled": _id_austria_sign_in_enabled_for_request(request),
             },
         )
     return _render_public_template(

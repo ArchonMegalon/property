@@ -21,6 +21,27 @@ def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(create_app())
 
 
+def _configure_id_austria(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID", "https://propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET", "test-id-austria-client-secret")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI", "https://propertyquarry.com/id-austria/callback")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET", "test-id-austria-state-secret")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_ENVIRONMENT", "production")
+
+
+def _id_austria_claims(*, bpk: str = "ZP-MH:test-bpk", subject: str = "id-austria-subject") -> dict[str, object]:
+    return {
+        "iss": "https://idp.id-austria.gv.at",
+        "aud": "https://propertyquarry.com",
+        "iat": 1_787_300_000,
+        "exp": 1_787_303_600,
+        "sub": subject,
+        "urn:pvpgvat:oidc.bpk": bpk,
+        "given_name": "Tibor",
+        "family_name": "Girschele",
+    }
+
+
 def test_register_start_returns_magic_link_and_local_code_without_email_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -175,8 +196,148 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert 'class="auth-provider-icon"' in response.text
     assert "Google?" not in response.text
     assert "Facebook?" not in response.text
+    assert "Continue with ID Austria" not in response.text
     assert "Identity-only." in response.text
     assert "Choose the narrowest sign-in path" not in response.text
+
+
+def test_sign_in_page_shows_id_austria_when_oidc_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_id_austria(monkeypatch)
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in", headers={"CF-IPCountry": "AT"})
+
+    assert response.status_code == 200
+    assert "Continue with ID Austria" in response.text
+    assert 'href="/sign-in/id-austria"' in response.text
+
+
+def test_sign_in_page_hides_id_austria_outside_austria(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_id_austria(monkeypatch)
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in", headers={"CF-IPCountry": "DE"})
+    direct = client.get("/sign-in/id-austria", headers={"CF-IPCountry": "DE"}, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Continue with ID Austria" not in response.text
+    assert direct.status_code == 303
+    assert "id_austria_error=id_austria_austria_ip_required" in direct.headers["location"]
+
+
+def test_sign_in_id_austria_get_starts_oidc_for_visible_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_id_austria(monkeypatch)
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in/id-austria", headers={"CF-IPCountry": "AT"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    parsed = urllib.parse.urlparse(response.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert response.headers["location"].startswith("https://idp.id-austria.gv.at/auth/idp/profile/oidc/authorize")
+    assert query["response_type"] == ["code"]
+    assert query["client_id"] == ["https://propertyquarry.com"]
+    assert query["redirect_uri"] == ["https://propertyquarry.com/id-austria/callback"]
+    assert query["scope"] == ["openid profile"]
+    assert query.get("nonce")
+
+
+def test_id_austria_unknown_identity_returns_to_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_id_austria(monkeypatch)
+    client = _client(monkeypatch)
+
+    sign_in_start = client.get("/sign-in/id-austria", headers={"CF-IPCountry": "AT"}, follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    state = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)["state"][0]
+
+    from app.services import id_austria_oidc
+
+    monkeypatch.setattr(
+        id_austria_oidc,
+        "_exchange_id_austria_code_for_tokens",
+        lambda **kwargs: {"id_token": "header.payload.signature", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        id_austria_oidc,
+        "_decode_id_austria_id_token",
+        lambda **kwargs: _id_austria_claims(bpk="ZP-MH:unknown-bpk", subject="unknown-subject"),
+    )
+
+    callback = client.get(
+        "/id-austria/callback",
+        params={"code": "code-123", "state": state},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "id_austria_error=id_austria_sign_in_not_found" in callback.headers["location"]
+
+
+def test_id_austria_connect_links_workspace_and_sign_in_reopens_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_id_austria(monkeypatch)
+    principal_id = "user-id-austria-linked"
+    client = _client(monkeypatch)
+    client.headers.update({"X-EA-Principal-ID": principal_id})
+    start_workspace(client, mode="personal", workspace_name="Verified Austrian Workspace")
+
+    from app.services import id_austria_oidc
+
+    monkeypatch.setattr(
+        id_austria_oidc,
+        "_exchange_id_austria_code_for_tokens",
+        lambda **kwargs: {"id_token": "header.payload.signature", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        id_austria_oidc,
+        "_decode_id_austria_id_token",
+        lambda **kwargs: _id_austria_claims(),
+    )
+
+    connect_start = client.get(
+        "/app/actions/id-austria/connect",
+        params={"return_to": "/app/account"},
+        headers={"CF-IPCountry": "AT"},
+        follow_redirects=False,
+    )
+    assert connect_start.status_code == 303
+    connect_state = urllib.parse.parse_qs(urllib.parse.urlparse(connect_start.headers["location"]).query)["state"][0]
+
+    connected = client.get(
+        "/id-austria/callback",
+        params={"code": "code-connect", "state": connect_state},
+        follow_redirects=False,
+    )
+    assert connected.status_code == 303
+    assert connected.headers["location"] == "/app/account?id_austria_status=connected"
+
+    container = client.app.state.container
+    records = container.provider_registry.list_persisted_binding_records(principal_id=principal_id, limit=20)
+    id_austria_records = [record for record in records if record.provider_key == "id_austria"]
+    assert len(id_austria_records) == 1
+    metadata = dict(id_austria_records[0].auth_metadata_json or {})
+    assert "id_austria_bpk" not in metadata
+    assert metadata["id_austria_bpk_hash"]
+    connector_bindings = container.tool_runtime.list_connector_bindings_for_connector("id_austria", limit=20)
+    assert len(connector_bindings) == 1
+    assert connector_bindings[0].principal_id == principal_id
+    assert connector_bindings[0].external_account_ref != "ZP-MH:test-bpk"
+
+    sign_in_start = client.get("/sign-in/id-austria", headers={"CF-IPCountry": "AT"}, follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    sign_in_state = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)["state"][0]
+
+    signed_in = client.get(
+        "/id-austria/callback",
+        params={"code": "code-sign-in", "state": sign_in_state},
+        follow_redirects=False,
+    )
+    assert signed_in.status_code == 303
+    assert signed_in.headers["location"].startswith("/workspace-access/")
+    opened = client.get(signed_in.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/search"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
 def test_sign_in_page_shows_facebook_when_oauth_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -717,7 +878,8 @@ def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch:
     parsed = urllib.parse.urlparse(auth_url)
     query = urllib.parse.parse_qs(parsed.query)
     assert query["redirect_uri"][0] == "https://propertyquarry.com/facebook/callback"
-    assert query["scope"][0] == "public_profile,email"
+    assert query["scope"][0] == "public_profile"
+    assert "email" not in query["scope"][0]
     assert query["auth_type"][0] == "rerequest"
 
     from app.services import facebook_oauth as facebook_service
@@ -727,7 +889,7 @@ def test_sign_in_facebook_reopens_existing_workspace_after_callback(monkeypatch:
         "_exchange_facebook_code_for_token",
         lambda **kwargs: {
             "access_token": "facebook-access-token",
-            "scope": "public_profile,email",
+            "scope": "public_profile",
             "expires_in": 3600,
         },
     )

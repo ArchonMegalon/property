@@ -147,9 +147,14 @@
       <div>
         <span class="pqx-small">Connections</span>
         <h2>Connected services</h2>
-        <p>Check Google, delivery, and source permissions used by the workflows you enabled.</p>
+        <p>Check identity, delivery, and source permissions used by the workflows you enabled.</p>
       </div>
-      <a class="pqx-link-button" href="/app/settings/google">Manage connections</a>
+      <div class="pqx-account-card-actions">
+        <a class="pqx-link-button" href="/app/settings/google">Google</a>
+        {% if id_austria_sign_in_enabled is defined and id_austria_sign_in_enabled %}
+        <a class="pqx-link-button" href="/app/actions/id-austria/connect?return_to=/app/account">ID Austria</a>
+        {% endif %}
+      </div>
     </section>
 
     <section class="pqx-account-action-card" id="analytics-preferences">

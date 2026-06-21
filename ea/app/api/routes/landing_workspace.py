@@ -12,6 +12,7 @@ from app.api.routes.landing import (
     _form_value,
     _normalize_browser_return_to,
     _render_public_template,
+    _request_is_austrian_ip,
     app_shell as _app_shell,
 )
 from app.api.routes.landing_content import app_nav_groups_for_brand
@@ -20,6 +21,7 @@ from app.container import AppContainer
 from app.product.property_surface_state import normalize_property_search_run_snapshot
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
+from app.services import id_austria_oidc as id_austria_service
 from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
@@ -2311,6 +2313,29 @@ def app_google_connect(
         return RedirectResponse(auth_url, status_code=303)
     detail = urllib.parse.quote(str(google_start.get("detail") or "google_oauth_not_ready"), safe="")
     return RedirectResponse(f"{return_to}{separator}google_error={detail}", status_code=303)
+
+
+@router.api_route("/app/actions/id-austria/connect", methods=["GET", "HEAD"], include_in_schema=False)
+def app_id_austria_connect(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/account")
+    separator = "&" if "?" in return_to else "?"
+    if not _request_is_austrian_ip(request):
+        return RedirectResponse(f"{return_to}{separator}id_austria_error=id_austria_austria_ip_required", status_code=303)
+    try:
+        packet = id_austria_service.build_id_austria_oidc_start(
+            principal_id=context.principal_id,
+            redirect_uri_override=f"{_public_app_base_url(request)}/id-austria/callback",
+            return_to=return_to,
+            browser_source="settings_id_austria",
+        )
+    except RuntimeError as exc:
+        error_value = urllib.parse.quote(str(exc or "id_austria_connect_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}id_austria_error={error_value}", status_code=303)
+    return RedirectResponse(str(packet.auth_url), status_code=303)
 
 
 @router.post("/app/actions/google/email-connect-link")

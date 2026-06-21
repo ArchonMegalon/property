@@ -171,6 +171,16 @@
         <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
       </div>
       {% endif %}
+      {% if sign_in_id_austria_enabled %}
+      <div class="auth-provider-card" data-auth-provider-card>
+        <span class="auth-provider-icon" aria-hidden="true">ID</span>
+        <span>
+          <strong>ID Austria</strong>
+          <p>Verified Austrian identity.</p>
+        </span>
+        <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
+      </div>
+      {% endif %}
     </div>
     {% if sign_in_google_error %}
     <div class="access-feedback">
@@ -205,6 +215,26 @@
     <div class="access-feedback">
       <strong>Facebook sign-in could not start.</strong>
       <p class="copy">{{ sign_in_facebook_error }}</p>
+    </div>
+    {% endif %}
+    {% if sign_in_id_austria_error %}
+    <div class="access-feedback">
+      <strong>ID Austria sign-in could not complete.</strong>
+      <p class="copy">
+        {% if sign_in_id_austria_error == 'id_austria_sign_in_not_found' %}
+        This verified ID Austria identity is not linked to a PropertyQuarry workspace yet. Open your current workspace first, then connect ID Austria from account settings.
+        {% elif sign_in_id_austria_error == 'id_austria_austria_ip_required' %}
+        ID Austria sign-in is offered only when this request is detected from Austria.
+        {% elif sign_in_id_austria_error.startswith('id_austria_') %}
+        ID Austria sign-in is not ready on this deployment yet.
+        {% else %}
+        {{ sign_in_id_austria_error }}
+        {% endif %}
+      </p>
+      <div class="cta-row">
+        <a class="btn" href="/sign-in/current-session">Open current session</a>
+        <a class="btn" href="/register">Create account</a>
+      </div>
     </div>
     {% endif %}
     {% if sign_in_link_enabled %}

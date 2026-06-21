@@ -21,7 +21,7 @@ FACEBOOK_PROVIDER_KEY = "facebook_login"
 FACEBOOK_CONNECTOR_NAME = "facebook_login"
 FACEBOOK_AUTH_HOST = "https://www.facebook.com"
 FACEBOOK_GRAPH_HOST = "https://graph.facebook.com"
-FACEBOOK_SCOPE_IDENTITY = ("public_profile", "email")
+FACEBOOK_SCOPE_IDENTITY = ("public_profile",)
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,7 @@ def build_facebook_oauth_start(
     browser_source: str | None = None,
 ) -> FacebookOAuthStartPacket:
     config = load_facebook_oauth_config()
+    requested_scopes = _facebook_identity_scopes()
     redirect_uri = _validated_facebook_redirect_uri(
         str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri,
         config=config,
@@ -116,14 +117,14 @@ def build_facebook_oauth_start(
             "client_id": config.app_id,
             "redirect_uri": redirect_uri,
             "state": state,
-            "scope": ",".join(FACEBOOK_SCOPE_IDENTITY),
+            "scope": ",".join(requested_scopes),
             "response_type": "code",
             "auth_type": "rerequest",
         }
     )
     return FacebookOAuthStartPacket(
         principal_id=str(principal_id or "").strip(),
-        requested_scopes=FACEBOOK_SCOPE_IDENTITY,
+        requested_scopes=requested_scopes,
         state=state,
         auth_url=f"{FACEBOOK_AUTH_HOST}/{config.graph_version}/dialog/oauth?{query}",
         redirect_uri=redirect_uri,
@@ -168,6 +169,7 @@ def complete_facebook_oauth_callback(
         app_secret=config.app_secret,
         graph_version=config.graph_version,
     )
+    requested_scopes = _facebook_identity_scopes()
     facebook_subject = str(userinfo.get("id") or "").strip()
     facebook_email = str(userinfo.get("email") or "").strip().lower()
     facebook_name = str(userinfo.get("name") or "").strip()
@@ -191,7 +193,7 @@ def complete_facebook_oauth_callback(
         "facebook_subject": facebook_subject,
         "facebook_email": facebook_email,
         "facebook_name": facebook_name,
-        "requested_scopes": list(FACEBOOK_SCOPE_IDENTITY),
+        "requested_scopes": list(requested_scopes),
         "granted_scopes": list(granted_scopes),
         "granted_scopes_source": granted_scopes_source,
         "returned_scope_text": returned_scope_text,
@@ -204,7 +206,7 @@ def complete_facebook_oauth_callback(
     }
     scope_json = {
         "bundle": "identity",
-        "requested_scopes": list(FACEBOOK_SCOPE_IDENTITY),
+        "requested_scopes": list(requested_scopes),
         "scopes": list(granted_scopes),
         "granted_scopes": list(granted_scopes),
         "granted_scopes_source": granted_scopes_source,
@@ -311,9 +313,12 @@ def _fetch_facebook_userinfo(*, access_token: str, app_secret: str, graph_versio
     if not access_token:
         raise RuntimeError("facebook_oauth_access_token_missing")
     appsecret_proof = hmac.new(app_secret.encode("utf-8"), access_token.encode("utf-8"), hashlib.sha256).hexdigest()
+    fields = ["id", "name"]
+    if "email" in _facebook_identity_scopes():
+        fields.append("email")
     query = urllib.parse.urlencode(
         {
-            "fields": "id,name,email",
+            "fields": ",".join(fields),
             "access_token": access_token,
             "appsecret_proof": appsecret_proof,
         }
@@ -329,6 +334,16 @@ def _fetch_facebook_userinfo(*, access_token: str, app_secret: str, graph_versio
 def _split_scope_text(raw: str) -> tuple[str, ...]:
     normalized = str(raw or "").replace(",", " ")
     return tuple(sorted({part.strip() for part in normalized.split() if part.strip()}))
+
+
+def _facebook_identity_scopes() -> tuple[str, ...]:
+    raw = str(os.environ.get("PROPERTYQUARRY_FACEBOOK_OAUTH_SCOPES") or os.environ.get("EA_FACEBOOK_OAUTH_SCOPES") or "").strip()
+    if not raw:
+        return FACEBOOK_SCOPE_IDENTITY
+    scopes = _split_scope_text(raw)
+    if "public_profile" not in scopes:
+        scopes = tuple(sorted((*scopes, "public_profile")))
+    return scopes
 
 
 def _normalize_graph_version(raw: str | None) -> str:
