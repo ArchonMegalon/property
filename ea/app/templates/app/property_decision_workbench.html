@@ -2917,6 +2917,17 @@
         min-width: 0;
         max-width: 100%;
       }
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list {
+        max-height: min(28svh, 230px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-right: 2px;
+        scroll-padding-bottom: 8px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list::-webkit-scrollbar {
+        width: 0;
+      }
       .pqx-what-matters-panel .pqx-pref-row {
         grid-template-columns: minmax(0, 1fr) minmax(128px, 42%);
         min-height: 42px;
@@ -5641,6 +5652,26 @@
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] {
         gap: 6px;
+        max-height: 306px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-right: 2px;
+        scroll-padding-bottom: 8px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"]::-webkit-scrollbar {
+        width: 0;
+      }
+      .pqx-surface-search .pqx-choice-groupbox-grid[data-pqx-check-grid="selected_platforms"] {
+        max-height: min(56svh, 520px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-right: 2px;
+        scroll-padding-bottom: 8px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .pqx-surface-search .pqx-choice-groupbox-grid[data-pqx-check-grid="selected_platforms"]::-webkit-scrollbar {
+        width: 0;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check {
         min-height: 46px;

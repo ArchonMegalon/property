@@ -1435,19 +1435,25 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
                   scrollWidth: node.scrollWidth,
                 };
               });
+              const firstList = panel.querySelector('[data-what-matters-group][open] .pqx-pref-list');
+              const firstListStyle = firstList ? window.getComputedStyle(firstList) : null;
               return {
                 panelHeight: panelRect.height,
                 panelWidth: panelRect.width,
                 panelScrollWidth: panel.scrollWidth,
                 bottomGap: panelRect.bottom - lastBottom,
                 rowWidths,
+                firstListOverflowY: firstListStyle ? firstListStyle.overflowY : '',
+                firstListScrolls: firstList ? firstList.scrollHeight > firstList.clientHeight + 2 : false,
               };
             }
             """
         )
-        assert float(mobile_metrics["panelHeight"]) <= 2300.0, mobile_metrics
+        assert float(mobile_metrics["panelHeight"]) <= 1600.0, mobile_metrics
         assert float(mobile_metrics["panelScrollWidth"]) <= float(mobile_metrics["panelWidth"]) + 1.0, mobile_metrics
         assert float(mobile_metrics["bottomGap"]) <= 28.0, mobile_metrics
+        assert mobile_metrics["firstListOverflowY"] in {"auto", "scroll"}, mobile_metrics
+        assert mobile_metrics["firstListScrolls"] is True, mobile_metrics
         for row_metric in mobile_metrics["rowWidths"]:
             assert float(row_metric["scrollWidth"]) <= float(row_metric["width"]) + 1.0, row_metric
         mobile_section.scroll_into_view_if_needed()
@@ -1616,6 +1622,8 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         expect(school_parent).to_have_attribute("data-school-family-active", "true")
         section = page.locator('[data-what-matters-group="daily_life"]')
         expect(section).to_have_attribute("data-active-distance-rows", "true")
+        active_distance_row = page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"]')
+        active_distance_row.scroll_into_view_if_needed()
         section.scroll_into_view_if_needed()
         section.screenshot(path=str(screenshot_path))
         assert screenshot_path.exists()
@@ -2074,6 +2082,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const result = document.querySelector('[data-workbench-row]');
                 const thumb = result?.querySelector('.pqx-thumb');
                 const areaRows = Array.from(document.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check'));
+                const areaGrid = document.querySelector('[data-pqx-check-grid="location_query"]');
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
                 const dockStyle = dock ? window.getComputedStyle(dock) : null;
                 const dockRect = dock ? dock.getBoundingClientRect() : null;
@@ -2081,6 +2090,12 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const thumbRect = thumb ? thumb.getBoundingClientRect() : null;
                 const areaRects = areaRows.map((node) => node.getBoundingClientRect());
                 const areaStyle = areaRows[0] ? window.getComputedStyle(areaRows[0]) : null;
+                const areaGridStyle = areaGrid ? window.getComputedStyle(areaGrid) : null;
+                if (areaGrid) {
+                    areaGrid.scrollTop = areaGrid.scrollHeight;
+                }
+                const lastAreaRect = areaRows.length ? areaRows[areaRows.length - 1].getBoundingClientRect() : null;
+                const scrolledGridRect = areaGrid ? areaGrid.getBoundingClientRect() : null;
                 return {
                     bodyWidth: document.documentElement.scrollWidth,
                     viewportWidth: window.innerWidth,
@@ -2090,6 +2105,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     railPosition: railStyle ? railStyle.position : '',
                     dockPosition: dockStyle ? dockStyle.position : '',
                     dockBottom: dockStyle ? dockStyle.bottom : '',
+                    dockTop: dockRect ? dockRect.top : 0,
                     dockVisible: Boolean(dock && dock.offsetParent !== null),
                     resultWidth: resultRect ? resultRect.width : 0,
                     thumbWidth: thumbRect ? thumbRect.width : 0,
@@ -2099,6 +2115,11 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaRowMaxRight: areaRects.length ? Math.max(...areaRects.map((rect) => rect.right)) : 0,
                     areaRowGridColumns: areaStyle ? areaStyle.gridTemplateColumns : '',
                     areaRowBorderRadius: areaStyle ? areaStyle.borderRadius : '',
+                    areaGridOverflowY: areaGridStyle ? areaGridStyle.overflowY : '',
+                    areaGridScrolls: areaGrid ? areaGrid.scrollHeight > areaGrid.clientHeight + 2 : false,
+                    areaGridBottomAfterScroll: scrolledGridRect ? scrolledGridRect.bottom : 0,
+                    lastAreaBottomAfterScroll: lastAreaRect ? lastAreaRect.bottom : 0,
+                    lastAreaTopAfterScroll: lastAreaRect ? lastAreaRect.top : 0,
                 };
             }"""
         )
@@ -2114,10 +2135,15 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
             assert 96 <= mobile_metrics["thumbWidth"] <= 120
         assert mobile_metrics["areaRowCount"] >= 6
         assert 44 <= mobile_metrics["areaRowMinHeight"] <= 50
-        assert mobile_metrics["areaRowsClearOfDock"] >= 8
+        assert mobile_metrics["areaRowsClearOfDock"] >= 6
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
         assert "24px" in mobile_metrics["areaRowGridColumns"]
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
+        assert mobile_metrics["areaGridOverflowY"] in {"auto", "scroll"}
+        assert mobile_metrics["areaGridScrolls"] is True
+        assert mobile_metrics["areaGridBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
+        assert mobile_metrics["lastAreaBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
+        assert mobile_metrics["lastAreaTopAfterScroll"] >= 0
         _assert_no_horizontal_overflow(mobile_page)
     finally:
         desktop.close()
