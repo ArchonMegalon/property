@@ -6,6 +6,7 @@ from pathlib import Path
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.pdf_renderer import _claim_bound_dossier_sections, render_property_packet_pdf
 from app.services.fliplink.privacy import redact_property_packet
+from app.services.premium_dossier.models import PremiumDossierRenderResult
 from app.services.premium_dossier.qa import _extract_pdf_text
 
 
@@ -348,7 +349,47 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
 
 
 def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "playwright")
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER_FALLBACK", "legacy")
     monkeypatch.delenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", raising=False)
+
+    def _fake_playwright(request):
+        pdf_bytes = ("%PDF-1.4 " + request.html).encode("utf-8")
+        return PremiumDossierRenderResult(
+            status="rendered",
+            renderer="playwright",
+            pdf_bytes=pdf_bytes,
+            pdf_sha256=hashlib.sha256(pdf_bytes).hexdigest(),
+            render_seconds=0.1,
+        )
+
+    monkeypatch.setattr("app.services.premium_dossier.render_pdf_with_playwright", _fake_playwright)
+    monkeypatch.setattr(
+        "app.services.premium_dossier.inspect_rendered_artifact",
+        lambda **kwargs: type(
+            "Report",
+            (),
+            {
+                "ok": True,
+                "required_text_check": "passed",
+                "forbidden_text_check": "passed",
+                "page_count": 1,
+                "visual_preview_check": "passed",
+                "cover_dominance_check": "passed",
+                "footer_band_check": "passed",
+                "raw_url_text_check": "passed",
+                "visual_preview_artifact_ref": "",
+                "first_page_width_px": 0,
+                "first_page_height_px": 0,
+                "first_page_nonwhite_ratio": 0.0,
+                "first_page_top_band_nonwhite_ratio": 0.0,
+                "first_page_footer_band_nonwhite_ratio": 0.0,
+                "required_text_hits": list(kwargs.get("expected_text") or []),
+                "forbidden_text_hits": [],
+                "raw_url_text_hits": [],
+            },
+        )(),
+    )
     source = {
         **_source_payload(),
         "appendix_mode": "telegram_pdf_appendix",
