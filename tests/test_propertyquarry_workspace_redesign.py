@@ -1405,6 +1405,7 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-reading-card',
         'html[data-pq-theme="dark"] .pqx-event-card',
         'html[data-pq-theme="dark"] .pqx-source-card',
+        'html[data-pq-theme="dark"] .pqx-source-candidate',
         'html[data-pq-theme="dark"] .pqx-filtered-dialog-card',
         'html[data-pq-theme="dark"] .pqx-filtered-dialog-rule',
         'html[data-pq-theme="dark"] .pqx-filtered-dialog-close',
@@ -1453,6 +1454,10 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
     assert "background: color-mix(in srgb, var(--panel) 88%, transparent);" in sign_in
     assert "auth-provider-card" in sign_in
     assert "--pq-card: #fffdf8;" in packets
+    assert "propertyquarry.theme" in packets
+    assert 'html[data-pq-theme="dark"]' in packets
+    assert "--pq-card: #211f1b;" in packets
+    assert "--pq-mark-bg: #2b2418;" in packets
 
 
 def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:

@@ -4,6 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PropertyQuarry Packets</title>
+  <script>
+    (function () {
+      try {
+        var stored = window.localStorage && window.localStorage.getItem("propertyquarry.theme");
+        if (stored === "dark" || stored === "light") {
+          document.documentElement.setAttribute("data-pq-theme", stored);
+        }
+      } catch (_) {}
+    }());
+  </script>
   <style>
     :root {
       --pq-ink: #25211b;
@@ -16,6 +26,22 @@
       --pq-green: #295f4a;
       --pq-red: #a6463d;
       --pq-blue: #0b57d0;
+      --pq-mark-bg: #efe6d5;
+      color-scheme: light;
+    }
+    html[data-pq-theme="dark"] {
+      --pq-ink: #f2eee6;
+      --pq-muted: #bdb4a5;
+      --pq-paper: #151412;
+      --pq-panel: #1b1916;
+      --pq-card: #211f1b;
+      --pq-border: #3a3329;
+      --pq-gold: #d7b166;
+      --pq-green: #6bb08f;
+      --pq-red: #dc8a80;
+      --pq-blue: #8ab4f8;
+      --pq-mark-bg: #2b2418;
+      color-scheme: dark;
     }
     * { box-sizing: border-box; }
     body {
@@ -41,7 +67,7 @@
       height: 38px;
       border: 1px solid var(--pq-border);
       border-radius: 8px;
-      background: #efe6d5;
+      background: var(--pq-mark-bg);
       color: var(--pq-gold);
       font-weight: 800;
     }
