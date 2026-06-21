@@ -20,12 +20,14 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
 
 
 def test_property_authenticated_performance_smoke_script_emits_receipt() -> None:
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
     result = subprocess.run(
         [sys.executable, "scripts/propertyquarry_authenticated_performance_smoke.py"],
         check=False,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": "ea"},
+        env=env,
     )
 
     assert result.returncode == 0, result.stderr
@@ -40,12 +42,14 @@ def test_property_authenticated_performance_smoke_budget_override_applies_to_def
 
 
 def test_property_authenticated_performance_smoke_script_fails_under_tight_budget() -> None:
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
     result = subprocess.run(
         [sys.executable, "scripts/propertyquarry_authenticated_performance_smoke.py", "--route-budget-ms", "1"],
         check=False,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": "ea"},
+        env=env,
     )
 
     assert result.returncode == 1

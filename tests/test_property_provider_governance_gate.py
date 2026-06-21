@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,10 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_property_provider_governance_checker_passes_current_catalog() -> None:
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
     result = subprocess.run(
         [sys.executable, "scripts/check_property_provider_governance.py"],
         cwd=ROOT,
-        env={"PYTHONPATH": "ea"},
+        env=env,
         text=True,
         capture_output=True,
         check=True,

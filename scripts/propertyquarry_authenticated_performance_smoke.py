@@ -4,11 +4,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
 from fastapi.testclient import TestClient
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "ea"))
 
 from app.api.app import create_app
 from app.product.service import ProductService, _now_iso
