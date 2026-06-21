@@ -476,7 +476,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Create the account and start the first search" in page.text
     assert 'href="/app/search"' in page.text
     assert 'href="/app/search"' not in sign_in.text
-    assert "Open current session" not in sign_in.text
+    assert 'href="/sign-in/current-session"' in sign_in.text
+    assert "Open current session" in sign_in.text
     assert 'href="/app/search"' in signed_in_sign_in.text
     assert "Open current session" in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text

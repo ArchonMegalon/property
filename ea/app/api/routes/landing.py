@@ -2368,6 +2368,22 @@ def sign_in_page(
     )
 
 
+@router.api_route("/sign-in/current-session", methods=["GET", "HEAD"], response_model=None, include_in_schema=False)
+def sign_in_current_session(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> RedirectResponse:
+    principal_id = _landing_authenticated_principal(
+        container=container,
+        access_identity=access_identity,
+        request=request,
+    )
+    if principal_id:
+        return RedirectResponse(str(request_brand(request).get("app_home") or "/app/search"), status_code=303)
+    return RedirectResponse("/sign-in?current_session=missing", status_code=303)
+
+
 @router.post("/sign-in/email-link")
 async def sign_in_email_link(
     request: Request,

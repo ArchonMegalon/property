@@ -147,10 +147,10 @@
     <div class="cta-row">
       {% if public_signed_in %}
       <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open current session</a>
-      <a class="btn" href="/register">{{ brand.create_label }}</a>
       {% else %}
-      <a class="btn primary" href="/register">{{ brand.create_label }}</a>
+      <a class="btn primary" href="/sign-in/current-session">Open current session</a>
       {% endif %}
+      <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
     <div class="auth-provider-stack" aria-label="Sign-in providers">
       <form class="auth-provider-card" method="post" action="/sign-in/google" data-auth-provider-form data-submitting-label="Opening Google...">

@@ -1,0 +1,152 @@
+  (() => {
+    const root = document.querySelector('[data-property-decision-workbench]');
+    if (!root) return;
+    const metaNode = root.querySelector('[data-property-workspace-meta]');
+    let meta = {};
+    try {
+      meta = JSON.parse(metaNode?.getAttribute('data-property-workspace-meta') || '{}') || {};
+    } catch (_error) {
+      meta = {};
+    }
+
+    const themeStorageKey = 'propertyquarry.theme';
+    const themeToggleButton = root.querySelector('[data-pqx-theme-toggle]');
+    const currentTheme = () => String(document.documentElement.getAttribute('data-pq-theme') || 'light').trim() === 'dark' ? 'dark' : 'light';
+    const applyTheme = (theme) => {
+      const nextTheme = theme === 'dark' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-pq-theme', nextTheme);
+      try {
+        window.localStorage.setItem(themeStorageKey, nextTheme);
+      } catch (_error) {}
+      if (themeToggleButton) {
+        const darkEnabled = nextTheme === 'dark';
+        themeToggleButton.textContent = darkEnabled ? 'Light mode' : 'Dark mode';
+        themeToggleButton.setAttribute('aria-pressed', darkEnabled ? 'true' : 'false');
+      }
+    };
+    themeToggleButton?.addEventListener('click', () => {
+      applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    });
+    applyTheme(currentTheme());
+
+    const setMode = (mode) => {
+      const panel = mode === 'brief' ? 'brief' : (mode === 'property' ? 'property' : 'results');
+      root.querySelectorAll('[data-pqx-mobile-panel]').forEach((node) => {
+        node.classList.toggle('active', node.getAttribute('data-pqx-mobile-panel') === panel);
+      });
+      root.querySelectorAll('[data-pw-mode]').forEach((button) => {
+        button.classList.toggle('active', button.getAttribute('data-pw-mode') === mode);
+      });
+    };
+    root.querySelectorAll('[data-pw-mode]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        if (button.getAttribute('href')) return;
+        event.preventDefault();
+        setMode(button.getAttribute('data-pw-mode') || 'results');
+      });
+    });
+
+    const statusNode = root.querySelector('[data-search-agent-status]');
+    const setStatus = (message) => {
+      if (statusNode) statusNode.textContent = String(message || '');
+    };
+    const updateSearchAgent = async (agentId, action, patch = {}) => {
+      const template = String(meta.search_agent_update_endpoint_template || '/v1/onboarding/property-search/agents/__AGENT_ID__');
+      const resolvedAgentId = encodeURIComponent(String(agentId || 'current').trim() || 'current');
+      const endpoint = template.includes('__AGENT_ID__')
+        ? template.replace('__AGENT_ID__', resolvedAgentId)
+        : `${template.replace(/\/$/, '')}/${resolvedAgentId}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, patch }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const errorPayload = body?.error;
+        const message = typeof body?.detail === 'string'
+          ? body.detail
+          : typeof errorPayload === 'string'
+            ? errorPayload
+            : (errorPayload?.message || errorPayload?.code || 'Could not update saved search.');
+        throw new Error(message);
+      }
+      return body;
+    };
+
+    root.querySelectorAll('[data-search-agent-action]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const action = String(button.getAttribute('data-search-agent-action') || '').trim();
+        const row = button.closest('[data-property-search-agent-row]');
+        const agentId = row?.getAttribute('data-search-agent-id') || 'current';
+        try {
+          if (action === 'delete') {
+            const label = String(row?.querySelector('.pqx-automation-headline strong')?.textContent || 'this saved search').trim();
+            if (!window.confirm(`Delete ${label}?`)) return;
+          }
+          setStatus(
+            action === 'run'
+              ? 'Starting saved search...'
+              : action === 'delete'
+                ? 'Deleting saved search...'
+                : 'Updating saved search...'
+          );
+          if (action === 'run') {
+            await updateSearchAgent(agentId, 'resume', {});
+            window.location.href = `/app/search?run_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+            return;
+          }
+          await updateSearchAgent(agentId, action, {});
+          setStatus(
+            action === 'pause'
+              ? 'Saved search paused.'
+              : action === 'resume'
+                ? 'Saved search resumed.'
+                : action === 'delete'
+                  ? 'Saved search deleted.'
+                  : 'Saved search updated.'
+          );
+          if (['delete', 'resume', 'pause'].includes(action)) {
+            window.setTimeout(() => window.location.reload(), 450);
+          }
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : 'Could not update saved search.');
+        }
+      });
+    });
+
+    const refreshPendingMapPreviews = () => {
+      const images = [...root.querySelectorAll('.pqx-automation-thumbnail img')].filter((image) => {
+        const src = String(image.getAttribute('src') || '').trim();
+        return src.startsWith('/app/api/property/map-previews/');
+      });
+      if (!images.length) return;
+      const retryDelays = [1200, 2800, 5200, 8800];
+      images.forEach((image) => {
+        const baseSrc = String(image.getAttribute('src') || '').split('?')[0];
+        if (!baseSrc || image.getAttribute('data-map-preview-refresh-bound') === 'true') return;
+        image.setAttribute('data-map-preview-refresh-bound', 'true');
+        retryDelays.forEach((delay) => {
+          window.setTimeout(async () => {
+            if (image.getAttribute('data-map-preview-ready') === 'true') return;
+            try {
+              const response = await fetch(`${baseSrc}?state=${Date.now()}`, {
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { Accept: 'image/png' },
+              });
+              if (!response.ok || response.headers.get('x-property-map-preview-state') !== 'ready') return;
+              const blob = await response.blob();
+              if (!blob || !String(blob.type || '').startsWith('image/')) return;
+              const objectUrl = URL.createObjectURL(blob);
+              image.addEventListener('load', () => URL.revokeObjectURL(objectUrl), { once: true });
+              image.setAttribute('data-map-preview-ready', 'true');
+              image.setAttribute('src', objectUrl);
+            } catch (_error) {}
+          }, delay);
+        });
+      });
+    };
+    refreshPendingMapPreviews();
+  })();

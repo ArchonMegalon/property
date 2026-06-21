@@ -6819,7 +6819,11 @@
   </div>
 
   <script>
+{% if surface_mode == 'agents' %}
+{% include "app/_property_agents_script.html" %}
+{% else %}
 {% include "app/_property_workbench_script.html" %}
+{% endif %}
   </script>
   <script>
     if ('serviceWorker' in navigator && window.isSecureContext) {
