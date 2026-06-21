@@ -24,6 +24,7 @@ from app.product import property_surface_state
 from app.product.models import HandoffNote
 from app.product.service import (
     ProductService,
+    _property_candidate_notification_location_evidence_kind,
     _property_candidate_matches_requested_location,
     _property_enrich_facts_from_listing_text,
     _property_facts_with_source_scope,
@@ -411,6 +412,39 @@ def test_propertyquarry_requested_postal_scope_rejects_listing_url_postal_leaks(
             country_code="AT",
             region_code="vienna",
         ), property_url
+
+
+def test_propertyquarry_requested_postal_scope_ignores_source_scope_placeholders_in_fact_fields() -> None:
+    facts = _property_facts_with_source_scope(
+        facts={
+            "district": "1010 Vienna",
+            "postal_name": "1010 Vienna",
+            "location": "1010 Vienna",
+            "address": "1010 Vienna",
+            "address_lines": ["1010 Vienna"],
+        },
+        source_url="",
+        source_label="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+    )
+
+    assert (
+        _property_candidate_notification_location_evidence_kind(
+            property_url="https://immobilien.derstandard.at/detail/source-scope-only",
+            title="Wohnung mieten | 60 m2 | 2 Zimmer",
+            summary="Schöne Wohnung mit Balkon.",
+            property_facts=facts,
+        )
+        == "source_scope_only"
+    )
+    assert not _property_candidate_matches_requested_location(
+        location_hints=("1010 Vienna",),
+        property_url="https://immobilien.derstandard.at/detail/source-scope-only",
+        title="Wohnung mieten | 60 m2 | 2 Zimmer",
+        summary="Schöne Wohnung mit Balkon.",
+        property_facts=facts,
+        country_code="AT",
+        region_code="vienna",
+    )
 
 
 def test_property_postal_parser_is_generic_but_not_price_hungry() -> None:

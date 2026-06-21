@@ -1026,6 +1026,105 @@ def test_property_scout_heyy_notification_suppresses_out_of_scope_candidate(monk
     assert diagnostics["location_evidence_kind"] == "listing_postal"
 
 
+def test_property_alert_review_suppresses_source_scope_only_location(monkeypatch) -> None:
+    principal_id = "cf-email:alert-review-source-scope-only@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Alert Review Source Scope Guard")
+    onboarding = client.app.state.container.onboarding
+    onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("source-scope-only scout review sent a Telegram notification"),
+    )
+    repair_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_provider_repair_task",
+        lambda self, **kwargs: repair_calls.append(kwargs) or {"status": "opened", "queue_item_ref": "repair-source-scope-only"},
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Wohnung mieten | 60 m² | 2 Zimmer | EUR 1.090",
+        summary="Schöne Wohnung mit Balkon.",
+        source_ref="property-scout:source-scope-only",
+        external_id="property-scout:source-scope-only",
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        account_email="buyer@example.com",
+        property_url="https://immobilien.derstandard.at/detail/source-scope-only",
+        actor="property_scout",
+        notify_telegram=True,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert result["queue_item_ref"] == "repair-source-scope-only"
+    assert repair_calls
+    diagnostics = dict(repair_calls[0]["diagnostics"])
+    assert diagnostics["source_scope_location"] == "1010 Vienna"
+    assert diagnostics["location_evidence_kind"] == "source_scope_only"
+
+
+def test_property_alert_review_suppresses_out_of_scope_listing_before_notify(monkeypatch) -> None:
+    principal_id = "cf-email:alert-review-derstandard-1220@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Alert Review Location Guard")
+    onboarding = client.app.state.container.onboarding
+    onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("out-of-scope scout review sent a Telegram notification"),
+    )
+    repair_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_provider_repair_task",
+        lambda self, **kwargs: repair_calls.append(kwargs) or {"status": "opened", "queue_item_ref": "repair-1220-review"},
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | EUR 1.090",
+        summary="2-Zimmer Wohnung mit Traumblick / UNO und U-Bahn ums Eck in 1220 Wien.",
+        source_ref="property-scout:derstandard-1220-review",
+        external_id="property-scout:derstandard-1220-review",
+        counterparty="DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+        account_email="buyer@example.com",
+        property_url="https://immobilien.derstandard.at/detail/wohnung-mieten-in-1220-wien",
+        actor="property_scout",
+        notify_telegram=True,
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    assert result["queue_item_ref"] == "repair-1220-review"
+    diagnostics = dict(repair_calls[0]["diagnostics"])
+    assert diagnostics["postal_name"] == "1220 Wien"
+    assert diagnostics["location_evidence_kind"] == "listing_postal"
+
+
 def test_property_notification_preference_suppresses_unselected_channels(monkeypatch: pytest.MonkeyPatch) -> None:
     principal_id = "cf-email:notification-preference@example.com"
     client = build_product_client(principal_id=principal_id)

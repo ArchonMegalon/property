@@ -5490,6 +5490,52 @@ def _property_source_scope_postal_codes(facts: dict[str, object] | None) -> froz
     )
 
 
+def _property_location_value_is_source_scope_placeholder(value: object, facts: dict[str, object] | None) -> bool:
+    """True when a location-like value only repeats the provider/search scope."""
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return False
+    payload = dict(facts or {})
+    if any(
+        token in lowered
+        for token in (
+            "gasse",
+            "straße",
+            "strasse",
+            "weg",
+            "platz",
+            "allee",
+            "lane",
+            "road",
+            "street",
+            "avenue",
+            "drive",
+            "boulevard",
+            "square",
+            "court",
+            "terrace",
+        )
+    ):
+        return False
+    source_postal_code = _property_postal_code_core(payload.get("source_postal_code"))
+    source_city = str(payload.get("source_city") or "").strip().lower()
+    scope_candidates = {
+        str(payload.get("source_scope_location") or "").strip().lower(),
+        source_city,
+        " ".join(part for part in (source_postal_code, source_city) if part).strip().lower(),
+    }
+    scope_candidates.discard("")
+    if lowered in scope_candidates:
+        return True
+    if not (source_postal_code and _property_postal_code_core(lowered) == source_postal_code):
+        return False
+    remainder = re.sub(r"\b\d{4,5}\b", " ", lowered)
+    if source_city:
+        remainder = remainder.replace(source_city, " ")
+    remainder = re.sub(r"[\s,;|/\\()\\[\\]{}._-]+", " ", remainder).strip()
+    return not remainder
+
+
 def _property_listing_observed_postal_codes(
     *,
     title: str = "",
@@ -6076,48 +6122,48 @@ def _property_candidate_matches_requested_location(
     if not hints:
         return True
     facts = dict(property_facts or {})
-    address_lines = tuple(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    def _listing_location_field(key: str) -> str:
+        value = str(facts.get(key) or "").strip()
+        return "" if _property_location_value_is_source_scope_placeholder(value, facts) else value
+
+    address_lines = tuple(
+        value
+        for value in (str(item or "").strip() for item in list(facts.get("address_lines") or []))
+        if value and not _property_location_value_is_source_scope_placeholder(value, facts)
+    )
     concrete_parts = [
         str(property_url or "").strip(),
         str(title or "").strip(),
         str(summary or "").strip(),
-        str(facts.get("district") or "").strip(),
-        str(facts.get("postal_name") or "").strip(),
-        str(facts.get("location") or "").strip(),
-        str(facts.get("street_address") or "").strip(),
-        str(facts.get("exact_address") or "").strip(),
+        _listing_location_field("district"),
+        _listing_location_field("postal_name"),
+        _listing_location_field("location"),
+        _listing_location_field("address"),
+        _listing_location_field("street_address"),
+        _listing_location_field("exact_address"),
         *address_lines,
     ]
-    scope_parts = [
-        str(facts.get("source_scope_location") or "").strip(),
-        str(facts.get("source_postal_code") or "").strip(),
-        str(facts.get("source_city") or "").strip(),
-    ]
-    source_scope_location = str(facts.get("source_scope_location") or "").strip().lower()
-    source_postal_code = str(facts.get("source_postal_code") or "").strip()
     real_concrete_parts = [
         str(property_url or "").strip(),
         str(title or "").strip(),
         str(summary or "").strip(),
-        str(facts.get("district") or "").strip(),
-        str(facts.get("postal_name") or "").strip()
-        if str(facts.get("postal_name") or "").strip().lower() != source_scope_location
-        else "",
-        str(facts.get("location") or "").strip(),
-        str(facts.get("street_address") or "").strip(),
-        str(facts.get("exact_address") or "").strip(),
+        _listing_location_field("district"),
+        _listing_location_field("postal_name"),
+        _listing_location_field("location"),
+        _listing_location_field("address"),
+        _listing_location_field("street_address"),
+        _listing_location_field("exact_address"),
         *address_lines,
     ]
     strong_concrete_parts = [
         str(property_url or "").strip(),
         str(title or "").strip(),
-        str(facts.get("district") or "").strip(),
-        str(facts.get("postal_name") or "").strip()
-        if str(facts.get("postal_name") or "").strip().lower() != source_scope_location
-        else "",
-        str(facts.get("location") or "").strip(),
-        str(facts.get("street_address") or "").strip(),
-        str(facts.get("exact_address") or "").strip(),
+        _listing_location_field("district"),
+        _listing_location_field("postal_name"),
+        _listing_location_field("location"),
+        _listing_location_field("address"),
+        _listing_location_field("street_address"),
+        _listing_location_field("exact_address"),
         *address_lines,
     ]
 
@@ -6868,66 +6914,15 @@ def _property_candidate_has_concrete_location(property_facts: dict[str, object] 
     district = str(facts.get("district") or "").strip()
     postal_name = str(facts.get("postal_name") or "").strip()
     location = str(facts.get("location") or "").strip()
-    source_scope_location = str(facts.get("source_scope_location") or "").strip().lower()
-    source_postal_code = str(facts.get("source_postal_code") or "").strip()
-    source_scope_candidates = {
-        source_scope_location,
-        str(facts.get("source_city") or "").strip().lower(),
-        " ".join(
-            part
-            for part in (
-                str(facts.get("source_postal_code") or "").strip(),
-                str(facts.get("source_city") or "").strip(),
-            )
-            if part
-        ).lower(),
-    }
-    source_scope_candidates.discard("")
-
-    def _is_source_scope_placeholder(value: str) -> bool:
-        lowered = str(value or "").strip().lower()
-        if not lowered:
-            return False
-        if any(
-            token in lowered
-            for token in (
-                "gasse",
-                "straße",
-                "strasse",
-                "weg",
-                "platz",
-                "allee",
-                "lane",
-                "road",
-                "street",
-                "avenue",
-                "drive",
-                "boulevard",
-                "square",
-                "court",
-                "terrace",
-            )
-        ):
-            return False
-        if lowered in source_scope_candidates:
-            return True
-        if not (source_postal_code and _property_postal_code_core(lowered) == source_postal_code):
-            return False
-        source_city = str(facts.get("source_city") or "").strip().lower()
-        remainder = re.sub(r"\b\d{4,5}\b", " ", lowered)
-        if source_city:
-            remainder = remainder.replace(source_city, " ")
-        remainder = re.sub(r"[\s,;|/\\()\\[\\]{}._-]+", " ", remainder).strip()
-        return not remainder
 
     for value in (exact_address, street_address, district):
-        if value and not _is_source_scope_placeholder(value):
+        if value and not _property_location_value_is_source_scope_placeholder(value, facts):
             return True
     for value in (postal_name, location):
         lowered = value.lower()
         if not lowered:
             continue
-        if _is_source_scope_placeholder(value):
+        if _property_location_value_is_source_scope_placeholder(value, facts):
             continue
         if re.search(r"\b\d{4,5}\b", lowered):
             return True
