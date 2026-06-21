@@ -30,6 +30,8 @@ PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_documents",
 )
 
+PROPERTYQUARRY_WHATSAPP_AI_SUPPORT_PURPOSE = "ai_support_only"
+
 
 PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
     "propertyquarry_tenants": [
@@ -801,6 +803,7 @@ def build_propertyquarry_teable_projection_records(
         preferred_channel = _text(property_notifications.get("preferred_channel") or "email", limit=80) or "email"
         whatsapp_ai_support_phone = _text(property_notifications.get("whatsapp_ai_support_phone"), limit=80)
         whatsapp_ai_support_digits = "".join(ch for ch in whatsapp_ai_support_phone if ch.isdigit())
+        whatsapp_ai_support_purpose = PROPERTYQUARRY_WHATSAPP_AI_SUPPORT_PURPOSE if whatsapp_ai_support_phone else ""
         telegram_bot = (
             dict(property_notifications.get("telegram_bot") or {})
             if isinstance(property_notifications.get("telegram_bot"), dict)
@@ -813,7 +816,7 @@ def build_propertyquarry_teable_projection_records(
             "selected_channels": selected_channels,
             "whatsapp_notification_opt_in": bool(property_notifications.get("whatsapp_notification_opt_in")),
             "whatsapp_ai_support_enabled": bool(whatsapp_ai_support_phone),
-            "whatsapp_ai_support_purpose": _text(property_notifications.get("whatsapp_ai_support_purpose"), limit=160),
+            "whatsapp_ai_support_purpose": whatsapp_ai_support_purpose,
             "signal_status": _text(property_notifications.get("signal_status") or "coming_soon", limit=80),
         }
         users[f"user:{normalized_tenant}:{normalized_principal}"] = {
@@ -847,7 +850,7 @@ def build_propertyquarry_teable_projection_records(
             "whatsapp_ai_support_enabled": bool(whatsapp_ai_support_phone),
             "whatsapp_ai_support_phone": whatsapp_ai_support_phone,
             "whatsapp_ai_support_phone_last4": whatsapp_ai_support_digits[-4:],
-            "whatsapp_ai_support_purpose": _text(property_notifications.get("whatsapp_ai_support_purpose"), limit=160),
+            "whatsapp_ai_support_purpose": whatsapp_ai_support_purpose,
             "signal_status": _text(property_notifications.get("signal_status") or "coming_soon", limit=80),
             "settings_json": settings_json,
             "last_projected_at": projected_at,

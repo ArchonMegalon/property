@@ -285,6 +285,8 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_enabled"] is True
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_phone"] == "+436641234567"
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_phone_last4"] == "4567"
+    assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_purpose"] == "ai_support_only"
+    assert records["propertyquarry_delivery_settings"][0]["settings_json"]["whatsapp_ai_support_purpose"] == "ai_support_only"
     assert records["propertyquarry_delivery_settings"][0]["signal_status"] == "coming_soon"
     assert records["propertyquarry_subscriptions"][0]["current_plan_key"] == "plus"
     assert "payer_email" not in records["propertyquarry_subscriptions"][0]["commercial_json"]
