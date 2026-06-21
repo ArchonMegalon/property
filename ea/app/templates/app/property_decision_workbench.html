@@ -5328,7 +5328,7 @@
       }
       .pqx-workflow-step,
       .pqx-surface-search .pqx-workflow-step {
-        flex: 0 0 clamp(86px, 27vw, 122px);
+        flex: 0 0 clamp(76px, 22vw, 104px);
         scroll-snap-align: start;
         min-height: 34px;
         padding: 4px 5px;
@@ -5388,6 +5388,16 @@
         border-bottom: 1px solid var(--pq-line);
         background: color-mix(in srgb, var(--pq-paper) 92%, transparent);
         backdrop-filter: blur(16px);
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail]::after {
+        content: "";
+        position: sticky;
+        right: -2px;
+        flex: 0 0 24px;
+        align-self: stretch;
+        margin-left: -24px;
+        pointer-events: none;
+        background: linear-gradient(90deg, transparent, var(--pq-paper));
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] .pqx-workflow-step.active {
         box-shadow: 0 8px 18px rgba(41, 37, 30, 0.12);
