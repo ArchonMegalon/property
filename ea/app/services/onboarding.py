@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 
 from app.domain.models import ConnectorBinding, OnboardingState
 from app.repositories.onboarding_state import InMemoryOnboardingStateRepository, OnboardingStateRepository
@@ -127,7 +128,7 @@ DEFAULT_AUTO_BRIEF_RETRY_AFTER_MINUTES = 60
 PROPERTY_NOTIFICATION_CHANNELS = {"email", "telegram", "whatsapp"}
 PROPERTY_NOTIFICATION_CHANNEL_LABELS = {
     "email": "Email",
-    "telegram": "Telegram",
+    "telegram": "PropertyQuarry bot",
     "whatsapp": "WhatsApp",
 }
 
@@ -148,6 +149,45 @@ def normalize_property_notification_channel(value: object) -> str:
     if normalized not in PROPERTY_NOTIFICATION_CHANNELS:
         raise ValueError("property_notification_channel_invalid")
     return normalized
+
+
+def _clean_telegram_bot_handle(value: object) -> str:
+    normalized = str(value or "").strip().lstrip("@")
+    return "".join(ch for ch in normalized if ch.isalnum() or ch == "_")[:64]
+
+
+def _propertyquarry_telegram_bot_public_profile() -> dict[str, object]:
+    explicit_handle = _clean_telegram_bot_handle(
+        os.getenv("PROPERTYQUARRY_TELEGRAM_BOT_HANDLE")
+        or os.getenv("EA_PROPERTYQUARRY_TELEGRAM_BOT_HANDLE")
+        or os.getenv("EA_TELEGRAM_BOT_HANDLE")
+    )
+    raw_registry = str(os.getenv("EA_TELEGRAM_BOT_REGISTRY_JSON") or "").strip()
+    selected_key = "default"
+    selected_handle = explicit_handle
+    if raw_registry:
+        try:
+            parsed = json.loads(raw_registry)
+        except json.JSONDecodeError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            preferred_keys = ("propertyquarry", "default", *tuple(str(key or "").strip() for key in parsed.keys()))
+            for key in preferred_keys:
+                row = parsed.get(key)
+                if not isinstance(row, dict):
+                    continue
+                handle = _clean_telegram_bot_handle(row.get("handle"))
+                if handle:
+                    selected_key = str(key or "default").strip() or "default"
+                    selected_handle = explicit_handle or handle
+                    break
+    return {
+        "label": "PropertyQuarry bot",
+        "bot_key": selected_key,
+        "handle": selected_handle,
+        "display_handle": f"@{selected_handle}" if selected_handle else "",
+        "connect_url": f"https://t.me/{selected_handle}" if selected_handle else "",
+    }
 
 
 class OnboardingService(AssistantOnboardingService):
@@ -1087,6 +1127,11 @@ class OnboardingService(AssistantOnboardingService):
         channel_preferences = dict(getattr(state, "channel_preferences_json", {}) or {}) if state is not None else {}
         raw_preferences = channel_preferences.get("property_notifications")
         preferences = dict(raw_preferences or {}) if isinstance(raw_preferences, dict) else {}
+        telegram_pref = dict(channel_preferences.get("telegram") or {})
+        telegram_status = str(telegram_pref.get("status") or "").strip().lower()
+        telegram_chat_ref = str(telegram_pref.get("default_chat_ref") or "").strip()
+        telegram_connected = bool(telegram_chat_ref and telegram_status == "enabled")
+        telegram_bot_profile = _propertyquarry_telegram_bot_public_profile()
         configured_channel = str(preferences.get("preferred_channel") or "").strip().lower()
         if configured_channel:
             try:
@@ -1099,9 +1144,14 @@ class OnboardingService(AssistantOnboardingService):
             "preferred_channel": preferred_channel,
             "preferred_label": PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(preferred_channel, "Email"),
             "configured": bool(configured_channel),
+            "telegram_bot": {
+                **telegram_bot_profile,
+                "connected": telegram_connected,
+                "status_label": "Connected" if telegram_connected else "Open the bot and send /start",
+            },
             "channels": [
                 {"key": "email", "label": "Email", "enabled": True, "status": "available"},
-                {"key": "telegram", "label": "Telegram bot", "enabled": True, "status": "available"},
+                {"key": "telegram", "label": "PropertyQuarry bot", "enabled": True, "status": "available"},
                 {"key": "whatsapp", "label": "WhatsApp", "enabled": True, "status": "available"},
                 {"key": "signal", "label": "Signal", "enabled": False, "status": "coming_soon"},
             ],
@@ -1236,6 +1286,7 @@ class OnboardingService(AssistantOnboardingService):
         )
         telegram_identity_bindings = by_name.get(TELEGRAM_IDENTITY_CONNECTOR, [])
         telegram_bot_bindings = by_name.get(TELEGRAM_OFFICIAL_BOT_CONNECTOR, [])
+        telegram_bot_profile = _propertyquarry_telegram_bot_public_profile()
         telegram_chat_bound = any(
             str(dict(binding.auth_metadata_json or {}).get("default_chat_ref") or binding.external_account_ref or "").strip()
             for binding in telegram_identity_bindings
@@ -1282,6 +1333,11 @@ class OnboardingService(AssistantOnboardingService):
                 "detail": telegram_detail,
                 "identity_path": "Telegram Login / OIDC",
                 "bot_path": "Official assistant bot",
+                "product_bot": {
+                    **telegram_bot_profile,
+                    "connected": bool(telegram_chat_bound),
+                    "status_label": "Connected" if telegram_chat_bound else "Open the bot and send /start",
+                },
                 "history_import_posture": "Identity linking does not import full Telegram history. Start future-only or import later through explicit workflows.",
                 "capabilities": [
                     "Sign in with Telegram identity",
@@ -1363,7 +1419,7 @@ class OnboardingService(AssistantOnboardingService):
                     connected.append(f"Telegram identity staged as {telegram_ref}")
                     top_contacts.append(telegram_ref)
                 if bot_handle:
-                    connected.append(f"Telegram bot planned as {bot_handle}")
+                    connected.append(f"PropertyQuarry bot planned as {bot_handle}")
                 history_mode = str(prefs.get("history_mode") or "future_only").replace("_", " ")
                 history_state.append(f"Telegram starts as {history_mode}; identity linking does not imply full history import.")
             elif channel == "whatsapp":

@@ -2800,6 +2800,7 @@ def property_workspace_payload(
     }
 
     payload = dict(sections.get(section, sections["properties"]))
+    payload["account_status"] = dict(status or {})
     shortlist_snapshot = build_property_shortlist_snapshot(
         workbench_results,
         selected_candidate_ref=selected_candidate_ref,

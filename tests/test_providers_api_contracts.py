@@ -956,6 +956,8 @@ def test_telegram_ingest_sends_start_reply_for_keyed_bot(monkeypatch: pytest.Mon
     assert body["reply_sent"] is True
     assert "connected to PropertyQuarry" in body["reply_text"]
     assert "Executive Assistant" not in body["reply_text"]
+    assert "Tibor" not in body["reply_text"]
+    assert "Telegram is selected in Account" in body["reply_text"]
     assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token-2/sendMessage"
     assert sent[0]["payload"]["chat_id"] == "1234"
     assert "Girschele_Bot" in sent[0]["payload"]["text"]

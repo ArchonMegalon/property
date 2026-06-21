@@ -4542,8 +4542,8 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
         return TelegramTurnDecision(
             reply_text=(
                 f"{handle} is connected to PropertyQuarry.\n\n"
-                "You can send messages, links, property alerts, and follow-up requests here. "
-                "PropertyQuarry will capture this chat for Tibor and use it as a property decision inbox."
+                "Send property links, notes, and follow-up requests here. "
+                "Strong matches and review actions can arrive in this chat when Telegram is selected in Account."
             )
         )
     if command == "/help":

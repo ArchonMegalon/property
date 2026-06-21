@@ -8518,7 +8518,18 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Office signals ingested" not in account.text
 
 
-def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
+def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps(
+            {
+                "propertyquarry": {
+                    "token": "telegram-secret-token",
+                    "handle": "propertyquarry_bot",
+                }
+            }
+        ),
+    )
     principal_id = "pq-account-lifecycle-controls"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Lifecycle Controls")
@@ -8544,7 +8555,10 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls() -> None:
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'value="email"' in account.text
     assert 'value="telegram"' in account.text
-    assert "Telegram bot" in account.text
+    assert "PropertyQuarry bot" in account.text
+    assert "@propertyquarry_bot" in account.text
+    assert 'href="https://t.me/propertyquarry_bot"' in account.text
+    assert "telegram-secret-token" not in account.text
     assert 'value="whatsapp"' in account.text
     assert 'value="signal" disabled' in account.text
     access_links = client.get("/app/settings/access", headers=headers)
