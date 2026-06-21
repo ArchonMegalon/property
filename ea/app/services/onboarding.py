@@ -696,7 +696,7 @@ class OnboardingService(AssistantOnboardingService):
                 "assistant_surfaces": list(surfaces),
                 "binding_id": binding.binding_id,
                 "status": "guided_manual",
-                "next_step": "Link the official bot or stay future-only until a Telegram auth/import adapter lands.",
+                "next_step": "Open the PropertyQuarry bot and send /start when you want Telegram alerts.",
             }
         )
         updated = self._replace_channel_pref(state, "telegram", telegram_pref, status="in_progress")
@@ -733,7 +733,7 @@ class OnboardingService(AssistantOnboardingService):
                 "install_surfaces": list(surfaces),
                 "default_chat_ref": str(default_chat_ref or "").strip(),
                 "status": "bot_link_requested",
-                "next_step": "Complete official bot installation; history import remains a separate explicit future step.",
+                "next_step": "Open the PropertyQuarry bot, send /start, and keep future alerts in that chat.",
             }
         )
         updated = self._replace_channel_pref(state, "telegram", telegram_pref, status="in_progress")
@@ -1107,7 +1107,7 @@ class OnboardingService(AssistantOnboardingService):
             "assistant_modes": [dict(row) for row in ASSISTANT_MODE_CATALOG],
             "featured_domains": [dict(row) for row in FEATURED_DOMAIN_CATALOG],
             "storage_posture": {
-                "source_of_truth": "EA Postgres",
+                "source_of_truth": "PropertyQuarry Postgres",
                 "projection_note": "Teable can mirror onboarding, account, and import state, but it is not the canonical message ledger.",
                 "attachment_note": "Large media and exports belong in object storage rather than the browser edge or operator spreadsheet layer.",
             },
@@ -1275,14 +1275,14 @@ class OnboardingService(AssistantOnboardingService):
         elif google_state is not None:
             google_status = "credentials_missing"
             google_detail = (
-                "Google OAuth credentials are not configured for this EA host yet. "
+                "Google OAuth credentials are not configured for this PropertyQuarry host yet. "
                 "Set EA_GOOGLE_OAUTH_CLIENT_ID, EA_GOOGLE_OAUTH_CLIENT_SECRET, "
                 "EA_GOOGLE_OAUTH_REDIRECT_URI, EA_GOOGLE_OAUTH_STATE_SECRET, and EA_PROVIDER_SECRET_KEY."
             )
         telegram_pref = dict(channel_prefs.get("telegram") or {})
         telegram_status = str(telegram_pref.get("status") or "").strip() or "not_selected"
         telegram_detail = str(telegram_pref.get("next_step") or "").strip() or (
-            "Telegram is a guided manual lane: identity linking and official bot setup are separate from history import."
+            "Telegram alerts use the PropertyQuarry bot. Sign-in and chat delivery stay separate."
         )
         telegram_identity_bindings = by_name.get(TELEGRAM_IDENTITY_CONNECTOR, [])
         telegram_bot_bindings = by_name.get(TELEGRAM_OFFICIAL_BOT_CONNECTOR, [])
@@ -1332,7 +1332,7 @@ class OnboardingService(AssistantOnboardingService):
                 "status": telegram_status,
                 "detail": telegram_detail,
                 "identity_path": "Telegram Login / OIDC",
-                "bot_path": "Official assistant bot",
+                "bot_path": "PropertyQuarry bot",
                 "product_bot": {
                     **telegram_bot_profile,
                     "connected": bool(telegram_chat_bound),
@@ -1341,11 +1341,11 @@ class OnboardingService(AssistantOnboardingService):
                 "history_import_posture": "Identity linking does not import full Telegram history. Start future-only or import later through explicit workflows.",
                 "capabilities": [
                     "Sign in with Telegram identity",
-                    "Stage DM, group, or channel assistant surfaces",
-                    "Link the official bot as the durable interaction surface",
+                    "Receive property alerts in a Telegram chat",
+                    "Use the PropertyQuarry bot as the durable interaction surface",
                 ],
                 "limitations": [
-                    "No fake promise of generic history import on login alone",
+                    "Telegram sign-in does not import past chats.",
                 ],
                 "bindings": [binding.binding_id for binding in telegram_identity_bindings + telegram_bot_bindings],
             },
@@ -1505,7 +1505,7 @@ class OnboardingService(AssistantOnboardingService):
             google_label = str(dict(channel_statuses.get("google") or {}).get("bundle_label") or "Google sign-in")
             return f"Complete {google_label} to finish Google account linking."
         if "telegram" in state.selected_channels and str(dict(channel_statuses.get("telegram") or {}).get("status") or "") == "guided_manual":
-            return "Decide whether Telegram starts as identity-only, official bot, or future-only memory."
+            return "Open the PropertyQuarry bot and send /start when you want Telegram alerts."
         if "whatsapp" in state.selected_channels and str(dict(channel_statuses.get("whatsapp") or {}).get("status") or "") in {"planned_business", "export_planned", "not_selected"}:
             return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):

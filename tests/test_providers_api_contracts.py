@@ -662,9 +662,13 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["workspace"]["mode"] == "team"
     assert status_body["channels"]["google"]["status"] == "ready_to_connect"
     assert status_body["channels"]["telegram"]["status"] == "guided_manual"
+    assert status_body["channels"]["telegram"]["bot_path"] == "PropertyQuarry bot"
+    assert "Official assistant bot" not in json.dumps(status_body)
+    assert "generic history" not in json.dumps(status_body)
+    assert "EA host" not in json.dumps(status_body)
     assert status_body["channels"]["whatsapp"]["status"] == "export_planned"
     assert status_body["next_step"] == "Complete Google sign-in to finish Google account linking."
-    assert status_body["storage_posture"]["source_of_truth"] == "EA Postgres"
+    assert status_body["storage_posture"]["source_of_truth"] == "PropertyQuarry Postgres"
     assert status_body["delivery_preferences"]["morning_memo"]["recipient_email"] == "briefs@example.com"
     assert status_body["brief_preview"]["first_brief"] == status_body["brief_preview"]["first_brief_preview"]
 
@@ -961,6 +965,28 @@ def test_telegram_ingest_sends_start_reply_for_keyed_bot(monkeypatch: pytest.Mon
     assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token-2/sendMessage"
     assert sent[0]["payload"]["chat_id"] == "1234"
     assert "Girschele_Bot" in sent[0]["payload"]["text"]
+
+    status = client.post(
+        "/v1/channels/telegram/ingest/girschele",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret-2"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 1234},
+                    "text": "/status",
+                    "message_id": 12,
+                    "date": 124,
+                }
+            }
+        },
+    )
+    assert status.status_code == 200
+    status_body = status.json()
+    assert status_body["reply_sent"] is True
+    assert "PropertyQuarry is online." in status_body["reply_text"]
+    assert "Telegram messages are connected." in status_body["reply_text"]
+    assert "Telegram ingest" not in status_body["reply_text"]
+    assert "Tibor" not in status_body["reply_text"]
 
 
 def test_telegram_ingest_sends_math_reply_for_plain_message(monkeypatch: pytest.MonkeyPatch) -> None:

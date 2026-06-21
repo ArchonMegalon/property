@@ -963,9 +963,9 @@ def _telegram_general_reply_text(*, container: AppContainer, principal_id: str, 
             if math_answer:
                 return f"Yes. {math_answer}"
             if "http://" in previous_normalized or "https://" in previous_normalized:
-                return "Yes. I captured the link and kept it in Tibor's PropertyQuarry inbox."
+                return "Yes. I captured the link and kept it in PropertyQuarry."
             break
-        return "Yes. I captured your message and kept it in Tibor's workspace flow."
+        return "Yes. I captured your message in PropertyQuarry."
     if ("today" in lower and "day" in lower) or alpha in {"day", "today", "what day", "weekday"}:
         now = datetime.now(ZoneInfo("Europe/Vienna"))
         return f"Today is {now.strftime('%A, %d %B %Y')} in Vienna."
@@ -4561,10 +4561,9 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
         return TelegramTurnDecision(
             reply_text=(
                 "PropertyQuarry is online.\n"
-                "Telegram ingest is active.\n"
-                "Property email sync is active.\n"
-                "Pocket sync is active.\n"
-                "Teable preference review sync is active."
+                "Telegram messages are connected.\n"
+                "Email delivery is available.\n"
+                "Saved preferences are available."
             )
         )
     return TelegramTurnDecision()
@@ -4772,7 +4771,7 @@ def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecisi
     if local_assistant_reply:
         return TelegramTurnDecision(reply_text=local_assistant_reply)
     return TelegramTurnDecision(
-        reply_text="Link received. PropertyQuarry captured it and will route it into Tibor's workspace for review."
+        reply_text="Link received. PropertyQuarry captured it for review."
     )
 
 

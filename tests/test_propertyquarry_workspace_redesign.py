@@ -8559,6 +8559,9 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "@propertyquarry_bot" in account.text
     assert 'href="https://t.me/propertyquarry_bot"' in account.text
     assert "telegram-secret-token" not in account.text
+    assert "Official assistant bot" not in account.text
+    assert "generic history" not in account.text
+    assert "EA host" not in account.text
     assert 'value="whatsapp"' in account.text
     assert 'value="signal" disabled' in account.text
     access_links = client.get("/app/settings/access", headers=headers)
