@@ -350,6 +350,61 @@ def test_brilliant_directories_search_response_strips_private_member_fields() ->
     assert "Public profile text" not in serialized
 
 
+def test_brilliant_directories_search_response_strips_unapproved_external_profile_urls() -> None:
+    packet = build_brilliant_directories_projection_packet_from_search_response(
+        {
+            "status": "success",
+            "message": [
+                {
+                    "user_id": "91",
+                    "company": "Approved Directory Advisor",
+                    "profile_url": "https://directory.example/austria/vienna/approved-advisor",
+                    "city": "Vienna",
+                    "country_code": "AT",
+                },
+                {
+                    "user_id": "92",
+                    "company": "External Directory Advisor",
+                    "profile_url": "https://tracking.example/profile/external-advisor",
+                    "city": "Vienna",
+                    "country_code": "AT",
+                },
+                {
+                    "user_id": "93",
+                    "company": "Relative Directory Advisor",
+                    "filename": "austria/vienna/relative-advisor",
+                    "city": "Vienna",
+                    "country_code": "AT",
+                },
+            ],
+        },
+        purpose="Public relocation directory",
+        allowed_url_hosts=("directory.example",),
+    )
+
+    profiles = packet.as_dict()["profiles"]
+    assert profiles[0]["public_url"] == "https://directory.example/austria/vienna/approved-advisor"
+    assert "public_url" not in profiles[1]
+    assert profiles[2]["public_url"] == "austria/vienna/relative-advisor"
+
+
+def test_brilliant_directories_search_response_strips_unsafe_relative_profile_urls() -> None:
+    packet = build_brilliant_directories_projection_packet_from_search_response(
+        {
+            "status": "success",
+            "message": [
+                {"user_id": "81", "company": "Traversal Advisor", "filename": "../private/profile"},
+                {"user_id": "82", "company": "Protocol Relative Advisor", "filename": "//evil.example/profile"},
+            ],
+        },
+        purpose="Public relocation directory",
+    )
+
+    profiles = packet.as_dict()["profiles"]
+    assert "public_url" not in profiles[0]
+    assert "public_url" not in profiles[1]
+
+
 def test_brilliant_directories_live_style_search_projection_uses_public_fields_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

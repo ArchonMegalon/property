@@ -46,6 +46,7 @@ The runtime contract is intentionally narrow:
 - Execute bounded JSON API requests with redirects blocked, non-JSON responses rejected, and a 2 MB response cap.
 - Project returned member rows into `public_directory_profile` records only.
 - Strip provider contact, address, location-coordinate, billing, token, ranking, property-fact, and private preference fields from provider responses.
+- Keep imported profile URLs only when they are relative directory paths or absolute HTTPS URLs on the configured Brilliant Directories allowed-host list.
 - Keep publication disabled until rights review and human approval exist.
 
 The adapter does not create users, posts, leads, invoices, reviews, property listings, or public pages. Those require a separate rights and approval gate.

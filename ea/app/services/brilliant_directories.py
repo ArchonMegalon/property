@@ -275,7 +275,27 @@ def _tags(value: object) -> tuple[str, ...]:
     return ()
 
 
-def _public_profile_dict(raw_profile: Mapping[str, object], *, include_summary: bool = True) -> dict[str, object]:
+def _safe_directory_public_url(value: object, *, allowed_hosts: tuple[str, ...] = ()) -> str:
+    raw = _string(value, max_length=500)
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme or parsed.netloc:
+        host = str(parsed.hostname or "").strip().lower()
+        if parsed.scheme != "https" or not host or host not in allowed_hosts:
+            return ""
+        return urllib.parse.urlunparse(("https", parsed.netloc, parsed.path, "", parsed.query, "")).strip()
+    if raw.startswith("//") or "\\" in raw or ".." in raw.split("/"):
+        return ""
+    return raw.lstrip("/")
+
+
+def _public_profile_dict(
+    raw_profile: Mapping[str, object],
+    *,
+    include_summary: bool = True,
+    allowed_url_hosts: tuple[str, ...] = (),
+) -> dict[str, object]:
     first_name = _string(raw_profile.get("first_name"), max_length=70)
     last_name = _string(raw_profile.get("last_name"), max_length=70)
     full_name = " ".join(item for item in (first_name, last_name) if item)
@@ -294,10 +314,13 @@ def _public_profile_dict(raw_profile: Mapping[str, object], *, include_summary: 
         or raw_profile.get("profession")
         or raw_profile.get("service")
         or raw_profile.get("profession_name"),
-        "public_url": raw_profile.get("public_url")
-        or raw_profile.get("url")
-        or raw_profile.get("profile_url")
-        or raw_profile.get("filename"),
+        "public_url": _safe_directory_public_url(
+            raw_profile.get("public_url")
+            or raw_profile.get("url")
+            or raw_profile.get("profile_url")
+            or raw_profile.get("filename"),
+            allowed_hosts=allowed_url_hosts,
+        ),
         "city": raw_profile.get("city"),
         "region": raw_profile.get("region") or raw_profile.get("state") or raw_profile.get("province") or raw_profile.get("state_ln"),
         "country_code": raw_profile.get("country_code") or raw_profile.get("country"),
@@ -313,12 +336,17 @@ def build_directory_profile_projection(
     *,
     strict_private_keys: bool = True,
     include_summary: bool = True,
+    allowed_url_hosts: tuple[str, ...] = (),
 ) -> BrilliantDirectoriesDirectoryProfile:
     if strict_private_keys:
         _assert_no_forbidden_keys(raw_profile)
         projected_profile: Mapping[str, object] = raw_profile
     else:
-        projected_profile = _public_profile_dict(raw_profile, include_summary=include_summary)
+        projected_profile = _public_profile_dict(
+            raw_profile,
+            include_summary=include_summary,
+            allowed_url_hosts=allowed_url_hosts,
+        )
     profile_id = _string(
         projected_profile.get("profile_id")
         or projected_profile.get("member_id")
@@ -361,6 +389,19 @@ def build_directory_profile_projection(
 
 def build_directory_profile_projection_from_provider(raw_profile: dict[str, object]) -> BrilliantDirectoriesDirectoryProfile:
     return build_directory_profile_projection(raw_profile, strict_private_keys=False, include_summary=False)
+
+
+def build_directory_profile_projection_from_configured_provider(
+    raw_profile: dict[str, object],
+    *,
+    allowed_url_hosts: tuple[str, ...],
+) -> BrilliantDirectoriesDirectoryProfile:
+    return build_directory_profile_projection(
+        raw_profile,
+        strict_private_keys=False,
+        include_summary=False,
+        allowed_url_hosts=allowed_url_hosts,
+    )
 
 
 def build_brilliant_directories_projection_packet(
@@ -569,13 +610,18 @@ def fetch_brilliant_directories_member_projection_packet(
         timeout_seconds=timeout_seconds,
         opener=opener,
     )
-    return build_brilliant_directories_projection_packet_from_search_response(response_payload, purpose=purpose)
+    return build_brilliant_directories_projection_packet_from_search_response(
+        response_payload,
+        purpose=purpose,
+        allowed_url_hosts=config.allowed_hosts,
+    )
 
 
 def build_brilliant_directories_projection_packet_from_search_response(
     response_payload: dict[str, object],
     *,
     purpose: str,
+    allowed_url_hosts: tuple[str, ...] = (),
 ) -> BrilliantDirectoriesProjectionPacket:
     rows = response_payload.get("message")
     if rows is None and isinstance(response_payload.get("data"), list):
@@ -583,7 +629,7 @@ def build_brilliant_directories_projection_packet_from_search_response(
     if not isinstance(rows, list):
         raise BrilliantDirectoriesApiError(502, "brilliant_directories_search_response_rows_missing")
     profiles = tuple(
-        build_directory_profile_projection_from_provider(row)
+        build_directory_profile_projection_from_configured_provider(row, allowed_url_hosts=allowed_url_hosts)
         for row in rows
         if isinstance(row, dict)
     )
@@ -617,6 +663,7 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
             "form_encoded_request_contract": True,
             "public_member_search_projection_contract": True,
             "public_profile_projection_contract": True,
+            "public_profile_url_host_allowlist": True,
             "private_property_truth_blocked": True,
             "private_provider_contact_fields_stripped": True,
             "direct_publication_disabled": True,
