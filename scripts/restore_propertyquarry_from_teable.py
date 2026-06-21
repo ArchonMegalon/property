@@ -1039,7 +1039,7 @@ def main() -> int:
     parser.add_argument("--base-url", default=os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai")
     parser.add_argument("--base-id", default=os.environ.get("PROPERTYQUARRY_TEABLE_BASE_ID") or os.environ.get("TEABLE_BASE_ID") or "")
     parser.add_argument("--base-name", default=os.environ.get("PROPERTYQUARRY_TEABLE_TENANT_NAME") or "PropertyQuarry")
-    parser.add_argument("--api-key", default=os.environ.get("TEABLE_API_KEY") or "")
+    parser.add_argument("--api-key", default=os.environ.get("PROPERTYQUARRY_TEABLE_API_KEY") or os.environ.get("TEABLE_API_KEY") or "")
     parser.add_argument("--output", default="")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL") or "")

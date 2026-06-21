@@ -1140,10 +1140,11 @@ def test_propertyquarry_teable_portability_gate_reports_restore_coverage() -> No
     }
     resume = dict(payload["new_host_resume"])
     assert resume["operator_edits"] == [
-        "TEABLE_API_KEY",
-        "TEABLE_BASE_URL",
+        "PROPERTYQUARRY_TEABLE_API_KEY",
     ]
+    assert resume["accepted_credential_aliases"] == ["TEABLE_API_KEY"]
     assert resume["optional_overrides"] == [
+        "TEABLE_BASE_URL",
         "PROPERTYQUARRY_TEABLE_BASE_ID",
         "PROPERTYQUARRY_TEABLE_TENANT_NAME",
     ]

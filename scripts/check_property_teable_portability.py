@@ -211,10 +211,13 @@ def main() -> int:
         "intentionally_lossy_tables": dict(sorted(INTENTIONALLY_LOSSY_TEABLE_TABLES.items())),
         "new_host_resume": {
             "operator_edits": [
+                "PROPERTYQUARRY_TEABLE_API_KEY",
+            ],
+            "accepted_credential_aliases": [
                 "TEABLE_API_KEY",
-                "TEABLE_BASE_URL",
             ],
             "optional_overrides": [
+                "TEABLE_BASE_URL",
                 "PROPERTYQUARRY_TEABLE_BASE_ID",
                 "PROPERTYQUARRY_TEABLE_TENANT_NAME",
             ],
