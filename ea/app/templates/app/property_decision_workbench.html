@@ -6017,6 +6017,37 @@
         justify-content: flex-end;
       }
     }
+    html[data-pq-theme="dark"] .pqx-shell :is(
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea,
+      button:not(.pqx-button):not(.pqx-link-button):not(.pqx-mode-button),
+      [class$="-card"],
+      [class*="-card "],
+      [class$="-panel"],
+      [class*="-panel "],
+      [class$="-table"],
+      [class*="-table "],
+      [class$="-row"],
+      [class*="-row "],
+      [class$="-chip"],
+      [class*="-chip "],
+      [class$="-pill"],
+      [class*="-pill "],
+      [class$="-value"],
+      [class*="-value "]
+    ):not([data-pqx-map-thumbnail]):not(.pqx-thumb):not(.pqx-automation-thumbnail):not(.pqx-inline-map-preview) {
+      background-color: var(--pq-paper);
+      background-image: none;
+      color: var(--pq-ink);
+      border-color: var(--pq-line);
+    }
+    html[data-pq-theme="dark"] .pqx-shell :is(input, select, textarea)::placeholder {
+      color: var(--pq-faint);
+    }
+    html[data-pq-theme="dark"] .pqx-shell :is([class$="-card"], [class*="-card "], [class$="-panel"], [class*="-panel "]) :is(small, span, p) {
+      color: inherit;
+    }
   </style>
 </head>
 <body>

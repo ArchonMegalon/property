@@ -21127,11 +21127,12 @@ def test_property_payfunnels_checkout_uses_api_created_link_when_api_key_is_pres
 
     observed: dict[str, object] = {}
 
-    def _fake_post(url, headers=None, json=None, timeout=0):
+    def _fake_post(url, headers=None, json=None, timeout=0, allow_redirects=True):
         observed["url"] = url
         observed["headers"] = dict(headers or {})
         observed["json"] = dict(json or {})
         observed["timeout"] = timeout
+        observed["allow_redirects"] = allow_redirects
         return _Response()
 
     monkeypatch.setattr(billing_service.requests, "post", _fake_post)
@@ -21146,10 +21147,89 @@ def test_property_payfunnels_checkout_uses_api_created_link_when_api_key_is_pres
     assert body["status"] == "redirect"
     assert observed["url"] == "https://api.payfunnels.com/v1/paymentlinks/recurring"
     assert observed["headers"]["x-pf-api-key"] == "pf-api-key"
+    assert observed["allow_redirects"] is False
     payload = dict(observed["json"])
     assert payload["interval"] == "month"
     assert "PropertyQuarry Plus" in payload["title"]
     assert any(field["label"] == "pq_principal" for field in payload["additionalFields"])
+
+
+def test_property_payfunnels_checkout_requires_https_checkout_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-http-checkout"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "http://checkout.payfunnels.example/plus")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+
+    assert created.status_code == 409
+    assert created.json()["error"]["details"] == "payfunnels_checkout_url_must_be_https"
+
+
+def test_property_payfunnels_api_base_requires_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-http-api"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    monkeypatch.delenv("PAYFUNNELS_PLUS_CHECKOUT_URL", raising=False)
+    monkeypatch.setenv("PAYFUNNELS_API_KEY", "pf-api-key")
+    monkeypatch.setenv("PAYFUNNELS_API_BASE", "http://api.payfunnels.example")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+
+    assert created.status_code == 409
+    assert created.json()["error"]["details"] == "payfunnels_api_base_must_be_https"
+
+
+def test_property_payfunnels_api_link_creation_blocks_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-api-redirect"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    monkeypatch.delenv("PAYFUNNELS_PLUS_CHECKOUT_URL", raising=False)
+    monkeypatch.setenv("PAYFUNNELS_API_KEY", "pf-api-key")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    from app.services import property_billing as billing_service
+
+    class _Response:
+        status_code = 302
+        text = ""
+
+        def json(self) -> dict[str, object]:
+            return {}
+
+    observed: dict[str, object] = {}
+
+    def _fake_post(url, headers=None, json=None, timeout=0, allow_redirects=True):
+        observed["allow_redirects"] = allow_redirects
+        return _Response()
+
+    monkeypatch.setattr(billing_service.requests, "post", _fake_post)
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+
+    assert observed["allow_redirects"] is False
+    assert created.status_code == 409
+    assert created.json()["error"]["details"] == "payfunnels_payment_link_redirect_blocked:302"
 
 
 def test_property_payfunnels_webhook_accepts_documented_callback_shape(

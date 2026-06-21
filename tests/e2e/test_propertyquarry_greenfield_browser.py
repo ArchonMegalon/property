@@ -713,6 +713,10 @@ def _assert_dark_mode_surfaces_stay_readable(page: Page, selectors: list[str]) -
             return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
           };
           const light = (color) => color && color.a >= 0.65 && color.r >= 242 && color.g >= 242 && color.b >= 238;
+          const lightBackgroundImage = (value) => {
+            const colors = String(value || '').match(/rgba?\\([^)]+\\)/g) || [];
+            return colors.some((entry) => light(parseColor(entry)));
+          };
           const visible = (node) => {
             const rect = node.getBoundingClientRect();
             const style = window.getComputedStyle(node);
@@ -728,19 +732,28 @@ def _assert_dark_mode_surfaces_stay_readable(page: Page, selectors: list[str]) -
             return parseColor(window.getComputedStyle(document.body).backgroundColor);
           };
           const rows = [];
-          for (const selector of selectors) {
+          const nodesBySelector = new Map();
+          for (const selector of ['body *', ...selectors]) {
             for (const node of document.querySelectorAll(selector)) {
+              const matchedSelectors = nodesBySelector.get(node) || [];
+              matchedSelectors.push(selector);
+              nodesBySelector.set(node, matchedSelectors);
+            }
+          }
+          for (const [node, matchedSelectors] of nodesBySelector.entries()) {
               if (!visible(node)) continue;
               if (node.closest('svg, img, picture, video, canvas, [data-pqx-map-thumbnail]')) continue;
               const style = window.getComputedStyle(node);
               const background = effectiveBackground(node);
               const color = parseColor(style.color);
               const text = (node.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 96);
-              if (light(background)) {
+              const selector = matchedSelectors.find((entry) => entry !== 'body *') || node.tagName.toLowerCase();
+              if (light(background) || lightBackgroundImage(style.backgroundImage)) {
                 rows.push({
                   selector,
                   text,
                   background: style.backgroundColor,
+                  backgroundImage: style.backgroundImage,
                   effectiveBackground: `rgba(${Math.round(background.r)}, ${Math.round(background.g)}, ${Math.round(background.b)}, ${background.a})`,
                   color: style.color,
                 });
@@ -754,7 +767,6 @@ def _assert_dark_mode_surfaces_stay_readable(page: Page, selectors: list[str]) -
                   color: style.color,
                 });
               }
-            }
           }
           return rows;
         }
@@ -946,8 +958,22 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         public_page = public_context.new_page()
         for route, screenshot_name in (
             ("/sign-in", "propertyquarry-sign-in-dark-surfaces.png"),
+            ("/sign-in?signing_in=1", "propertyquarry-sign-in-loading-dark-surfaces.png"),
+            ("/register", "propertyquarry-register-dark-surfaces.png"),
+            ("/", "propertyquarry-root-dark-surfaces.png"),
             ("/?home=1", "propertyquarry-home-dark-surfaces.png"),
             ("/pricing", "propertyquarry-pricing-dark-surfaces.png"),
+            ("/product", "propertyquarry-product-dark-surfaces.png"),
+            ("/docs", "propertyquarry-docs-dark-surfaces.png"),
+            ("/integrations", "propertyquarry-integrations-dark-surfaces.png"),
+            ("/privacy", "propertyquarry-privacy-dark-surfaces.png"),
+            ("/terms", "propertyquarry-terms-dark-surfaces.png"),
+            ("/support", "propertyquarry-support-dark-surfaces.png"),
+            ("/imprint", "propertyquarry-imprint-dark-surfaces.png"),
+            ("/cookies", "propertyquarry-cookies-dark-surfaces.png"),
+            ("/subprocessors", "propertyquarry-subprocessors-dark-surfaces.png"),
+            ("/refunds", "propertyquarry-refunds-dark-surfaces.png"),
+            ("/disclaimers", "propertyquarry-disclaimers-dark-surfaces.png"),
         ):
             response = public_page.goto(f"{base_url}{route}", wait_until="networkidle")
             assert response is not None and response.ok
@@ -966,7 +992,10 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         page = app_context.new_page()
         for route, screenshot_name in (
             ("/app/search", "propertyquarry-search-dark-surfaces.png"),
+            ("/app/properties", "propertyquarry-properties-dark-surfaces.png"),
             ("/app/account", "propertyquarry-account-dark-surfaces.png"),
+            ("/app/billing", "propertyquarry-billing-dark-surfaces.png"),
+            ("/app/alerts", "propertyquarry-alerts-dark-surfaces.png"),
             ("/app/agents", "propertyquarry-agents-dark-surfaces.png"),
             ("/app/shortlist?run_id=run-42", "propertyquarry-shortlist-management-dark-surfaces.png"),
         ):
@@ -2024,6 +2053,22 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         assert dark_backgrounds
         for selector, background in dark_backgrounds:
             assert not str(background).startswith(("rgb(255", "rgba(255")), f"{selector} stayed light in dark mode: {background}"
+        _assert_dark_mode_surfaces_stay_readable(
+            page,
+            [
+                ".pq-appbar",
+                ".prd-hero",
+                ".prd-hero *",
+                ".prd-panel",
+                ".prd-panel *",
+                ".prd-body",
+                ".prd-body *",
+                ".prd-actions",
+                ".prd-actions *",
+                ".prd-gallery-card",
+                ".prd-gallery-card *",
+            ],
+        )
         dark_screenshot_path = tmp_path / "property_research_detail_first_screen_dark.png"
         page.screenshot(path=str(dark_screenshot_path), full_page=False, animations="disabled", caret="hide")
         assert dark_screenshot_path.exists() and dark_screenshot_path.stat().st_size > 20_000

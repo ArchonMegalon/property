@@ -434,8 +434,19 @@ def payfunnels_api_key() -> str:
     return str(os.getenv("PAYFUNNELS_API_KEY") or "").strip()
 
 
+def _payfunnels_https_url(value: str, *, setting_name: str) -> str:
+    normalized = str(value or "").strip().rstrip("/")
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        raise RuntimeError(f"{setting_name}_must_be_https")
+    return normalized
+
+
 def _payfunnels_api_base() -> str:
-    return str(os.getenv("PAYFUNNELS_API_BASE") or "https://api.payfunnels.com").strip().rstrip("/")
+    return _payfunnels_https_url(
+        str(os.getenv("PAYFUNNELS_API_BASE") or "https://api.payfunnels.com"),
+        setting_name="payfunnels_api_base",
+    )
 
 
 def payfunnels_checkout_url(*, plan_key: str) -> str:
@@ -524,7 +535,10 @@ def _payfunnels_create_payment_link(
         },
         json=payload,
         timeout=30,
+        allow_redirects=False,
     )
+    if 300 <= response.status_code < 400:
+        raise RuntimeError(f"payfunnels_payment_link_redirect_blocked:{response.status_code}")
     if response.status_code >= 400:
         detail = response.text[:1200]
         raise RuntimeError(f"payfunnels_payment_link_create_failed:{response.status_code}:{detail}")
@@ -567,6 +581,7 @@ def create_payfunnels_property_checkout(
     checkout_base = payfunnels_checkout_url(plan_key=spec.plan_key)
     if not checkout_base:
         raise RuntimeError("payfunnels_checkout_not_configured")
+    checkout_base = _payfunnels_https_url(checkout_base, setting_name="payfunnels_checkout_url")
     parsed = urllib.parse.urlparse(checkout_base)
     query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
     query.extend(

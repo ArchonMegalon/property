@@ -548,6 +548,10 @@
       background: linear-gradient(180deg, rgba(253, 249, 241, 0.98), rgba(246, 243, 238, 0.98));
       padding: 18px 14px;
     }
+    html[data-pq-theme="dark"] .sidebar {
+      background: var(--panel);
+      border-right-color: var(--line);
+    }
     .sidebar .brand { padding: 0 8px 14px; }
     .workspace-card {
       margin: 4px 8px 14px;
@@ -1439,6 +1443,33 @@
   {% endif %}
 
       {% block content %}{% endblock %}
+      <style data-pq-dark-surface-fallback>
+        html[data-pq-theme="dark"] :is(
+          input:not([type="checkbox"]):not([type="radio"]),
+          select,
+          textarea,
+          button:not(.btn),
+          [class$="-card"],
+          [class*="-card "],
+          [class$="-panel"],
+          [class*="-panel "],
+          [class$="-table"],
+          [class*="-table "],
+          [class$="-row"],
+          [class*="-row "]
+        ):not([data-pqx-map-thumbnail]) {
+          background-color: var(--panel);
+          background-image: none;
+          color: var(--text);
+          border-color: var(--line);
+        }
+        html[data-pq-theme="dark"] :is(input, select, textarea)::placeholder {
+          color: var(--text-dim);
+        }
+        html[data-pq-theme="dark"] :is([class$="-card"], [class*="-card "], [class$="-panel"], [class*="-panel "]) :is(small, span, p) {
+          color: inherit;
+        }
+      </style>
 
   {% if property_app_nav %}
         </section>
