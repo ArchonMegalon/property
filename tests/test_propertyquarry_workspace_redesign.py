@@ -8561,8 +8561,9 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'data-channel-detail="whatsapp"' in account.text
     assert '.pqx-account-channel-form:has(input[name="preferred_channel"][value="whatsapp"]:checked)' in account.text
     assert "WhatsApp AI support number" in account.text
-    assert "Used only for support questions." in account.text
-    assert "Alerts go to WhatsApp only when WhatsApp is selected above." in account.text
+    assert "Used only for PropertyQuarry AI support." in account.text
+    assert "asks what questions you have before giving property guidance" in account.text
+    assert "Scout updates go to WhatsApp only when WhatsApp is selected above." in account.text
     assert "Save alerts and AI support number" not in account.text
     assert 'name="whatsapp_ai_support_phone"' in account.text
     assert "PropertyQuarry bot" in account.text
