@@ -11193,6 +11193,9 @@ def test_property_decision_api_persists_decision_ledger(monkeypatch) -> None:
     client = build_product_client(principal_id=principal_id)
 
     def _fake_persist_decision_loop(self, *, principal_id: str, person_id: str, snapshot: object) -> dict[str, object]:
+        assert str(getattr(getattr(snapshot, "decision", None), "property_ref", "")) == (
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/decision-flat-1"
+        )
         return {
             "persisted": True,
             "decision_id": str(getattr(getattr(snapshot, "decision", None), "decision_id", "")),

@@ -17106,7 +17106,7 @@ class ProductService:
             person_id=normalized_person_id,
         )
         decision_loop = build_property_decision_loop_snapshot(
-            property_ref=str(property_slug or property_url or property_title or "property").strip(),
+            property_ref=str(property_url or property_slug or property_title or "property").strip(),
             reaction=normalized_reaction,
             reason_keys=list(normalized_reason_keys),
             note=note,

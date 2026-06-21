@@ -643,6 +643,15 @@ def _projection_alias(value: object, *, prefix: str) -> str:
     return _stable_ref(raw, prefix=prefix)
 
 
+def _property_projection_ref(value: object, *, fallback: object = "") -> str:
+    raw = str(value or "").strip()
+    if raw.startswith("property:") and len(raw) > len("property:"):
+        return raw
+    if not raw:
+        raw = str(fallback or "").strip()
+    return _stable_ref(raw, prefix="property")
+
+
 def _safe_decision_claim_text(row: dict[str, Any] | None) -> str:
     payload = dict(row or {})
     claim_type = _text(payload.get("claim_type"), limit=80).lower()
@@ -1131,7 +1140,7 @@ def build_propertyquarry_teable_projection_records(
             "principal_id": _projection_alias(row_principal, prefix="principal"),
             "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "decision_id": decision_id,
-            "property_ref": _stable_ref(row.get("property_ref") or decision_id, prefix="property"),
+            "property_ref": _property_projection_ref(row.get("property_ref"), fallback=decision_id),
             "decision_state": _text(row.get("decision_state"), limit=80),
             "reason_keys_json": list(row.get("reason_keys_json") or row.get("reason_keys") or []),
             "source": _text(row.get("source"), limit=80),
@@ -1160,7 +1169,7 @@ def build_propertyquarry_teable_projection_records(
             "principal_id": _projection_alias(row_principal, prefix="principal"),
             "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "claim_id": claim_id,
-            "property_ref": _stable_ref(row.get("property_ref") or claim_id, prefix="property"),
+            "property_ref": _property_projection_ref(row.get("property_ref"), fallback=claim_id),
             "decision_id": _text(row.get("decision_id"), limit=240),
             "claim_type": _text(row.get("claim_type"), limit=80),
             "claim_text": _safe_decision_claim_text(row),
@@ -1191,7 +1200,7 @@ def build_propertyquarry_teable_projection_records(
             "principal_id": _projection_alias(row_principal, prefix="principal"),
             "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "task_id": task_id,
-            "property_ref": _stable_ref(row.get("property_ref") or task_id, prefix="property"),
+            "property_ref": _property_projection_ref(row.get("property_ref"), fallback=task_id),
             "decision_id": _text(row.get("decision_id"), limit=240),
             "question_text": _text(row.get("question_text"), limit=1200),
             "reason_key": _text(row.get("reason_key"), limit=120),
@@ -1219,7 +1228,7 @@ def build_propertyquarry_teable_projection_records(
             "principal_id": _projection_alias(row_principal, prefix="principal"),
             "person_id": _projection_alias(row.get("person_id") or "self", prefix="person"),
             "document_id": document_id,
-            "property_ref": _stable_ref(row.get("property_ref") or document_id, prefix="property"),
+            "property_ref": _property_projection_ref(row.get("property_ref"), fallback=document_id),
             "decision_id": _text(row.get("decision_id"), limit=240),
             "document_type": _text(row.get("document_type"), limit=120),
             "source": _text(row.get("source"), limit=120),
