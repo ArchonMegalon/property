@@ -2221,12 +2221,23 @@ def _new_property_search_run_record(
 def _prune_property_search_runs() -> None:
     retention_seconds = _property_search_run_retention_seconds()
     with _PROPERTY_SEARCH_RUN_LOCK:
-        expired = [
-            run_id
-            for run_id, state in list(_PROPERTY_SEARCH_RUN_REGISTRY.items())
-            if retention_seconds > 0
-            and _property_search_run_expired(str(state.get("updated_at") or state.get("created_at") or ""), ttl_seconds=retention_seconds)
-        ]
+        expired: list[str] = []
+        for run_id, state in list(_PROPERTY_SEARCH_RUN_REGISTRY.items()):
+            if retention_seconds <= 0:
+                continue
+            if not isinstance(state, dict):
+                continue
+            timestamp = str(state.get("updated_at") or state.get("created_at") or "").strip()
+            if not timestamp:
+                status = str(state.get("status") or "").strip().lower()
+                if status and status not in _PROPERTY_SEARCH_TERMINAL_STATUSES and status != "initialization_required":
+                    now_value = _now_iso()
+                    state.setdefault("created_at", now_value)
+                    state.setdefault("updated_at", now_value)
+                    _PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+                    continue
+            if _property_search_run_expired(timestamp, ttl_seconds=retention_seconds):
+                expired.append(run_id)
         for run_id in expired:
             _PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
     try:
@@ -28784,6 +28795,7 @@ class ProductService:
                 if supports_tour:
                     eligible_total += 1
                 source_ref = str(candidate_row.get("source_ref") or "").strip()
+                candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
                 existing_tour_url = str(candidate_row.get("tour_url") or "").strip()
                 existing_status = str(candidate_row.get("tour_status") or "").strip().lower()
                 blocked_reason = str(candidate_row.get("blocked_reason") or "").strip()
@@ -28791,6 +28803,7 @@ class ProductService:
                     latest_event = self._latest_property_tour_event(
                         principal_id=principal_id,
                         source_ref=source_ref,
+                        property_url=candidate_property_url,
                     )
                     if latest_event is not None:
                         payload = dict(latest_event.get("payload") or {})
@@ -36455,10 +36468,12 @@ class ProductService:
         *,
         principal_id: str,
         source_ref: str,
+        property_url: str = "",
     ) -> dict[str, object] | None:
         wanted_source = str(source_ref or "").strip()
         if not wanted_source:
             return None
+        wanted_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         wanted_types = {
             "willhaben_property_tour_created",
             "willhaben_property_tour_email_sent",
@@ -36478,9 +36493,17 @@ class ProductService:
                 continue
             if str(getattr(row, "event_type", "") or "").strip() not in wanted_types:
                 continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            if wanted_property_url:
+                payload_property_url = urllib.parse.urldefrag(str(payload.get("property_url") or "").strip())[0]
+                if payload_property_url:
+                    if payload_property_url != wanted_property_url:
+                        continue
+                elif urllib.parse.urldefrag(wanted_source)[0] != wanted_property_url:
+                    continue
             return {
                 "event_type": str(getattr(row, "event_type", "") or "").strip(),
-                "payload": dict(getattr(row, "payload", {}) or {}),
+                "payload": payload,
                 "created_at": str(getattr(row, "created_at", "") or "").strip(),
             }
         return None
@@ -36512,6 +36535,7 @@ class ProductService:
         existing_event = self._latest_property_tour_event(
             principal_id=principal_id,
             source_ref=source_ref,
+            property_url=normalized_url,
         )
         if existing_event is not None:
             existing_payload = dict(existing_event.get("payload") or {})

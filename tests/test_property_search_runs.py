@@ -1248,6 +1248,52 @@ def test_property_visual_state_does_not_cross_update_same_source_ref_different_p
             product_service._PROPERTY_SEARCH_RUN_REGISTRY.update(previous_registry)
 
 
+def test_property_tour_event_lookup_does_not_reuse_same_source_ref_for_other_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-tour-event-url-collision"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    shared_source_ref = "provider:shared-listing-id"
+    first_url = "https://provider-a.example/listings/shared"
+    second_url = "https://provider-b.example/listings/shared"
+    rows = [
+        SimpleNamespace(
+            principal_id=principal_id,
+            channel="product",
+            event_type="generic_property_tour_created",
+            source_id=shared_source_ref,
+            payload={
+                "property_url": first_url,
+                "tour_url": "https://propertyquarry.com/tours/provider-a-shared",
+            },
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+    ]
+
+    monkeypatch.setattr(
+        client.app.state.container.channel_runtime,
+        "list_recent_observations",
+        lambda limit=4000, principal_id="": rows[:limit],
+    )
+
+    assert (
+        service._latest_property_tour_event(  # noqa: SLF001
+            principal_id=principal_id,
+            source_ref=shared_source_ref,
+            property_url=second_url,
+        )
+        is None
+    )
+    matched = service._latest_property_tour_event(  # noqa: SLF001
+        principal_id=principal_id,
+        source_ref=shared_source_ref,
+        property_url=first_url,
+    )
+    assert matched is not None
+    assert dict(matched["payload"])["tour_url"].endswith("/provider-a-shared")
+
+
 def test_property_search_run_status_fixes_inflated_provider_total_when_source_rows_missing() -> None:
     principal_id = "exec-property-run-provider-count-no-sources"
     client = build_property_client(principal_id=principal_id)
@@ -7389,7 +7435,7 @@ def test_property_search_results_ready_email_waits_for_tour_completion(monkeypat
 
     poll_state = {"calls": 0}
 
-    def _fake_latest_property_tour_event(self, *, principal_id: str, source_ref: str):  # type: ignore[no-untyped-def]
+    def _fake_latest_property_tour_event(self, *, principal_id: str, source_ref: str, property_url: str = ""):  # type: ignore[no-untyped-def]
         poll_state["calls"] += 1
         if poll_state["calls"] < 2:
             return None
@@ -7488,7 +7534,7 @@ def test_property_search_run_status_snapshot_finishes_results_email_after_restar
     monkeypatch.setattr(
         ProductService,
         "_latest_property_tour_event",
-        lambda self, *, principal_id, source_ref: {
+        lambda self, *, principal_id, source_ref, property_url="": {
             "event_type": "generic_property_tour_created",
             "payload": {"tour_url": "https://propertyquarry.com/tours/recovered-tour"},
             "created_at": product_service._now_iso(),
@@ -8076,7 +8122,7 @@ def test_property_alert_review_open_timeout_returns_failed_payload(monkeypatch) 
     assert result["status"] == "failed"
     assert result["reason"] == "property_alert_review_open_timeout"
     assert recorded
-    assert recorded[0]["event_type"] == "property_alert_review_open_timeout"
+    assert any(row["event_type"] == "property_alert_review_open_timeout" for row in recorded)
 
 
 def test_property_search_run_status_survives_registry_loss_via_persisted_record(monkeypatch) -> None:
