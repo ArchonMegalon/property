@@ -533,7 +533,7 @@ def _property_run_candidate_reason_label(value: object) -> str:
     if any(token in normalized for token in ("stale", "removed", "expired", "no longer available")):
         return f"Listing freshness check flagged candidate {ordinal} for repair"
     if any(token in normalized for token in ("repair", "extractor", "fetch failed", "provider patch")):
-        return f"Provider repair lane picked up candidate {ordinal}"
+        return f"Repair picked up candidate {ordinal}"
     if any(token in normalized for token in ("price per sqm", "price per square", "€/m2", "eur/m2", "eur per m2")):
         if any(token in normalized for token in ("below", "under", "cheaper", "discount", "stronger than benchmark")):
             return f"Price-per-m2 benchmark improved the score for candidate {ordinal}"

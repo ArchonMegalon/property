@@ -3403,7 +3403,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Provider repair opened for candidate 26 of 60 after fetch failed in extractor.",
-            "Provider repair lane picked up candidate 26/60",
+            "Repair picked up candidate 26/60",
         ),
         (
             "Price per sqm is below benchmark for candidate 27 of 60.",

@@ -485,7 +485,7 @@
         <div class="object-media-status">{{ object_media.get('status_label') or '360 pending' }}</div>
         <div class="object-media-placeholder-copy">
           <h2>{{ object_media.get('status_label') or '360 pending' }}</h2>
-          <p class="object-copy">{{ object_media.get('status_detail') or 'The tour lane is still catching up.' }}</p>
+          <p class="object-copy">{{ object_media.get('status_detail') or 'The tour preview is still catching up.' }}</p>
         </div>
         <div class="object-actions">
           {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open property page' }}</a>{% endif %}

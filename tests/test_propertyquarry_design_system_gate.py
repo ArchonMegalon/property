@@ -37,6 +37,12 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
         "search worker",
         "search workers",
         "provider scans running",
+        "Collect video proof",
+        "Risk register and next proof",
+        "flythrough lane",
+        "account lane",
+        "optimization lane active",
+        "Provider repair lane",
     )
     for marker in forbidden:
         assert marker not in body

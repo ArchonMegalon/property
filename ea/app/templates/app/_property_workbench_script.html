@@ -859,7 +859,7 @@
         return `Listing freshness check flagged candidate ${ordinal} for repair`;
       }
       if (['repair', 'extractor', 'fetch failed', 'provider patch'].some((token) => normalized.includes(token))) {
-        return `Provider repair lane picked up candidate ${ordinal}`;
+        return `Repair picked up candidate ${ordinal}`;
       }
       if (['price per sqm', 'price per square', '€/m2', 'eur/m2', 'eur per m2'].some((token) => normalized.includes(token))) {
         if (['below', 'under', 'cheaper', 'discount', 'stronger than benchmark'].some((token) => normalized.includes(token))) {
