@@ -199,6 +199,20 @@ def main() -> int:
         "restore_contract_version": TEABLE_RESTORE_CONTRACT_VERSION,
         "recoverable_table_count": len(recoverable_tables),
         "intentionally_lossy_tables": dict(sorted(INTENTIONALLY_LOSSY_TEABLE_TABLES.items())),
+        "new_host_resume": {
+            "operator_edits": [
+                "TEABLE_API_KEY",
+                "TEABLE_BASE_URL",
+                "PROPERTYQUARRY_TEABLE_BASE_ID or PROPERTYQUARRY_TEABLE_TENANT_NAME",
+            ],
+            "restore_command": (
+                "PYTHONPATH=ea python3 scripts/restore_propertyquarry_from_teable.py "
+                "--principal-id <principal-id> --apply"
+            ),
+            "recoverable": sorted(recoverable_tables),
+            "intentionally_lost": dict(sorted(INTENTIONALLY_LOSSY_TEABLE_TABLES.items())),
+            "result_policy": "saved results, review artifacts, decisions, documents, agents, preferences, delivery settings, and subscriptions must restore; live runs and provider-source diagnostics may be lost",
+        },
         "failures": failures,
     }
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -1090,6 +1090,18 @@ def test_propertyquarry_teable_portability_gate_reports_restore_coverage() -> No
         "propertyquarry_search_runs",
         "propertyquarry_provider_sources",
     }
+    resume = dict(payload["new_host_resume"])
+    assert resume["operator_edits"] == [
+        "TEABLE_API_KEY",
+        "TEABLE_BASE_URL",
+        "PROPERTYQUARRY_TEABLE_BASE_ID or PROPERTYQUARRY_TEABLE_TENANT_NAME",
+    ]
+    assert "restore_propertyquarry_from_teable.py" in resume["restore_command"]
+    assert "propertyquarry_saved_shortlist" in set(resume["recoverable"])
+    assert "propertyquarry_review_artifacts" in set(resume["recoverable"])
+    assert "propertyquarry_search_runs" in set(resume["intentionally_lost"])
+    assert "saved results" in resume["result_policy"]
+    assert "live runs" in resume["result_policy"]
 
 
 def test_propertyquarry_teable_restore_apply_writes_decision_loop_rows(monkeypatch) -> None:
