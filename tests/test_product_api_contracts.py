@@ -23,6 +23,8 @@ import app.api.routes.product_api_delivery as product_api_delivery_routes
 import app.product.service as product_service
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
+from app.services.fliplink import build_fliplink_packet_service
+from app.services.heyy_whatsapp_service import redact_phone_number
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
@@ -863,6 +865,61 @@ def test_property_scout_hit_notification_also_uses_heyy_when_business_whatsapp_i
     assert observed["phone_number"] == "+436647916419"
     assert observed["template_id"] == "tmpl-property-match"
     assert any(item.get("name") == "property_title" for item in list(observed.get("variables") or []))
+    packet_service = build_fliplink_packet_service(client.app.state.container)
+    events = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=10)
+    payload = next(dict(row.get("payload_json") or {}) for row in events if dict(row.get("payload_json") or {}).get("template_kind") == "property_match")
+    assert payload["property_ref"] == "property-scout:heyy-hit-1"
+    assert payload["phone_last4"] == "6419"
+    assert payload["phone_e164_hash"] == redact_phone_number("+436647916419")["phone_e164_hash"]
+    assert "phone_number" not in payload
+
+
+def test_property_scout_heyy_notification_honors_stop_command(monkeypatch) -> None:
+    principal_id = "cf-email:heyy-scout-stopped@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Heyy Scout Stopped Office", selected_channels=["whatsapp"])
+    onboarding = client.app.state.container.onboarding
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    onboarding._replace_channel_pref(  # noqa: SLF001
+        state,
+        "whatsapp",
+        {"mode": "business", "phone_number": "+436647916419"},
+        status="in_progress",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_MATCH", "tmpl-property-match")
+    packet_service = build_fliplink_packet_service(client.app.state.container)
+    packet_service._repo.record_event(  # noqa: SLF001
+        {
+            "publication_id": "",
+            "principal_id": principal_id,
+            "event_type": "heyy_whatsapp_message_received",
+            "actor": "heyy",
+            "payload_json": {
+                "opt_command": "STOP",
+                **redact_phone_number("+436647916419"),
+            },
+        }
+    )
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: pytest.fail("service-level Heyy property match ignored STOP"),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._send_heyy_property_match_notification(
+        principal_id=principal_id,
+        actor="property_scout",
+        template_kind="property_match",
+        property_ref="property-scout:stopped",
+        property_title="Stopped WhatsApp property",
+        fit_score=91.0,
+        reason="shortlist",
+        missing_fact="Operating costs",
+        source_id="property-scout:stopped",
+    )
+
+    assert result == {"status": "suppressed", "reason": "heyy_whatsapp_stopped"}
 
 
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:

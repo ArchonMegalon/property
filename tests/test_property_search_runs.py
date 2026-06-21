@@ -20,8 +20,10 @@ import app.product.property_investment_external_data as property_investment_exte
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
+from app.services.fliplink import build_fliplink_packet_service
 from app.services.property_billing import property_billing_event_updates, property_billing_invoice_handoffs, property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
+from app.services.heyy_whatsapp_service import redact_phone_number
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
 
 
@@ -9126,6 +9128,60 @@ def test_property_search_results_ready_can_send_heyy_digest(monkeypatch: pytest.
     assert observed["template_id"] == "tmpl-search-digest"
     assert any(item.get("name") == "agent_name" and item.get("value") == "Vienna rent watch" for item in list(observed.get("variables") or []))
     assert any(item.get("name") == "top_fit_score" and item.get("value") == "91" for item in list(observed.get("variables") or []))
+    packet_service = build_fliplink_packet_service(client.app.state.container)
+    events = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=10)
+    payload = next(dict(row.get("payload_json") or {}) for row in events if dict(row.get("payload_json") or {}).get("template_kind") == "search_agent_digest")
+    assert payload["phone_last4"] == "6419"
+    assert payload["phone_e164_hash"] == redact_phone_number("+436647916419")["phone_e164_hash"]
+    assert "phone_number" not in payload
+
+
+def test_property_search_results_ready_heyy_digest_honors_stop_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-search-heyy-stopped"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Heyy Stopped Office", selected_channels=["whatsapp"])
+    onboarding = client.app.state.container.onboarding
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    onboarding._replace_channel_pref(  # noqa: SLF001
+        state,
+        "whatsapp",
+        {"mode": "business", "phone_number": "+436647916419"},
+        status="in_progress",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_SEARCH_AGENT_DIGEST", "tmpl-search-digest")
+    packet_service = build_fliplink_packet_service(client.app.state.container)
+    packet_service._repo.record_event(  # noqa: SLF001
+        {
+            "publication_id": "",
+            "principal_id": principal_id,
+            "event_type": "heyy_whatsapp_message_received",
+            "actor": "heyy",
+            "payload_json": {
+                "opt_command": "STOP",
+                **redact_phone_number("+436647916419"),
+            },
+        }
+    )
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: pytest.fail("service-level Heyy digest ignored STOP"),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._notify_property_search_results_ready_heyy(
+        principal_id=principal_id,
+        run_id="run-heyy-stopped",
+        result={
+            "listing_total": 12,
+            "high_fit_total": 4,
+            "notification_budget_suppressed_total": 8,
+            "ranked_candidates": [{"fit_score": 91.0}],
+            "search_agent_lifecycle": {"agent_name": "Vienna rent watch"},
+        },
+    )
+
+    assert result == {"status": "suppressed", "reason": "heyy_whatsapp_stopped"}
 
 
 def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -254,9 +254,11 @@ from app.services.registration_email import (
 )
 from app.services.heyy_whatsapp_service import (
     HeyyWhatsAppBridgeService,
+    heyy_daily_template_budget,
     heyy_enabled,
     heyy_property_alert_review_template_id,
     heyy_property_match_template_id,
+    redact_phone_number,
     heyy_search_agent_digest_template_id,
 )
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
@@ -28725,6 +28727,9 @@ class ProductService:
         channel_id = str(contact.get("channel_id") or "").strip()
         if not phone_number:
             return {"status": "suppressed", "reason": "heyy_phone_missing"}
+        guard = self._heyy_whatsapp_send_guard(principal_id=principal_id, phone_number=phone_number)
+        if not bool(guard.get("allowed")):
+            return {"status": "suppressed", "reason": str(guard.get("reason") or "heyy_whatsapp_blocked").strip()}
         service = HeyyWhatsAppBridgeService(tool_runtime=self._container.tool_runtime)
         lifecycle = dict(result.get("search_agent_lifecycle") or {}) if isinstance(result.get("search_agent_lifecycle"), dict) else {}
         agent_name = str(lifecycle.get("agent_name") or lifecycle.get("title") or f"PropertyQuarry search {str(run_id or '').strip()[:8]}").strip()
@@ -28744,9 +28749,9 @@ class ProductService:
         except Exception as exc:
             payload = {
                 "run_id": str(run_id or "").strip(),
-                "phone_number": phone_number,
                 "channel_id": channel_id,
                 "template_kind": "search_agent_digest",
+                **redact_phone_number(phone_number),
                 "error": compact_text(str(exc or ""), fallback="heyy_delivery_failed", limit=200),
             }
             self._record_product_event(
@@ -28759,12 +28764,23 @@ class ProductService:
             return {"status": "failed", "reason": payload["error"]}
         payload = {
             "run_id": str(run_id or "").strip(),
-            "phone_number": phone_number,
             "channel_id": str(heyy_result.get("channel_id") or channel_id or "").strip(),
             "template_kind": "search_agent_digest",
+            **redact_phone_number(phone_number),
             "message_id": str(heyy_result.get("message_id") or "").strip(),
             "delivery_status": str(heyy_result.get("delivery_status") or "").strip(),
         }
+        self._record_heyy_whatsapp_template_sent(
+            principal_id=principal_id,
+            actor="property_search_results",
+            template_kind="search_agent_digest",
+            phone_number=phone_number,
+            template_id=template_id,
+            channel_id=str(heyy_result.get("channel_id") or channel_id or "").strip(),
+            message_id=str(heyy_result.get("message_id") or "").strip(),
+            delivery_status=str(heyy_result.get("delivery_status") or "").strip(),
+            search_agent_id=str(run_id or "").strip(),
+        )
         self._record_product_event(
             principal_id=principal_id,
             event_type="property_search_results_ready_heyy_sent",
@@ -36660,6 +36676,117 @@ class ProductService:
         )
         return result
 
+    def _heyy_whatsapp_selected_for_principal(self, *, principal_id: str) -> bool:
+        try:
+            status = self._container.onboarding.status(principal_id=principal_id)
+        except Exception:
+            return False
+        selected = {
+            str(item or "").strip().lower()
+            for item in list(status.get("selected_channels") or [])
+            if str(item or "").strip()
+        }
+        return "whatsapp" in selected
+
+    def _heyy_whatsapp_template_budget_ok(self, *, principal_id: str) -> bool:
+        limit = heyy_daily_template_budget()
+        if limit <= 0:
+            return False
+        try:
+            from app.services.fliplink.service import build_fliplink_packet_service
+
+            packet_service = build_fliplink_packet_service(self._container)
+            rows = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_template_sent", limit=500)
+        except Exception:
+            return False
+        now = datetime.now(timezone.utc)
+        sent_today = 0
+        for row in rows:
+            created_at_raw = str(row.get("created_at") or row.get("recorded_at") or "").strip()
+            if not created_at_raw:
+                continue
+            try:
+                created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if created_at.astimezone(timezone.utc).date() == now.date():
+                sent_today += 1
+            if sent_today >= limit:
+                return False
+        return True
+
+    def _heyy_latest_opt_out_command(self, *, principal_id: str, phone_number: str = "") -> str:
+        try:
+            from app.services.fliplink.service import build_fliplink_packet_service
+
+            packet_service = build_fliplink_packet_service(self._container)
+            rows = packet_service.list_events(principal_id=principal_id, event_type="heyy_whatsapp_message_received", limit=100)
+        except Exception:
+            return ""
+        target_hash = redact_phone_number(phone_number).get("phone_e164_hash", "")
+        for row in rows:
+            payload = dict(row.get("payload_json") or {}) if isinstance(row.get("payload_json"), dict) else {}
+            command = str(payload.get("opt_command") or "").strip().upper()
+            if command not in {"STOP", "START", "PAUSE"}:
+                continue
+            event_hash = str(payload.get("phone_e164_hash") or "").strip()
+            if target_hash and event_hash and event_hash != target_hash:
+                continue
+            if command == "START":
+                return ""
+            return command
+        return ""
+
+    def _heyy_whatsapp_send_guard(self, *, principal_id: str, phone_number: str = "") -> dict[str, object]:
+        if not self._heyy_whatsapp_selected_for_principal(principal_id=principal_id):
+            return {"allowed": False, "reason": "heyy_whatsapp_not_opted_in"}
+        if self._heyy_latest_opt_out_command(principal_id=principal_id, phone_number=phone_number):
+            return {"allowed": False, "reason": "heyy_whatsapp_stopped"}
+        if not self._heyy_whatsapp_template_budget_ok(principal_id=principal_id):
+            return {"allowed": False, "reason": "heyy_daily_template_budget_exhausted"}
+        return {"allowed": True, "reason": ""}
+
+    def _record_heyy_whatsapp_template_sent(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        template_kind: str,
+        phone_number: str,
+        template_id: str,
+        channel_id: str,
+        message_id: str,
+        delivery_status: str,
+        property_ref: str = "",
+        search_agent_id: str = "",
+    ) -> None:
+        try:
+            from app.services.fliplink.service import build_fliplink_packet_service
+
+            packet_service = build_fliplink_packet_service(self._container)
+            packet_service._repo.record_event(  # noqa: SLF001
+                {
+                    "publication_id": "",
+                    "principal_id": principal_id,
+                    "event_type": "heyy_whatsapp_template_sent",
+                    "actor": str(actor or principal_id or "propertyquarry").strip(),
+                    "payload_json": {
+                        "template_kind": str(template_kind or "").strip(),
+                        "property_ref": str(property_ref or "").strip(),
+                        "search_agent_id": str(search_agent_id or "").strip(),
+                        "template_id": str(template_id or "").strip(),
+                        "channel_id": str(channel_id or "").strip(),
+                        **redact_phone_number(phone_number),
+                        "message_id": str(message_id or "").strip(),
+                        "delivery_status": str(delivery_status or "").strip(),
+                    },
+                }
+            )
+        except Exception:
+            return
+
     def _heyy_whatsapp_contact_hint(self, *, principal_id: str) -> dict[str, str]:
         phone_number = ""
         binding_phone = ""
@@ -36710,6 +36837,9 @@ class ProductService:
         channel_id = str(contact.get("channel_id") or "").strip()
         if not phone_number:
             return {"status": "suppressed", "reason": "heyy_phone_missing"}
+        guard = self._heyy_whatsapp_send_guard(principal_id=principal_id, phone_number=phone_number)
+        if not bool(guard.get("allowed")):
+            return {"status": "suppressed", "reason": str(guard.get("reason") or "heyy_whatsapp_blocked").strip()}
         service = HeyyWhatsAppBridgeService(tool_runtime=self._container.tool_runtime)
         try:
             result = service.send_template(
@@ -36728,8 +36858,8 @@ class ProductService:
                 "template_kind": template_kind_normalized,
                 "property_ref": str(property_ref or "").strip(),
                 "property_title": str(property_title or "").strip(),
-                "phone_number": phone_number,
                 "channel_id": channel_id,
+                **redact_phone_number(phone_number),
                 "error": compact_text(str(exc or ""), fallback="heyy_delivery_failed", limit=200),
                 "actor": str(actor or "").strip() or "property_scout",
             }
@@ -36745,12 +36875,23 @@ class ProductService:
             "template_kind": template_kind_normalized,
             "property_ref": str(property_ref or "").strip(),
             "property_title": str(property_title or "").strip(),
-            "phone_number": phone_number,
             "channel_id": str(result.get("channel_id") or channel_id or "").strip(),
+            **redact_phone_number(phone_number),
             "message_id": str(result.get("message_id") or "").strip(),
             "delivery_status": str(result.get("delivery_status") or "").strip(),
             "actor": str(actor or "").strip() or "property_scout",
         }
+        self._record_heyy_whatsapp_template_sent(
+            principal_id=principal_id,
+            actor=str(actor or "").strip() or "property_scout",
+            template_kind=template_kind_normalized,
+            phone_number=phone_number,
+            template_id=template_id,
+            channel_id=str(result.get("channel_id") or channel_id or "").strip(),
+            message_id=str(result.get("message_id") or "").strip(),
+            delivery_status=str(result.get("delivery_status") or "").strip(),
+            property_ref=str(property_ref or "").strip(),
+        )
         self._record_product_event(
             principal_id=principal_id,
             event_type=f"{template_kind_normalized}_heyy_sent",
