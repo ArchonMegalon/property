@@ -154,6 +154,11 @@
     }
     .nav a:hover { color: var(--text); }
     .actions { display: flex; gap: 10px; align-items: center; }
+    .actions form,
+    .cta-row form {
+      margin: 0;
+      display: inline-flex;
+    }
     .mobile-nav {
       display: none;
     }
@@ -807,6 +812,10 @@
         {% if not signing_in_progress %}
         {% if public_signed_in %}
         <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
+        <form method="post" action="/app/actions/sign-out">
+          <input type="hidden" name="return_to" value="/">
+          <button class="btn ghost" type="submit">Log out</button>
+        </form>
         {% else %}
         <a class="btn ghost" href="/sign-in?signing_in=1">{{ brand.sign_in_label }}</a>
         <a class="btn primary" href="/register">{{ brand.create_label }}</a>
@@ -821,6 +830,9 @@
       <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
       {% endif %}
       {% endfor %}
+      {% if public_signed_in and not signing_in_progress %}
+      <a href="/app/actions/sign-out?return_to=/">Log out</a>
+      {% endif %}
       <a href="/docs" class="{% if current_nav == 'docs' %}active{% endif %}">Docs</a>
       <a href="/integrations" class="{% if current_nav == 'integrations' %}active{% endif %}">Integrations</a>
     </div>

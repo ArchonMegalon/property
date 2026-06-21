@@ -147,6 +147,9 @@
       display: grid;
       grid-template-columns: 1fr;
     }
+    .access-panel .cta-row form {
+      width: 100%;
+    }
     .access-panel .btn {
       width: 100%;
     }
@@ -167,10 +170,14 @@
     <div class="cta-row">
       {% if public_signed_in %}
       <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open current session</a>
+      <form method="post" action="/app/actions/sign-out">
+        <input type="hidden" name="return_to" value="/sign-in?signing_in=1">
+        <button class="btn" type="submit">Log out</button>
+      </form>
       {% else %}
       <a class="btn primary" href="/sign-in/current-session">Open current session</a>
-      {% endif %}
       <a class="btn" href="/register">{{ brand.create_label }}</a>
+      {% endif %}
     </div>
     <div class="auth-provider-stack" aria-label="Sign-in providers">
       <div class="auth-provider-card" data-auth-provider-card>
@@ -209,7 +216,7 @@
       <p class="copy">Open the current session if this identity is already linked, or use the secure email link for this account.</p>
       <div class="cta-row">
         <a class="btn primary" href="/sign-in/current-session">Open current session</a>
-        <a class="btn" href="#sign_in_email">Use email link</a>
+        <button class="btn" type="button" data-focus-sign-in-email>Use email link</button>
       </div>
     </div>
     {% endif %}
@@ -334,5 +341,14 @@
       }, 3500);
     });
   });
+  const emailFocusButton = document.querySelector('[data-focus-sign-in-email]');
+  if (emailFocusButton) {
+    emailFocusButton.addEventListener('click', () => {
+      const emailField = document.getElementById('sign_in_email');
+      if (!emailField) return;
+      emailField.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      emailField.focus({ preventScroll: true });
+    });
+  }
 </script>
 {% endblock %}

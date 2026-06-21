@@ -535,8 +535,12 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert 'href="/app/search"' not in sign_in.text
     assert 'href="/sign-in/current-session"' in sign_in.text
     assert "Open current session" in sign_in.text
+    assert ">Log out<" not in sign_in.text
     assert 'href="/app/search"' in signed_in_sign_in.text
     assert "Open current session" in signed_in_sign_in.text
+    assert 'action="/app/actions/sign-out"' in signed_in_sign_in.text
+    assert ">Log out<" in signed_in_sign_in.text
+    assert 'href="/register">Create account</a>' not in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
     assert "Google?" not in sign_in.text
     assert "Facebook?" not in sign_in.text
@@ -5325,6 +5329,9 @@ def test_propertyquarry_workspace_session_root_home_override_stays_public() -> N
     assert "Search once. Rank the right homes. Decide with evidence." in public_home.text
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
     assert 'href="/app/search"' in public_home.text
+    assert 'action="/app/actions/sign-out"' in public_home.text
+    assert 'href="/app/actions/sign-out?return_to=/"' in public_home.text
+    assert ">Log out<" in public_home.text
     assert ">Sign in<" not in public_home.text
     assert "Signing you in" not in public_home.text
     assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in public_home.text

@@ -365,6 +365,10 @@
       display: grid;
       grid-template-columns: 1fr;
     }
+    .pq-final .cta-row form,
+    .pq-hero-copy .cta-row form {
+      width: 100%;
+    }
     .pq-final .btn,
     .pq-hero-copy .btn {
       width: 100%;
@@ -399,6 +403,12 @@
         {% if public_signed_in or signing_in_progress %}
         <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
         <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open latest run</a>
+        {% if public_signed_in and not signing_in_progress %}
+        <form method="post" action="/app/actions/sign-out">
+          <input type="hidden" name="return_to" value="/">
+          <button class="btn ghost" type="submit">Log out</button>
+        </form>
+        {% endif %}
         {% else %}
         <a class="btn primary" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
         <a class="btn" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
@@ -531,6 +541,12 @@
       {% if public_signed_in or signing_in_progress %}
       <a class="btn primary" href="/app/search" data-analytics-event="home_open_search_footer" data-rybbit-event="home_open_search" data-rybbit-prop-surface="footer">Open search</a>
       <a class="btn ghost" href="/app/properties" data-analytics-event="home_open_run_footer" data-rybbit-event="home_open_run" data-rybbit-prop-surface="footer">Open latest run</a>
+      {% if public_signed_in and not signing_in_progress %}
+      <form method="post" action="/app/actions/sign-out">
+        <input type="hidden" name="return_to" value="/">
+        <button class="btn ghost" type="submit">Log out</button>
+      </form>
+      {% endif %}
       {% else %}
       <a class="btn primary" href="/register" data-analytics-event="home_create_account_footer" data-rybbit-event="home_create_account" data-rybbit-prop-surface="footer">Create account</a>
       <a class="btn ghost" href="/pricing" data-analytics-event="home_view_plans" data-rybbit-event="home_view_plans" data-rybbit-prop-surface="footer">View plans</a>
