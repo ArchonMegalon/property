@@ -8551,11 +8551,15 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'href="/cookies"' in account.text
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
-    assert "Property alerts" in account.text
+    assert "Notification type" in account.text
     assert "Choose where strong-match notifications arrive." in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'value="email"' in account.text
     assert 'value="telegram"' in account.text
+    assert 'data-channel-detail="email"' in account.text
+    assert 'data-channel-detail="telegram"' in account.text
+    assert 'data-channel-detail="whatsapp"' in account.text
+    assert '.pqx-account-channel-form:has(input[name="preferred_channel"][value="whatsapp"]:checked)' in account.text
     assert "WhatsApp AI support number" in account.text
     assert "Used only for support questions." in account.text
     assert "Alerts go to WhatsApp only when WhatsApp is selected above." in account.text

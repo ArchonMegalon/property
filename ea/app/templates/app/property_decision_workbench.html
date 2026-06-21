@@ -3336,6 +3336,11 @@
       font-weight: 700;
       cursor: pointer;
     }
+    .pqx-account-channel-option:has(input:checked) {
+      border-color: color-mix(in srgb, var(--pq-gold) 58%, var(--pq-line));
+      background: color-mix(in srgb, var(--pq-gold) 14%, var(--pq-panel));
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pq-gold) 20%, transparent);
+    }
     .pqx-account-channel-option input {
       accent-color: var(--pq-gold);
     }
@@ -3349,16 +3354,44 @@
       opacity: 0.56;
       cursor: not-allowed;
     }
-    .pqx-account-bot-state {
+    .pqx-account-channel-detail {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 6px 10px;
+      min-height: 40px;
+      padding: 9px 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--pq-panel) 84%, #ffffff);
       color: var(--pq-muted);
       font-size: 11px;
       line-height: 1.35;
     }
-    .pqx-account-bot-state a {
+    .pqx-account-channel-detail[data-channel-detail] {
+      display: none;
+    }
+    .pqx-account-channel-form:has(input[name="preferred_channel"][value="email"]:checked) [data-channel-detail="email"],
+    .pqx-account-channel-form:has(input[name="preferred_channel"][value="telegram"]:checked) [data-channel-detail="telegram"],
+    .pqx-account-channel-form:has(input[name="preferred_channel"][value="whatsapp"]:checked) [data-channel-detail="whatsapp"] {
+      display: flex;
+    }
+    .pqx-account-channel-detail strong,
+    .pqx-account-channel-detail label {
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .pqx-account-channel-detail input {
+      flex: 1 1 180px;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+    }
+    .pqx-account-channel-detail a {
       color: var(--pq-ink);
       font-weight: 800;
       text-decoration: none;
@@ -4765,10 +4798,12 @@
     html[data-pq-theme="dark"] .pqx-automation-history-table th,
     html[data-pq-theme="dark"] .pqx-automation-card,
     html[data-pq-theme="dark"] .pqx-automation-thumbnail,
-	    html[data-pq-theme="dark"] .pqx-automation-delete,
-	    html[data-pq-theme="dark"] .pqx-account-action-card,
-	    html[data-pq-theme="dark"] .pqx-account-channel-option,
-	    html[data-pq-theme="dark"] .pqx-account-summary-card,
+    html[data-pq-theme="dark"] .pqx-automation-delete,
+    html[data-pq-theme="dark"] .pqx-account-action-card,
+    html[data-pq-theme="dark"] .pqx-account-channel-option,
+    html[data-pq-theme="dark"] .pqx-account-channel-detail,
+    html[data-pq-theme="dark"] .pqx-account-channel-detail input,
+    html[data-pq-theme="dark"] .pqx-account-summary-card,
     html[data-pq-theme="dark"] .pqx-account-card,
     html[data-pq-theme="dark"] .pqx-billing-summary-card,
     html[data-pq-theme="dark"] .pqx-billing-card,

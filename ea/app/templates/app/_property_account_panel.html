@@ -46,7 +46,7 @@
     <section class="pqx-account-action-card notification" id="delivery">
       <div>
         <span class="pqx-small">Alerts</span>
-        <h2>Property alerts</h2>
+        <h2>Notification type</h2>
         <p>Choose where strong-match notifications arrive.</p>
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
           <div class="pqx-account-channel-options" role="radiogroup" aria-label="Property alert destination">
@@ -67,12 +67,17 @@
               <span>Signal <small>later</small></span>
             </label>
           </div>
-          <div class="pqx-account-bot-state">
+          <div class="pqx-account-channel-detail" data-channel-detail="email">
+            <strong>Email alerts</strong>
+            <span>Uses the verified account email when available.</span>
+          </div>
+          <div class="pqx-account-channel-detail" data-channel-detail="telegram">
+            <strong>Telegram bot</strong>
             <span>{{ telegram_bot_status }}</span>
             {% if telegram_bot_handle %}<span>{{ telegram_bot_handle }}</span>{% endif %}
             {% if telegram_bot_connect_url %}<a href="{{ telegram_bot_connect_url }}" target="_blank" rel="noopener">Open bot</a>{% endif %}
           </div>
-          <div class="pqx-account-bot-state">
+          <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
             <label for="whatsappAiSupportPhone">WhatsApp AI support number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
             <span id="whatsappAiSupportCopy">Used only for support questions. Alerts go to WhatsApp only when WhatsApp is selected above.</span>
