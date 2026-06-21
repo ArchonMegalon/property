@@ -577,6 +577,67 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
     assert offenders == []
 
 
+def _assert_visible_component_contrast(page: Page, selectors: list[str], *, minimum_ratio: float) -> None:
+    offenders = page.evaluate(
+        """
+        ({ selectors, minimumRatio }) => {
+          const parseColor = (value) => {
+            const match = String(value || '').match(/rgba?\\(([^)]+)\\)/);
+            if (!match) return null;
+            const parts = match[1].split(',').map((part) => Number.parseFloat(part.trim()));
+            if (parts.length < 3) return null;
+            return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
+          };
+          const channel = (value) => {
+            const scaled = value / 255;
+            return scaled <= 0.03928 ? scaled / 12.92 : Math.pow((scaled + 0.055) / 1.055, 2.4);
+          };
+          const luminance = (color) => 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
+          const contrast = (first, second) => {
+            const a = luminance(first);
+            const b = luminance(second);
+            const lighter = Math.max(a, b);
+            const darker = Math.min(a, b);
+            return (lighter + 0.05) / (darker + 0.05);
+          };
+          const effectiveBackground = (node) => {
+            let current = node;
+            while (current && current.nodeType === Node.ELEMENT_NODE) {
+              const color = parseColor(window.getComputedStyle(current).backgroundColor);
+              if (color && color.a > 0.01) return color;
+              current = current.parentElement;
+            }
+            return parseColor(window.getComputedStyle(document.body).backgroundColor);
+          };
+          const rows = [];
+          for (const selector of selectors) {
+            for (const node of document.querySelectorAll(selector)) {
+              const rect = node.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) continue;
+              const style = window.getComputedStyle(node);
+              const text = parseColor(style.color);
+              const background = effectiveBackground(node);
+              if (!text || !background) continue;
+              const ratio = contrast(text, background);
+              if (ratio < minimumRatio) {
+                rows.push({
+                  selector,
+                  text: (node.textContent || '').trim().slice(0, 80),
+                  ratio: Math.round(ratio * 100) / 100,
+                  color: style.color,
+                  background: window.getComputedStyle(node).backgroundColor,
+                });
+              }
+            }
+          }
+          return rows;
+        }
+        """,
+        {"selectors": selectors, "minimumRatio": minimum_ratio},
+    )
+    assert offenders == []
+
+
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int, max_stage_height: int | None = None) -> None:
     media = page.locator("[data-object-media-stage]").first
     ooda = page.get_by_text("Property details").first
@@ -623,6 +684,44 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         assert "/app/shortlist" in page.url
         assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_dark_mode_keeps_shortlist_cards_readable(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=1100)
+    context.add_init_script("window.localStorage.setItem('propertyquarry.theme', 'dark');")
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+        page.locator("[data-workbench-row]:visible").first.wait_for(timeout=5000)
+        _assert_no_horizontal_overflow(page)
+        _assert_visible_component_contrast(
+            page,
+            [
+                ".pqx-card",
+                ".pqx-result",
+                ".pqx-result-fact",
+                ".pqx-result-open",
+                ".pqx-progress-button",
+                ".pqx-pill",
+                ".pqx-event-card",
+                ".pqx-source-card",
+                ".pqx-route-preview-card",
+                ".pqx-empty",
+            ],
+            minimum_ratio=3.0,
+        )
+        screenshot_path = tmp_path / "propertyquarry-shortlist-dark-mode.png"
+        page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
+        assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
     finally:
         context.close()
 

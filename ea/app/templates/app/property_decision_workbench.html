@@ -4807,13 +4807,20 @@
     html[data-pq-theme="dark"] .pqx-account-card,
     html[data-pq-theme="dark"] .pqx-billing-summary-card,
     html[data-pq-theme="dark"] .pqx-billing-card,
+    html[data-pq-theme="dark"] .pqx-card,
+    html[data-pq-theme="dark"] .pqx-reading-card,
     html[data-pq-theme="dark"] .pqx-event-card,
     html[data-pq-theme="dark"] .pqx-source-card,
     html[data-pq-theme="dark"] .pqx-source-metrics span,
     html[data-pq-theme="dark"] .pqx-route-preview-card,
     html[data-pq-theme="dark"] .pqx-route-preview-link,
+    html[data-pq-theme="dark"] .pqx-result,
+    html[data-pq-theme="dark"] .pqx-result.is-top-ranked,
     html[data-pq-theme="dark"] .pqx-result-panel,
     html[data-pq-theme="dark"] .pqx-result-panel-head,
+    html[data-pq-theme="dark"] .pqx-result-fact,
+    html[data-pq-theme="dark"] .pqx-result-open,
+    html[data-pq-theme="dark"] .pqx-progress-button,
     html[data-pq-theme="dark"] .pqx-results-summary-link,
     html[data-pq-theme="dark"] .pqx-pref-form input,
     html[data-pq-theme="dark"] .pqx-pref-form select,
@@ -4828,6 +4835,9 @@
     html[data-pq-theme="dark"] .pqx-research-task-form input,
     html[data-pq-theme="dark"] .pqx-guard-item,
     html[data-pq-theme="dark"] .pqx-suppression-item,
+    html[data-pq-theme="dark"] .pqx-empty,
+    html[data-pq-theme="dark"] .pqx-results-empty-state,
+    html[data-pq-theme="dark"] .pqx-bottom-nav,
     html[data-pq-theme="dark"] .pqx-table td,
     html[data-pq-theme="dark"] .pqx-table th {
       background: var(--pq-paper);
@@ -4841,7 +4851,13 @@
     html[data-pq-theme="dark"] .pqx-advanced-panel[open] > .pqx-disclosure-summary,
     html[data-pq-theme="dark"] .pqx-account-action-card.primary,
     html[data-pq-theme="dark"] .pqx-automation-card.is-selected,
-    html[data-pq-theme="dark"] .pqx-result[aria-selected="true"] {
+    html[data-pq-theme="dark"] .pqx-result[aria-selected="true"],
+    html[data-pq-theme="dark"] a.pqx-result-fact:hover,
+    html[data-pq-theme="dark"] a.pqx-result-fact:focus-visible,
+    html[data-pq-theme="dark"] button.pqx-result-fact:hover,
+    html[data-pq-theme="dark"] button.pqx-result-fact:focus-visible,
+    html[data-pq-theme="dark"] .pqx-result-open:hover,
+    html[data-pq-theme="dark"] .pqx-result-open:focus-visible {
       background: color-mix(in srgb, var(--pq-gold) 14%, var(--pq-paper));
       color: var(--pq-ink);
       border-color: color-mix(in srgb, var(--pq-gold) 42%, var(--pq-line));
@@ -4861,6 +4877,17 @@
     }
     html[data-pq-theme="dark"] .pqx-result.is-filter-recovered {
       background: linear-gradient(90deg, rgba(83, 177, 140, 0.16), var(--pq-paper) 42%);
+    }
+    html[data-pq-theme="dark"] .pqx-result-fact.recovered,
+    html[data-pq-theme="dark"] .pqx-progress-button.is-ready {
+      background: color-mix(in srgb, var(--pq-green) 14%, var(--pq-paper));
+      border-color: color-mix(in srgb, var(--pq-green) 38%, var(--pq-line));
+      color: var(--pq-ink);
+    }
+    html[data-pq-theme="dark"] .pqx-progress-button.is-blocked {
+      background: color-mix(in srgb, var(--pq-red) 10%, var(--pq-paper));
+      border-color: color-mix(in srgb, var(--pq-red) 32%, var(--pq-line));
+      color: var(--pq-muted);
     }
     .pqx-result > span {
       min-width: 0;
