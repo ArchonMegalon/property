@@ -32,6 +32,7 @@ Runs the focused PropertyQuarry release bundle:
   - saved search-agent management contracts
   - property market catalog contracts
   - PayFunnels checkout, webhook, refund, mismatch, and billing-surface contracts
+  - workspace access token redaction, keyed hashes, revocation, and one-time launch-link contracts
   - live provider smoke receipt contracts
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
@@ -116,6 +117,8 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'property_notification_preview or property_feedback'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'payfunnels'
+PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
+  tests/test_product_api_contracts.py -k 'workspace_access'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_product_api_contracts.py -k 'telegram_property_link_bundle or property_scout_dossier_promotes_media or property_scout_hit_telegram_sends_dossier or property_scout_hit_email_prefers_public_dossier_link or property_alert_review_handoff_page_renders_research_packet'
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
