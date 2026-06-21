@@ -398,9 +398,9 @@ echo "registration/workspace access ok"
 
 echo "== smoke: workspace browser surfaces =="
 SEARCH_PAGE="$(curl_body_retry 15 1 "${BASE}/app/search?query=board" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-WORKSPACE_BROWSER_FIELDS="$(python3 -c "import sys; search = sys.argv[1]; print('{}|{}'.format('Workspace search' in search and '/app/search' in search, 'Search collapses navigation instead of adding to it' in search and 'Use a concrete name, topic, or object label' in search))" "${SEARCH_PAGE}")"
-if [[ "${WORKSPACE_BROWSER_FIELDS}" != "True|True" ]]; then
-  echo "expected workspace browser surfaces to render the searchable workspace shell and actionable search guidance; got ${WORKSPACE_BROWSER_FIELDS}" >&2
+WORKSPACE_BROWSER_FIELDS="$(python3 -c 'import sys; search=(sys.stdin.read() or ""); surface_ok="data-pqx-surface=\"search\"" in search; shell_ok="data-property-app-shell" in search; launch_ok=("data-pqx-launch-top" in search or "data-property-start-top" in search); wizard_ok="\"wizard_steps\"" in search; print("{}|{}|{}|{}".format(surface_ok, shell_ok, launch_ok, wizard_ok))' <<<"${SEARCH_PAGE}")"
+if [[ "${WORKSPACE_BROWSER_FIELDS}" != "True|True|True|True" ]]; then
+  echo "expected workspace search surface to render shell, wizard payload and launch affordance; got ${WORKSPACE_BROWSER_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
 echo "workspace browser surfaces ok"
