@@ -211,6 +211,29 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
                 assert method in {"get", "post", "dialog"}, f"unexpected form method on {path}: {method!r}"
 
 
+def test_propertyquarry_invitations_surface_uses_collaborator_language() -> None:
+    client = build_property_client(principal_id="pq-rendered-invitation-language")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    response = client.get("/app/settings/invitations", headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+
+    rendered_text = re.sub(
+        r"<script.*?</script>|<style.*?</style>",
+        " ",
+        response.text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    rendered_text = re.sub(r"<[^>]+>", " ", rendered_text)
+    rendered_text = re.sub(r"\s+", " ", rendered_text)
+
+    assert "Collaborator" in rendered_text
+    assert "Account owner" in rendered_text
+    assert "operator invitation" not in rendered_text.lower()
+    assert "operator one" not in rendered_text.lower()
+    assert "another reviewer or operator" not in rendered_text.lower()
+
+
 def test_property_result_title_display_cleans_provider_url_garbage() -> None:
     raw_title = 'https://www.raiffeisen-wohnbau.at/projects/id/1090-vienna/augasse-17/70/\\&quot;\\n'
 
@@ -4030,7 +4053,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     template = _read_workbench_bundle()
     assert "padding: 4px 4px 10px;" in template
     assert "padding: 3px 3px 9px;" in template
-    assert "padding: 0 0 12px;" in template
+    assert "padding: 2px 2px 10px;" in template
+    assert "scroll-snap-type: x proximity;" in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
     assert "Select providers" in setup.text
@@ -5596,6 +5620,14 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-mobile-switch' in template
     assert "position: static;" in template
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel > .pqx-section-head' in template
+    assert 'data-property-mobile-step-rail' in template
+    assert 'data-property-mobile-action-dock' in template
+    assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail]' in template
+    assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock]' in template
+    assert 'scroll-snap-type: x proximity;' in template
+    assert '-webkit-overflow-scrolling: touch;' in template
+    assert 'env(safe-area-inset-bottom, 0px)' in template
+    assert 'contain-intrinsic-size: 142px;' in template
 
 
 def test_property_agents_surface_uses_map_only_scope_preview_for_cards_and_history(monkeypatch) -> None:

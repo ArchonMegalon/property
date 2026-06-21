@@ -5308,19 +5308,28 @@
       .pqx-main {
         width: min(calc(100vw - 20px), 760px);
         padding-top: 8px;
-        padding-bottom: 96px;
+        padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
       }
       .pqx-workflow,
       .pqx-surface-search .pqx-workflow {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        display: flex;
+        flex-wrap: nowrap;
         gap: 5px;
-        overflow: visible;
-        padding: 0 0 12px;
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding: 2px 2px 10px;
+      }
+      .pqx-workflow::-webkit-scrollbar,
+      .pqx-surface-search .pqx-workflow::-webkit-scrollbar {
+        display: none;
       }
       .pqx-workflow-step,
       .pqx-surface-search .pqx-workflow-step {
-        width: 100%;
+        flex: 0 0 clamp(86px, 27vw, 122px);
+        scroll-snap-align: start;
         min-height: 34px;
         padding: 4px 5px;
       }
@@ -5340,6 +5349,48 @@
       .pqx-setup.pqx-surface-search .pqx-command {
         order: initial;
         width: 100%;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
+        padding: 10px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        margin: -2px -2px 4px;
+        padding: 2px 2px 8px;
+        border-bottom: 1px solid var(--pq-line);
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head h2 {
+        font-size: 1rem;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head .pqx-note {
+        line-height: 1.35;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions {
+        width: 100%;
+        justify-content: stretch;
+        margin-left: 0;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-pill {
+        flex: 1 1 0;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-button {
+        flex: 1 1 0;
+        min-height: 38px;
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] {
+        position: sticky;
+        top: 0;
+        z-index: 26;
+        margin: -2px -2px 8px;
+        padding: 8px 2px 10px;
+        border-bottom: 1px solid var(--pq-line);
+        background: color-mix(in srgb, var(--pq-paper) 92%, transparent);
+        backdrop-filter: blur(16px);
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] .pqx-workflow-step.active {
+        box-shadow: 0 8px 18px rgba(41, 37, 30, 0.12);
       }
       .pqx-result-panel,
       .pqx-review,
@@ -5595,6 +5646,31 @@
       .pqx-link-button {
         width: 100%;
       }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] {
+        position: sticky;
+        bottom: max(8px, env(safe-area-inset-bottom, 0px));
+        z-index: 30;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        margin: 4px -2px 0;
+        padding: 8px;
+        border: 1px solid var(--pq-line);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--pq-paper) 94%, transparent);
+        box-shadow: 0 18px 36px rgba(41, 37, 30, 0.16);
+        backdrop-filter: blur(16px);
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-actions {
+        flex-direction: row;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button {
+        width: auto;
+        flex: 1 1 0;
+        min-height: 44px;
+      }
     }
     @media (max-width: 520px) {
       .pqx-main {
@@ -5606,6 +5682,34 @@
       .pqx-dossier-summary,
       .pqx-source-metrics {
         grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-result {
+        padding: 10px;
+        contain-intrinsic-size: 142px;
+      }
+      .pqx-result-media:not(.no-thumb) {
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 9px;
+      }
+      .pqx-result-media:not(.no-thumb) .pqx-thumb {
+        width: 104px;
+        aspect-ratio: 1 / 1;
+      }
+      .pqx-result-title {
+        -webkit-line-clamp: 3;
+      }
+      .pqx-result-aside {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .pqx-result-value-row {
+        justify-items: start;
+      }
+      .pqx-result-actions {
+        justify-content: flex-end;
       }
     }
   </style>
@@ -6064,7 +6168,7 @@
           <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
             {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
             {% if wizard_steps %}
-            <fieldset class="pqx-workflow" aria-label="Search setup" data-property-step-nav>
+            <fieldset class="pqx-workflow" aria-label="Search setup" data-property-step-nav data-property-mobile-step-rail>
               <legend>Search flow</legend>
               {% for step in wizard_steps %}
               <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}" aria-label="{{ step.get('label') or 'Search step' }}"{% if loop.first %} aria-current="step"{% endif %}>
@@ -6403,7 +6507,7 @@
               </div>
               <div class="pqx-source-grid" data-pqx-evidence-source-list></div>
             </section>
-            <div class="pqx-form-footer">
+            <div class="pqx-form-footer" data-property-mobile-action-dock>
               <div class="pqx-actions">
                 <button class="pqx-button subtle" type="button" data-property-step-back hidden>Back</button>
                 <button class="pqx-button" type="button" data-property-step-next>Next</button>

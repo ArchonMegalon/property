@@ -1921,6 +1921,16 @@ def settings_invitations_detail(
     invite_status = str(request.query_params.get("invite_status") or "").strip()
     invite_email = str(request.query_params.get("invite_email") or "").strip()
     invite_error = str(request.query_params.get("invite_error") or "").strip()
+
+    def _propertyquarry_role_label(role: object) -> str:
+        normalized = str(role or "").strip().lower()
+        if is_property_brand:
+            if normalized == "operator":
+                return "collaborator"
+            if normalized == "principal":
+                return "account owner"
+        return normalized.replace("_", " ") or ("collaborator" if is_property_brand else "operator")
+
     invite_action_detail = (
         invite_error
         or (
@@ -1981,7 +1991,7 @@ def settings_invitations_detail(
                         " · ".join(
                             part
                             for part in (
-                                str(item.get("role") or "operator").replace("_", " "),
+                                _propertyquarry_role_label(item.get("role") or "operator"),
                                 f"delivery {str(item.get('email_delivery_status') or 'not attempted').replace('_', ' ')}",
                                 f"expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
                             )
@@ -1997,7 +2007,15 @@ def settings_invitations_detail(
                         secondary_action_method="get",
                     )
                     for item in pending[:12]
-                ] or [_object_detail_row("No pending invitations", "Create an invite when the workspace needs another reviewer or operator.", "Clear")],
+                ] or [
+                    _object_detail_row(
+                        "No pending invitations",
+                        "Create an invite when another collaborator should help review saved searches.",
+                        "Clear",
+                    )
+                    if is_property_brand
+                    else _object_detail_row("No pending invitations", "Create an invite when the workspace needs another reviewer or operator.", "Clear")
+                ],
             },
             {
                 "eyebrow": "Accepted",
@@ -2008,7 +2026,7 @@ def settings_invitations_detail(
                         " · ".join(
                             part
                             for part in (
-                                str(item.get("role") or "operator").replace("_", " "),
+                                _propertyquarry_role_label(item.get("role") or "operator"),
                                 f"accepted {str(item.get('accepted_at') or '')[:19] or 'n/a'}",
                                 f"delivery {str(item.get('email_delivery_status') or 'not attempted').replace('_', ' ')}",
                             )
@@ -2028,7 +2046,7 @@ def settings_invitations_detail(
                         " · ".join(
                             part
                             for part in (
-                                str(item.get("role") or "operator").replace("_", " "),
+                                _propertyquarry_role_label(item.get("role") or "operator"),
                                 f"revoked {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
                                 f"delivery {str(item.get('email_delivery_status') or 'not attempted').replace('_', ' ')}",
                             )
@@ -2045,22 +2063,38 @@ def settings_invitations_detail(
             "method": "post",
             "eyebrow": "Create invite",
             "title": "Invite another person",
-            "copy": "Create a principal or operator invitation without leaving the product surface.",
+            "copy": (
+                "Create an account-owner or collaborator invite without leaving this page."
+                if is_property_brand
+                else "Create a principal or operator invitation without leaving the product surface."
+            ),
             "submit_label": "Create invitation",
             "fields": [
                 {"type": "hidden", "name": "return_to", "value": "/app/settings/invitations"},
-                {"label": "Email", "name": "email", "type": "email", "value": invite_email, "placeholder": "operator@example.com"},
+                {
+                    "label": "Email",
+                    "name": "email",
+                    "type": "email",
+                    "value": invite_email,
+                    "placeholder": "collaborator@example.com" if is_property_brand else "operator@example.com",
+                },
                 {
                     "label": "Role",
                     "name": "role",
                     "type": "select",
                     "value": "operator",
                     "options": [
-                        {"label": "Operator", "value": "operator", "selected": True},
-                        {"label": "Principal", "value": "principal"},
+                        {"label": "Collaborator" if is_property_brand else "Operator", "value": "operator", "selected": True},
+                        {"label": "Account owner" if is_property_brand else "Principal", "value": "principal"},
                     ],
                 },
-                {"label": "Display name", "name": "display_name", "type": "text", "value": "", "placeholder": "Operator One"},
+                {
+                    "label": "Display name",
+                    "name": "display_name",
+                    "type": "text",
+                    "value": "",
+                    "placeholder": "Collaborator" if is_property_brand else "Operator One",
+                },
             ],
         },
     )

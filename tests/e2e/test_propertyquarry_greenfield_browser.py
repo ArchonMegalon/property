@@ -1861,6 +1861,42 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         mobile_page.locator("[data-workbench-brief-drawer]").wait_for(state="visible")
         mobile_page.screenshot(path=str(mobile_shot), full_page=True)
         assert mobile_shot.exists()
+        mobile_metrics = mobile_page.evaluate(
+            """() => {
+                const rail = document.querySelector('[data-property-mobile-step-rail]');
+                const dock = document.querySelector('[data-property-mobile-action-dock]');
+                const result = document.querySelector('[data-workbench-row]');
+                const thumb = result?.querySelector('.pqx-thumb');
+                const railStyle = rail ? window.getComputedStyle(rail) : null;
+                const dockStyle = dock ? window.getComputedStyle(dock) : null;
+                const resultRect = result ? result.getBoundingClientRect() : null;
+                const thumbRect = thumb ? thumb.getBoundingClientRect() : null;
+                return {
+                    bodyWidth: document.documentElement.scrollWidth,
+                    viewportWidth: window.innerWidth,
+                    railOverflowX: railStyle ? railStyle.overflowX : '',
+                    railScrollWidth: rail ? rail.scrollWidth : 0,
+                    railClientWidth: rail ? rail.clientWidth : 0,
+                    railPosition: railStyle ? railStyle.position : '',
+                    dockPosition: dockStyle ? dockStyle.position : '',
+                    dockBottom: dockStyle ? dockStyle.bottom : '',
+                    dockVisible: Boolean(dock && dock.offsetParent !== null),
+                    resultWidth: resultRect ? resultRect.width : 0,
+                    thumbWidth: thumbRect ? thumbRect.width : 0,
+                };
+            }"""
+        )
+        assert mobile_metrics["bodyWidth"] <= mobile_metrics["viewportWidth"] + 1
+        assert mobile_metrics["railOverflowX"] in {"auto", "scroll"}
+        assert mobile_metrics["railScrollWidth"] >= mobile_metrics["railClientWidth"]
+        assert mobile_metrics["railPosition"] == "sticky"
+        assert mobile_metrics["dockVisible"] is True
+        assert mobile_metrics["dockPosition"] == "sticky"
+        assert "env(safe-area-inset-bottom" in mobile_metrics["dockBottom"] or mobile_metrics["dockBottom"] != "auto"
+        assert mobile_metrics["resultWidth"] <= mobile_metrics["viewportWidth"] + 1
+        if mobile_metrics["thumbWidth"]:
+            assert 96 <= mobile_metrics["thumbWidth"] <= 120
+        _assert_no_horizontal_overflow(mobile_page)
     finally:
         desktop.close()
         mobile.close()
