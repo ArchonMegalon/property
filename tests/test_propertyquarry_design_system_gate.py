@@ -43,6 +43,7 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
         "account lane",
         "optimization lane active",
         "Provider repair lane",
+        "follow-up artifacts",
     )
     for marker in forbidden:
         assert marker not in body
