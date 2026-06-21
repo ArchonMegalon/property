@@ -422,6 +422,129 @@ def test_propertyquarry_teable_sync_uses_dedicated_property_tables_when_ready(mo
     assert body["tool_execution"]["receipt_json"]["rows_upserted"] == 4
 
 
+def test_propertyquarry_teable_sync_keeps_projection_state_when_migrating_teable_host(monkeypatch) -> None:
+    client = build_product_client(principal_id="pq-teable-portable")
+    container = client.app.state.container
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    monkeypatch.setenv("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON", json.dumps(_propertyquarry_teable_mapping()))
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.setenv("TEABLE_API_KEY", "teable-key-host-a")
+    monkeypatch.setenv("TEABLE_BASE_URL", "https://teable-primary.example")
+    monkeypatch.setenv("PROPERTYQUARRY_TEABLE_AUTO_SYNC", "1")
+
+    monkeypatch.setattr(
+        container.provider_registry,
+        "candidate_routes_by_capability_with_context",
+        lambda **_: (
+            SimpleNamespace(
+                provider_key="teable",
+                capability_key="table_sync",
+                tool_name="provider.teable.table_sync",
+                executable=True,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        container.provider_registry,
+        "binding_state",
+        lambda provider_key, principal_id=None: SimpleNamespace(
+            provider_key=provider_key,
+            display_name="Teable",
+            state="ready",
+            enabled=True,
+            executable=True,
+            binding_id=f"{principal_id}:teable",
+            secret_configured=True,
+            updated_at="2026-06-06T00:00:00Z",
+        ),
+    )
+
+    captured_payloads: list[dict[str, object]] = []
+
+    def _runtime_available(self: product_service.ProductService, *, base_url: str) -> tuple[bool, str]:
+        return True, ""
+
+    def _execute(invocation):
+        captured_payloads.append(
+            {
+                "tool_name": invocation.tool_name,
+                "action_kind": invocation.action_kind,
+                "context_json": dict(invocation.context_json or {}),
+                "payload_json": dict(invocation.payload_json or {}),
+            }
+        )
+        return ToolInvocationResult(
+            tool_name=invocation.tool_name,
+            action_kind=invocation.action_kind,
+            target_ref="teable-sync:propertyquarry:propertyquarry",
+            output_json={"synced_tables": list(PROPERTYQUARRY_TEABLE_TABLE_NAMES)},
+            receipt_json={"status": "pass", "rows_upserted": 4},
+        )
+
+    monkeypatch.setattr(product_service.ProductService, "_teable_sync_runtime_available", _runtime_available)
+    monkeypatch.setattr(container.tool_execution, "execute_invocation", _execute)
+
+    volatile_payload_fields = {"last_projected_at", "last_synced_at", "created_at", "updated_at", "updated_time"}
+
+    def _stable_payload(payload_json: dict[str, object]) -> dict[str, list[dict[str, object]]]:
+        tables_payload = payload_json["tables_json"]
+        stable: dict[str, list[dict[str, object]]] = {}
+        for table_name, rows in tables_payload.items():
+            stable_rows: list[dict[str, object]] = []
+            for raw_row in rows:
+                row = dict(raw_row)  # type: ignore[arg-type]
+                for volatile_key in volatile_payload_fields:
+                    row.pop(volatile_key, None)
+                stable_rows.append(row)
+            stable[table_name] = stable_rows
+        return stable
+
+    first_preview = client.get("/app/api/property/teable-sync-preview")
+    assert first_preview.status_code == 200
+    first_payload = first_preview.json()["sync_payload_json"]
+    first_preview_body = first_preview.json()
+
+    first_sync = client.post("/app/api/property/teable-sync")
+    assert first_sync.status_code == 200
+    first_sync_body = first_sync.json()
+
+    assert first_preview_body["status"] == "ready"
+    assert first_preview_body["provider"]["base_url"] == "https://teable-primary.example"
+    assert first_sync_body["sync_attempted"] is True
+    assert first_sync_body["sync_result"] == "sent"
+
+    assert first_sync_body["tool_execution"]["receipt_json"]["rows_upserted"] == 4
+    assert len(captured_payloads) == 1
+    assert captured_payloads[0]["payload_json"]["projection_scope"] == "propertyquarry"
+    assert "teable-key-host-a" not in json.dumps(captured_payloads[0]["payload_json"])
+
+    # simulate migration: only Teable credentials/endpoint changed
+    monkeypatch.setenv("TEABLE_API_KEY", "teable-key-host-b")
+    monkeypatch.setenv("TEABLE_BASE_URL", "https://teable-secondary.example")
+
+    second_preview = client.get("/app/api/property/teable-sync-preview")
+    assert second_preview.status_code == 200
+    second_preview_body = second_preview.json()
+
+    second_sync = client.post("/app/api/property/teable-sync")
+    assert second_sync.status_code == 200
+    second_sync_body = second_sync.json()
+
+    assert second_preview_body["provider"]["base_url"] == "https://teable-secondary.example"
+    assert second_sync_body["sync_result"] == "sent"
+    assert second_sync_body["tool_execution"]["receipt_json"]["rows_upserted"] == 4
+    assert len(captured_payloads) == 2
+    assert captured_payloads[1]["payload_json"]["projection_scope"] == "propertyquarry"
+    assert _stable_payload(captured_payloads[1]["payload_json"]) == _stable_payload(first_payload)
+    assert "teable-key-host-b" not in json.dumps(captured_payloads[1]["payload_json"])
+
+    assert (
+        second_preview_body["projection_summary"]
+        == first_preview_body["projection_summary"]
+    )
+
+
 def test_propertyquarry_teable_bootstrap_preview_has_all_property_tables() -> None:
     script = Path("scripts/bootstrap_propertyquarry_teable_tenant.py")
     result = subprocess.run(
