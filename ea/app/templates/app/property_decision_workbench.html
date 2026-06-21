@@ -800,6 +800,7 @@
     .pqx-button:focus-visible,
     .pqx-link-button:focus-visible,
     .pqx-mode-button:focus-visible,
+    .pqx-workflow-step:focus-visible,
     .pqx-result:focus-visible,
     .pqx-check:focus-within,
     .pqx-account-menu summary:focus-visible,
@@ -1959,7 +1960,6 @@
       border-color: var(--pq-line-strong);
       background: #fff8ea;
       color: var(--pq-ink);
-      outline: none;
     }
     .pqx-workflow-step strong {
       display: block;
@@ -5949,7 +5949,7 @@
             <fieldset class="pqx-workflow" aria-label="Search setup" data-property-step-nav>
               <legend>Search flow</legend>
               {% for step in wizard_steps %}
-              <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}" aria-label="{{ step.get('label') or 'Search step' }}">
+              <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}" aria-label="{{ step.get('label') or 'Search step' }}"{% if loop.first %} aria-current="step"{% endif %}>
                 <strong>{{ step.get('label') }}</strong>
               </button>
               {% endfor %}

@@ -2053,7 +2053,13 @@
           const triggerStep = String(node.getAttribute('data-property-step-trigger') || '').trim();
           const isVisible = visibleSteps.some((candidateStep) => String(candidateStep?.key || '').trim() === triggerStep);
           node.hidden = !isVisible;
-          node.classList.toggle('active', triggerStep === stepKey);
+          const isActive = triggerStep === stepKey;
+          node.classList.toggle('active', isActive);
+          if (isActive) {
+            node.setAttribute('aria-current', 'step');
+          } else {
+            node.removeAttribute('aria-current');
+          }
         });
         refreshStepLabels();
         if (progress) progress.textContent = `${presentation.label} ${current + 1}/${visibleSteps.length}`;

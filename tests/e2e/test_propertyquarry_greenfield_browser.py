@@ -1307,6 +1307,64 @@ def test_propertyquarry_search_wizard_steps_replace_visible_controls_without_acc
         context.close()
 
 
+def test_propertyquarry_search_wizard_step_navigation_is_keyboard_operable(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1360, height=1000)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+
+        reached_step = ""
+        for _ in range(50):
+            page.keyboard.press("Tab")
+            reached_step = str(
+                page.evaluate(
+                    "() => document.activeElement?.getAttribute('data-property-step-trigger') || ''"
+                )
+            )
+            if reached_step == "what":
+                break
+        assert reached_step == "what"
+
+        focused_button = page.locator('[data-property-step-trigger="what"]')
+        focus_style = focused_button.evaluate(
+            """
+            (node) => {
+              const style = window.getComputedStyle(node);
+              return {
+                outlineStyle: style.outlineStyle,
+                outlineWidth: style.outlineWidth,
+                boxShadow: style.boxShadow,
+              };
+            }
+            """
+        )
+        assert focus_style["outlineStyle"] != "none" or focus_style["boxShadow"] != "none"
+
+        page.keyboard.press("Enter")
+        page.wait_for_function(
+            """() => document.querySelector('[data-console-form-variant="property_search"]')?.dataset.propertyActiveStep === 'what'"""
+        )
+        expect(page.locator('[data-property-step-trigger="what"]')).to_have_attribute("aria-current", "step")
+        expect(page.locator('[data-property-step-trigger="search"]')).not_to_have_attribute("aria-current", "step")
+        expect(page.locator('[data-property-field-name="property_type"]')).to_be_visible()
+
+        page.locator('[data-property-step-next]').focus()
+        page.keyboard.press("Space")
+        page.wait_for_function(
+            """() => document.querySelector('[data-console-form-variant="property_search"]')?.dataset.propertyActiveStep === 'children'"""
+        )
+        expect(page.locator('[data-property-step-trigger="children"]')).to_have_attribute("aria-current", "step")
+        expect(page.locator('[data-property-field-name="keywords"]')).to_be_visible()
+    finally:
+        context.close()
+
+
 def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
