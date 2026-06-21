@@ -329,7 +329,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "configured_workers": configured_workers,
         "workers": worker_rows,
         "upgrade_copy": "",
-        "tooltip": "Parallel search keeps selected portals moving at once. Saved searches are separate.",
+        "tooltip": "Selected sources keep moving in parallel. Saved searches are separate.",
     }
 
 

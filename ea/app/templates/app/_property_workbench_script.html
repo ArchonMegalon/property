@@ -1347,7 +1347,7 @@
       const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
       const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
-      const workerTooltip = 'Parallel search keeps selected portals moving at once. Saved searches are separate.';
+      const workerTooltip = 'Selected sources keep moving in parallel. Saved searches are separate.';
       const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
@@ -1465,9 +1465,9 @@
               ? 'active'
               : ((statusLabel === 'Fetch failed') ? 'warn' : 'queued')));
         const shardCount = source ? Math.max(0, rawWorkerQueue.filter((row) => sourceProviderGroup(row) === groupKey).length - 1) : 0;
-        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing provider scan' : (sourceRows.length ? 'Waiting for a provider scan' : 'Ready when you start')));
+        const provider = String(source?.source_label || source?.label || (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting for selected sources' : 'Ready when you start')));
         return {
-          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing provider scan' : (sourceRows.length ? 'Waiting' : 'Ready')),
+          label: source ? compactProviderLabel(provider) : (statusLabel === 'Starting' ? 'Preparing search' : (sourceRows.length ? 'Waiting' : 'Ready')),
           provider,
           shardCount,
           statusLabel,
@@ -1476,8 +1476,8 @@
         };
       });
       const upgradeCopy = planKey === 'free'
-        ? 'Upgrade to Plus for 2 parallel searches or Agent for 4. Saved searches are separate.'
-        : (planKey === 'plus' ? 'Upgrade to Agent for 4 parallel searches. Saved searches are separate.' : '');
+        ? 'Plus checks 2 sources at once; Agent checks 4.'
+        : (planKey === 'plus' ? 'Agent checks 4 sources at once.' : '');
       const workerHtml = workers.map((worker) => `
         <div class="pqx-worker-lane tone-${escapeHtml(worker.tone)}">
           <div class="pqx-worker-lane-head">
