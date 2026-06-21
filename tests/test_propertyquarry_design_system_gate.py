@@ -34,6 +34,9 @@ def test_propertyquarry_customer_templates_avoid_internal_operator_language() ->
         "tour_control_matterport_export_missing",
         "NeuronWriter",
         "private_packet_guard",
+        "search worker",
+        "search workers",
+        "provider scans running",
     )
     for marker in forbidden:
         assert marker not in body

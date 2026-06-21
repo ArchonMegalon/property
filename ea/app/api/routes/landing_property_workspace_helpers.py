@@ -324,9 +324,9 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
 
     upgrade_copy = ""
     if normalized_plan == "free":
-        upgrade_copy = "Upgrade to Plus for 2 search workers or Agent for 4. Saved searches are a separate limit."
+        upgrade_copy = "Upgrade to Plus for 2 parallel checks or Agent for 4. Saved searches are separate."
     elif normalized_plan == "plus":
-        upgrade_copy = "Upgrade to Agent for 4 search workers. Saved searches are a separate limit."
+        upgrade_copy = "Upgrade to Agent for 4 parallel checks. Saved searches are separate."
 
     return {
         "plan_key": normalized_plan,
@@ -335,7 +335,7 @@ def _property_search_worker_slots(run_summary: dict[str, object], *, plan_key: s
         "configured_workers": configured_workers,
         "workers": worker_rows,
         "upgrade_copy": upgrade_copy,
-        "tooltip": "Search workers are the parallel source checks running this search right now. They are not the same thing as recurring saved searches.",
+        "tooltip": "Parallel checks let multiple sources run at once. Saved searches are separate.",
     }
 
 
