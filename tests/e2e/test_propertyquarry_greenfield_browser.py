@@ -1395,7 +1395,43 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         assert mobile_section.locator("select").count() >= 8
         assert mobile_section.locator('input[type="checkbox"]').count() == 0
         assert " nearby" not in mobile_section.inner_text().lower()
-        mobile_section.screenshot(path=str(mobile_shot))
+        mobile_metrics = mobile_section.evaluate(
+            """
+            (panel) => {
+              const visibleRows = Array.from(
+                panel.querySelectorAll(
+                  '[data-keyword-priority-row], [data-school-priority-row], .pqx-what-matters-head, .pqx-what-matters-group-summary'
+                )
+              ).filter((node) => node.offsetParent !== null);
+              const panelRect = panel.getBoundingClientRect();
+              const lastBottom = visibleRows.reduce((bottom, node) => {
+                const rect = node.getBoundingClientRect();
+                return Math.max(bottom, rect.bottom);
+              }, panelRect.top);
+              const rowWidths = visibleRows.map((node) => {
+                const rect = node.getBoundingClientRect();
+                return {
+                  width: rect.width,
+                  scrollWidth: node.scrollWidth,
+                };
+              });
+              return {
+                panelHeight: panelRect.height,
+                panelWidth: panelRect.width,
+                panelScrollWidth: panel.scrollWidth,
+                bottomGap: panelRect.bottom - lastBottom,
+                rowWidths,
+              };
+            }
+            """
+        )
+        assert float(mobile_metrics["panelHeight"]) <= 2300.0, mobile_metrics
+        assert float(mobile_metrics["panelScrollWidth"]) <= float(mobile_metrics["panelWidth"]) + 1.0, mobile_metrics
+        assert float(mobile_metrics["bottomGap"]) <= 28.0, mobile_metrics
+        for row_metric in mobile_metrics["rowWidths"]:
+            assert float(row_metric["scrollWidth"]) <= float(row_metric["width"]) + 1.0, row_metric
+        mobile_section.scroll_into_view_if_needed()
+        mobile_page.screenshot(path=str(mobile_shot))
         assert mobile_shot.exists()
     finally:
         desktop.close()
@@ -1546,10 +1582,12 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             expect(page.locator(f'[data-property-field-name="{field_name}"]')).to_be_hidden()
         for keyword in ("Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby"):
             row = page.locator(f'[data-keyword-priority-row][data-keyword-value="{keyword}"]')
+            row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
             row.locator("[data-keyword-preference-select]").select_option("important")
             expect(row.locator("[data-keyword-distance-select]")).to_be_enabled()
             expect(row).to_have_attribute("data-preference-state", "important")
         school_parent = page.locator('[data-school-priority-row][data-school-value="volksschule"]')
+        school_parent.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
         school_parent.locator("[data-school-preference-select]").select_option("important")
         expect(school_parent).to_have_attribute("data-preference-state", "important")
         school_child = page.locator('[data-school-priority-row][data-school-value="ganztags_volksschule"]')

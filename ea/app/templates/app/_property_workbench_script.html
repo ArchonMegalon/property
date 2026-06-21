@@ -2239,6 +2239,7 @@
         form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
           group.dataset.activeDistanceRows = activeGroups.get(group) ? 'true' : 'false';
         });
+        if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form);
       };
       const syncSchoolPreferenceFields = () => {
         const selectedStages = [];
@@ -2717,6 +2718,9 @@
       form.querySelectorAll('[name="property_type"]').forEach((node) => node.addEventListener('change', () => {
         syncPropertyTypeDependentFilters(form);
       }));
+      window.matchMedia('(max-width: 760px)').addEventListener?.('change', () => {
+        if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form, { reset: true });
+      });
       commuteResearchField?.addEventListener('change', syncCommuteControls);
       form.querySelector('input[name="enable_lifestyle_research"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));

@@ -107,6 +107,24 @@
         node.value = selected.has(keywordValue) ? state : 'any';
       });
     };
+    const syncWhatMattersMobileGroups = (form, { reset = false } = {}) => {
+      const groups = [...(form?.querySelectorAll('.pqx-what-matters-panel details[data-what-matters-group]') || [])];
+      if (!groups.length) return;
+      const mobile = Boolean(window.matchMedia('(max-width: 760px)').matches);
+      groups.forEach((group, index) => {
+        const active = group.dataset.activeDistanceRows === 'true'
+          || Boolean(group.querySelector('[data-preference-state]:not([data-preference-state="any"])'));
+        if (!mobile) {
+          group.open = true;
+          group.dataset.mobileOpenInitialized = '';
+        } else if (reset || group.dataset.mobileOpenInitialized !== 'true') {
+          group.open = index === 0 || active;
+          group.dataset.mobileOpenInitialized = 'true';
+        } else if (active) {
+          group.open = true;
+        }
+      });
+    };
     const syncKeywordDistanceSelects = (form) => {
       const activeGroups = new Map();
       form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
@@ -129,6 +147,7 @@
       form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
         group.dataset.activeDistanceRows = activeGroups.get(group) ? 'true' : 'false';
       });
+      syncWhatMattersMobileGroups(form);
     };
     const syncSchoolPreferenceFields = (form) => {
       const selectedStages = [];
