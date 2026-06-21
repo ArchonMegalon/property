@@ -615,8 +615,8 @@ def handoff_detail(
                 "Match",
             ),
             _object_detail_row(
-                "Best next action",
-                "Review the 360 first, then check the strongest fit and risk evidence below.",
+                "Next action",
+                "Open the tour or listing, then decide whether this home deserves follow-up.",
                 "Action",
                 href=primary_tour_url or review_path,
                 secondary_action_href=primary_tour_url or "",
@@ -711,8 +711,8 @@ def handoff_detail(
             page_title=f"PropertyQuarry {handoff.summary}",
             current_nav="research",
             console_title=input_json.get("title") or handoff.summary,
-            console_summary="Property page with a 360-first read, the strongest fit evidence, and the next useful action.",
-            object_kind="Property review",
+            console_summary="",
+            object_kind="Property",
             object_title=str(input_json.get("title") or handoff.summary or "Property review"),
             object_summary=f"{_property_fit_label(assessment)} · {str(input_json.get('counterparty') or handoff.owner or 'Property scout').strip()}",
             object_media=_property_tour_media_payload(media_candidate),
@@ -721,13 +721,13 @@ def handoff_detail(
                 {"label": "Source", "value": str(input_json.get('counterparty') or "Property scout").strip() or "Property scout"},
                 {"label": "Candidates", "value": str(len(candidate_properties))},
             ],
-            object_ooda_title="Decision summary",
-            object_ooda_copy="Start with the tour, then use the quick-read rows to decide whether this property deserves deeper action.",
+            object_ooda_title="Current read",
+            object_ooda_copy="",
             object_ooda_rows=ooda_rows,
-            object_sidebar_title="Review actions",
-            object_sidebar_copy="Use this page to inspect the strongest evidence first. Raw portals and source viewers stay secondary.",
+            object_sidebar_title="Actions",
+            object_sidebar_copy="",
             object_sidebar_rows=[
-                _object_detail_row("Research summary", str(input_json.get("summary") or handoff.summary or "No research summary was captured.").strip(), "Summary"),
+                _object_detail_row("Summary", str(input_json.get("summary") or handoff.summary or "No summary was captured.").strip(), "Summary"),
                 _object_detail_row(
                     "Hosted tour",
                     primary_tour_url or "No hosted tour exists yet.",
@@ -830,18 +830,18 @@ def handoff_detail(
             page_title=f"PropertyQuarry {handoff.summary}",
             current_nav="queue",
             console_title=handoff.summary,
-            console_summary="Follow-up status, the next useful action, and the property links that still matter.",
+            console_summary="",
             object_kind="Follow-up",
             object_title=handoff.summary,
             object_summary=customer_status_label,
             object_media=_property_tour_media_payload(media_candidate) if (tour_url or vendor_tour_url) else {},
             object_meta=[
                 {"label": "Status", "value": customer_status_label},
-                {"label": "Task", "value": str(handoff.task_type or "follow_up").replace("_", " ").title()},
+                {"label": "Type", "value": str(handoff.task_type or "follow_up").replace("_", " ").title()},
                 {"label": "Due", "value": str(handoff.due_time or "")[:10] or "No due date"},
             ],
             object_sidebar_title="What to do next",
-            object_sidebar_copy="This page keeps the next action and the useful property links in one place.",
+            object_sidebar_copy="",
             object_sidebar_rows=[
                 _object_detail_row("Current status", customer_status_detail, "Status"),
                 _object_detail_row(
@@ -906,19 +906,25 @@ def handoff_detail(
                     if handoff.evidence_refs
                     else []
                 ),
-                {
-                    "eyebrow": "Recent updates",
-                    "title": "What changed",
-                    "items": [
-                        _object_detail_row(
-                            str(getattr(item, "event_name", "") or "update").replace("_", " ").title(),
-                            " · ".join(part for part in (str(item.detail or "").strip(), str(item.created_at or "")[:10]) if part)
-                            or "Update recorded.",
-                            "Update",
-                        )
-                        for item in history_rows[:5]
-                    ] or [_object_detail_row("No updates yet", "This follow-up has no recorded updates yet.", "Update")],
-                },
+                *(
+                    [
+                        {
+                            "eyebrow": "Recent updates",
+                            "title": "What changed",
+                            "items": [
+                                _object_detail_row(
+                                    str(getattr(item, "event_name", "") or "update").replace("_", " ").title(),
+                                    " · ".join(part for part in (str(item.detail or "").strip(), str(item.created_at or "")[:10]) if part)
+                                    or "Update recorded.",
+                                    "Update",
+                                )
+                                for item in history_rows[:5]
+                            ],
+                        }
+                    ]
+                    if history_rows
+                    else []
+                ),
             ],
         )
     return _render_console_object_detail(

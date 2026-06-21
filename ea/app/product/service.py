@@ -22859,7 +22859,7 @@ class ProductService:
             task_type="property_alert_review",
             role_required="operator",
             brief=_property_alert_review_brief(title),
-            why_human="Property research, fit reasoning, and review actions for this alert.",
+            why_human="Review this property and choose the next step.",
             priority=task_priority,
             input_json={
                 "title": str(title or "").strip(),

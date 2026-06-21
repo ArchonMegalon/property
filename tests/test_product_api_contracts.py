@@ -7455,7 +7455,7 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
 
     page = client.get(f"/app/handoffs/{result['human_task_id']}")
     assert page.status_code == 200
-    assert "Property research, fit reasoning, and review actions for this alert." in page.text
+    assert "Property research, fit reasoning, and review actions for this alert." not in page.text
     assert "Watch fit apartment" in page.text
     assert "Good U-Bahn access." in page.text
     assert "Lift not confirmed." in page.text
@@ -7463,6 +7463,8 @@ def test_property_alert_review_handoff_page_renders_research_packet() -> None:
     assert "https://myexternalbrain.com/tours/watch-fit-1" in page.text
     assert "https://www.immobilienscout24.at/expose/watch-fit-1" in page.text
     assert "Next question" in page.text
+    assert "Review actions" not in page.text
+    assert "Raw portals" not in page.text
     assert "NeuronWriter" not in page.text
     assert "private_packet_guard" not in page.text
     assert "public_safe" not in page.text

@@ -503,7 +503,7 @@
   <section class="object-panel">
     <div class="object-kicker">{{ object_kind }}</div>
     <h1>{{ object_title }}</h1>
-    <p class="object-copy">{{ object_summary }}</p>
+    {% if object_summary %}<p class="object-copy">{{ object_summary }}</p>{% endif %}
     {% if object_ooda_rows %}
     <section class="object-section" style="margin-top:14px;">
       <div class="object-kicker">Current read</div>
@@ -550,7 +550,7 @@
     {% if sidebar_link_state.has_links %}
     <div class="object-kicker">{{ object_sidebar_kicker or 'Open this home' }}</div>
     <h2>{{ object_sidebar_title }}</h2>
-    <p class="object-copy">{{ object_sidebar_copy }}</p>
+    {% if object_sidebar_copy %}<p class="object-copy">{{ object_sidebar_copy }}</p>{% endif %}
     <div class="object-list">
       {% for item in object_sidebar_rows %}
       {% set href = item.get('href') or '' %}
