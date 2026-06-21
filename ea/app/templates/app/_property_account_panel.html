@@ -78,9 +78,9 @@
             {% if telegram_bot_connect_url %}<a href="{{ telegram_bot_connect_url }}" target="_blank" rel="noopener">Open bot</a>{% endif %}
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
-            <label for="whatsappAiSupportPhone">WhatsApp AI support number</label>
+            <label for="whatsappAiSupportPhone">WhatsApp number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
-            <span id="whatsappAiSupportCopy">Used only for PropertyQuarry AI support. When support reaches out it asks what questions you have before giving property guidance. Scout updates go to WhatsApp only when WhatsApp is selected above.</span>
+            <span id="whatsappAiSupportCopy">Used for WhatsApp scout updates when WhatsApp is selected, and for AI support follow-up. Support starts by asking what you need before giving property guidance.</span>
           </div>
           <button class="pqx-link-button primary" type="submit">Save alerts</button>
         </form>

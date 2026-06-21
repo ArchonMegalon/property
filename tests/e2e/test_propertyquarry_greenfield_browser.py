@@ -906,6 +906,8 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         ".pqx-pref-row",
         ".pqx-account-card",
         ".pqx-account-channel-option",
+        ".pqx-account-channel-detail",
+        ".pqx-account-channel-detail input",
         ".pqx-billing-card",
         ".pqx-automation-card",
         ".pqx-automation-thumbnail",

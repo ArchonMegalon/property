@@ -1391,6 +1391,10 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-automation-delete',
         'html[data-pq-theme="dark"] .pqx-automation-history-table th',
         'html[data-pq-theme="dark"] .pqx-automation-card',
+        'html[data-pq-theme="dark"] .pqx-account-action-card',
+        'html[data-pq-theme="dark"] .pqx-account-channel-option',
+        'html[data-pq-theme="dark"] .pqx-account-channel-detail',
+        'html[data-pq-theme="dark"] .pqx-account-channel-detail input',
         'html[data-pq-theme="dark"] .pqx-account-card',
         'html[data-pq-theme="dark"] .pqx-billing-card',
         'html[data-pq-theme="dark"] .pqx-card',
@@ -8831,10 +8835,10 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'data-channel-detail="telegram"' in account.text
     assert 'data-channel-detail="whatsapp"' in account.text
     assert '.pqx-account-channel-form:has(input[name="preferred_channel"][value="whatsapp"]:checked)' in account.text
-    assert "WhatsApp AI support number" in account.text
-    assert "Used only for PropertyQuarry AI support." in account.text
-    assert "asks what questions you have before giving property guidance" in account.text
-    assert "Scout updates go to WhatsApp only when WhatsApp is selected above." in account.text
+    assert "WhatsApp number" in account.text
+    assert "Used for WhatsApp scout updates when WhatsApp is selected" in account.text
+    assert "Support starts by asking what you need before giving property guidance" in account.text
+    assert "Used only for PropertyQuarry AI support." not in account.text
     assert "Save alerts and AI support number" not in account.text
     assert 'name="whatsapp_ai_support_phone"' in account.text
     assert "PropertyQuarry bot" in account.text
@@ -8898,6 +8902,28 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
         principal_id=principal_id
     )
     assert contact_hint["phone_number"] == "+436647916419"
+
+    whatsapp_update = client.post(
+        "/app/api/property/account/notifications",
+        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert whatsapp_update.status_code == 303
+    export_after_whatsapp = client.get("/app/api/property/account/export", headers=headers)
+    assert export_after_whatsapp.status_code == 200
+    whatsapp_preferences = export_after_whatsapp.json()["delivery_preferences"]["property_notifications"]
+    assert whatsapp_preferences["preferred_channel"] == "whatsapp"
+    assert whatsapp_preferences["whatsapp_notification_opt_in"] is True
+
+    signal_update = client.post(
+        "/app/api/property/account/notifications",
+        data={"preferred_channel": "signal", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert signal_update.status_code == 400
+    assert "property_notification_channel_invalid" in signal_update.text
 
     download = client.get("/app/api/property/account/export?download=1", headers=headers)
     assert download.status_code == 200
