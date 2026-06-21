@@ -45,12 +45,15 @@ def test_script_receipt_is_review_required_and_never_publishable(monkeypatch, tm
 
 def test_subscribr_webhook_requires_signature_and_rejects_replay(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_SUBSCRIBR_COMPLETION_DIR", str(tmp_path / "completion"))
-    monkeypatch.setenv("PROPERTYQUARRY_CONTENT_JOB_LEDGER", str(tmp_path / "ledger.json"))
+    ledger_path = tmp_path / "ledger.json"
+    monkeypatch.setenv("PROPERTYQUARRY_CONTENT_JOB_LEDGER", str(ledger_path))
     monkeypatch.setenv("SUBSCRIBR_PROPERTY_WEBHOOK_SECRET", "webhook-secret")
+    packet = build_synthetic_dossier_source_packet()
+    PropertyContentStudio(ledger=PropertyContentJobLedger(path=ledger_path)).prepare_source_packet(packet)
     payload = {
         "event_id": "evt-1",
         "event_type": "script.generated",
-        "packet": build_synthetic_dossier_source_packet(),
+        "packet_id": packet["packet_id"],
         "markdown": _markdown(),
         "channel_id": "212",
         "idea_id": "idea-1",
@@ -70,4 +73,53 @@ def test_subscribr_webhook_requires_signature_and_rejects_replay(monkeypatch, tm
     assert accepted.json()["receipt"]["publication_allowed"] is False
     assert replay.status_code == 200
     assert replay.json()["status"] == "duplicate_ignored"
+    event_row = PropertyContentJobLedger(path=ledger_path)._load()["webhook_events"]["evt-1"]
+    assert event_row["signature_status"] == "verified"
+    assert event_row["raw_body_sha256"] == hashlib.sha256(raw).hexdigest()
 
+
+def test_subscribr_webhook_uses_only_local_source_packets(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_SUBSCRIBR_COMPLETION_DIR", str(tmp_path / "completion"))
+    monkeypatch.setenv("PROPERTYQUARRY_CONTENT_JOB_LEDGER", str(tmp_path / "ledger.json"))
+    monkeypatch.setenv("SUBSCRIBR_PROPERTY_WEBHOOK_SECRET", "webhook-secret")
+    payload = {
+        "event_id": "evt-inline-packet",
+        "event_type": "script.generated",
+        "packet": build_synthetic_dossier_source_packet(),
+        "markdown": _markdown(),
+    }
+    raw = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+    signature = "sha256=" + hmac.new(b"webhook-secret", raw, hashlib.sha256).hexdigest()
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
+
+    response = client.post("/internal/providers/subscribr/webhook", content=raw, headers={"x-subscribr-signature": signature})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "received"
+    assert response.json()["next"] == "await_local_source_packet"
+    assert not list((tmp_path / "completion").glob("*.generated.json"))
+
+
+def test_subscribr_webhook_does_not_treat_non_completion_event_as_script(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_SUBSCRIBR_COMPLETION_DIR", str(tmp_path / "completion"))
+    ledger_path = tmp_path / "ledger.json"
+    monkeypatch.setenv("PROPERTYQUARRY_CONTENT_JOB_LEDGER", str(ledger_path))
+    monkeypatch.setenv("SUBSCRIBR_PROPERTY_WEBHOOK_SECRET", "webhook-secret")
+    packet = build_synthetic_dossier_source_packet()
+    PropertyContentStudio(ledger=PropertyContentJobLedger(path=ledger_path)).prepare_source_packet(packet)
+    payload = {
+        "event_id": "evt-idea-created",
+        "event_type": "idea.created",
+        "packet_id": packet["packet_id"],
+        "markdown": _markdown(),
+    }
+    raw = json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+    signature = "sha256=" + hmac.new(b"webhook-secret", raw, hashlib.sha256).hexdigest()
+    client = TestClient(create_app(), base_url="https://propertyquarry.com")
+
+    response = client.post("/internal/providers/subscribr/webhook", content=raw, headers={"x-subscribr-signature": signature})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "received"
+    assert response.json()["next"] == "wait_for_script_generated_or_export_completed"
+    assert not list((tmp_path / "completion").glob("*.generated.json"))

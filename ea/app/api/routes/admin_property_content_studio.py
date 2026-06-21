@@ -23,6 +23,7 @@ from app.services.property_content_validation import validate_property_content_s
 authenticated_router = APIRouter(tags=["property-content-studio"])
 public_router = APIRouter(prefix="/internal/providers/subscribr", tags=["subscribr"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+_SUBSCRIBR_SCRIPT_COMPLETION_EVENTS = frozenset({"script.generated", "export.completed"})
 
 
 class ContentPacketValidateIn(BaseModel):
@@ -65,6 +66,10 @@ def _event_id(payload: dict[str, object]) -> str:
         or payload.get("webhookEventId")
         or ""
     ).strip()
+
+
+def _event_type(payload: dict[str, object]) -> str:
+    return str(payload.get("type") or payload.get("event") or payload.get("event_type") or "").strip()
 
 
 def _verify_subscribr_signature(*, raw_body: bytes, signature: str, timestamp: str = "") -> None:
@@ -158,23 +163,48 @@ async def subscribr_webhook(request: Request) -> dict[str, object]:
     event_id = _event_id(payload)
     if not event_id:
         raise HTTPException(status_code=422, detail="subscribr_webhook_event_id_required")
+    event_type = _event_type(payload)
     studio = _studio()
     if studio.ledger.webhook_seen(event_id):
         return {"status": "duplicate_ignored", "event_id": event_id}
-    studio.ledger.record_webhook_event(event_id=event_id, payload=payload, status="received")
-    packet = payload.get("packet") if isinstance(payload.get("packet"), dict) else {}
-    if not packet:
-        packet_id = str(payload.get("packet_id") or payload.get("packetId") or "").strip()
-        row = studio.ledger.get_job(packet_id) if packet_id else None
-        packet = dict(row.get("source_packet_json") or {}) if isinstance(row, dict) else {}
+    studio.ledger.record_webhook_event(
+        event_id=event_id,
+        payload=payload,
+        status="received",
+        extra={
+            "raw_body_sha256": hashlib.sha256(raw_body).hexdigest(),
+            "signature_status": "verified",
+            "timestamp": str(request.headers.get("x-subscribr-timestamp") or "").strip(),
+        },
+    )
+    if event_type and event_type not in _SUBSCRIBR_SCRIPT_COMPLETION_EVENTS:
+        return {
+            "status": "received",
+            "event_id": event_id,
+            "event_type": event_type,
+            "next": "wait_for_script_generated_or_export_completed",
+            "publication_allowed": False,
+        }
+    packet_id = str(payload.get("packet_id") or payload.get("packetId") or "").strip()
+    inline_packet = payload.get("packet") if isinstance(payload.get("packet"), dict) else {}
+    if not packet_id and inline_packet:
+        packet_id = str(inline_packet.get("packet_id") or "").strip()
+    row = studio.ledger.get_job(packet_id) if packet_id else None
+    packet = dict(row.get("source_packet_json") or {}) if isinstance(row, dict) else {}
     markdown = str(payload.get("markdown") or payload.get("script_markdown") or payload.get("export_markdown") or "")
     if packet and markdown:
         receipt = studio.ingest_completed_script(packet=packet, event_payload=payload, markdown=markdown)
         return {"status": "review_required", "event_id": event_id, "receipt": receipt}
+    if markdown and not packet:
+        return {
+            "status": "received",
+            "event_id": event_id,
+            "next": "await_local_source_packet",
+            "publication_allowed": False,
+        }
     return {
         "status": "received",
         "event_id": event_id,
         "next": "export_script_and_validate",
         "publication_allowed": False,
     }
-

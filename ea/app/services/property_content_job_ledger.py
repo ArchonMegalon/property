@@ -113,7 +113,14 @@ class PropertyContentJobLedger:
         events = data.get("webhook_events") if isinstance(data.get("webhook_events"), dict) else {}
         return str(event_id or "") in events
 
-    def record_webhook_event(self, *, event_id: str, payload: dict[str, object], status: str) -> dict[str, object]:
+    def record_webhook_event(
+        self,
+        *,
+        event_id: str,
+        payload: dict[str, object],
+        status: str,
+        extra: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         event_ref = str(event_id or "").strip()
         if not event_ref:
             raise ValueError("subscribr_webhook_event_id_required")
@@ -135,6 +142,8 @@ class PropertyContentJobLedger:
             "event_type": str(payload.get("type") or payload.get("event") or payload.get("event_type") or ""),
             "payload_sha256": sha256_json(payload),
         }
+        if extra:
+            row.update(extra)
         events[event_ref] = row
         self._write(data)
         return row
