@@ -837,9 +837,9 @@ def _property_search_broaden_suggestions(
     if bool(request_preferences.get("require_floorplan")) and floorplan_total > 0:
         suggestions.append(
             {
-                "title": "Run one discovery pass without layout proof",
-                "detail": "Keep these homes visible while layout proof is recovered in the background.",
-                "tag": "Evidence",
+                "title": "Run one discovery pass without a required floorplan",
+                "detail": "Keep these homes visible while floorplan evidence is recovered in the background.",
+                "tag": "Floorplan",
                 "action_label": "Run discovery pass",
                 "adjustments": {"require_floorplan": False},
             }
@@ -1333,9 +1333,9 @@ def _property_research_tasks_from_result(
                         "task_id": task_id,
                         "kind": "floorplan_recovery",
                         "field": "floorplan_recovery",
-                        "label": "Recover layout proof for held-back homes",
+                        "label": "Recover floorplans for held-back homes",
                         "status": "queued",
-                        "status_label": "Workers checking",
+                        "status_label": "Checking",
                         "priority": "high",
                         "property_ref": property_ref[:500],
                         "property_url": property_url[:800],
@@ -10164,7 +10164,7 @@ def _property_decision_copilot_answer(
         answer = (
             "To make this property pass the brief, remove the strongest blockers or convert the missing facts into verified answers first."
             if blocker_labels
-            else "This property needs more proof before it can move from maybe to pursue."
+            else "This property needs clearer answers before it can move from maybe to pursue."
         )
         for row in negative[:3]:
             evidence.append(
@@ -11196,7 +11196,7 @@ def _property_tour_followup_telegram_text(
     if str(blocked_reason or "").strip() == "listing_360_media_missing":
         next_action = "Next: open the listing and continue once the 360/tour media path is available."
     elif str(blocked_reason or "").strip() == "browseract_connector_unconfigured":
-        next_action = "Next: reconnect the tour worker and regenerate the tour."
+        next_action = "Next: reconnect the tour path and regenerate the tour."
     elif str(blocked_reason or "").strip() == "property_tour_execution_failed":
         next_action = "Next: retry the tour generation path for this listing."
     elif str(blocked_reason or "").strip() == "property_tour_delivery_failed":

@@ -6227,6 +6227,7 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
         repo_root / "ea/app/api/routes/landing_view_models.py",
         repo_root / "ea/app/api/routes/landing_objects.py",
         repo_root / "ea/app/api/routes/landing_property_workspace_helpers.py",
+        repo_root / "ea/app/product/service.py",
     ]
     forbidden = (
         "Artifact receipts",
@@ -6242,6 +6243,12 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
         "checkout truth",
         "settings noise",
         "Layout proof rule",
+        "Run one discovery pass without layout proof",
+        "Recover layout proof for held-back homes",
+        "Workers checking",
+        "This property needs more proof before it can move from maybe to pursue.",
+        "reconnect the tour worker",
+        "recurring-cost proof visible",
         "Writing quality check",
         "Visible proof",
         "Run proof",

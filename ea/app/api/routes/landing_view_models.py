@@ -3985,7 +3985,7 @@ def app_section_payload(
                 "label": "Require operating-cost evidence",
                 "value": "true",
                 "checked": bool(property_preferences.get("require_operating_cost_statement")),
-                "tooltip": "Keep Betriebskosten and recurring-cost proof visible before a property is treated as ready for pursuit.",
+                "tooltip": "Keep Betriebskosten and recurring-cost evidence visible before a property is treated as ready for pursuit.",
                 "step": "research",
                 "hidden": land_only_search,
             },
