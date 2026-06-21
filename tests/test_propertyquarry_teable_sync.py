@@ -441,6 +441,57 @@ def test_propertyquarry_teable_sync_uses_dedicated_property_tables_when_ready(mo
     assert body["tool_execution"]["receipt_json"]["rows_upserted"] == 4
 
 
+def test_propertyquarry_teable_sync_discovers_property_tables_from_base_credentials(monkeypatch) -> None:
+    client = build_product_client(principal_id="pq-teable-discovery")
+    container = client.app.state.container
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+    monkeypatch.delenv("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.delenv("TEABLE_TABLE_SYNC_CONFIG_JSON", raising=False)
+    monkeypatch.setenv("TEABLE_API_KEY", "teable-key")
+    monkeypatch.setenv("PROPERTYQUARRY_TEABLE_BASE_ID", "base-propertyquarry")
+    monkeypatch.setenv("TEABLE_BASE_URL", "https://teable.example")
+    monkeypatch.setattr(
+        product_service,
+        "discover_propertyquarry_teable_table_config",
+        lambda **kwargs: _propertyquarry_teable_mapping(),
+    )
+    monkeypatch.setattr(
+        container.provider_registry,
+        "candidate_routes_by_capability_with_context",
+        lambda **_: (
+            SimpleNamespace(
+                provider_key="teable",
+                capability_key="table_sync",
+                tool_name="provider.teable.table_sync",
+                executable=True,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        container.provider_registry,
+        "binding_state",
+        lambda provider_key, principal_id=None: SimpleNamespace(
+            provider_key=provider_key,
+            display_name="Teable",
+            state="ready",
+            enabled=True,
+            executable=True,
+            binding_id=f"{principal_id}:teable",
+            secret_configured=True,
+            updated_at="2026-06-21T00:00:00Z",
+        ),
+    )
+    monkeypatch.setattr(product_service.ProductService, "_teable_sync_runtime_available", lambda self, *, base_url: (True, ""))
+
+    response = client.get("/app/api/property/teable-sync-preview")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["provider"]["table_sync_configured"] is True
+    assert body["provider"]["missing_tables"] == []
+    assert set(body["sync_payload_json"]["table_config_json"]) == set(PROPERTYQUARRY_TEABLE_TABLE_NAMES)
+
+
 def test_propertyquarry_teable_sync_keeps_projection_state_when_migrating_teable_host(monkeypatch) -> None:
     client = build_product_client(principal_id="pq-teable-portable")
     container = client.app.state.container

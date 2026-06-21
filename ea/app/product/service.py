@@ -228,6 +228,7 @@ from app.services.propertyquarry_teable_projection import (
     _safe_teable_facts,
     build_propertyquarry_teable_projection_records,
     build_propertyquarry_teable_projection_summary,
+    discover_propertyquarry_teable_table_config,
     propertyquarry_teable_tenant_key,
 )
 from app.services.telegram_delivery import (
@@ -17710,19 +17711,24 @@ class ProductService:
         raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
         if not raw:
             raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
-        if not raw:
-            return {}
-        try:
-            loaded = json.loads(raw)
-        except Exception:
-            return {}
-        if not isinstance(loaded, dict):
-            return {}
-        return {
-            str(table_name or "").strip(): dict(table_config or {})
-            for table_name, table_config in dict(loaded or {}).items()
-            if str(table_name or "").strip() and isinstance(table_config, dict)
-        }
+        if raw:
+            try:
+                loaded = json.loads(raw)
+            except Exception:
+                loaded = {}
+            if isinstance(loaded, dict):
+                config = {
+                    str(table_name or "").strip(): dict(table_config or {})
+                    for table_name, table_config in dict(loaded or {}).items()
+                    if str(table_name or "").strip() and isinstance(table_config, dict)
+                }
+                if config:
+                    return config
+        return discover_propertyquarry_teable_table_config(
+            base_url=str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/"),
+            api_key=str(os.environ.get("TEABLE_API_KEY") or "").strip(),
+            base_id=str(os.environ.get("PROPERTYQUARRY_TEABLE_BASE_ID") or os.environ.get("TEABLE_BASE_ID") or "").strip(),
+        )
 
     def _propertyquarry_teable_missing_table_mappings(self, config: dict[str, dict[str, object]]) -> list[str]:
         missing: list[str] = []

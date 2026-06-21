@@ -14,7 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ea"))
 
 from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRepository  # noqa: E402
-from app.services.propertyquarry_teable_projection import PROPERTYQUARRY_TEABLE_TABLE_NAMES  # noqa: E402
+from app.services.propertyquarry_teable_projection import (  # noqa: E402
+    PROPERTYQUARRY_TEABLE_TABLE_NAMES,
+    discover_propertyquarry_teable_table_config,
+)
 
 
 def _jsonable(value: object) -> object:
@@ -28,12 +31,19 @@ def _jsonable(value: object) -> object:
     return value
 
 
-def _table_config_from_env() -> dict[str, dict[str, object]]:
+def _table_config_from_env(*, base_url: str, api_key: str, base_id: str) -> dict[str, dict[str, object]]:
     raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
     if not raw:
         raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
     if not raw:
-        raise SystemExit("missing PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON")
+        discovered = discover_propertyquarry_teable_table_config(
+            base_url=base_url,
+            api_key=api_key,
+            base_id=base_id,
+        )
+        if discovered:
+            return discovered
+        raise SystemExit("missing PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON or PROPERTYQUARRY_TEABLE_BASE_ID")
     try:
         loaded = json.loads(raw)
     except Exception as exc:
@@ -298,6 +308,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Restore PropertyQuarry account/results state from Teable projections.")
     parser.add_argument("--principal-id", required=True)
     parser.add_argument("--base-url", default=os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai")
+    parser.add_argument("--base-id", default=os.environ.get("PROPERTYQUARRY_TEABLE_BASE_ID") or os.environ.get("TEABLE_BASE_ID") or "")
     parser.add_argument("--api-key", default=os.environ.get("TEABLE_API_KEY") or "")
     parser.add_argument("--output", default="")
     parser.add_argument("--apply", action="store_true")
@@ -309,7 +320,11 @@ def main() -> int:
     records = fetch_teable_projection_records(
         base_url=str(args.base_url or "https://app.teable.ai"),
         api_key=api_key,
-        table_config=_table_config_from_env(),
+        table_config=_table_config_from_env(
+            base_url=str(args.base_url or "https://app.teable.ai"),
+            api_key=api_key,
+            base_id=str(args.base_id or ""),
+        ),
     )
     bundle = build_restore_bundle(principal_id=str(args.principal_id), records_by_table=records)
     if args.output:

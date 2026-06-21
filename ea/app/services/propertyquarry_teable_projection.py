@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 import os
 from typing import Any
+import urllib.error
+import urllib.parse
+import urllib.request
 
 
 PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
@@ -358,6 +362,65 @@ def propertyquarry_teable_tenant_key() -> str:
 
 def propertyquarry_teable_tenant_name() -> str:
     return str(os.environ.get("PROPERTYQUARRY_TEABLE_TENANT_NAME") or "PropertyQuarry").strip() or "PropertyQuarry"
+
+
+def propertyquarry_teable_table_config_from_table_ids(table_ids: dict[str, str]) -> dict[str, dict[str, object]]:
+    return {
+        table_name: {
+            "table_id": str(table_ids.get(table_name) or "").strip(),
+            "key_field": "projection_id",
+            "field_key_type": "name",
+        }
+        for table_name in PROPERTYQUARRY_TEABLE_TABLE_NAMES
+        if str(table_ids.get(table_name) or "").strip()
+    }
+
+
+def discover_propertyquarry_teable_table_config(
+    *,
+    base_url: str,
+    api_key: str,
+    base_id: str,
+) -> dict[str, dict[str, object]]:
+    normalized_base_url = str(base_url or "https://app.teable.ai").strip().rstrip("/")
+    normalized_api_key = str(api_key or "").strip()
+    normalized_base_id = str(base_id or "").strip()
+    if not normalized_api_key or not normalized_base_id:
+        return {}
+    request = urllib.request.Request(
+        f"{normalized_base_url}/api/base/{urllib.parse.quote(normalized_base_id)}/table",
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {normalized_api_key}",
+            "Accept": "application/json",
+            "User-Agent": "PropertyQuarryTeableDiscovery/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = response.read().decode("utf-8")
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        return {}
+    try:
+        loaded = json.loads(payload)
+    except Exception:
+        return {}
+    candidates: list[dict[str, object]] = []
+    if isinstance(loaded, list):
+        candidates = [dict(item) for item in loaded if isinstance(item, dict)]
+    elif isinstance(loaded, dict):
+        for key in ("tables", "data", "items"):
+            rows = loaded.get(key)
+            if isinstance(rows, list):
+                candidates = [dict(item) for item in rows if isinstance(item, dict)]
+                break
+    table_ids: dict[str, str] = {}
+    for item in candidates:
+        name = str(item.get("name") or item.get("tableName") or "").strip()
+        table_id = str(item.get("id") or item.get("tableId") or "").strip()
+        if name and table_id:
+            table_ids[name] = table_id
+    return propertyquarry_teable_table_config_from_table_ids(table_ids)
 
 
 def _now_iso() -> str:
