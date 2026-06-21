@@ -34840,13 +34840,13 @@ class ProductService:
             else "watch"
         )
         office_loop_summary = (
-            "Office-loop proof is strong enough to hold the wedge."
+            "Workspace progress is strong enough to trust the daily flow."
             if office_loop_state == "clear"
-            else "Office-loop proof is blocked by a current memo delivery issue."
+            else "Workspace progress is blocked by a current delivery issue."
             if memo_issue_reason
-            else "Office-loop proof is incomplete and needs another clean cycle."
+            else "Workspace progress needs another clean cycle."
             if office_loop_state == "critical"
-            else "Office-loop proof is forming, but one or two gates still need work."
+            else "Workspace progress is forming, but one or two signals still need work."
         )
         return {
             "generated_at": _now_iso(),

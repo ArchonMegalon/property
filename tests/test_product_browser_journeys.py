@@ -45,7 +45,10 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Rules" in settings.text
     assert "Morning memo delivery" in settings.text
     assert "What is feeding the office loop" in settings.text
-    assert "Office-loop proof" in settings.text
+    assert "Workspace progress" in settings.text
+    assert "Office-loop proof" not in settings.text
+    assert "release proof" not in settings.text.lower()
+    assert "Journey proof" not in settings.text
     assert "Journey gate health" in settings.text
     assert "Connect now" in settings.text
     assert "/app/settings/outcomes" in settings.text
