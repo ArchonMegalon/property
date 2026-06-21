@@ -37097,6 +37097,35 @@ class ProductService:
                     ),
                 )
                 return payload
+        try:
+            outbound_score = max(0.0, float(fit_score or 0.0))
+        except Exception:
+            outbound_score = 0.0
+        outbound_min_score = _property_scout_outbound_notification_min_score()
+        if outbound_score < outbound_min_score:
+            payload = {
+                "status": "suppressed",
+                "reason": "fit_below_outbound_threshold",
+                "property_ref": str(property_ref or "").strip(),
+                "source_ref": str(source_id or property_ref or "").strip(),
+                "fit_score": round(float(outbound_score or 0.0), 2),
+                "min_score": round(float(outbound_min_score or 0.0), 2),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type=f"{template_kind_normalized}_heyy_suppressed_low_score",
+                payload={
+                    **payload,
+                    "property_title": str(property_title or "").strip(),
+                    "actor": str(actor or "").strip() or "property_scout",
+                },
+                source_id=str(source_id or property_ref or property_title).strip(),
+                dedupe_key=(
+                    f"{principal_id}|{source_id or property_ref or property_title}|"
+                    f"fit-below-outbound-threshold|{template_kind_normalized}-heyy-suppressed"
+                ),
+            )
+            return payload
         contact = self._heyy_whatsapp_contact_hint(principal_id=principal_id)
         phone_number = str(contact.get("phone_number") or "").strip()
         channel_id = str(contact.get("channel_id") or "").strip()

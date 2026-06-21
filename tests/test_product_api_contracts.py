@@ -923,6 +923,44 @@ def test_property_scout_heyy_notification_honors_stop_command(monkeypatch) -> No
     assert result == {"status": "suppressed", "reason": "heyy_whatsapp_stopped"}
 
 
+def test_property_scout_heyy_notification_enforces_sixty_score_floor(monkeypatch) -> None:
+    principal_id = "cf-email:heyy-scout-low-score@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Heyy Scout Low Score", selected_channels=["whatsapp"])
+    onboarding = client.app.state.container.onboarding
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    onboarding._replace_channel_pref(  # noqa: SLF001
+        state,
+        "whatsapp",
+        {"mode": "business", "phone_number": "+436647916419"},
+        status="in_progress",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_MATCH", "tmpl-property-match")
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: pytest.fail("low-score WhatsApp scout alert was sent"),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = service._send_heyy_property_match_notification(
+        principal_id=principal_id,
+        actor="property_scout",
+        template_kind="property_match",
+        property_ref="property-scout:low-score",
+        property_title="Low-score scout alert",
+        fit_score=50.0,
+        reason="ask for clarification",
+        missing_fact="Location evidence",
+        source_id="property-scout:low-score",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "fit_below_outbound_threshold"
+    assert result["fit_score"] == 50.0
+    assert result["min_score"] == 60.0
+
+
 def test_property_scout_heyy_notification_suppresses_out_of_scope_candidate(monkeypatch) -> None:
     principal_id = "cf-email:heyy-scout-location-guard@example.com"
     client = build_product_client(principal_id=principal_id)
