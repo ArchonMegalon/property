@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -167,6 +169,46 @@ def _coerce_dict(value: object) -> dict[str, object]:
     return {}
 
 
+def _stable_ref(value: object, *, prefix: str) -> str:
+    raw = str(value or "").strip()
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+    return f"{prefix}:{digest}"
+
+
+def _projection_alias(value: object, *, prefix: str) -> str:
+    raw = str(value or "").strip() or f"{prefix}:unknown"
+    return _stable_ref(raw, prefix=prefix)
+
+
+def _principal_tokens(principal_id: str) -> set[str]:
+    normalized = str(principal_id or "").strip()
+    if not normalized:
+        return set()
+    return {normalized, _projection_alias(normalized, prefix="principal")}
+
+
+def _matches_principal(row: dict[str, object], *, principal_id: str) -> bool:
+    tokens = _principal_tokens(principal_id)
+    if not tokens:
+        return False
+    row_principal = str(row.get("principal_id") or "").strip()
+    return row_principal in tokens
+
+
+def _restored_person_id(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or text.startswith("person:"):
+        return "self"
+    return text
+
+
+def _created_at(value: object) -> str:
+    text = str(value or "").strip()
+    if text:
+        return text
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
 def _saved_candidates_from_evaluations(
     *,
     principal_id: str,
@@ -180,7 +222,7 @@ def _saved_candidates_from_evaluations(
     candidates: list[dict[str, object]] = []
     seen: set[str] = set()
     for row in records_by_table.get("propertyquarry_property_evaluations", []):
-        if str(row.get("principal_id") or "").strip() != principal_id:
+        if not _matches_principal(row, principal_id=principal_id):
             continue
         property_ref = str(row.get("property_ref") or "").strip()
         if not property_ref or property_ref in seen:
@@ -207,6 +249,118 @@ def _saved_candidates_from_evaluations(
         candidates.append(candidate)
     candidates.sort(key=lambda item: float(item.get("fit_score") or 0), reverse=True)
     return candidates[:200]
+
+
+def _decision_loop_rows_from_records(
+    *,
+    principal_id: str,
+    records_by_table: dict[str, list[dict[str, object]]],
+) -> dict[str, list[dict[str, object]]]:
+    restored: dict[str, list[dict[str, object]]] = {
+        "propertyquarry_decision_ledger": [],
+        "propertyquarry_evidence_claims": [],
+        "propertyquarry_agent_questions": [],
+        "propertyquarry_documents": [],
+    }
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        return restored
+    for row in records_by_table.get("propertyquarry_decision_ledger", []):
+        if not _matches_principal(row, principal_id=normalized_principal):
+            continue
+        restored["propertyquarry_decision_ledger"].append(
+            {
+                "decision_id": str(row.get("decision_id") or "").strip(),
+                "principal_id": normalized_principal,
+                "person_id": _restored_person_id(row.get("person_id")),
+                "property_ref": str(row.get("property_ref") or "").strip(),
+                "decision_state": str(row.get("decision_state") or "reviewing").strip() or "reviewing",
+                "reason_keys_json": _coerce_list(row.get("reason_keys_json")),
+                "source": str(row.get("source") or "system").strip() or "system",
+                "actor": str(row.get("actor") or "teable_restore").strip() or "teable_restore",
+                "confidence": row.get("confidence") if row.get("confidence") not in (None, "") else 0.7,
+                "supersedes_decision_id": str(row.get("supersedes_decision_id") or "").strip(),
+                "learning_applied": bool(row.get("learning_applied")),
+                "aggregate_candidate": bool(row.get("aggregate_candidate")),
+                "created_at": _created_at(row.get("created_at")),
+            }
+        )
+    for row in records_by_table.get("propertyquarry_evidence_claims", []):
+        if not _matches_principal(row, principal_id=normalized_principal):
+            continue
+        restored["propertyquarry_evidence_claims"].append(
+            {
+                "claim_id": str(row.get("claim_id") or "").strip(),
+                "principal_id": normalized_principal,
+                "person_id": _restored_person_id(row.get("person_id")),
+                "property_ref": str(row.get("property_ref") or "").strip(),
+                "decision_id": str(row.get("decision_id") or "").strip(),
+                "claim_type": str(row.get("claim_type") or "fact").strip() or "fact",
+                "claim_text": str(row.get("claim_text") or row.get("text") or "").strip(),
+                "source_type": str(row.get("source_type") or "teable_restore").strip() or "teable_restore",
+                "source_ref": str(row.get("source_ref") or "").strip(),
+                "confidence": str(row.get("confidence") or "medium").strip() or "medium",
+                "verification_state": str(row.get("verification_state") or "unclear").strip() or "unclear",
+                "privacy_class": str(row.get("privacy_class") or "owner_private").strip() or "owner_private",
+                "allowed_outputs_json": _coerce_list(row.get("allowed_outputs_json")),
+                "expires_at": str(row.get("expires_at") or "").strip(),
+                "created_at": _created_at(row.get("created_at")),
+            }
+        )
+    for row in records_by_table.get("propertyquarry_agent_questions", []):
+        if not _matches_principal(row, principal_id=normalized_principal):
+            continue
+        restored["propertyquarry_agent_questions"].append(
+            {
+                "task_id": str(row.get("task_id") or "").strip(),
+                "principal_id": normalized_principal,
+                "person_id": _restored_person_id(row.get("person_id")),
+                "property_ref": str(row.get("property_ref") or "").strip(),
+                "decision_id": str(row.get("decision_id") or "").strip(),
+                "question_text": str(row.get("question_text") or "").strip(),
+                "reason_key": str(row.get("reason_key") or "").strip(),
+                "source_claim_id": str(row.get("source_claim_id") or "").strip(),
+                "status": str(row.get("status") or "drafted").strip() or "drafted",
+                "answer_source": str(row.get("answer_source") or "").strip(),
+                "updated_claim_id": str(row.get("updated_claim_id") or "").strip(),
+                "created_at": _created_at(row.get("created_at")),
+            }
+        )
+    for row in records_by_table.get("propertyquarry_documents", []):
+        if not _matches_principal(row, principal_id=normalized_principal):
+            continue
+        restored["propertyquarry_documents"].append(
+            {
+                "document_id": str(row.get("document_id") or "").strip(),
+                "principal_id": normalized_principal,
+                "person_id": _restored_person_id(row.get("person_id")),
+                "property_ref": str(row.get("property_ref") or "").strip(),
+                "decision_id": str(row.get("decision_id") or "").strip(),
+                "document_type": str(row.get("document_type") or "").strip(),
+                "source": str(row.get("source") or "").strip(),
+                "privacy_class": str(row.get("privacy_class") or "owner_private").strip() or "owner_private",
+                "verification_state": str(row.get("verification_state") or "missing").strip() or "missing",
+                "extracted_claims_json": _coerce_list(row.get("extracted_claims_json")),
+                "missing_pages_json": _coerce_list(row.get("missing_pages_json")),
+                "redaction_state": str(row.get("redaction_state") or "not_started").strip() or "not_started",
+                "linked_risks_json": _coerce_list(row.get("linked_risks_json")),
+                "created_at": _created_at(row.get("created_at")),
+            }
+        )
+    identity_fields = {
+        "propertyquarry_decision_ledger": "decision_id",
+        "propertyquarry_evidence_claims": "claim_id",
+        "propertyquarry_agent_questions": "task_id",
+        "propertyquarry_documents": "document_id",
+    }
+    return {
+        table_name: [
+            row
+            for row in rows
+            if str(row.get(identity_fields[table_name]) or "").strip()
+        ]
+        for table_name, rows in restored.items()
+    }
 
 
 def build_restore_bundle(
@@ -256,6 +410,14 @@ def build_restore_bundle(
         "whatsapp_ai_support_purpose": str(delivery.get("whatsapp_ai_support_purpose") or "").strip(),
         "signal_status": str(delivery.get("signal_status") or "coming_soon").strip(),
     }
+    decision_loop_rows = _decision_loop_rows_from_records(
+        principal_id=normalized_principal,
+        records_by_table=records_by_table,
+    )
+    decision_loop_counts = {
+        table_name: len(rows)
+        for table_name, rows in decision_loop_rows.items()
+    }
     return {
         "contract_name": "propertyquarry.teable_restore_bundle.v1",
         "principal_id": normalized_principal,
@@ -272,6 +434,8 @@ def build_restore_bundle(
             "status": "completed",
         },
         "saved_result_count": len(saved_candidates),
+        "decision_loop_counts": decision_loop_counts,
+        "decision_loop_rows": decision_loop_rows,
         "source_tables": {
             table_name: len(records_by_table.get(table_name) or [])
             for table_name in PROPERTYQUARRY_TEABLE_TABLE_NAMES
@@ -297,11 +461,185 @@ def apply_restore_bundle(*, bundle: dict[str, object], database_url: str) -> dic
         channel_preferences_json=_coerce_dict(state.get("channel_preferences_json")),
         status=str(state.get("status") or "completed"),
     )
+    decision_loop_result = apply_decision_loop_restore_bundle(bundle=bundle, database_url=database_url)
     return {
         "status": "applied",
         "principal_id": saved.principal_id,
         "selected_channels": list(saved.selected_channels),
         "saved_result_count": bundle.get("saved_result_count"),
+        "decision_loop_restored": decision_loop_result,
+    }
+
+
+def apply_decision_loop_restore_bundle(*, bundle: dict[str, object], database_url: str) -> dict[str, object]:
+    decision_loop_rows = _coerce_dict(bundle.get("decision_loop_rows"))
+    if not decision_loop_rows:
+        return {
+            "propertyquarry_decision_ledger": 0,
+            "propertyquarry_evidence_claims": 0,
+            "propertyquarry_agent_questions": 0,
+            "propertyquarry_documents": 0,
+        }
+    from app.repositories.property_decision_loop_postgres import PostgresPropertyDecisionLoopRepository
+
+    repo = PostgresPropertyDecisionLoopRepository(database_url)
+    decision_rows = [dict(row) for row in _coerce_list(decision_loop_rows.get("propertyquarry_decision_ledger")) if isinstance(row, dict)]
+    evidence_rows = [dict(row) for row in _coerce_list(decision_loop_rows.get("propertyquarry_evidence_claims")) if isinstance(row, dict)]
+    question_rows = [dict(row) for row in _coerce_list(decision_loop_rows.get("propertyquarry_agent_questions")) if isinstance(row, dict)]
+    document_rows = [dict(row) for row in _coerce_list(decision_loop_rows.get("propertyquarry_documents")) if isinstance(row, dict)]
+    with repo._connect() as conn:  # noqa: SLF001 - restore script uses the repository connection and schema setup.
+        with conn.cursor() as cur:
+            for row in decision_rows:
+                if not str(row.get("decision_id") or "").strip():
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO property_decision_ledger (
+                        decision_id, principal_id, person_id, property_ref, decision_state,
+                        reason_keys_json, source, actor, confidence, supersedes_decision_id,
+                        learning_applied, aggregate_candidate, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (decision_id) DO UPDATE
+                    SET principal_id = EXCLUDED.principal_id,
+                        person_id = EXCLUDED.person_id,
+                        property_ref = EXCLUDED.property_ref,
+                        decision_state = EXCLUDED.decision_state,
+                        reason_keys_json = EXCLUDED.reason_keys_json,
+                        learning_applied = EXCLUDED.learning_applied,
+                        aggregate_candidate = EXCLUDED.aggregate_candidate
+                    """,
+                    (
+                        str(row.get("decision_id") or "").strip(),
+                        str(row.get("principal_id") or "").strip(),
+                        str(row.get("person_id") or "self").strip() or "self",
+                        str(row.get("property_ref") or "").strip(),
+                        str(row.get("decision_state") or "reviewing").strip() or "reviewing",
+                        repo._json_value(_coerce_list(row.get("reason_keys_json"))),  # noqa: SLF001
+                        str(row.get("source") or "system").strip() or "system",
+                        str(row.get("actor") or "teable_restore").strip() or "teable_restore",
+                        float(row.get("confidence") or 0.7),
+                        str(row.get("supersedes_decision_id") or "").strip(),
+                        bool(row.get("learning_applied")),
+                        bool(row.get("aggregate_candidate")),
+                        _created_at(row.get("created_at")),
+                    ),
+                )
+            for row in evidence_rows:
+                if not str(row.get("claim_id") or "").strip():
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO property_evidence_claims (
+                        claim_id, principal_id, person_id, property_ref, decision_id, claim_type,
+                        text, source_type, source_ref, confidence, verification_state, privacy_class,
+                        allowed_outputs_json, expires_at, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (claim_id) DO UPDATE
+                    SET principal_id = EXCLUDED.principal_id,
+                        person_id = EXCLUDED.person_id,
+                        property_ref = EXCLUDED.property_ref,
+                        decision_id = EXCLUDED.decision_id,
+                        text = EXCLUDED.text,
+                        verification_state = EXCLUDED.verification_state,
+                        allowed_outputs_json = EXCLUDED.allowed_outputs_json
+                    """,
+                    (
+                        str(row.get("claim_id") or "").strip(),
+                        str(row.get("principal_id") or "").strip(),
+                        str(row.get("person_id") or "self").strip() or "self",
+                        str(row.get("property_ref") or "").strip(),
+                        str(row.get("decision_id") or "").strip(),
+                        str(row.get("claim_type") or "fact").strip() or "fact",
+                        str(row.get("claim_text") or "").strip(),
+                        str(row.get("source_type") or "teable_restore").strip() or "teable_restore",
+                        str(row.get("source_ref") or "").strip(),
+                        str(row.get("confidence") or "medium").strip() or "medium",
+                        str(row.get("verification_state") or "unclear").strip() or "unclear",
+                        str(row.get("privacy_class") or "owner_private").strip() or "owner_private",
+                        repo._json_value(_coerce_list(row.get("allowed_outputs_json"))),  # noqa: SLF001
+                        str(row.get("expires_at") or "").strip(),
+                        _created_at(row.get("created_at")),
+                    ),
+                )
+            for row in question_rows:
+                if not str(row.get("task_id") or "").strip():
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO property_agent_question_tasks (
+                        task_id, principal_id, person_id, property_ref, decision_id, question_text,
+                        reason_key, source_claim_id, status, answer_source, updated_claim_id, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (task_id) DO UPDATE
+                    SET principal_id = EXCLUDED.principal_id,
+                        person_id = EXCLUDED.person_id,
+                        property_ref = EXCLUDED.property_ref,
+                        decision_id = EXCLUDED.decision_id,
+                        question_text = EXCLUDED.question_text,
+                        status = EXCLUDED.status,
+                        updated_claim_id = EXCLUDED.updated_claim_id
+                    """,
+                    (
+                        str(row.get("task_id") or "").strip(),
+                        str(row.get("principal_id") or "").strip(),
+                        str(row.get("person_id") or "self").strip() or "self",
+                        str(row.get("property_ref") or "").strip(),
+                        str(row.get("decision_id") or "").strip(),
+                        str(row.get("question_text") or "").strip(),
+                        str(row.get("reason_key") or "").strip(),
+                        str(row.get("source_claim_id") or "").strip(),
+                        str(row.get("status") or "drafted").strip() or "drafted",
+                        str(row.get("answer_source") or "").strip(),
+                        str(row.get("updated_claim_id") or "").strip(),
+                        _created_at(row.get("created_at")),
+                    ),
+                )
+            for row in document_rows:
+                if not str(row.get("document_id") or "").strip():
+                    continue
+                cur.execute(
+                    """
+                    INSERT INTO property_documents (
+                        document_id, principal_id, person_id, property_ref, decision_id, document_type,
+                        source, privacy_class, verification_state, extracted_claims_json,
+                        missing_pages_json, redaction_state, linked_risks_json, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (document_id) DO UPDATE
+                    SET principal_id = EXCLUDED.principal_id,
+                        person_id = EXCLUDED.person_id,
+                        property_ref = EXCLUDED.property_ref,
+                        decision_id = EXCLUDED.decision_id,
+                        verification_state = EXCLUDED.verification_state,
+                        extracted_claims_json = EXCLUDED.extracted_claims_json,
+                        redaction_state = EXCLUDED.redaction_state,
+                        linked_risks_json = EXCLUDED.linked_risks_json
+                    """,
+                    (
+                        str(row.get("document_id") or "").strip(),
+                        str(row.get("principal_id") or "").strip(),
+                        str(row.get("person_id") or "self").strip() or "self",
+                        str(row.get("property_ref") or "").strip(),
+                        str(row.get("decision_id") or "").strip(),
+                        str(row.get("document_type") or "").strip(),
+                        str(row.get("source") or "").strip(),
+                        str(row.get("privacy_class") or "owner_private").strip() or "owner_private",
+                        str(row.get("verification_state") or "missing").strip() or "missing",
+                        repo._json_value(_coerce_list(row.get("extracted_claims_json"))),  # noqa: SLF001
+                        repo._json_value(_coerce_list(row.get("missing_pages_json"))),  # noqa: SLF001
+                        str(row.get("redaction_state") or "not_started").strip() or "not_started",
+                        repo._json_value(_coerce_list(row.get("linked_risks_json"))),  # noqa: SLF001
+                        _created_at(row.get("created_at")),
+                    ),
+                )
+    return {
+        "propertyquarry_decision_ledger": len(decision_rows),
+        "propertyquarry_evidence_claims": len(evidence_rows),
+        "propertyquarry_agent_questions": len(question_rows),
+        "propertyquarry_documents": len(document_rows),
     }
 
 

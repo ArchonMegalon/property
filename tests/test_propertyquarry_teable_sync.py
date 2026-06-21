@@ -675,6 +675,8 @@ def test_propertyquarry_teable_sync_keeps_projection_state_when_migrating_teable
 def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_settings() -> None:
     namespace = runpy.run_path("scripts/restore_propertyquarry_from_teable.py", run_name="__test__")
     build_restore_bundle = namespace["build_restore_bundle"]
+    principal_alias = namespace["_projection_alias"]("pq-restore-user", prefix="principal")
+    person_alias = namespace["_projection_alias"]("self", prefix="person")
 
     bundle = build_restore_bundle(
         principal_id="pq-restore-user",
@@ -740,6 +742,69 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
                     "facts_json": {"area_sqm": 91, "rooms": 3, "postal_name": "1020 Wien"},
                 }
             ],
+            "propertyquarry_decision_ledger": [
+                {
+                    "principal_id": principal_alias,
+                    "person_id": person_alias,
+                    "decision_id": "decision-restore-1",
+                    "property_ref": "property:restore-1",
+                    "decision_state": "needs_documents",
+                    "reason_keys_json": ["no_floorplan"],
+                    "source": "workbench",
+                    "actor": "browser",
+                    "confidence": 0.7,
+                    "learning_applied": True,
+                    "aggregate_candidate": False,
+                    "created_at": "2026-06-20T10:00:00+00:00",
+                }
+            ],
+            "propertyquarry_evidence_claims": [
+                {
+                    "principal_id": principal_alias,
+                    "person_id": person_alias,
+                    "claim_id": "claim-restore-1",
+                    "property_ref": "property:restore-1",
+                    "decision_id": "decision-restore-1",
+                    "claim_type": "risk",
+                    "claim_text": "Missing or unclear: no floorplan.",
+                    "source_type": "workbench",
+                    "source_ref": "decision-restore-1",
+                    "confidence": "high",
+                    "verification_state": "missing",
+                    "privacy_class": "owner_private",
+                    "allowed_outputs_json": ["owner_private", "agent_share"],
+                    "created_at": "2026-06-20T10:00:01+00:00",
+                }
+            ],
+            "propertyquarry_agent_questions": [
+                {
+                    "principal_id": principal_alias,
+                    "person_id": person_alias,
+                    "task_id": "question-restore-1",
+                    "property_ref": "property:restore-1",
+                    "decision_id": "decision-restore-1",
+                    "question_text": "Please send the floorplan with readable room dimensions.",
+                    "reason_key": "no_floorplan",
+                    "source_claim_id": "claim-restore-1",
+                    "status": "drafted",
+                    "created_at": "2026-06-20T10:00:02+00:00",
+                }
+            ],
+            "propertyquarry_documents": [
+                {
+                    "principal_id": principal_alias,
+                    "person_id": person_alias,
+                    "document_id": "document-restore-1",
+                    "property_ref": "property:restore-1",
+                    "decision_id": "decision-restore-1",
+                    "document_type": "floorplan",
+                    "source": "agent_request",
+                    "privacy_class": "owner_private",
+                    "verification_state": "missing",
+                    "linked_risks_json": ["no_floorplan"],
+                    "created_at": "2026-06-20T10:00:03+00:00",
+                }
+            ],
         },
     )
 
@@ -755,6 +820,121 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
     assert preferences["selected_platforms"] == ["willhaben"]
     assert preferences["saved_shortlist_candidates"][0]["title"] == "Restored flat"
     assert preferences["saved_shortlist_candidates"][0]["saved_from_run_id"] == "lost-run"
+    assert bundle["decision_loop_counts"] == {
+        "propertyquarry_agent_questions": 1,
+        "propertyquarry_decision_ledger": 1,
+        "propertyquarry_documents": 1,
+        "propertyquarry_evidence_claims": 1,
+    }
+    decision_rows = bundle["decision_loop_rows"]["propertyquarry_decision_ledger"]
+    assert decision_rows[0]["principal_id"] == "pq-restore-user"
+    assert decision_rows[0]["person_id"] == "self"
+    assert decision_rows[0]["decision_state"] == "needs_documents"
+    assert bundle["decision_loop_rows"]["propertyquarry_agent_questions"][0]["question_text"].startswith(
+        "Please send the floorplan"
+    )
+    assert bundle["decision_loop_rows"]["propertyquarry_documents"][0]["document_type"] == "floorplan"
+
+
+def test_propertyquarry_teable_restore_apply_writes_decision_loop_rows(monkeypatch) -> None:
+    namespace = runpy.run_path("scripts/restore_propertyquarry_from_teable.py", run_name="__test__")
+    apply_decision_loop_restore_bundle = namespace["apply_decision_loop_restore_bundle"]
+    executed: list[tuple[str, tuple[object, ...]]] = []
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, sql: str, params: tuple[object, ...]) -> None:
+            executed.append((sql, params))
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    class _Repo:
+        def __init__(self, database_url: str) -> None:
+            assert database_url == "postgresql://restore/db"
+
+        def _connect(self):
+            return _Connection()
+
+        def _json_value(self, value):
+            return value
+
+    import app.repositories.property_decision_loop_postgres as decision_repo
+
+    monkeypatch.setattr(decision_repo, "PostgresPropertyDecisionLoopRepository", _Repo)
+
+    result = apply_decision_loop_restore_bundle(
+        database_url="postgresql://restore/db",
+        bundle={
+            "decision_loop_rows": {
+                "propertyquarry_decision_ledger": [
+                    {
+                        "decision_id": "decision-restore-1",
+                        "principal_id": "pq-restore-user",
+                        "person_id": "self",
+                        "property_ref": "property:restore-1",
+                        "decision_state": "needs_documents",
+                        "reason_keys_json": ["no_floorplan"],
+                    }
+                ],
+                "propertyquarry_evidence_claims": [
+                    {
+                        "claim_id": "claim-restore-1",
+                        "principal_id": "pq-restore-user",
+                        "person_id": "self",
+                        "property_ref": "property:restore-1",
+                        "decision_id": "decision-restore-1",
+                        "claim_type": "risk",
+                        "claim_text": "Missing or unclear: no floorplan.",
+                    }
+                ],
+                "propertyquarry_agent_questions": [
+                    {
+                        "task_id": "question-restore-1",
+                        "principal_id": "pq-restore-user",
+                        "person_id": "self",
+                        "property_ref": "property:restore-1",
+                        "decision_id": "decision-restore-1",
+                        "question_text": "Please send the floorplan.",
+                    }
+                ],
+                "propertyquarry_documents": [
+                    {
+                        "document_id": "document-restore-1",
+                        "principal_id": "pq-restore-user",
+                        "person_id": "self",
+                        "property_ref": "property:restore-1",
+                        "decision_id": "decision-restore-1",
+                        "document_type": "floorplan",
+                    }
+                ],
+            }
+        },
+    )
+
+    assert result == {
+        "propertyquarry_agent_questions": 1,
+        "propertyquarry_decision_ledger": 1,
+        "propertyquarry_documents": 1,
+        "propertyquarry_evidence_claims": 1,
+    }
+    assert len(executed) == 4
+    assert any("property_decision_ledger" in sql for sql, _ in executed)
+    assert any("property_evidence_claims" in sql for sql, _ in executed)
+    assert any("property_agent_question_tasks" in sql for sql, _ in executed)
+    assert any("property_documents" in sql for sql, _ in executed)
 
 
 def test_propertyquarry_teable_bootstrap_preview_has_all_property_tables() -> None:
