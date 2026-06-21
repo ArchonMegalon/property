@@ -7908,7 +7908,7 @@ def test_propertyquarry_failed_parent_run_with_replacement_hides_stale_source_co
 
     combined = " ".join(str(value) for value in summary.values())
     assert "A replacement search is checking the saved brief." in combined
-    assert "The brief was saved; the replacement run is now the active check." in combined
+    assert "The brief was saved; the replacement run is now active." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
     assert "0/156 source variants" not in combined
