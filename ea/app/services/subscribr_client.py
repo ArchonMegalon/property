@@ -41,6 +41,8 @@ def _validated_subscribr_base_url(raw_base_url: str) -> str:
     host = str(parsed.hostname or "").strip().lower()
     if parsed.scheme != "https":
         raise SubscribrApiError(400, "subscribr_https_required")
+    if parsed.username or parsed.password:
+        raise SubscribrApiError(400, "subscribr_base_url_credentials_forbidden")
     if not host or host not in _subscribr_allowed_hosts():
         raise SubscribrApiError(400, "subscribr_host_not_allowed")
     return urllib.parse.urlunparse(("https", parsed.netloc, parsed.path.rstrip("/"), "", "", "")).rstrip("/")
@@ -119,7 +121,17 @@ class SubscribrClient:
                 retry_after = float(exc.headers.get("Retry-After") or 0)
             except Exception:
                 retry_after = 0.0
-            detail = f"subscribr_http_{int(exc.code)}"
+            reason = str(
+                getattr(exc, "reason", "")
+                or getattr(exc, "msg", "")
+                or exc
+                or ""
+            )
+            detail = (
+                "subscribr_redirect_blocked"
+                if int(exc.code) in {301, 302, 303, 307, 308} and "subscribr_redirect_blocked" in reason
+                else f"subscribr_http_{int(exc.code)}"
+            )
             raise SubscribrApiError(int(exc.code), detail, retry_after_seconds=retry_after) from exc
         except urllib.error.URLError as exc:
             raise SubscribrApiError(502, "subscribr_unreachable") from exc

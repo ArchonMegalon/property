@@ -97,6 +97,14 @@ def test_subscribr_client_rejects_unapproved_base_host(monkeypatch) -> None:
     assert str(exc.value) == "subscribr_host_not_allowed"
 
 
+def test_subscribr_client_rejects_base_url_credentials() -> None:
+    with pytest.raises(SubscribrApiError) as exc:
+        SubscribrClient(token="secret-token", opener=_FakeOpener(), base_url="https://user:pass@subscribr.ai/api/v1")
+
+    assert exc.value.status_code == 400
+    assert str(exc.value) == "subscribr_base_url_credentials_forbidden"
+
+
 def test_subscribr_client_allows_configured_https_base_host(monkeypatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_SUBSCRIBR_ALLOWED_HOSTS", "content.example")
     opener = _FakeOpener()
@@ -105,6 +113,34 @@ def test_subscribr_client_allows_configured_https_base_host(monkeypatch) -> None
     assert client.get_team() == {"ok": True}
     request, _timeout = opener.requests[0]
     assert request.full_url == "https://content.example/api/v1/team"
+
+
+def test_subscribr_client_blocks_redirects_without_following_token() -> None:
+    class RedirectingOpener:
+        def __init__(self) -> None:
+            self.requests = []
+
+        def open(self, request, timeout: float):  # noqa: ANN001
+            self.requests.append(request)
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "subscribr_redirect_blocked",
+                {"Location": "https://evil.example/capture"},
+                io.BytesIO(b""),
+            )
+
+    opener = RedirectingOpener()
+    client = SubscribrClient(token="secret-token", opener=opener, base_url="https://subscribr.ai/api/v1")
+
+    with pytest.raises(SubscribrApiError) as exc:
+        client.list_channels()
+
+    assert exc.value.status_code == 302
+    assert str(exc.value) == "subscribr_redirect_blocked"
+    assert len(opener.requests) == 1
+    assert opener.requests[0].full_url == "https://subscribr.ai/api/v1/channels"
+    assert opener.requests[0].headers["Authorization"] == "Bearer secret-token"
 
 
 def test_subscribr_client_rejects_non_json_response() -> None:
