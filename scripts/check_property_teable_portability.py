@@ -57,6 +57,17 @@ REQUIRED_TABLE_FIELDS: dict[str, set[str]] = {
         "location_query",
         "preferences_json",
     },
+    "propertyquarry_saved_shortlist": {
+        "principal_id",
+        "property_ref",
+        "candidate_ref",
+        "property_url",
+        "title",
+        "fit_score",
+        "saved_from_run_id",
+        "facts_json",
+        "candidate_json",
+    },
     "propertyquarry_search_runs": {
         "principal_id",
         "run_id",

@@ -251,6 +251,52 @@ def _saved_candidates_from_evaluations(
     return candidates[:200]
 
 
+def _saved_candidates_from_saved_shortlist(
+    *,
+    principal_id: str,
+    records_by_table: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for row in records_by_table.get("propertyquarry_saved_shortlist", []):
+        if not _matches_principal(row, principal_id=principal_id):
+            continue
+        property_ref = str(row.get("property_ref") or "").strip()
+        if not property_ref or property_ref in seen:
+            continue
+        seen.add(property_ref)
+        facts = _coerce_dict(row.get("facts_json"))
+        candidate = {
+            "property_ref": property_ref,
+            "candidate_ref": str(row.get("candidate_ref") or property_ref).strip(),
+            "property_url": str(row.get("property_url") or "").strip(),
+            "listing_id": str(row.get("listing_id") or "").strip(),
+            "title": str(row.get("title") or "").strip(),
+            "source_label": str(row.get("source_label") or "").strip(),
+            "fit_score": row.get("fit_score"),
+            "rank": row.get("rank"),
+            "review_url": str(row.get("review_url") or "").strip(),
+            "tour_url": str(row.get("tour_url") or "").strip(),
+            "tour_status": str(row.get("tour_status") or "").strip(),
+            "saved_from_run_id": str(row.get("saved_from_run_id") or "").strip(),
+            "saved_at": str(row.get("saved_at") or "").strip(),
+            "property_facts": facts,
+        }
+        candidate_json = _coerce_dict(row.get("candidate_json"))
+        if candidate_json:
+            for key, value in candidate_json.items():
+                candidate.setdefault(str(key), value)
+        candidates.append(candidate)
+    candidates.sort(
+        key=lambda item: (
+            float(item.get("fit_score") or 0),
+            -float(item.get("rank") or 9999),
+        ),
+        reverse=True,
+    )
+    return candidates[:200]
+
+
 def _decision_loop_rows_from_records(
     *,
     principal_id: str,
@@ -383,12 +429,17 @@ def build_restore_bundle(
         preferences["selected_platforms"] = _coerce_list(preferences_row.get("selected_platforms_json"))
     saved_candidates = list(preferences.get("saved_shortlist_candidates") or [])
     if not saved_candidates:
+        saved_candidates = _saved_candidates_from_saved_shortlist(
+            principal_id=normalized_principal,
+            records_by_table=records_by_table,
+        )
+    if not saved_candidates:
         saved_candidates = _saved_candidates_from_evaluations(
             principal_id=normalized_principal,
             records_by_table=records_by_table,
         )
-        if saved_candidates:
-            preferences["saved_shortlist_candidates"] = saved_candidates
+    if saved_candidates:
+        preferences["saved_shortlist_candidates"] = saved_candidates
     selected_channels = [
         str(value or "").strip().lower()
         for value in _coerce_list(delivery.get("selected_channels_json") or user.get("selected_channels_json"))

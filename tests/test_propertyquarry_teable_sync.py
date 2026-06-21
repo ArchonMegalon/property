@@ -56,6 +56,29 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                 "location_query": "1020 Wien",
                 "selected_platforms": ["willhaben"],
                 "min_area_m2": 80,
+                "saved_shortlist_candidates": [
+                    {
+                        "candidate_ref": "saved-123",
+                        "property_url": "https://www.willhaben.at/iad/object?adId=123",
+                        "listing_id": "123",
+                        "title": "Helle Wohnung",
+                        "source_label": "Willhaben",
+                        "fit_score": 82.5,
+                        "rank": 1,
+                        "review_url": "https://propertyquarry.com/workspace-access/review-123",
+                        "tour_url": "https://propertyquarry.com/tours/123",
+                        "tour_status": "existing",
+                        "saved_from_run_id": "run-previous",
+                        "property_facts": {
+                            "area_sqm": 91,
+                            "rooms": 3,
+                            "exact_address": "Praterstrasse 1",
+                            "lat": 48.21,
+                            "lng": 16.39,
+                            "oauth_token": "do-not-sync",
+                        },
+                    }
+                ],
                 "active_search_agent_id": "agent-cr",
                 "search_agents": [
                     {
@@ -305,6 +328,16 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert "internal_debug" not in records["propertyquarry_properties"][0]["facts_json"]
     assert "oauth_token" not in records["propertyquarry_properties"][0]["facts_json"]
     assert records["propertyquarry_property_evaluations"][0]["fit_score"] == 82.5
+    assert records["propertyquarry_saved_shortlist"][0]["title"] == "Helle Wohnung"
+    assert records["propertyquarry_saved_shortlist"][0]["saved_from_run_id"] == "run-previous"
+    assert (
+        records["propertyquarry_saved_shortlist"][0]["property_ref"]
+        == records["propertyquarry_property_evaluations"][0]["property_ref"]
+    )
+    assert "exact_address" not in records["propertyquarry_saved_shortlist"][0]["facts_json"]
+    assert "lat" not in records["propertyquarry_saved_shortlist"][0]["facts_json"]
+    assert "lng" not in records["propertyquarry_saved_shortlist"][0]["facts_json"]
+    assert "oauth_token" not in records["propertyquarry_saved_shortlist"][0]["facts_json"]
     assert "exact_address" not in records["propertyquarry_property_evaluations"][0]["facts_json"]
     assert "lat" not in records["propertyquarry_property_evaluations"][0]["facts_json"]
     assert "lng" not in records["propertyquarry_property_evaluations"][0]["facts_json"]
@@ -847,6 +880,66 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
         "Please send the floorplan"
     )
     assert bundle["decision_loop_rows"]["propertyquarry_documents"][0]["document_type"] == "floorplan"
+
+
+def test_propertyquarry_teable_restore_recovers_saved_shortlist_without_runs() -> None:
+    namespace = runpy.run_path("scripts/restore_propertyquarry_from_teable.py", run_name="__test__")
+    build_restore_bundle = namespace["build_restore_bundle"]
+
+    bundle = build_restore_bundle(
+        principal_id="pq-restore-saved",
+        records_by_table={
+            "propertyquarry_users": [
+                {
+                    "principal_id": "pq-restore-saved",
+                    "workspace_name": "Saved Results",
+                    "workspace_mode": "personal",
+                    "selected_channels_json": ["email"],
+                }
+            ],
+            "propertyquarry_preferences": [
+                {
+                    "principal_id": "pq-restore-saved",
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "location_query": "1020 Wien",
+                    "selected_platforms_json": ["willhaben"],
+                    "preferences_json": {"min_area_m2": 80},
+                }
+            ],
+            "propertyquarry_saved_shortlist": [
+                {
+                    "principal_id": "pq-restore-saved",
+                    "property_ref": "property:saved-1",
+                    "candidate_ref": "saved-1",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=saved-1",
+                    "listing_id": "saved-1",
+                    "title": "Saved flat",
+                    "source_label": "Willhaben",
+                    "fit_score": 91,
+                    "rank": 1,
+                    "saved_from_run_id": "old-run",
+                    "review_url": "https://propertyquarry.com/app/research/saved-1",
+                    "tour_url": "https://propertyquarry.com/tours/saved-1",
+                    "tour_status": "ready",
+                    "facts_json": {"area_sqm": 88, "rooms": 3, "postal_name": "1020 Wien"},
+                    "candidate_json": {"recommendation": "strong_fit"},
+                    "saved_at": "2026-06-20T10:00:00+00:00",
+                }
+            ],
+            "propertyquarry_property_evaluations": [],
+            "propertyquarry_search_runs": [],
+        },
+    )
+
+    preferences = bundle["onboarding_state"]["property_search_preferences_json"]
+    assert bundle["saved_result_count"] == 1
+    assert preferences["saved_shortlist_candidates"][0]["property_ref"] == "property:saved-1"
+    assert preferences["saved_shortlist_candidates"][0]["title"] == "Saved flat"
+    assert preferences["saved_shortlist_candidates"][0]["saved_from_run_id"] == "old-run"
+    assert preferences["saved_shortlist_candidates"][0]["recommendation"] == "strong_fit"
+    assert preferences["saved_shortlist_candidates"][0]["property_facts"]["area_sqm"] == 88
 
 
 def test_propertyquarry_teable_restore_apply_writes_decision_loop_rows(monkeypatch) -> None:

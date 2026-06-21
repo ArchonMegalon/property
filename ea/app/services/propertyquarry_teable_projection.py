@@ -17,6 +17,7 @@ PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_subscriptions",
     "propertyquarry_preferences",
     "propertyquarry_search_agents",
+    "propertyquarry_saved_shortlist",
     "propertyquarry_search_runs",
     "propertyquarry_provider_sources",
     "propertyquarry_properties",
@@ -137,6 +138,27 @@ PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
         {"name": "last_run_at", "type": "singleLineText"},
         {"name": "next_run_at", "type": "singleLineText"},
         {"name": "preferences_json", "type": "longText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_saved_shortlist": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "property_ref", "type": "singleLineText"},
+        {"name": "candidate_ref", "type": "singleLineText"},
+        {"name": "property_url", "type": "longText"},
+        {"name": "listing_id", "type": "singleLineText"},
+        {"name": "title", "type": "singleLineText"},
+        {"name": "source_label", "type": "singleLineText"},
+        {"name": "fit_score", "type": "number"},
+        {"name": "rank", "type": "number"},
+        {"name": "saved_from_run_id", "type": "singleLineText"},
+        {"name": "review_url", "type": "longText"},
+        {"name": "tour_url", "type": "longText"},
+        {"name": "tour_status", "type": "singleLineText"},
+        {"name": "facts_json", "type": "longText"},
+        {"name": "candidate_json", "type": "longText"},
+        {"name": "saved_at", "type": "singleLineText"},
         {"name": "last_projected_at", "type": "singleLineText"},
     ],
     "propertyquarry_search_runs": [
@@ -758,6 +780,7 @@ def build_propertyquarry_teable_projection_records(
     subscriptions: dict[str, dict[str, object]] = {}
     preference_rows: dict[str, dict[str, object]] = {}
     search_agent_rows: dict[str, dict[str, object]] = {}
+    saved_shortlist_rows: dict[str, dict[str, object]] = {}
     search_run_rows: dict[str, dict[str, object]] = {}
     provider_source_rows: dict[str, dict[str, object]] = {}
     property_rows: dict[str, dict[str, object]] = {}
@@ -914,6 +937,51 @@ def build_propertyquarry_teable_projection_records(
                 "last_run_at": _text(agent.get("last_run_at"), limit=120),
                 "next_run_at": _text(agent.get("next_run_at"), limit=120),
                 "preferences_json": safe_agent_preferences,
+                "last_projected_at": projected_at,
+            }
+        for index, candidate in enumerate(list(effective_preferences.get("saved_shortlist_candidates") or [])[:200], start=1):
+            if not isinstance(candidate, dict):
+                continue
+            candidate_payload = dict(candidate)
+            property_url = _text(
+                candidate_payload.get("property_url")
+                or candidate_payload.get("source_url")
+                or candidate_payload.get("listing_url"),
+                limit=1000,
+            )
+            property_ref = _property_projection_ref(
+                candidate_payload.get("property_ref") or property_url or candidate_payload.get("candidate_ref"),
+                fallback=candidate_payload.get("candidate_ref") or f"saved:{index}",
+            )
+            if not property_ref:
+                continue
+            facts = (
+                dict(candidate_payload.get("property_facts") or {})
+                if isinstance(candidate_payload.get("property_facts"), dict)
+                else {}
+            )
+            safe_facts = _safe_teable_facts(facts)
+            safe_candidate = _safe_review_artifact(candidate_payload, safe_facts=safe_facts)
+            projection_id = f"saved_shortlist:{normalized_tenant}:{normalized_principal}:{property_ref}"
+            saved_shortlist_rows[projection_id] = {
+                "projection_id": projection_id,
+                "tenant_key": normalized_tenant,
+                "principal_id": normalized_principal,
+                "property_ref": property_ref,
+                "candidate_ref": _text(candidate_payload.get("candidate_ref") or property_ref, limit=240),
+                "property_url": property_url,
+                "listing_id": _text(candidate_payload.get("listing_id") or property_url, limit=200),
+                "title": _text(candidate_payload.get("title"), limit=240),
+                "source_label": _text(candidate_payload.get("source_label"), limit=200),
+                "fit_score": _number(candidate_payload.get("fit_score")),
+                "rank": _number(candidate_payload.get("rank") or index),
+                "saved_from_run_id": _text(candidate_payload.get("saved_from_run_id") or candidate_payload.get("run_id"), limit=240),
+                "review_url": _text(candidate_payload.get("review_url"), limit=1000),
+                "tour_url": _text(candidate_payload.get("tour_url"), limit=1000),
+                "tour_status": _text(candidate_payload.get("tour_status"), limit=80),
+                "facts_json": safe_facts,
+                "candidate_json": safe_candidate,
+                "saved_at": _text(candidate_payload.get("saved_at") or candidate_payload.get("updated_at"), limit=120),
                 "last_projected_at": projected_at,
             }
 
@@ -1249,6 +1317,7 @@ def build_propertyquarry_teable_projection_records(
         "propertyquarry_subscriptions": _table_rows(subscriptions),
         "propertyquarry_preferences": _table_rows(preference_rows),
         "propertyquarry_search_agents": _table_rows(search_agent_rows),
+        "propertyquarry_saved_shortlist": _table_rows(saved_shortlist_rows),
         "propertyquarry_search_runs": _table_rows(search_run_rows),
         "propertyquarry_provider_sources": _table_rows(provider_source_rows),
         "propertyquarry_properties": _table_rows(property_rows),
