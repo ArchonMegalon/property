@@ -346,12 +346,14 @@ def neuronwriter_property_surface_keys() -> tuple[str, ...]:
 
 
 def property_surface_processor_policy_violations() -> tuple[str, ...]:
-    private_groups = {"auth_handoff", "authenticated_app", "results_research", "shared_public_artifacts", "generated_artifacts", "delivery"}
-    return tuple(
-        surface.key
-        for surface in PROPERTY_SURFACES
-        if surface.neuronwriter_allowed and surface.group in private_groups
-    )
+    allowed_optimizer_groups = {"public_acquisition"}
+    violations: list[str] = []
+    for surface in PROPERTY_SURFACES:
+        if surface.clickrank_allowed and surface.group not in allowed_optimizer_groups:
+            violations.append(f"clickrank:{surface.key}")
+        if surface.neuronwriter_allowed and surface.group not in allowed_optimizer_groups:
+            violations.append(f"neuronwriter:{surface.key}")
+    return tuple(violations)
 
 
 def property_surface_acceptance_matrix() -> dict[str, dict[str, object]]:

@@ -201,6 +201,46 @@ def test_propertyquarry_surface_registry_defines_all_product_surfaces() -> None:
     assert matrix["whatsapp_delivery"]["neuronwriter_allowed"] is False
 
 
+def test_propertyquarry_surface_processor_policy_flags_any_non_public_optimizer(monkeypatch) -> None:
+    import app.product.property_surface_registry as registry
+
+    monkeypatch.setattr(
+        registry,
+        "PROPERTY_SURFACES",
+        (
+            registry.PropertySurface(
+                key="public_ok",
+                group="public_acquisition",
+                label="Public editorial page",
+                routes=("/",),
+                clickrank_allowed=True,
+                neuronwriter_allowed=True,
+            ),
+            registry.PropertySurface(
+                key="private_research_bad",
+                group="results_research",
+                label="Private research detail",
+                routes=("/app/research/:candidate_ref",),
+                clickrank_allowed=True,
+                neuronwriter_allowed=True,
+            ),
+            registry.PropertySurface(
+                key="delivery_bad",
+                group="delivery",
+                label="Delivery payload",
+                routes=("/app/account#delivery",),
+                clickrank_allowed=True,
+            ),
+        ),
+    )
+
+    assert registry.property_surface_processor_policy_violations() == (
+        "clickrank:private_research_bad",
+        "neuronwriter:private_research_bad",
+        "clickrank:delivery_bad",
+    )
+
+
 def test_propertyquarry_clickable_looking_recent_reviews_are_real_links_or_plain_rows() -> None:
     body = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
