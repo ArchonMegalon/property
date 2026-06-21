@@ -395,6 +395,32 @@ def test_sign_in_google_prefers_real_workspace_over_temporary_cf_email(monkeypat
     assert access["principal_id"] == real_principal
 
 
+def test_sign_in_google_reopens_existing_cf_email_workspace_without_access_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    email_principal = "cf-email:tibor.girschele@gmail.com"
+    client.headers.update({"X-EA-Principal-ID": email_principal})
+    start_workspace(client, mode="personal", workspace_name="Tibor Email Workspace")
+
+    from app.api.routes.landing import build_product_service
+
+    product = build_product_service(client.app.state.container)
+    access = product.issue_google_sign_in_workspace_session(
+        google_email="Tibor.Girschele@Gmail.com",
+        fallback_principal_id=email_principal,
+        display_name="Tibor Girschele",
+    )
+
+    assert access["principal_id"] == email_principal
+    assert access["email"] == "tibor.girschele@gmail.com"
+    assert access["access_url"].startswith("/workspace-access/")
+
+
 def test_sign_in_google_does_not_create_wrong_workspace_for_unknown_email(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")

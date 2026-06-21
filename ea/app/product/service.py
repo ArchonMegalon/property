@@ -40965,10 +40965,17 @@ class ProductService:
         operator_id = str(selected.get("operator_id") or "").strip()
         workspace_name = str(selected.get("workspace_name") or "").strip()
         selected_display_name = str(selected.get("display_name") or workspace_name).strip()
-        used_temporary_principal = principal_id.startswith("cf-email:")
         if not principal_id:
             fallback = str(fallback_principal_id or "").strip()
             if fallback and not fallback.startswith("cf-email:"):
+                status = self._container.onboarding.status(principal_id=fallback)
+                workspace = dict(status.get("workspace") or {})
+                fallback_workspace_name = str(workspace.get("name") or "").strip()
+                if fallback_workspace_name:
+                    principal_id = fallback
+                    workspace_name = fallback_workspace_name
+                    selected_display_name = str(display_name or fallback_workspace_name).strip() or fallback_workspace_name
+            elif fallback == f"cf-email:{normalized_email}":
                 status = self._container.onboarding.status(principal_id=fallback)
                 workspace = dict(status.get("workspace") or {})
                 fallback_workspace_name = str(workspace.get("name") or "").strip()
@@ -40984,6 +40991,7 @@ class ProductService:
                 source_id=f"google-sign-in-not-found:{normalized_email}",
             )
             raise RuntimeError("workspace_google_sign_in_not_found")
+        used_temporary_principal = principal_id.startswith("cf-email:")
         resolved_display_name = selected_display_name or workspace_name or str(display_name or "PropertyQuarry account").strip() or "PropertyQuarry account"
         access_session = self.issue_workspace_access_session(
             principal_id=principal_id,
