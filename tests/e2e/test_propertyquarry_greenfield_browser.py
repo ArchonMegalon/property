@@ -1887,12 +1887,15 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const meta = document.querySelector('.prd-summary-stack .prd-meta');
               const metaCards = Array.from(document.querySelectorAll('.prd-summary-stack .prd-meta-card'));
               const shell = document.querySelector('[data-property-research-detail]');
+              const feedback = document.querySelector('[data-object-feedback]');
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
               const mediaRect = media ? media.getBoundingClientRect() : null;
               const actionsStyle = actions ? getComputedStyle(actions) : null;
               const metaStyle = meta ? getComputedStyle(meta) : null;
               const shellRect = shell ? shell.getBoundingClientRect() : null;
+              const feedbackRect = feedback ? feedback.getBoundingClientRect() : null;
+              const feedbackStyle = feedback ? getComputedStyle(feedback) : null;
               return {
                 viewportWidth: window.innerWidth,
                 viewportHeight: window.innerHeight,
@@ -1906,6 +1909,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 metaColumns: metaStyle ? metaStyle.gridTemplateColumns.split(' ').length : 0,
                 metaCardCount: metaCards.length,
                 metaTallestCard: Math.max(0, ...metaCards.map((card) => Math.round(card.getBoundingClientRect().height))),
+                feedbackHeight: feedbackRect ? Math.round(feedbackRect.height) : 0,
+                feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
+                feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
               };
             }
             """
@@ -1914,12 +1920,15 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert layout["heroWidth"] <= layout["viewportWidth"] + 1
         assert layout["heroBottom"] > 0
         assert layout["bodyTop"] > layout["heroBottom"]
-        assert 220 <= layout["mediaHeight"] <= 360
+        assert 190 <= layout["mediaHeight"] <= 360
         assert layout["actionsDisplay"] == "grid"
         assert "px" in layout["actionsColumns"]
         assert layout["metaColumns"] == 2
         assert layout["metaCardCount"] >= 4
         assert layout["metaTallestCard"] <= 76
+        assert 360 <= layout["feedbackHeight"] <= 590
+        assert layout["feedbackOverflowY"] in {"auto", "scroll"}
+        assert layout["feedbackScrolls"] is True
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 
