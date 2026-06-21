@@ -4704,6 +4704,104 @@ def test_property_search_keeps_review_candidate_when_only_score_threshold_fails(
     assert dict(candidate["property_facts"])["score_demoted_by_match_threshold"] is True
 
 
+def test_property_search_alert_scoring_respects_stored_feedback_toggle(monkeypatch) -> None:
+    principal_id = "exec-property-alert-neutral-personalization"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Alert Neutral Personalization Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/neutral-alert-score/"
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:neutral-alert"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: {
+            "listing_id": "neutral-alert-score",
+            "title": "Mietwohnung in 1020 Wien mit Balkon",
+            "summary": "78 m2, 3 Zimmer, Gesamtmiete EUR 1.650, Balkon.",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 78,
+                "rooms": 3,
+                "total_rent_eur": 1650,
+                "has_balcony": True,
+            },
+        },
+    )
+    observed_profile_flags: list[bool] = []
+
+    def _fake_fit(**kwargs) -> dict[str, object]:
+        use_profile_preferences = bool(kwargs.get("use_profile_preferences", True))
+        observed_profile_flags.append(use_profile_preferences)
+        return {
+            "fit_score": 91.0 if use_profile_preferences else 52.0,
+            "recommendation": "strong_fit" if use_profile_preferences else "review",
+            "match_reasons_json": [],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "stored_feedback_preferences_used": use_profile_preferences,
+        }
+
+    monkeypatch.setattr(product_service, "_property_alert_personal_fit_from_facts", _fake_fit)
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {"status": "opened", "editor_url": "/app/research/neutral-alert-score"},
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "min_match_score": 40,
+            "require_floorplan": False,
+            "use_stored_feedback_preferences": False,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert observed_profile_flags
+    assert observed_profile_flags == [False]
+    assert result["listing_total"] == 1
+    candidate = dict(result["sources"][0]["top_candidates"][0])
+    assert candidate["property_url"] == listing_url
+    assert 52.0 <= float(candidate["fit_score"]) < 91.0
+    assert dict(candidate["assessment"])["stored_feedback_preferences_used"] is False
+
+
 def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypatch) -> None:
     principal_id = "exec-property-soft-filter-equivalence"
     client = build_property_client(principal_id=principal_id)

@@ -5361,6 +5361,45 @@
       box-shadow: var(--pq-shadow);
       backdrop-filter: blur(14px);
     }
+    html[data-pq-theme="dark"] .pqx-result-fact,
+    html[data-pq-theme="dark"] .pqx-result-open,
+    html[data-pq-theme="dark"] .pqx-progress-button,
+    html[data-pq-theme="dark"] .pqx-pill,
+    html[data-pq-theme="dark"] .pqx-empty,
+    html[data-pq-theme="dark"] .pqx-results-empty-state,
+    html[data-pq-theme="dark"] .pqx-bottom-nav {
+      background: var(--pq-paper);
+      border-color: var(--pq-line);
+      color: var(--pq-muted);
+      box-shadow: none;
+    }
+    html[data-pq-theme="dark"] .pqx-result-fact.recovered,
+    html[data-pq-theme="dark"] .pqx-progress-button.is-ready,
+    html[data-pq-theme="dark"] .pqx-pill.good {
+      background: color-mix(in srgb, var(--pq-green) 14%, var(--pq-paper));
+      border-color: color-mix(in srgb, var(--pq-green) 38%, var(--pq-line));
+      color: var(--pq-green);
+    }
+    html[data-pq-theme="dark"] .pqx-pill.warn {
+      background: color-mix(in srgb, var(--pq-gold) 14%, var(--pq-paper));
+      border-color: color-mix(in srgb, var(--pq-gold) 34%, var(--pq-line));
+      color: var(--pq-gold-strong);
+    }
+    html[data-pq-theme="dark"] .pqx-progress-button.is-blocked {
+      background: color-mix(in srgb, var(--pq-red) 10%, var(--pq-paper));
+      border-color: color-mix(in srgb, var(--pq-red) 32%, var(--pq-line));
+      color: var(--pq-muted);
+    }
+    html[data-pq-theme="dark"] a.pqx-result-fact:hover,
+    html[data-pq-theme="dark"] a.pqx-result-fact:focus-visible,
+    html[data-pq-theme="dark"] button.pqx-result-fact:hover,
+    html[data-pq-theme="dark"] button.pqx-result-fact:focus-visible,
+    html[data-pq-theme="dark"] .pqx-result-open:hover,
+    html[data-pq-theme="dark"] .pqx-result-open:focus-visible {
+      background: color-mix(in srgb, var(--pq-gold) 14%, var(--pq-paper));
+      border-color: color-mix(in srgb, var(--pq-gold) 42%, var(--pq-line));
+      color: var(--pq-ink);
+    }
     .pqx-hidden { display: none !important; }
     .pqx-shell [hidden] { display: none !important; }
     @media (max-width: 1180px) {

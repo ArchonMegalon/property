@@ -187,9 +187,16 @@ def _check_accessibility_primitives(path: Path, text: str, failures: list[str]) 
                 failures.append(f"{path} must define {token.rstrip(':')}")
         if "@media (pointer: coarse)" not in text or "var(--pq-touch-target-coarse)" not in text:
             failures.append(f"{path} must increase workbench controls for coarse pointers")
+        bottom_nav_index = text.find(".pqx-bottom-nav {")
+        late_result_guard_index = text.find('html[data-pq-theme="dark"] .pqx-result-fact,', bottom_nav_index)
+        if bottom_nav_index < 0 or late_result_guard_index < 0:
+            failures.append(f"{path} must keep a late dark-mode result-control guard after result card styles")
     if relative == "ea/app/templates/app/property_research_detail.html":
         if "@media (pointer: coarse)" not in text or "var(--touch-target-coarse)" not in text:
             failures.append(f"{path} must increase research-detail controls for coarse pointers")
+    if relative == "ea/app/templates/app/object_detail.html":
+        if 'html[data-pq-theme="dark"] .object-media-toolbar' not in text:
+            failures.append(f"{path} must darken the object media toolbar in dark mode")
 
 
 def _check_contrast_tokens(path: Path, text: str, failures: list[str]) -> None:

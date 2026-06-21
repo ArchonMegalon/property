@@ -1448,6 +1448,7 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
     )
     for selector in required_dark_selectors:
         assert selector in workbench
+    assert workbench.find('html[data-pq-theme="dark"] .pqx-result-fact,', workbench.find(".pqx-bottom-nav {")) > 0
     assert "background: var(--pq-paper);" in workbench
     assert "color: var(--pq-ink);" in workbench
     assert "color: #171411;" in workbench
@@ -1490,6 +1491,9 @@ def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:
     research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
     assert 'html[data-pq-theme="dark"] .prd-media-badge' in research_detail
     assert 'html[data-pq-theme="dark"] .prd-media-frame.prd-media-image-failed::before' in research_detail
+
+    object_detail = (repo_root / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
+    assert 'html[data-pq-theme="dark"] .object-media-toolbar' in object_detail
 
 
 def test_propertyquarry_search_route_does_not_scan_active_run_for_initial_form(monkeypatch) -> None:

@@ -9737,6 +9737,7 @@ def _property_alert_ranked_candidates(
     person_id: str = "self",
     property_urls: tuple[str, ...],
     limit: int = 3,
+    use_profile_preferences: bool = True,
 ) -> tuple[dict[str, object], ...]:
     rows: list[dict[str, object]] = []
     seen: set[str] = set()
@@ -9756,6 +9757,7 @@ def _property_alert_ranked_candidates(
             principal_id=principal_id,
             person_id=str(person_id or "").strip() or "self",
             property_url=normalized,
+            use_profile_preferences=use_profile_preferences,
         )
         rows.append(
             {
@@ -10836,12 +10838,14 @@ def _property_alert_personal_fit_assessment(
     principal_id: str,
     person_id: str = "self",
     property_url: str,
+    use_profile_preferences: bool = True,
 ) -> dict[str, object] | None:
     assessment, _, _ = _property_alert_personal_fit_snapshot(
         preference_profiles=preference_profiles,
         principal_id=principal_id,
         person_id=person_id,
         property_url=property_url,
+        use_profile_preferences=use_profile_preferences,
     )
     return assessment
 
@@ -10923,6 +10927,7 @@ def _property_alert_personal_fit_snapshot(
     principal_id: str,
     person_id: str = "self",
     property_url: str,
+    use_profile_preferences: bool = True,
 ) -> tuple[dict[str, object] | None, dict[str, object], str]:
     def _compute_snapshot() -> tuple[dict[str, object] | None, dict[str, object], str]:
         property_facts_json, listing_id = _property_alert_facts_for_url(normalized_url)
@@ -10933,6 +10938,7 @@ def _property_alert_personal_fit_snapshot(
             property_url=normalized_url,
             property_facts_json=property_facts_json,
             listing_id=listing_id,
+            use_profile_preferences=use_profile_preferences,
         )
         return result, property_facts_json, listing_id
 
@@ -32583,11 +32589,7 @@ class ProductService:
                     property_url=property_url,
                     property_facts_json=detailed_facts,
                     listing_id=str(preview.get("listing_id") or property_url).strip(),
-                    # Background scout alerts must still evaluate the current
-                    # personal fit profile. The search preference toggle only
-                    # affects discovery/ranking personalization; it must not
-                    # collapse alert eligibility to a neutral 50/100.
-                    use_profile_preferences=True,
+                    use_profile_preferences=use_stored_feedback_preferences,
                 )
                 ranked_rows.append(
                     {
