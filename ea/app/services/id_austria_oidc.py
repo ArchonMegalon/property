@@ -69,13 +69,7 @@ def load_id_austria_oidc_config() -> IdAustriaOidcConfig:
     client_id = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID") or "").strip()
     client_secret = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET") or "").strip()
     redirect_uri = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI") or "").strip()
-    state_secret = str(
-        os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET")
-        or os.environ.get("EA_GOOGLE_OAUTH_STATE_SECRET")
-        or os.environ.get("EA_PROVIDER_SECRET_KEY")
-        or os.environ.get("EA_SIGNING_SECRET")
-        or ""
-    ).strip()
+    state_secret = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET") or "").strip()
     environment = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_ENVIRONMENT") or "production").strip().lower()
     default_issuer = ID_AUSTRIA_REFERENCE_ISSUER if environment in {"reference", "ref", "test"} else ID_AUSTRIA_PRODUCTION_ISSUER
     issuer = str(os.environ.get("PROPERTYQUARRY_ID_AUSTRIA_ISSUER") or default_issuer).strip().rstrip("/")

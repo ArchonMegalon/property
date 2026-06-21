@@ -59,6 +59,23 @@ def test_id_austria_verifier_fails_when_required_credentials_are_absent(monkeypa
     assert receipt["configured"] is False
 
 
+def test_id_austria_requires_its_own_state_secret(monkeypatch) -> None:
+    _clear_id_austria_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID", "https://propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET", "id-austria-secret")
+    monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_REDIRECT_URI", "https://propertyquarry.com/id-austria/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "generic-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "generic-provider-secret")
+    monkeypatch.setenv("EA_SIGNING_SECRET", "generic-signing-secret")
+
+    receipt = build_id_austria_verification_receipt()
+
+    assert receipt["status"] == "disabled"
+    assert receipt["configured"] is False
+    assert receipt["error"] == "id_austria_state_secret_missing"
+    assert "PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET" in receipt["missing_env"]
+
+
 def test_id_austria_verifier_accepts_configured_oidc_contract(monkeypatch) -> None:
     _clear_id_austria_env(monkeypatch)
     _configure_id_austria_env(monkeypatch)

@@ -1310,6 +1310,8 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
     required_dark_selectors = (
         'html[data-pq-theme="dark"] .pqx-field input:not([type="checkbox"])',
         'html[data-pq-theme="dark"] .pqx-range-label',
+        'html[data-pq-theme="dark"] .pqx-range-value',
+        'html[data-pq-theme="dark"] .pqx-tooltip[data-tooltip-open="true"]::after',
         'html[data-pq-theme="dark"] .pqx-what-matters-panel',
         'html[data-pq-theme="dark"] .pqx-automation-thumbnail',
         'html[data-pq-theme="dark"] .pqx-automation-delete',
@@ -1333,20 +1335,35 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-result-open',
         'html[data-pq-theme="dark"] .pqx-progress-button',
         'html[data-pq-theme="dark"] .pqx-results-summary-link',
+        'html[data-pq-theme="dark"] .pqx-run-chip',
+        'html[data-pq-theme="dark"] .pqx-account-menu summary',
+        'html[data-pq-theme="dark"] .pqx-source-progress',
+        'html[data-pq-theme="dark"] .pqx-reliability-strip',
+        'html[data-pq-theme="dark"] .pqx-worker-strip',
+        'html[data-pq-theme="dark"] .pqx-worker-lane',
+        'html[data-pq-theme="dark"] .pqx-worker-popover',
+        'html[data-pq-theme="dark"] .pqx-source-chip',
         'html[data-pq-theme="dark"] textarea',
         'html[data-pq-theme="dark"] .pqx-research-value',
         'html[data-pq-theme="dark"] .pqx-empty',
         'html[data-pq-theme="dark"] .pqx-results-empty-state',
         'html[data-pq-theme="dark"] .pqx-bottom-nav',
+        'html[data-pq-theme="dark"] .pqx-button.primary',
+        'html[data-pq-theme="dark"] .pqx-link-button.primary',
+        'html[data-pq-theme="dark"] .pqx-context-actions .pqx-link-button.primary',
         'html[data-pq-theme="dark"] .pqx-result[aria-selected="true"]',
         'html[data-pq-theme="dark"] .pqx-result-fact.recovered',
         'html[data-pq-theme="dark"] .pqx-progress-button.is-ready',
         'html[data-pq-theme="dark"] .pqx-progress-button.is-blocked',
+        'html[data-pq-theme="dark"] .pqx-source-chip.good',
+        'html[data-pq-theme="dark"] .pqx-source-chip.warn',
+        'html[data-pq-theme="dark"] .pqx-worker-progress',
     )
     for selector in required_dark_selectors:
         assert selector in workbench
     assert "background: var(--pq-paper);" in workbench
     assert "color: var(--pq-ink);" in workbench
+    assert "color: #171411;" in workbench
     assert "background: color-mix(in srgb, var(--panel) 88%, transparent);" in sign_in
     assert "auth-provider-card" in sign_in
     assert "--pq-card: #fffdf8;" in packets
