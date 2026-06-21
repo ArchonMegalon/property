@@ -114,6 +114,22 @@ def test_property_compose_passes_id_austria_deployment_env() -> None:
         assert key in compose
 
 
+def test_property_compose_passes_brilliant_directories_deployment_env() -> None:
+    compose = (ROOT / "docker-compose.property.yml").read_text(encoding="utf-8")
+
+    for key in (
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR",
+    ):
+        assert key in compose
+
+
 def test_env_example_keeps_external_investment_feeds_fail_closed_and_durable() -> None:
     env = (ROOT / ".env.example").read_text(encoding="utf-8")
 
