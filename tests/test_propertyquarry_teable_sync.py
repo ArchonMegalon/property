@@ -815,6 +815,49 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
                     "facts_json": {"area_sqm": 91, "rooms": 3, "postal_name": "1020 Wien"},
                 }
             ],
+            "propertyquarry_review_artifacts": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "run_id": "lost-run",
+                    "property_ref": "property:restore-1",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=restore-1",
+                    "source_label": "Willhaben",
+                    "review_url": "https://propertyquarry.com/app/research/restore-1",
+                    "review_status": "ready",
+                    "review_task_id": "human_task:restore-review",
+                    "review_task_status": "returned",
+                    "review_reused": True,
+                    "queue_item_ref": "queue:restore-review",
+                    "recommended_task_key": "request_floorplan",
+                    "tour_url": "https://propertyquarry.com/tours/restore-1",
+                    "tour_status": "ready",
+                    "tour_blocked_reason": "",
+                    "artifact_json": {
+                        "review_status": "ready",
+                        "review_task_status": "returned",
+                        "compare_reason": "Best restored review candidate",
+                    },
+                }
+            ],
+            "propertyquarry_research_tasks": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "run_id": "lost-run",
+                    "task_id": "research-restore-rooms",
+                    "status": "open",
+                    "field_key": "rooms",
+                    "label": "Rooms",
+                    "question": "Verify the room count from the provider detail page.",
+                    "property_ref": "property:restore-1",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=restore-1",
+                    "task_json": {
+                        "task_id": "research-restore-rooms",
+                        "status": "open",
+                        "field_key": "rooms",
+                        "priority": "high",
+                    },
+                }
+            ],
             "propertyquarry_decision_ledger": [
                 {
                     "principal_id": principal_alias,
@@ -898,6 +941,17 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
     assert preferences["search_agents"][0]["preferences_json"]["min_area_m2"] == 80
     assert preferences["saved_shortlist_candidates"][0]["title"] == "Restored flat"
     assert preferences["saved_shortlist_candidates"][0]["saved_from_run_id"] == "lost-run"
+    assert preferences["saved_shortlist_candidates"][0]["review_task_id"] == "human_task:restore-review"
+    assert preferences["saved_shortlist_candidates"][0]["review_task_status"] == "returned"
+    assert preferences["saved_shortlist_candidates"][0]["queue_item_ref"] == "queue:restore-review"
+    assert preferences["saved_shortlist_candidates"][0]["compare_reason"] == "Best restored review candidate"
+    assert preferences["saved_shortlist_candidates"][0]["research_task_total"] == 1
+    assert preferences["saved_shortlist_candidates"][0]["open_research_task_total"] == 1
+    assert preferences["saved_shortlist_candidates"][0]["research_tasks"][0]["field_key"] == "rooms"
+    assert preferences["saved_shortlist_candidates"][0]["research_tasks"][0]["priority"] == "high"
+    assert preferences["restored_research_tasks"][0]["task_id"] == "research-restore-rooms"
+    assert bundle["review_artifact_count"] == 1
+    assert bundle["research_task_count"] == 1
     assert bundle["decision_loop_counts"] == {
         "propertyquarry_agent_questions": 1,
         "propertyquarry_decision_ledger": 1,

@@ -209,11 +209,139 @@ def _created_at(value: object) -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _saved_candidates_from_evaluations(
+def _lookup_keys_for_row(row: dict[str, object]) -> tuple[str, ...]:
+    keys: list[str] = []
+    for field in ("property_ref", "property_url"):
+        value = str(row.get(field) or "").strip()
+        if value:
+            keys.append(f"{field}:{value}")
+    return tuple(dict.fromkeys(keys))
+
+
+def _review_artifact_index(
+    *,
+    principal_id: str,
+    records_by_table: dict[str, list[dict[str, object]]],
+) -> dict[str, dict[str, object]]:
+    index: dict[str, dict[str, object]] = {}
+    for row in records_by_table.get("propertyquarry_review_artifacts", []):
+        if not _matches_principal(row, principal_id=principal_id):
+            continue
+        artifact = dict(row)
+        for key in _lookup_keys_for_row(artifact):
+            existing = index.get(key, {})
+            if not existing or str(artifact.get("review_url") or artifact.get("tour_url") or "").strip():
+                index[key] = artifact
+    return index
+
+
+def _research_tasks_from_rows(
     *,
     principal_id: str,
     records_by_table: dict[str, list[dict[str, object]]],
 ) -> list[dict[str, object]]:
+    tasks: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for row in records_by_table.get("propertyquarry_research_tasks", []):
+        if not _matches_principal(row, principal_id=principal_id):
+            continue
+        task_id = str(row.get("task_id") or "").strip()
+        if not task_id or task_id in seen:
+            continue
+        seen.add(task_id)
+        task_json = _coerce_dict(row.get("task_json"))
+        task = {
+            "task_id": task_id,
+            "status": str(row.get("status") or task_json.get("status") or "").strip(),
+            "field_key": str(row.get("field_key") or task_json.get("field_key") or task_json.get("key") or "").strip(),
+            "label": str(row.get("label") or task_json.get("label") or "").strip(),
+            "question": str(row.get("question") or task_json.get("question") or "").strip(),
+            "property_ref": str(row.get("property_ref") or task_json.get("property_ref") or "").strip(),
+            "property_url": str(row.get("property_url") or task_json.get("property_url") or "").strip(),
+            "value": str(row.get("value") or task_json.get("value") or "").strip(),
+            "note": str(row.get("note") or task_json.get("note") or "").strip(),
+            "run_id": str(row.get("run_id") or task_json.get("run_id") or "").strip(),
+            "task_json": task_json,
+        }
+        for key, value in task_json.items():
+            task.setdefault(str(key), value)
+        tasks.append(task)
+    tasks.sort(key=lambda item: (str(item.get("status") or ""), str(item.get("task_id") or "")))
+    return tasks[:500]
+
+
+def _research_task_index(tasks: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    index: dict[str, list[dict[str, object]]] = {}
+    for task in tasks:
+        for key in _lookup_keys_for_row(task):
+            index.setdefault(key, []).append(task)
+    return index
+
+
+def _merge_candidate_artifacts(
+    candidate: dict[str, object],
+    *,
+    review_artifacts: dict[str, dict[str, object]],
+    research_tasks: dict[str, list[dict[str, object]]],
+) -> dict[str, object]:
+    restored = dict(candidate)
+    lookup_keys = _lookup_keys_for_row(restored)
+    artifact: dict[str, object] = {}
+    for key in lookup_keys:
+        artifact = review_artifacts.get(key, {})
+        if artifact:
+            break
+    if artifact:
+        artifact_json = _coerce_dict(artifact.get("artifact_json"))
+        for key, value in artifact_json.items():
+            restored.setdefault(str(key), value)
+        for source_key, target_key in (
+            ("review_url", "review_url"),
+            ("review_status", "review_status"),
+            ("review_task_id", "review_task_id"),
+            ("review_task_status", "review_task_status"),
+            ("review_reused", "review_reused"),
+            ("queue_item_ref", "queue_item_ref"),
+            ("recommended_task_key", "recommended_task_key"),
+            ("tour_url", "tour_url"),
+            ("tour_status", "tour_status"),
+            ("tour_blocked_reason", "tour_blocked_reason"),
+            ("preference_person_id", "preference_person_id"),
+        ):
+            value = artifact.get(source_key)
+            if value not in (None, "") and not restored.get(target_key):
+                restored[target_key] = value
+        if restored.get("tour_blocked_reason") and not restored.get("blocked_reason"):
+            restored["blocked_reason"] = restored["tour_blocked_reason"]
+    attached_tasks: list[dict[str, object]] = []
+    seen_task_ids: set[str] = set()
+    for key in lookup_keys:
+        for task in research_tasks.get(key, []):
+            task_id = str(task.get("task_id") or "").strip()
+            if not task_id or task_id in seen_task_ids:
+                continue
+            seen_task_ids.add(task_id)
+            attached_tasks.append(dict(task))
+    if attached_tasks and not isinstance(restored.get("research_tasks"), list):
+        restored["research_tasks"] = attached_tasks[:50]
+        restored["research_task_total"] = len(attached_tasks)
+        restored["open_research_task_total"] = sum(
+            1
+            for task in attached_tasks
+            if str(task.get("status") or "").strip().lower() not in {"done", "filled", "resolved", "dismissed"}
+        )
+    return restored
+
+
+def _saved_candidates_from_evaluations(
+    *,
+    principal_id: str,
+    records_by_table: dict[str, list[dict[str, object]]],
+    review_artifacts: dict[str, dict[str, object]] | None = None,
+    research_tasks: dict[str, list[dict[str, object]]] | None = None,
+) -> list[dict[str, object]]:
+    review_artifacts = dict(review_artifacts or {})
+    research_tasks = dict(research_tasks or {})
     properties = {
         str(row.get("property_ref") or "").strip(): dict(row)
         for row in records_by_table.get("propertyquarry_properties", [])
@@ -246,6 +374,11 @@ def _saved_candidates_from_evaluations(
             "saved_from_run_id": str(row.get("run_id") or "").strip(),
             "property_facts": facts,
         }
+        candidate = _merge_candidate_artifacts(
+            candidate,
+            review_artifacts=review_artifacts,
+            research_tasks=research_tasks,
+        )
         candidates.append(candidate)
     candidates.sort(key=lambda item: float(item.get("fit_score") or 0), reverse=True)
     return candidates[:200]
@@ -255,7 +388,11 @@ def _saved_candidates_from_saved_shortlist(
     *,
     principal_id: str,
     records_by_table: dict[str, list[dict[str, object]]],
+    review_artifacts: dict[str, dict[str, object]] | None = None,
+    research_tasks: dict[str, list[dict[str, object]]] | None = None,
 ) -> list[dict[str, object]]:
+    review_artifacts = dict(review_artifacts or {})
+    research_tasks = dict(research_tasks or {})
     candidates: list[dict[str, object]] = []
     seen: set[str] = set()
     for row in records_by_table.get("propertyquarry_saved_shortlist", []):
@@ -286,6 +423,11 @@ def _saved_candidates_from_saved_shortlist(
         if candidate_json:
             for key, value in candidate_json.items():
                 candidate.setdefault(str(key), value)
+        candidate = _merge_candidate_artifacts(
+            candidate,
+            review_artifacts=review_artifacts,
+            research_tasks=research_tasks,
+        )
         candidates.append(candidate)
     candidates.sort(
         key=lambda item: (
@@ -482,19 +624,34 @@ def build_restore_bundle(
         preferences["search_agents"] = restored_agents
     if restored_active_agent_id and not str(preferences.get("active_search_agent_id") or "").strip():
         preferences["active_search_agent_id"] = restored_active_agent_id
+    restored_review_artifacts = _review_artifact_index(
+        principal_id=normalized_principal,
+        records_by_table=records_by_table,
+    )
+    restored_research_tasks = _research_tasks_from_rows(
+        principal_id=normalized_principal,
+        records_by_table=records_by_table,
+    )
+    restored_research_task_index = _research_task_index(restored_research_tasks)
     saved_candidates = list(preferences.get("saved_shortlist_candidates") or [])
     if not saved_candidates:
         saved_candidates = _saved_candidates_from_saved_shortlist(
             principal_id=normalized_principal,
             records_by_table=records_by_table,
+            review_artifacts=restored_review_artifacts,
+            research_tasks=restored_research_task_index,
         )
     if not saved_candidates:
         saved_candidates = _saved_candidates_from_evaluations(
             principal_id=normalized_principal,
             records_by_table=records_by_table,
+            review_artifacts=restored_review_artifacts,
+            research_tasks=restored_research_task_index,
         )
     if saved_candidates:
         preferences["saved_shortlist_candidates"] = saved_candidates
+    if restored_research_tasks and not isinstance(preferences.get("restored_research_tasks"), list):
+        preferences["restored_research_tasks"] = restored_research_tasks
     selected_channels = [
         str(value or "").strip().lower()
         for value in _coerce_list(delivery.get("selected_channels_json") or user.get("selected_channels_json"))
@@ -540,6 +697,12 @@ def build_restore_bundle(
             "status": "completed",
         },
         "saved_result_count": len(saved_candidates),
+        "review_artifact_count": len({
+            str(row.get("projection_id") or row.get("property_ref") or row.get("property_url") or "").strip()
+            for row in records_by_table.get("propertyquarry_review_artifacts", [])
+            if _matches_principal(dict(row), principal_id=normalized_principal)
+        }),
+        "research_task_count": len(restored_research_tasks),
         "decision_loop_counts": decision_loop_counts,
         "decision_loop_rows": decision_loop_rows,
         "source_tables": {
