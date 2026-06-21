@@ -2076,6 +2076,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const areaRows = Array.from(document.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check'));
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
                 const dockStyle = dock ? window.getComputedStyle(dock) : null;
+                const dockRect = dock ? dock.getBoundingClientRect() : null;
                 const resultRect = result ? result.getBoundingClientRect() : null;
                 const thumbRect = thumb ? thumb.getBoundingClientRect() : null;
                 const areaRects = areaRows.map((node) => node.getBoundingClientRect());
@@ -2094,6 +2095,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     thumbWidth: thumbRect ? thumbRect.width : 0,
                     areaRowCount: areaRows.length,
                     areaRowMinHeight: areaRects.length ? Math.min(...areaRects.map((rect) => rect.height)) : 0,
+                    areaRowsClearOfDock: dockRect ? areaRects.filter((rect) => rect.top >= 0 && rect.bottom <= dockRect.top - 4).length : 0,
                     areaRowMaxRight: areaRects.length ? Math.max(...areaRects.map((rect) => rect.right)) : 0,
                     areaRowGridColumns: areaStyle ? areaStyle.gridTemplateColumns : '',
                     areaRowBorderRadius: areaStyle ? areaStyle.borderRadius : '',
@@ -2111,9 +2113,10 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         if mobile_metrics["thumbWidth"]:
             assert 96 <= mobile_metrics["thumbWidth"] <= 120
         assert mobile_metrics["areaRowCount"] >= 6
-        assert mobile_metrics["areaRowMinHeight"] >= 50
+        assert 44 <= mobile_metrics["areaRowMinHeight"] <= 50
+        assert mobile_metrics["areaRowsClearOfDock"] >= 8
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
-        assert "28px" in mobile_metrics["areaRowGridColumns"]
+        assert "24px" in mobile_metrics["areaRowGridColumns"]
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
         _assert_no_horizontal_overflow(mobile_page)
     finally:
