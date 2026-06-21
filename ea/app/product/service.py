@@ -146,6 +146,7 @@ from app.product.property_tour_hosting import (
     _write_hosted_floorplan_property_tour_bundle,
 )
 from app.product.property_search_storage import (
+    _compact_pruned_property_search_run_record,
     _delete_property_search_run_record as _delete_property_search_run_record_storage,
     _list_property_search_run_records as _list_property_search_run_records_storage,
     _load_property_search_run_compact_record as _load_property_search_run_compact_record_storage,
@@ -2233,6 +2234,8 @@ def _prune_property_search_runs() -> None:
                 continue
             if not isinstance(state, dict):
                 continue
+            if str(state.get("payload_retention_status") or "").strip().lower() == "compact_only":
+                continue
             timestamp = str(state.get("updated_at") or state.get("created_at") or "").strip()
             if not timestamp:
                 status = str(state.get("status") or "").strip().lower()
@@ -2245,7 +2248,9 @@ def _prune_property_search_runs() -> None:
             if _property_search_run_expired(timestamp, ttl_seconds=retention_seconds):
                 expired.append(run_id)
         for run_id in expired:
-            _PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
+            state = _PROPERTY_SEARCH_RUN_REGISTRY.get(run_id)
+            if isinstance(state, dict):
+                _PROPERTY_SEARCH_RUN_REGISTRY[run_id] = _compact_pruned_property_search_run_record(state)
     try:
         _prune_property_search_run_records()
     except Exception:

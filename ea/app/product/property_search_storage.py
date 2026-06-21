@@ -161,6 +161,17 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
     return compact
 
 
+def _compact_pruned_property_search_run_record(
+    record: dict[str, object],
+    *,
+    pruned_at: str | None = None,
+) -> dict[str, object]:
+    compact = _compact_property_search_run_record(record)
+    compact["payload_retention_status"] = "compact_only"
+    compact["payload_pruned_at"] = str(pruned_at or _now_iso()).strip() or _now_iso()
+    return compact
+
+
 def _compact_property_search_run_json_sql() -> str:
     preference_drop_sql = " ".join(
         f"- '{key}'"
@@ -457,9 +468,33 @@ def _prune_property_search_run_records() -> None:
         return
     _ensure_property_search_run_schema()
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=retention_seconds)).isoformat()
+    pruned_at = _now_iso()
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM property_search_runs WHERE updated_at < %s", (cutoff,))
+            cur.execute(
+                f"""
+                WITH stale_runs AS (
+                    SELECT
+                        principal_id,
+                        run_id,
+                        COALESCE(NULLIF(compact_json, '{{}}'::jsonb), {_compact_property_search_run_json_sql()}) AS compacted
+                    FROM property_search_runs
+                    WHERE updated_at < %s
+                      AND COALESCE(payload_json->>'payload_retention_status', '') <> 'compact_only'
+                )
+                UPDATE property_search_runs AS runs
+                SET compact_json = stale_runs.compacted,
+                    payload_json = stale_runs.compacted || jsonb_build_object(
+                        'payload_retention_status', 'compact_only',
+                        'payload_pruned_at', %s::text
+                    ),
+                    status = COALESCE(runs.status, stale_runs.compacted->>'status')
+                FROM stale_runs
+                WHERE runs.principal_id = stale_runs.principal_id
+                  AND runs.run_id = stale_runs.run_id
+                """,
+                (cutoff, pruned_at),
+            )
 
 
 def _delete_property_search_run_record(

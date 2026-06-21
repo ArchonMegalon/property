@@ -40,7 +40,7 @@ document intake records carry privacy class and redaction state
 | --- | --- | --- | --- |
 | Account profile and saved defaults | identity, market defaults, delivery preferences | until account deletion | export account data, edit settings, delete account |
 | Search preferences | selected areas, hard rules, What Matters preferences | until changed or account deletion | edit search, load/save What Matters, export account data |
-| Search runs | run status, ranked and filtered summaries, repair receipts | saved until the user deletes them | clear search history, delete individual run, export account data |
+| Search runs | run status, ranked and filtered summaries, repair receipts | compact saved results stay until the user deletes them; full payloads compact after the configured retention window | clear search history, delete individual run, export account data |
 | Source listing cache | provider result URLs and normalized listing snippets | short operational cache only | TTL expiry, provider-rights review, no customer export of internal diagnostics |
 | Canonical property passport | property identity, dedupe links, claim history, decisions | until user deletion or project deletion | export account data, delete property/project, revoke shared links |
 | Decisions and feedback | yes/maybe/no, rejection reasons, fit feedback | owner-private until deleted | export decisions, delete decision history, aggregate only with consent and thresholds |

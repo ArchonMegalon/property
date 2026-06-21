@@ -7222,7 +7222,13 @@ def test_property_search_runs_keep_recent_history_but_prune_stale_payloads_by_de
         product_service._prune_property_search_runs()
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             assert run_id in product_service._PROPERTY_SEARCH_RUN_REGISTRY
-            assert stale_run_id not in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+            assert stale_run_id in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+            stale_saved_result = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[stale_run_id])
+            assert stale_saved_result["payload_retention_status"] == "compact_only"
+            assert stale_saved_result["run_id"] == stale_run_id
+            assert stale_saved_result["principal_id"] == principal_id
+            assert "summary" in stale_saved_result
+            assert "selected_platforms" in stale_saved_result
     finally:
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
@@ -7251,7 +7257,11 @@ def test_property_search_run_retention_env_allows_explicit_admin_pruning(monkeyp
     try:
         product_service._prune_property_search_runs()
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
-            assert run_id not in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+            assert run_id in product_service._PROPERTY_SEARCH_RUN_REGISTRY
+            saved_result = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id])
+            assert saved_result["payload_retention_status"] == "compact_only"
+            assert saved_result["run_id"] == run_id
+            assert saved_result["principal_id"] == principal_id
     finally:
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
@@ -9416,6 +9426,57 @@ def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch
     assert any(row.get("run_id") == run_id for row in listed)
 
 
+def test_property_search_run_postgres_retention_compacts_without_deleting_saved_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
+    if not db_url:
+        pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS", "60")
+    monkeypatch.setattr(property_search_storage, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
+    run_id = f"run-postgres-retention-{uuid.uuid4().hex}"
+    principal_id = "exec-property-postgres-retention"
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "completed"
+    state["created_at"] = old_timestamp
+    state["updated_at"] = old_timestamp
+    state["summary"] = {
+        "status": "completed",
+        "ranked_total": 1,
+        "ranked_candidates": [{"candidate_ref": "saved-result", "title": "Saved result"}],
+        "sources": [{"source_label": "Willhaben", "source_html": "<html>discard me</html>"}],
+    }
+
+    try:
+        product_service._store_property_search_run_record(state)
+        property_search_storage._prune_property_search_run_records()
+
+        loaded = product_service._load_property_search_run_record(run_id=run_id, principal_id=principal_id)
+        listed = product_service._list_property_search_run_records(
+            limit=5,
+            principal_id=principal_id,
+            lightweight=True,
+        )
+    finally:
+        product_service._delete_property_search_run_record(run_id=run_id, principal_id=principal_id)
+
+    assert loaded is not None
+    assert loaded["run_id"] == run_id
+    assert loaded["principal_id"] == principal_id
+    assert loaded["payload_retention_status"] == "compact_only"
+    assert loaded["summary"]["ranked_candidates"] == [{"candidate_ref": "saved-result", "title": "Saved result"}]
+    assert "sources" not in loaded["summary"]
+    assert any(row.get("run_id") == run_id for row in listed)
+
+
 def test_property_search_run_listing_requires_principal_unless_admin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     registry = {
@@ -9501,6 +9562,10 @@ def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
     assert "SET principal_id = EXCLUDED.principal_id" not in source
     assert "ON CONFLICT (run_id)" not in source
     assert "ON CONFLICT (principal_id, run_id) DO UPDATE" in source
+    assert "payload_retention_status" in source
+    assert "compact_only" in source
+    assert "UPDATE property_search_runs AS runs" in source
+    assert "DELETE FROM property_search_runs WHERE updated_at < %s" not in source
 
 
 def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -9576,6 +9641,9 @@ def test_property_search_storage_schema_check_enforces_tenant_primary_key() -> N
     assert "idx_property_search_runs_principal_updated" in source
     assert "_check_source_contracts()" in source
     assert "ON CONFLICT (principal_id, run_id) DO UPDATE" in source
+    assert "payload_retention_status" in source
+    assert "compact_only" in source
+    assert "UPDATE property_search_runs AS runs" in source
     assert "SET principal_id = EXCLUDED.principal_id" in source
     assert "forbidden_storage_contract" in source
     assert "if not normalized_principal_id and not admin:" in source

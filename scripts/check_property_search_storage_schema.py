@@ -21,6 +21,10 @@ def _check_source_contracts() -> None:
         "ON CONFLICT (principal_id, run_id) DO UPDATE",
         "WHERE run_id = %s AND principal_id = %s",
         "DELETE FROM property_search_runs WHERE run_id = %s AND principal_id = %s",
+        "payload_retention_status",
+        "compact_only",
+        "UPDATE property_search_runs AS runs",
+        "COALESCE(NULLIF(compact_json, '{{}}'::jsonb)",
         "if not normalized_principal_id and not admin:\n        return ()",
     )
     for fragment in required_storage_fragments:
