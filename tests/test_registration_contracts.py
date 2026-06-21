@@ -194,6 +194,10 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert 'href="/sign-in/facebook"' not in response.text
     assert 'class="auth-provider-card"' in response.text
     assert 'class="auth-provider-icon"' in response.text
+    assert 'data-auth-provider-status role="status" aria-live="polite"' in response.text
+    assert "If the provider does not open, use the secure email link or try again." in response.text
+    assert "Still here. Try the provider again, or use the secure email link." in response.text
+    assert "}, 3500);" in response.text
     assert "Google?" not in response.text
     assert "Facebook?" not in response.text
     assert "Continue with ID Austria" not in response.text

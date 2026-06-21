@@ -106,6 +106,13 @@
     border-color: var(--line);
     background: color-mix(in srgb, var(--panel) 86%, var(--bg) 14%);
   }
+  .auth-provider-status {
+    min-height: 18px;
+    margin: 7px 4px 0;
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
   .auth-provider-card.is-submitting {
     border-color: color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
     background: color-mix(in srgb, var(--accent-soft) 18%, var(--panel) 82%);
@@ -194,6 +201,7 @@
         <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
       </div>
       {% endif %}
+      <div class="auth-provider-status" data-auth-provider-status role="status" aria-live="polite"></div>
     </div>
     {% if sign_in_google_error %}
     <div class="access-feedback">
@@ -303,13 +311,17 @@
       link.dataset.originalLabel = link.textContent || '';
       link.textContent = link.dataset.submittingLabel || 'Opening...';
       link.setAttribute('aria-busy', 'true');
+      const provider = (link.textContent || link.dataset.submittingLabel || 'Sign-in provider').replace(/\.\.\.$/, '').trim();
+      const status = document.querySelector('[data-auth-provider-status]');
+      if (status) status.textContent = `${provider}. If the provider does not open, use the secure email link or try again.`;
       window.setTimeout(() => {
         if (document.visibilityState === 'visible' && link.getAttribute('aria-busy') === 'true') {
           link.textContent = link.dataset.originalLabel || 'Try again';
           link.removeAttribute('aria-busy');
           if (card) card.classList.remove('is-submitting');
+          if (status) status.textContent = 'Still here. Try the provider again, or use the secure email link.';
         }
-      }, 8000);
+      }, 3500);
     });
   });
 </script>
