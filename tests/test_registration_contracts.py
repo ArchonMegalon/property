@@ -1010,6 +1010,62 @@ def test_sign_in_facebook_callback_fails_closed_without_returned_scopes(monkeypa
     assert "facebook_error=facebook_oauth_granted_scopes_missing" in callback.headers["location"]
 
 
+def test_sign_in_facebook_callback_rejects_replayed_state_before_second_token_exchange(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    sign_in_start = client.post("/sign-in/facebook", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)
+
+    from app.services import facebook_oauth as facebook_service
+
+    facebook_service._FACEBOOK_USED_STATE_KEYS.clear()  # noqa: SLF001
+    token_exchanges = {"count": 0}
+
+    def _exchange(**kwargs):  # noqa: ANN003
+        token_exchanges["count"] += 1
+        return {
+            "access_token": "facebook-access-token",
+            "scope": "public_profile",
+            "expires_in": 3600,
+        }
+
+    monkeypatch.setattr(facebook_service, "_exchange_facebook_code_for_token", _exchange)
+    monkeypatch.setattr(
+        facebook_service,
+        "_fetch_facebook_userinfo",
+        lambda **kwargs: {
+            "id": "facebook-user-signin",
+            "name": "Tibor Girschele",
+        },
+    )
+
+    first_callback = client.get(
+        "/facebook/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+    assert first_callback.status_code == 303
+    assert "facebook_error=facebook_sign_in_not_found" in first_callback.headers["location"]
+    assert token_exchanges["count"] == 1
+
+    second_callback = client.get(
+        "/facebook/callback",
+        params={"code": "code-456", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+    assert second_callback.status_code == 303
+    assert "facebook_error=facebook_oauth_state_replayed" in second_callback.headers["location"]
+    assert token_exchanges["count"] == 1
+
+
 def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(monkeypatch)
 

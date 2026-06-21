@@ -22,6 +22,8 @@ FACEBOOK_CONNECTOR_NAME = "facebook_login"
 FACEBOOK_AUTH_HOST = "https://www.facebook.com"
 FACEBOOK_GRAPH_HOST = "https://graph.facebook.com"
 FACEBOOK_SCOPE_IDENTITY = ("public_profile",)
+_FACEBOOK_USED_STATE_KEYS: dict[str, float] = {}
+_FACEBOOK_USED_STATE_CACHE_LIMIT = 5000
 
 
 @dataclass(frozen=True)
@@ -156,6 +158,7 @@ def complete_facebook_oauth_callback(
         str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri,
         config=config,
     )
+    _consume_facebook_oauth_state(state_payload)
     token_payload = _exchange_facebook_code_for_token(
         code=code,
         app_id=config.app_id,
@@ -403,6 +406,40 @@ def _decode_signed_state(state: str, *, secret: str, verify_age: bool = True) ->
     if verify_age and (issued_at <= 0 or time.time() - issued_at > max_age_seconds):
         raise RuntimeError("facebook_oauth_state_expired")
     return payload
+
+
+def _consume_facebook_oauth_state(payload: dict[str, Any]) -> None:
+    nonce = str(payload.get("nonce") or "").strip()
+    issued_at = _safe_int(payload.get("issued_at"), default=0)
+    if not nonce or issued_at <= 0:
+        raise RuntimeError("facebook_oauth_state_nonce_missing")
+    now = time.time()
+    max_age_seconds = max(_safe_int(os.environ.get("EA_FACEBOOK_OAUTH_STATE_MAX_AGE_SECONDS"), default=21600), 300)
+    cutoff = now - max_age_seconds
+    for key, used_at in list(_FACEBOOK_USED_STATE_KEYS.items()):
+        if used_at < cutoff:
+            _FACEBOOK_USED_STATE_KEYS.pop(key, None)
+    if len(_FACEBOOK_USED_STATE_KEYS) > _FACEBOOK_USED_STATE_CACHE_LIMIT:
+        for key, _used_at in sorted(_FACEBOOK_USED_STATE_KEYS.items(), key=lambda item: item[1])[
+            : max(1, len(_FACEBOOK_USED_STATE_KEYS) - _FACEBOOK_USED_STATE_CACHE_LIMIT)
+        ]:
+            _FACEBOOK_USED_STATE_KEYS.pop(key, None)
+    replay_key = _facebook_oauth_state_replay_key(payload)
+    if replay_key in _FACEBOOK_USED_STATE_KEYS:
+        raise RuntimeError("facebook_oauth_state_replayed")
+    _FACEBOOK_USED_STATE_KEYS[replay_key] = now
+
+
+def _facebook_oauth_state_replay_key(payload: dict[str, Any]) -> str:
+    replay_material = {
+        "principal_id": str(payload.get("principal_id") or "").strip(),
+        "redirect_uri": str(payload.get("redirect_uri") or "").strip(),
+        "browser_source": str(payload.get("browser_source") or "").strip(),
+        "nonce": str(payload.get("nonce") or "").strip(),
+        "issued_at": _safe_int(payload.get("issued_at"), default=0),
+    }
+    body = json.dumps(replay_material, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
 def _safe_int(value: Any, *, default: int) -> int:
