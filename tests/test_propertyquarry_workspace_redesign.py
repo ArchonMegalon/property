@@ -1389,7 +1389,11 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
     required_dark_selectors = (
         'html[data-pq-theme="dark"] .pqx-decision-stepper span',
         'html[data-pq-theme="dark"] .pqx-decision-stepper span.is-active',
+        'html[data-pq-theme="dark"] .pqx-mode-button',
+        'html[data-pq-theme="dark"] .pqx-mode-button.active',
         'html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action',
+        'html[data-pq-theme="dark"] .pqx-check',
+        'html[data-pq-theme="dark"] .pqx-check:has(input:checked)',
         'html[data-pq-theme="dark"] .pqx-check[data-school-stage-parent]',
         'html[data-pq-theme="dark"] .pqx-check[data-school-stage-variant]',
         'html[data-pq-theme="dark"] .pqx-field input:not([type="checkbox"])',

@@ -53,6 +53,37 @@ ACCESSIBILITY_PRIMITIVE_TEMPLATES = (
     "ea/app/templates/app/property_research_detail.html",
 )
 
+LIGHT_BACKGROUND_RE = re.compile(
+    r"background(?:-color)?\s*:\s*"
+    r"(?:"
+    r"#fff(?:fff|[0-9a-f]{3})?\b|"
+    r"white\b|"
+    r"rgb\(\s*255\s*,\s*(?:255|253|252|251|250|249|248|244|241)\s*,\s*(?:255|253|252|249|248|245|242|241|237|232|228|221|214|208)\s*\)|"
+    r"rgba\(\s*255\s*,\s*(?:255|253|252|251|250|249|248|244|241)\s*,\s*(?:255|253|252|249|248|245|242|241|237|232|228|221|214|208)\s*,\s*(?:0?\.(?:6[5-9]|[7-9][0-9]*)|1(?:\.0+)?)\s*\)|"
+    r"color-mix\([^;{}]*(?:white|#ffffff)"
+    r")",
+    flags=re.IGNORECASE,
+)
+CSS_BLOCK_RE = re.compile(r"(?P<selectors>[^{}]+)\{(?P<body>[^{}]*)\}", flags=re.DOTALL)
+CLASS_RE = re.compile(r"\.([a-zA-Z][a-zA-Z0-9_-]*)")
+GENERIC_DARK_SUFFIXES = ("-card", "-panel", "-table", "-row", "-chip", "-pill", "-value")
+GENERIC_DARK_ROOTS = ("base_public.html", "base_console.html")
+MODIFIER_ONLY_CLASSES = {
+    "active",
+    "danger",
+    "disabled",
+    "good",
+    "is-active",
+    "is-blocked",
+    "is-filter-recovered",
+    "is-ready",
+    "is-selected",
+    "is-submitting",
+    "primary",
+    "subtle",
+    "warn",
+}
+
 
 def _hex_to_rgb(value: str) -> tuple[float, float, float] | None:
     text = value.strip()
@@ -246,6 +277,52 @@ def _check_contrast_tokens(path: Path, text: str, failures: list[str]) -> None:
             failures.append(f"{path} contrast {foreground} on {background} must be >= {minimum:g}:1")
 
 
+def _dark_selector_text(text: str) -> str:
+    return "\n".join(
+        match.group(0)
+        for match in CSS_BLOCK_RE.finditer(text)
+        if 'html[data-pq-theme="dark"]' in match.group("selectors")
+    )
+
+
+def _class_has_dark_guard(class_name: str, dark_text: str, *, template_name: str) -> bool:
+    if class_name in MODIFIER_ONLY_CLASSES:
+        return False
+    if class_name.endswith(GENERIC_DARK_SUFFIXES):
+        return True
+    if template_name in GENERIC_DARK_ROOTS and (
+        class_name.endswith(("-section",)) or class_name in {"btn", "panel", "summary"}
+    ):
+        return True
+    return f".{class_name}" in dark_text
+
+
+def _check_light_backgrounds_have_dark_guards(path: Path, text: str, failures: list[str]) -> None:
+    relative = str(path.relative_to(ROOT))
+    if relative not in SURFACE_TEMPLATES:
+        return
+    dark_text = _dark_selector_text(text)
+    for match in CSS_BLOCK_RE.finditer(text):
+        selectors = re.sub(r"\s+", " ", match.group("selectors")).strip()
+        if 'html[data-pq-theme="dark"]' in selectors:
+            continue
+        body = match.group("body")
+        if LIGHT_BACKGROUND_RE.search(body) is None:
+            continue
+        classes = [
+            class_name
+            for class_name in CLASS_RE.findall(selectors)
+            if class_name not in MODIFIER_ONLY_CLASSES
+        ]
+        if not classes:
+            continue
+        if any(_class_has_dark_guard(class_name, dark_text, template_name=Path(relative).name) for class_name in classes):
+            continue
+        failures.append(
+            f"{path}:{_line_number(text, match.start())} light background selector lacks a dark-mode guard: {selectors[:140]}"
+        )
+
+
 def main() -> int:
     failures: list[str] = []
     for relative_path in SURFACE_TEMPLATES:
@@ -261,6 +338,7 @@ def main() -> int:
         _check_dialogs(path, text, failures)
         _check_accessibility_primitives(path, text, failures)
         _check_contrast_tokens(path, text, failures)
+        _check_light_backgrounds_have_dark_guards(path, text, failures)
 
     release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
     if "scripts/check_property_surface_accessibility.py" not in release_gate:

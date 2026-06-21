@@ -4867,7 +4867,9 @@
     }
     html[data-pq-theme="dark"] .pqx-loaded-agent,
     html[data-pq-theme="dark"] .pqx-decision-stepper span,
+    html[data-pq-theme="dark"] .pqx-mode-button,
     html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action,
+    html[data-pq-theme="dark"] .pqx-check,
     html[data-pq-theme="dark"] .pqx-check[data-school-stage-parent],
     html[data-pq-theme="dark"] .pqx-check[data-school-stage-variant],
     html[data-pq-theme="dark"] .pqx-workflow-step,
@@ -4986,9 +4988,14 @@
     html[data-pq-theme="dark"] .pqx-workflow-step:hover,
     html[data-pq-theme="dark"] .pqx-workflow-step:focus-visible,
     html[data-pq-theme="dark"] .pqx-workflow-step.active,
+    html[data-pq-theme="dark"] .pqx-mode-button:hover,
+    html[data-pq-theme="dark"] .pqx-mode-button:focus-visible,
+    html[data-pq-theme="dark"] .pqx-mode-button.active,
     html[data-pq-theme="dark"] .pqx-decision-stepper span.is-active,
     html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action:hover,
     html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action:focus-visible,
+    html[data-pq-theme="dark"] .pqx-check:focus-within,
+    html[data-pq-theme="dark"] .pqx-check:has(input:checked),
     html[data-pq-theme="dark"] .pqx-disclosure-summary:hover,
     html[data-pq-theme="dark"] .pqx-advanced-panel[open] > .pqx-disclosure-summary,
     html[data-pq-theme="dark"] .pqx-account-action-card.primary,
@@ -6022,6 +6029,8 @@
       select,
       textarea,
       button:not(.pqx-button):not(.pqx-link-button):not(.pqx-mode-button),
+      .pqx-mode-button,
+      .pqx-check,
       [class$="-card"],
       [class*="-card "],
       [class$="-panel"],
@@ -6041,6 +6050,17 @@
       background-image: none;
       color: var(--pq-ink);
       border-color: var(--pq-line);
+    }
+    html[data-pq-theme="dark"] .pqx-shell :is(
+      .pqx-mode-button:hover,
+      .pqx-mode-button:focus-visible,
+      .pqx-mode-button.active,
+      .pqx-check:focus-within,
+      .pqx-check:has(input:checked)
+    ) {
+      background-color: color-mix(in srgb, var(--pq-gold) 14%, var(--pq-paper));
+      color: var(--pq-ink);
+      border-color: color-mix(in srgb, var(--pq-gold) 42%, var(--pq-line));
     }
     html[data-pq-theme="dark"] .pqx-shell :is(input, select, textarea)::placeholder {
       color: var(--pq-faint);
