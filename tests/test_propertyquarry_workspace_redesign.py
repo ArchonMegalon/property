@@ -8552,9 +8552,15 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Property alerts" in account.text
+    assert "Choose where strong-match notifications arrive." in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'value="email"' in account.text
     assert 'value="telegram"' in account.text
+    assert "WhatsApp AI support number" in account.text
+    assert "Used only for support questions." in account.text
+    assert "Alerts go to WhatsApp only when WhatsApp is selected above." in account.text
+    assert "Save alerts and AI support number" not in account.text
+    assert 'name="whatsapp_ai_support_phone"' in account.text
     assert "PropertyQuarry bot" in account.text
     assert "@propertyquarry_bot" in account.text
     assert 'href="https://t.me/propertyquarry_bot"' in account.text
@@ -8583,7 +8589,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
 
     notification_update = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "telegram"},
+        data={"preferred_channel": "telegram", "whatsapp_ai_support_phone": "+43 664 791 6419"},
         headers=headers,
         follow_redirects=False,
     )
@@ -8595,6 +8601,27 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
         export_after_update.json()["delivery_preferences"]["property_notifications"]["preferred_channel"]
         == "telegram"
     )
+    assert (
+        export_after_update.json()["delivery_preferences"]["property_notifications"]["notification_scope"]
+        == "scout_updates"
+    )
+    assert (
+        export_after_update.json()["delivery_preferences"]["property_notifications"]["whatsapp_notification_opt_in"]
+        is False
+    )
+    assert (
+        export_after_update.json()["delivery_preferences"]["property_notifications"]["whatsapp_ai_support_phone"]
+        == "+436647916419"
+    )
+    assert (
+        export_after_update.json()["delivery_preferences"]["property_notifications"]["whatsapp_ai_support_purpose"]
+        == "ai_support_only"
+    )
+    assert "whatsapp" in client.app.state.container.onboarding._ensure_state(principal_id).selected_channels  # noqa: SLF001
+    contact_hint = build_product_service(client.app.state.container)._heyy_whatsapp_contact_hint(  # noqa: SLF001
+        principal_id=principal_id
+    )
+    assert contact_hint["phone_number"] == "+436647916419"
 
     download = client.get("/app/api/property/account/export?download=1", headers=headers)
     assert download.status_code == 200

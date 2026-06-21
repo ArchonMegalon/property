@@ -24,7 +24,7 @@ from app.container import AppContainer
 from app.product.property_canonical_graph import build_property_passport_snapshot
 from app.product.property_tour_hosting import revoke_hosted_property_tour_bundle
 from app.product.service import build_product_service
-from app.services.onboarding import normalize_property_notification_channel
+from app.services.onboarding import normalize_property_notification_channel, normalize_property_whatsapp_ai_support_phone
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 
@@ -182,13 +182,24 @@ async def update_property_account_notifications(
     raw_body = (await request.body()).decode("utf-8", "ignore")
     parsed_body = urllib.parse.parse_qs(raw_body, keep_blank_values=True)
     preferred_channel = str((parsed_body.get("preferred_channel") or ["email"])[0] or "email")
+    whatsapp_ai_support_phone = (
+        str((parsed_body.get("whatsapp_ai_support_phone") or [""])[0] or "")
+        if "whatsapp_ai_support_phone" in parsed_body
+        else None
+    )
     try:
         normalized_channel = normalize_property_notification_channel(preferred_channel)
+        normalized_support_phone = (
+            normalize_property_whatsapp_ai_support_phone(whatsapp_ai_support_phone)
+            if whatsapp_ai_support_phone is not None
+            else ""
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     container.onboarding.update_property_notification_preferences(
         principal_id=context.principal_id,
         preferred_channel=normalized_channel,
+        whatsapp_ai_support_phone=whatsapp_ai_support_phone,
     )
     service = build_product_service(container)
     service.record_surface_event(
@@ -196,7 +207,11 @@ async def update_property_account_notifications(
         event_type="property_notification_preferences_updated",
         surface="property_account_lifecycle",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-        metadata={"preferred_channel": normalized_channel},
+        metadata={
+            "preferred_channel": normalized_channel,
+            "whatsapp_ai_support": bool(normalized_support_phone),
+            "whatsapp_ai_support_phone_last4": "".join(ch for ch in normalized_support_phone if ch.isdigit())[-4:],
+        },
     )
     return RedirectResponse(
         url="/app/account?notifications_saved=1#delivery",

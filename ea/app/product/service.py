@@ -36849,8 +36849,12 @@ class ProductService:
         onboarding = self._container.onboarding
         state = onboarding._bridge_browser_principal_state(principal_id) or onboarding._repo.get_for_principal(principal_id)  # noqa: SLF001
         channel_prefs = dict(getattr(state, "channel_preferences_json", {}) or {}) if state is not None else {}
+        property_notifications = dict(channel_prefs.get("property_notifications") or {})
+        support_phone = str(property_notifications.get("whatsapp_ai_support_phone") or "").strip()
         whatsapp_pref = dict(channel_prefs.get("whatsapp") or {})
-        if str(whatsapp_pref.get("mode") or "").strip() == "business":
+        if support_phone:
+            phone_number = support_phone
+        elif str(whatsapp_pref.get("mode") or "").strip() == "business":
             phone_number = str(whatsapp_pref.get("phone_number") or "").strip()
         for binding in self._container.tool_runtime.list_connector_bindings(principal_id, limit=50):
             if str(binding.connector_name or "").strip() != "whatsapp_heyy":
