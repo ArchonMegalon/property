@@ -11,7 +11,7 @@ def test_ltd_flagship_subset_gate_passes_for_expected_verified_subset() -> None:
 |---|---|---|---|---|---|
 | `1min.AI` |  | `manual_seeded` | `local_env_browseract_refresh` | 2026-06-02T18:17:17Z | ok |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48Z | ok |
-| `PayFunnels` |  | `manual_seeded` | `payfunnels_test_billing_receipts` | 2026-06-01T00:00:00Z | ok |
+| `PayFunnels` |  | `manual_seeded` | `payfunnels_plan_billing_receipts` | 2026-06-21T00:00:00Z | ok |
 | `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T00:00:00Z | ok |
 | `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | ok |
 | `ClickRank.ai` | ops@example.com | `complete` | `clickrank_live` | 2026-05-04T07:44:00Z | ok |

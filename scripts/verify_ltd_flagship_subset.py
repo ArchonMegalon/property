@@ -21,7 +21,7 @@ FLAGSHIP_REQUIRED = {
 ACCEPTED_SOURCES = {
     "1min.AI": {"local_env_browseract_refresh"},
     "Prompt Architects": {"local_env + prompt_foundry_receipts"},
-    "PayFunnels": {"payfunnels_test_billing_receipts"},
+    "PayFunnels": {"payfunnels_plan_billing_receipts"},
     "BrowserAct": {"browseract_live"},
     "Teable": {"browseract_live"},
     "ClickRank.ai": {"clickrank_live"},
