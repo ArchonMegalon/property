@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "ea"))
 
 from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRepository  # noqa: E402
+from app.services.property_billing import normalize_property_commercial  # noqa: E402
 from app.services.propertyquarry_teable_projection import (  # noqa: E402
     PROPERTYQUARRY_TEABLE_TABLE_NAMES,
     discover_propertyquarry_teable_table_config,
@@ -207,6 +208,35 @@ def _created_at(value: object) -> str:
     if text:
         return text
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _subscription_commercial_from_rows(
+    *,
+    principal_id: str,
+    records_by_table: dict[str, list[dict[str, object]]],
+) -> dict[str, object]:
+    row = _first_row(records_by_table.get("propertyquarry_subscriptions", []), principal_id=principal_id)
+    if not row:
+        return {}
+    commercial = _coerce_dict(row.get("commercial_json"))
+    current_plan_key = str(row.get("current_plan_key") or commercial.get("active_plan_key") or "").strip().lower()
+    if current_plan_key:
+        commercial["active_plan_key"] = current_plan_key
+    for source_key, target_key in (
+        ("status", "status"),
+        ("active_until", "active_until"),
+        ("pending_plan_key", "pending_plan_key"),
+        ("plan_source", "plan_source"),
+        ("last_order_id", "last_order_id"),
+        ("last_capture_id", "last_capture_id"),
+        ("last_payment_status", "last_payment_status"),
+        ("last_payment_amount_eur", "last_payment_amount_eur"),
+        ("captured_at", "captured_at"),
+    ):
+        value = row.get(source_key)
+        if value not in (None, ""):
+            commercial[target_key] = value
+    return normalize_property_commercial(commercial)
 
 
 def _lookup_keys_for_row(row: dict[str, object]) -> tuple[str, ...]:
@@ -616,6 +646,12 @@ def build_restore_bundle(
     preferences.setdefault("location_query", str(preferences_row.get("location_query") or "").strip())
     if not preferences.get("selected_platforms"):
         preferences["selected_platforms"] = _coerce_list(preferences_row.get("selected_platforms_json"))
+    restored_commercial = _subscription_commercial_from_rows(
+        principal_id=normalized_principal,
+        records_by_table=records_by_table,
+    )
+    if restored_commercial and not isinstance(preferences.get("property_commercial"), dict):
+        preferences["property_commercial"] = restored_commercial
     restored_agents, restored_active_agent_id = _search_agents_from_rows(
         principal_id=normalized_principal,
         records_by_table=records_by_table,
@@ -697,6 +733,7 @@ def build_restore_bundle(
             "status": "completed",
         },
         "saved_result_count": len(saved_candidates),
+        "subscription_restored": bool(restored_commercial),
         "review_artifact_count": len({
             str(row.get("projection_id") or row.get("property_ref") or row.get("property_url") or "").strip()
             for row in records_by_table.get("propertyquarry_review_artifacts", [])

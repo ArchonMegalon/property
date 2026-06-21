@@ -762,6 +762,26 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
                     "preferences_json": {"min_area_m2": 80},
                 }
             ],
+            "propertyquarry_subscriptions": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "current_plan_key": "plus",
+                    "status": "active",
+                    "active_until": "2999-01-01T00:00:00+00:00",
+                    "is_paid": True,
+                    "plan_source": "paypal",
+                    "last_order_id": "ORDER-RESTORE-1",
+                    "last_payment_status": "captured",
+                    "commercial_json": {
+                        "active_plan_key": "plus",
+                        "status": "active",
+                        "active_until": "2999-01-01T00:00:00+00:00",
+                        "last_order_id": "ORDER-RESTORE-1",
+                        "last_payment_status": "captured",
+                        "plan_source": "paypal",
+                    },
+                }
+            ],
             "propertyquarry_search_agents": [
                 {
                     "principal_id": principal_alias,
@@ -934,6 +954,11 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
     preferences = state["property_search_preferences_json"]
     assert preferences["location_query"] == "1020 Wien"
     assert preferences["selected_platforms"] == ["willhaben"]
+    assert preferences["property_commercial"]["active_plan_key"] == "plus"
+    assert preferences["property_commercial"]["status"] == "active"
+    assert preferences["property_commercial"]["last_order_id"] == "ORDER-RESTORE-1"
+    assert preferences["property_commercial"]["last_payment_status"] == "captured"
+    assert bundle["subscription_restored"] is True
     assert preferences["active_search_agent_id"] == "agent-vienna-family"
     assert preferences["search_agents"][0]["agent_id"] == "agent-vienna-family"
     assert preferences["search_agents"][0]["is_active"] is True
