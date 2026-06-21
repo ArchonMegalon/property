@@ -49,6 +49,21 @@ def test_content_studio_validation_route_and_admin_surface(monkeypatch, tmp_path
     assert "Direct publication" in page.text
 
 
+def test_content_studio_templates_support_dark_surfaces() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    templates = (
+        repo_root / "ea/app/templates/admin/property_content_studio.html",
+        repo_root / "ea/app/templates/admin/property_content_job.html",
+    )
+    for template in templates:
+        body = template.read_text(encoding="utf-8")
+        assert "color-scheme: light dark;" in body
+        assert "@media (prefers-color-scheme: dark)" in body
+        assert "background: #fff;" not in body
+        assert "background: #ffffff;" not in body
+        assert "color: #18211f;" not in body
+
+
 def test_invalid_packet_is_rejected_before_subscribr_job(tmp_path: Path) -> None:
     packet = build_product_tutorial_source_packet(title="Bad private packet")
     packet["user_email"] = "buyer@example.com"
@@ -59,4 +74,3 @@ def test_invalid_packet_is_rejected_before_subscribr_job(tmp_path: Path) -> None
     assert validate_property_content_source_packet(packet)["status"] == "fail"
     assert job["status"] == "SOURCE_REJECTED"
     assert job["provider_status"] == "blocked"
-
