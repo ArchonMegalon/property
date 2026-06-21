@@ -1382,6 +1382,11 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
     packets = (repo_root / "ea/app/templates/app/property_packets.html").read_text(encoding="utf-8")
 
     required_dark_selectors = (
+        'html[data-pq-theme="dark"] .pqx-decision-stepper span',
+        'html[data-pq-theme="dark"] .pqx-decision-stepper span.is-active',
+        'html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action',
+        'html[data-pq-theme="dark"] .pqx-check[data-school-stage-parent]',
+        'html[data-pq-theme="dark"] .pqx-check[data-school-stage-variant]',
         'html[data-pq-theme="dark"] .pqx-field input:not([type="checkbox"])',
         'html[data-pq-theme="dark"] .pqx-range-label',
         'html[data-pq-theme="dark"] .pqx-range-value',
@@ -1442,6 +1447,7 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-worker-lane',
         'html[data-pq-theme="dark"] .pqx-worker-popover',
         'html[data-pq-theme="dark"] .pqx-source-chip',
+        'html[data-pq-theme="dark"] .pqx-automation-thumbnail-action',
         'html[data-pq-theme="dark"] textarea',
         'html[data-pq-theme="dark"] .pqx-research-value',
         'html[data-pq-theme="dark"] .pqx-empty',
@@ -1499,6 +1505,13 @@ def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:
 
     base_public = (repo_root / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
     assert 'html[data-pq-theme="dark"] .mobile-nav a' in base_public
+
+    home = (repo_root / "ea/app/templates/propertyquarry_home.html").read_text(encoding="utf-8")
+    assert 'html[data-pq-theme="dark"] .pq-hero-copy' in home
+    assert 'html[data-pq-theme="dark"] .pq-desk' in home
+    assert 'html[data-pq-theme="dark"] .pq-board' in home
+    assert 'html[data-pq-theme="dark"] .pq-loop span' in home
+    assert 'html[data-pq-theme="dark"] .pq-spinner' in home
 
     research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
     assert 'html[data-pq-theme="dark"] .prd-media-badge' in research_detail
