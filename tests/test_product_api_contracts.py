@@ -6594,6 +6594,105 @@ def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(mo
     assert floorplan_allowed["tour_media_mode"] == "floorplan_hosted"
 
 
+def test_generic_property_tour_default_source_ref_is_provider_scoped(monkeypatch) -> None:
+    principal_id = "cf-email:generic-tour-idempotency@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Generic Tour Office")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    kalandra_url = "https://www.kalandra.at/objekt/shared-listing-id"
+    findmyhome_url = "https://www.findmyhome.at/1234567?tl=1"
+    previews = {
+        kalandra_url: {
+            "listing_id": "shared-listing-id",
+            "title": "Kalandra shared listing",
+            "summary": "A provider-specific listing with a floor plan.",
+            "media_urls_json": ["https://kalandra.example.test/photo.jpg"],
+            "floorplan_urls_json": ["https://kalandra.example.test/floorplan.png"],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "",
+            "property_facts_json": {"property_type": "apartment", "has_floorplan": True},
+        },
+        findmyhome_url: {
+            "listing_id": "shared-listing-id",
+            "title": "FindMyHome shared listing",
+            "summary": "Another provider using the same listing id.",
+            "media_urls_json": ["https://findmyhome.example.test/photo.jpg"],
+            "floorplan_urls_json": ["https://findmyhome.example.test/floorplan.png"],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "",
+            "property_facts_json": {"property_type": "apartment", "has_floorplan": True},
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: previews[url])
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 74.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Has a usable floor plan."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    created_payloads: list[dict[str, object]] = []
+
+    def _fake_write_hosted_floorplan_property_tour_bundle(**kwargs: object) -> dict[str, object]:
+        created_payloads.append(dict(kwargs))
+        slug = f"provider-scoped-tour-{len(created_payloads)}"
+        return {
+            "slug": slug,
+            "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+            "public_url": f"https://propertyquarry.com/tours/{slug}",
+            "creation_mode": "hosted_floorplan_tour",
+        }
+
+    monkeypatch.setattr(
+        product_service,
+        "_write_hosted_floorplan_property_tour_bundle",
+        _fake_write_hosted_floorplan_property_tour_bundle,
+    )
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setattr(service, "_enforce_property_visual_quota", lambda **kwargs: None)
+
+    kalandra_result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=kalandra_url,
+        actor="test",
+        allow_floorplan_only=True,
+        auto_deliver=False,
+    )
+    findmyhome_result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=findmyhome_url,
+        actor="test",
+        allow_floorplan_only=True,
+        auto_deliver=False,
+    )
+
+    assert kalandra_result["status"] == "created"
+    assert findmyhome_result["status"] == "created"
+    assert kalandra_result["source_ref"] == "property:www.kalandra.at:shared-listing-id"
+    assert findmyhome_result["source_ref"] == "property:www.findmyhome.at:shared-listing-id"
+    assert kalandra_result["source_ref"] != findmyhome_result["source_ref"]
+    assert {payload["source_ref"] for payload in created_payloads} == {
+        "property:www.kalandra.at:shared-listing-id",
+        "property:www.findmyhome.at:shared-listing-id",
+    }
+    events = client.app.state.container.channel_runtime.list_recent_observations(
+        principal_id=principal_id,
+        limit=20,
+    )
+    created_sources = {
+        row.source_id
+        for row in events
+        if row.event_type == "generic_property_tour_created"
+    }
+    assert "property:www.kalandra.at:shared-listing-id" in created_sources
+    assert "property:www.findmyhome.at:shared-listing-id" in created_sources
+
+
 def test_generic_property_tour_without_browseract_binding_blocks_cube_360_fallback(
     monkeypatch,
     tmp_path: Path,

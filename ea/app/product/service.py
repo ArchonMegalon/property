@@ -26358,7 +26358,11 @@ class ProductService:
         if preference_snapshot:
             property_facts_json["public_preference_snapshot"] = dict(preference_snapshot)
         resolved_variant_key = str(variant_key or "layout_first").strip() or "layout_first"
-        resolved_source_ref = str(source_ref or f"property:{listing_id}").strip()
+        source_identity_host = (
+            re.sub(r"[^a-z0-9._-]+", "-", source_host).strip("._-")
+            or "unknown-provider"
+        )
+        resolved_source_ref = str(source_ref or f"property:{source_identity_host}:{listing_id}").strip()
         resolved_external_id = str(external_id or listing_id or normalized_url).strip()
         resolved_binding_id = self._resolve_browseract_property_tour_binding_id(principal_id=principal_id, binding_id=binding_id)
         if _prefer_hosted_live_360_embed(source_virtual_tour_url):
