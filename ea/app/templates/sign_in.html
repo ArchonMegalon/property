@@ -117,6 +117,13 @@
     border-color: color-mix(in srgb, var(--accent) 42%, var(--line) 58%);
     background: color-mix(in srgb, var(--accent-soft) 18%, var(--panel) 82%);
   }
+  .auth-provider-card.disabled {
+    opacity: 0.68;
+  }
+  .auth-provider-card .btn[disabled] {
+    cursor: not-allowed;
+    color: var(--text-soft);
+  }
   .auth-provider-card.is-submitting .auth-provider-icon {
     animation: auth-provider-pulse 0.9s ease-in-out infinite alternate;
   }
@@ -180,13 +187,17 @@
       {% endif %}
     </div>
     <div class="auth-provider-stack" aria-label="Sign-in providers">
-      <div class="auth-provider-card" data-auth-provider-card>
+      <div class="auth-provider-card{% if not sign_in_google_enabled %} disabled{% endif %}" data-auth-provider-card>
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
-          <p>Identity only</p>
+          <p>{% if sign_in_google_enabled %}Identity only{% else %}Not configured on this deployment{% endif %}</p>
         </span>
+        {% if sign_in_google_enabled %}
         <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
+        {% else %}
+        <button class="btn" type="button" disabled aria-disabled="true">Google unavailable</button>
+        {% endif %}
       </div>
       {% if sign_in_facebook_enabled %}
       <div class="auth-provider-card" data-auth-provider-card>

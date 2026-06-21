@@ -203,6 +203,8 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             )
         )
     elif path == "/sign-in":
+        google_active = 'href="/sign-in/google"' in text and "Continue with Google" in text
+        google_unavailable = 'href="/sign-in/google"' not in text and "Google unavailable" in text
         checks.extend(
             (
                 (
@@ -213,8 +215,11 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     and "Google?" not in text
                     and "Facebook?" not in text,
                 ),
-                ("sign_in_google_control", 'href="/sign-in/google"' in text and "Continue with Google" in text),
-                ("sign_in_google_feedback", 'data-submitting-label="Opening Google..."' in text),
+                ("sign_in_google_state", google_active or google_unavailable),
+                (
+                    "sign_in_google_feedback",
+                    (not google_active) or 'data-submitting-label="Opening Google..."' in text,
+                ),
             )
         )
         if "Continue with Facebook" in text or 'href="/sign-in/facebook"' in text:

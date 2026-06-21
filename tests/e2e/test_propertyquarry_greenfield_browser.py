@@ -557,18 +557,21 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
         expect(desktop_page.get_by_text("Use your current session, secure email link, or connected identity.")).to_be_visible()
         expect(desktop_page.get_by_role("link", name="Open current session")).to_be_visible()
-        expect(desktop_page.get_by_role("link", name="Continue with Google")).to_be_visible()
+        google_link = desktop_page.get_by_role("link", name="Continue with Google")
+        google_unavailable = desktop_page.get_by_role("button", name="Google unavailable")
+        assert google_link.count() or google_unavailable.count()
         expect(desktop_page.get_by_role("link", name="Continue with Facebook")).to_have_count(0)
-        desktop_page.evaluate(
-            """() => {
-                const google = document.querySelector('a[href="/sign-in/google"]');
-                google?.addEventListener('click', (event) => event.preventDefault(), { capture: true });
-            }"""
-        )
-        desktop_page.get_by_role("link", name="Continue with Google").click(no_wait_after=True)
-        opening_google = desktop_page.get_by_role("link", name="Opening Google...")
-        expect(opening_google).to_be_visible()
-        assert opening_google.get_attribute("aria-busy") == "true"
+        if google_link.count():
+            desktop_page.evaluate(
+                """() => {
+                    const google = document.querySelector('a[href="/sign-in/google"]');
+                    google?.addEventListener('click', (event) => event.preventDefault(), { capture: true });
+                }"""
+            )
+            google_link.click(no_wait_after=True)
+            opening_google = desktop_page.get_by_role("link", name="Opening Google...")
+            expect(opening_google).to_be_visible()
+            assert opening_google.get_attribute("aria-busy") == "true"
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         _assert_no_horizontal_overflow(desktop_page)
@@ -579,7 +582,10 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = mobile_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         expect(mobile_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(mobile_page.get_by_role("link", name="Continue with Google")).to_be_visible()
+        assert (
+            mobile_page.get_by_role("link", name="Continue with Google").count()
+            or mobile_page.get_by_role("button", name="Google unavailable").count()
+        )
         _assert_no_horizontal_overflow(mobile_page)
         mobile_sign_in_shot = tmp_path / "propertyquarry-sign-in-mobile.png"
         mobile_page.screenshot(path=str(mobile_sign_in_shot), full_page=True)

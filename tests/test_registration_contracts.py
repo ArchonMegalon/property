@@ -29,6 +29,25 @@ def _configure_id_austria(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_ENVIRONMENT", "production")
 
 
+def _configure_google_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+
+
+def _clear_google_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in (
+        "EA_GOOGLE_OAUTH_CLIENT_ID",
+        "EA_GOOGLE_OAUTH_CLIENT_SECRET",
+        "EA_GOOGLE_OAUTH_REDIRECT_URI",
+        "EA_GOOGLE_OAUTH_STATE_SECRET",
+        "EA_PROVIDER_SECRET_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 def _id_austria_claims(*, bpk: str = "ZP-MH:test-bpk", subject: str = "id-austria-subject") -> dict[str, object]:
     return {
         "iss": "https://idp.id-austria.gv.at",
@@ -183,17 +202,20 @@ def test_sign_in_email_link_reports_missing_workspace_match(
 
 
 def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_google_sign_in(monkeypatch)
     client = _client(monkeypatch)
 
     response = client.get("/sign-in")
 
     assert response.status_code == 200
-    assert "Continue with Google" in response.text
+    assert "Google unavailable" in response.text
+    assert "Not configured on this deployment" in response.text
     assert "Continue with Facebook" not in response.text
-    assert 'href="/sign-in/google"' in response.text
+    assert 'href="/sign-in/google"' not in response.text
     assert 'href="/sign-in/facebook"' not in response.text
-    assert 'class="auth-provider-card"' in response.text
+    assert "auth-provider-card" in response.text
     assert 'class="auth-provider-icon"' in response.text
+    assert 'class="auth-provider-card disabled"' in response.text
     assert 'data-auth-provider-status role="status" aria-live="polite"' in response.text
     assert "If the provider does not open, use the secure email link or try again." in response.text
     assert "Still here. Try the provider again, or use the secure email link." in response.text
@@ -201,11 +223,23 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert "Google?" not in response.text
     assert "Facebook?" not in response.text
     assert "Continue with ID Austria" not in response.text
-    assert "Identity only" in response.text
+    assert "Identity only" not in response.text
     assert "Identity-only." not in response.text
     assert "grid-template-columns: 28px minmax(0, 1fr) max-content;" in response.text
     assert "background: transparent;" in response.text
     assert "Choose the narrowest sign-in path" not in response.text
+
+
+def test_sign_in_page_shows_google_when_oauth_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_google_sign_in(monkeypatch)
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in")
+
+    assert response.status_code == 200
+    assert "Continue with Google" in response.text
+    assert 'href="/sign-in/google"' in response.text
+    assert "Google unavailable" not in response.text
 
 
 @pytest.mark.parametrize(
@@ -226,7 +260,7 @@ def test_sign_in_page_shows_provider_return_status(monkeypatch: pytest.MonkeyPat
     assert "Open the current session if this identity is already linked" in response.text
     assert 'data-sign-in-provider-connected' in response.text
     assert 'href="/sign-in/current-session"' in response.text
-    assert 'href="#sign_in_email"' in response.text
+    assert "data-focus-sign-in-email" in response.text
 
 
 def test_sign_in_page_shows_id_austria_when_oidc_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -443,11 +477,7 @@ def test_sign_in_page_only_shows_facebook_when_configured_and_enabled(monkeypatc
 
 
 def test_sign_in_google_get_starts_oauth_for_visible_link(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
-    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    _configure_google_sign_in(monkeypatch)
     client = _client(monkeypatch)
 
     response = client.get("/sign-in/google", follow_redirects=False)
@@ -1213,6 +1243,7 @@ def test_sign_in_facebook_callback_rejects_replayed_state_before_second_token_ex
 
 
 def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_google_sign_in(monkeypatch)
     client = _client(monkeypatch)
 
     response = client.get("/sign-in")

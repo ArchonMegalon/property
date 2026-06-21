@@ -545,7 +545,7 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Google?" not in sign_in.text
     assert "Facebook?" not in sign_in.text
     assert "Use the path that matches how you joined" not in sign_in.text
-    assert "Identity only" in sign_in.text
+    assert "Identity only" in sign_in.text or "Google unavailable" in sign_in.text
     assert "Identity-only." not in sign_in.text
     assert "auth-provider-icon" in sign_in.text
     assert "first useful memo" not in page.text

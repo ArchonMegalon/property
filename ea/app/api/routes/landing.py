@@ -144,6 +144,16 @@ router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 
+def _google_sign_in_enabled() -> bool:
+    from app.services.google_oauth import load_google_oauth_config
+
+    try:
+        load_google_oauth_config()
+    except RuntimeError:
+        return False
+    return True
+
+
 def _facebook_sign_in_enabled() -> bool:
     enabled_flag = str(os.environ.get("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN") or "").strip().lower()
     if enabled_flag in {"0", "false", "no", "off", "disabled"}:
@@ -2476,6 +2486,7 @@ def sign_in_page(
                 "sign_in_facebook_error": facebook_error,
                 "sign_in_id_austria_error": id_austria_error,
                 "sign_in_connected_provider": connected_provider,
+                "sign_in_google_enabled": _google_sign_in_enabled(),
                 "sign_in_facebook_enabled": _facebook_sign_in_enabled(),
                 "sign_in_id_austria_enabled": _id_austria_sign_in_enabled_for_request(request),
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",
