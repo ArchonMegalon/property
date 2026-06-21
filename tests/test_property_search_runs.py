@@ -2792,6 +2792,20 @@ def test_property_notification_location_evidence_kind_never_treats_source_scope_
     assert not product_service._property_candidate_notification_location_evidence_is_concrete(url_region)
 
 
+def test_property_objective_review_boost_ignores_source_scope_location_without_listing_location() -> None:
+    source_scope_only = product_service._property_scout_objective_review_boost(
+        property_url="https://example.invalid/listing-with-source-scope-only",
+        preview={"property_facts_json": {"source_scope_location": "1010 Vienna", "source_city": "Vienna"}},
+    )
+    listing_location = product_service._property_scout_objective_review_boost(
+        property_url="https://example.invalid/listing-with-postal-name",
+        preview={"property_facts_json": {"postal_name": "1010 Wien"}},
+    )
+
+    assert source_scope_only == 0.0
+    assert listing_location == 2.0
+
+
 @pytest.mark.parametrize(
     ("title", "summary", "property_url", "expected_postal"),
     [

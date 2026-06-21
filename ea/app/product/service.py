@@ -5532,7 +5532,7 @@ def _property_scout_objective_review_boost(*, property_url: str, preview: dict[s
         boost += 5.0
     elif provider_group == "genossenschaften_at":
         boost += 4.0
-    if any(str(facts.get(key) or "").strip() for key in ("source_scope_location", "district", "postal_name", "location", "street_address")):
+    if any(str(facts.get(key) or "").strip() for key in ("district", "postal_name", "location", "street_address")):
         boost += 2.0
     return max(0.0, min(24.0, boost))
 
