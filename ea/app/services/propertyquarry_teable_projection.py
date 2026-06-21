@@ -23,6 +23,7 @@ PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_properties",
     "propertyquarry_property_evaluations",
     "propertyquarry_review_artifacts",
+    "propertyquarry_shared_artifacts",
     "propertyquarry_research_tasks",
     "propertyquarry_decision_ledger",
     "propertyquarry_evidence_claims",
@@ -283,6 +284,23 @@ PROPERTYQUARRY_TEABLE_TABLE_FIELDS: dict[str, list[dict[str, object]]] = {
         {"name": "fit_score", "type": "number"},
         {"name": "recommendation", "type": "singleLineText"},
         {"name": "preference_person_id", "type": "singleLineText"},
+        {"name": "artifact_json", "type": "longText"},
+        {"name": "last_projected_at", "type": "singleLineText"},
+    ],
+    "propertyquarry_shared_artifacts": [
+        {"name": "projection_id", "type": "singleLineText", "notNull": True, "unique": True},
+        {"name": "tenant_key", "type": "singleLineText"},
+        {"name": "principal_id", "type": "singleLineText"},
+        {"name": "run_id", "type": "singleLineText"},
+        {"name": "property_ref", "type": "singleLineText"},
+        {"name": "candidate_ref", "type": "singleLineText"},
+        {"name": "property_url", "type": "longText"},
+        {"name": "title", "type": "singleLineText"},
+        {"name": "source_label", "type": "singleLineText"},
+        {"name": "artifact_kind", "type": "singleLineText"},
+        {"name": "artifact_url", "type": "longText"},
+        {"name": "artifact_status", "type": "singleLineText"},
+        {"name": "visibility", "type": "singleLineText"},
         {"name": "artifact_json", "type": "longText"},
         {"name": "last_projected_at", "type": "singleLineText"},
     ],
@@ -616,6 +634,69 @@ def _safe_review_artifact(candidate: dict[str, Any] | None, *, safe_facts: dict[
     }
 
 
+def _shared_artifacts_from_candidate(
+    candidate: dict[str, Any] | None,
+    *,
+    tenant_key: str,
+    principal_id: str,
+    run_id: str,
+    property_ref: str,
+    property_url: str,
+    candidate_ref: str,
+    title: str,
+    source_label: str,
+    projected_at: str,
+) -> dict[str, dict[str, object]]:
+    payload = dict(candidate or {})
+    artifact_specs = (
+        ("review", "review_url", "review_status", "private_workspace"),
+        ("packet", "packet_url", "packet_status", "private_workspace"),
+        ("public_packet", "public_packet_url", "packet_status", "signed_public"),
+        ("public_packet", "share_url", "share_status", "signed_public"),
+        ("tour", "tour_url", "tour_status", "signed_public"),
+        ("walkthrough", "walkthrough_url", "walkthrough_status", "private_workspace"),
+        ("video", "video_url", "video_status", "private_workspace"),
+    )
+    rows: dict[str, dict[str, object]] = {}
+    seen_urls: set[tuple[str, str]] = set()
+    for artifact_kind, url_key, status_key, visibility in artifact_specs:
+        artifact_url = _text(payload.get(url_key), limit=1000)
+        if not artifact_url:
+            continue
+        dedupe_key = (artifact_kind, artifact_url)
+        if dedupe_key in seen_urls:
+            continue
+        seen_urls.add(dedupe_key)
+        artifact_ref = _stable_ref(f"{principal_id}:{property_ref}:{artifact_kind}:{artifact_url}", prefix="artifact")
+        artifact_status = _text(payload.get(status_key), limit=80)
+        if not artifact_status:
+            artifact_status = "ready"
+        rows[f"shared_artifact:{tenant_key}:{artifact_ref}"] = {
+            "projection_id": f"shared_artifact:{tenant_key}:{artifact_ref}",
+            "tenant_key": tenant_key,
+            "principal_id": principal_id,
+            "run_id": run_id,
+            "property_ref": property_ref,
+            "candidate_ref": candidate_ref,
+            "property_url": property_url,
+            "title": title,
+            "source_label": source_label,
+            "artifact_kind": artifact_kind,
+            "artifact_url": artifact_url,
+            "artifact_status": artifact_status,
+            "visibility": visibility,
+            "artifact_json": {
+                "artifact_kind": artifact_kind,
+                "artifact_url": artifact_url,
+                "artifact_status": artifact_status,
+                "visibility": visibility,
+                "source_field": url_key,
+            },
+            "last_projected_at": projected_at,
+        }
+    return rows
+
+
 def _safe_source_summary(source: dict[str, Any] | None, *, source_label: str, platform: str, source_url: str) -> dict[str, Any]:
     payload = dict(source or {})
     return {
@@ -788,6 +869,7 @@ def build_propertyquarry_teable_projection_records(
     property_rows: dict[str, dict[str, object]] = {}
     evaluation_rows: dict[str, dict[str, object]] = {}
     review_artifact_rows: dict[str, dict[str, object]] = {}
+    shared_artifact_rows: dict[str, dict[str, object]] = {}
     research_task_rows: dict[str, dict[str, object]] = {}
     decision_rows: dict[str, dict[str, object]] = {}
     evidence_rows: dict[str, dict[str, object]] = {}
@@ -987,6 +1069,20 @@ def build_propertyquarry_teable_projection_records(
                 "saved_at": _text(candidate_payload.get("saved_at") or candidate_payload.get("updated_at"), limit=120),
                 "last_projected_at": projected_at,
             }
+            shared_artifact_rows.update(
+                _shared_artifacts_from_candidate(
+                    candidate_payload,
+                    tenant_key=normalized_tenant,
+                    principal_id=normalized_principal,
+                    run_id=_text(candidate_payload.get("saved_from_run_id") or candidate_payload.get("run_id"), limit=240),
+                    property_ref=property_ref,
+                    property_url=property_url,
+                    candidate_ref=_text(candidate_payload.get("candidate_ref") or property_ref, limit=240),
+                    title=_text(candidate_payload.get("title"), limit=240),
+                    source_label=_text(candidate_payload.get("source_label"), limit=200),
+                    projected_at=projected_at,
+                )
+            )
 
     for run in search_runs:
         if not isinstance(run, dict):
@@ -1168,6 +1264,20 @@ def build_propertyquarry_teable_projection_records(
                     "artifact_json": _safe_review_artifact(candidate, safe_facts=safe_facts),
                     "last_projected_at": projected_at,
                 }
+            shared_artifact_rows.update(
+                _shared_artifacts_from_candidate(
+                    candidate,
+                    tenant_key=normalized_tenant,
+                    principal_id=run_principal,
+                    run_id=run_id,
+                    property_ref=property_ref,
+                    property_url=property_url,
+                    candidate_ref=_text(candidate.get("candidate_ref") or property_ref, limit=240),
+                    title=_text(candidate.get("title"), limit=240),
+                    source_label=_text(candidate.get("source_label"), limit=200),
+                    projected_at=projected_at,
+                )
+            )
         for task in list(run.get("research_tasks") or summary.get("research_tasks") or []):
             if not isinstance(task, dict):
                 continue
@@ -1326,6 +1436,7 @@ def build_propertyquarry_teable_projection_records(
         "propertyquarry_properties": _table_rows(property_rows),
         "propertyquarry_property_evaluations": _table_rows(evaluation_rows),
         "propertyquarry_review_artifacts": _table_rows(review_artifact_rows),
+        "propertyquarry_shared_artifacts": _table_rows(shared_artifact_rows),
         "propertyquarry_research_tasks": _table_rows(research_task_rows),
         "propertyquarry_decision_ledger": _table_rows(decision_rows),
         "propertyquarry_evidence_claims": _table_rows(evidence_rows),

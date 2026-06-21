@@ -66,8 +66,11 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                         "fit_score": 82.5,
                         "rank": 1,
                         "review_url": "https://propertyquarry.com/workspace-access/review-123",
+                        "public_packet_url": "https://propertyquarry.com/p/packet-123",
                         "tour_url": "https://propertyquarry.com/tours/123",
                         "tour_status": "existing",
+                        "walkthrough_url": "https://propertyquarry.com/walkthroughs/123",
+                        "walkthrough_status": "ready",
                         "saved_from_run_id": "run-previous",
                         "property_facts": {
                             "area_sqm": 91,
@@ -158,6 +161,7 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                                     "recommendation": "strong_fit",
                                     "review_url": "https://propertyquarry.com/workspace-access/review-123",
                                     "review_status": "existing",
+                                    "public_packet_url": "https://propertyquarry.com/p/packet-123",
                                     "review_task_id": "human_task:review-123",
                                     "review_task_status": "returned",
                                     "review_reused": True,
@@ -165,6 +169,8 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
                                     "recommended_task_key": "crezlo_tours.create_property_tour",
                                     "tour_url": "https://propertyquarry.com/tours/123",
                                     "tour_status": "existing",
+                                    "walkthrough_url": "https://propertyquarry.com/walkthroughs/123",
+                                    "walkthrough_status": "ready",
                                     "property_facts": {
                                         "area_sqm": 91,
                                         "rooms": 3,
@@ -346,6 +352,13 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_review_artifacts"][0]["review_reused"] is True
     assert records["propertyquarry_review_artifacts"][0]["review_task_status"] == "returned"
     assert records["propertyquarry_review_artifacts"][0]["tour_status"] == "existing"
+    shared_artifact_kinds = {
+        row["artifact_kind"]
+        for row in records["propertyquarry_shared_artifacts"]
+        if row["property_ref"] == records["propertyquarry_property_evaluations"][0]["property_ref"]
+    }
+    assert {"review", "public_packet", "tour", "walkthrough"}.issubset(shared_artifact_kinds)
+    assert all(row["visibility"] in {"private_workspace", "signed_public"} for row in records["propertyquarry_shared_artifacts"])
     artifact_json = records["propertyquarry_review_artifacts"][0]["artifact_json"]
     artifact_dump = json.dumps(artifact_json)
     assert "exact_address" not in artifact_dump
@@ -382,6 +395,12 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
         == records["propertyquarry_property_evaluations"][0]["property_ref"]
     )
     assert records["propertyquarry_documents"][0]["linked_risks_json"] == ["no_floorplan"]
+
+
+def test_propertyquarry_teable_schema_has_unique_field_names() -> None:
+    for table_name, fields in pq_teable_projection.PROPERTYQUARRY_TEABLE_TABLE_FIELDS.items():
+        field_names = [str(field.get("name") or "").strip() for field in fields]
+        assert len(field_names) == len(set(field_names)), table_name
 
 
 def test_propertyquarry_teable_sync_redacts_raw_human_feedback_claim_text() -> None:
@@ -861,6 +880,28 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
                     },
                 }
             ],
+            "propertyquarry_shared_artifacts": [
+                {
+                    "principal_id": "pq-restore-user",
+                    "run_id": "lost-run",
+                    "property_ref": "property:restore-1",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=restore-1",
+                    "artifact_kind": "public_packet",
+                    "artifact_url": "https://propertyquarry.com/p/restore-1",
+                    "artifact_status": "ready",
+                    "visibility": "signed_public",
+                },
+                {
+                    "principal_id": "pq-restore-user",
+                    "run_id": "lost-run",
+                    "property_ref": "property:restore-1",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=restore-1",
+                    "artifact_kind": "walkthrough",
+                    "artifact_url": "https://propertyquarry.com/walkthroughs/restore-1",
+                    "artifact_status": "ready",
+                    "visibility": "private_workspace",
+                },
+            ],
             "propertyquarry_research_tasks": [
                 {
                     "principal_id": "pq-restore-user",
@@ -972,12 +1013,16 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
     assert preferences["saved_shortlist_candidates"][0]["review_task_status"] == "returned"
     assert preferences["saved_shortlist_candidates"][0]["queue_item_ref"] == "queue:restore-review"
     assert preferences["saved_shortlist_candidates"][0]["compare_reason"] == "Best restored review candidate"
+    assert preferences["saved_shortlist_candidates"][0]["public_packet_url"] == "https://propertyquarry.com/p/restore-1"
+    assert preferences["saved_shortlist_candidates"][0]["walkthrough_url"] == "https://propertyquarry.com/walkthroughs/restore-1"
+    assert preferences["saved_shortlist_candidates"][0]["walkthrough_status"] == "ready"
     assert preferences["saved_shortlist_candidates"][0]["research_task_total"] == 1
     assert preferences["saved_shortlist_candidates"][0]["open_research_task_total"] == 1
     assert preferences["saved_shortlist_candidates"][0]["research_tasks"][0]["field_key"] == "rooms"
     assert preferences["saved_shortlist_candidates"][0]["research_tasks"][0]["priority"] == "high"
     assert preferences["restored_research_tasks"][0]["task_id"] == "research-restore-rooms"
     assert bundle["review_artifact_count"] == 1
+    assert bundle["shared_artifact_count"] == 2
     assert bundle["research_task_count"] == 1
     assert bundle["decision_loop_counts"] == {
         "propertyquarry_agent_questions": 1,
@@ -1066,6 +1111,7 @@ def test_propertyquarry_teable_restore_contract_covers_every_projected_table() -
     assert "propertyquarry_saved_shortlist" in recoverable_tables
     assert "propertyquarry_property_evaluations" in recoverable_tables
     assert "propertyquarry_review_artifacts" in recoverable_tables
+    assert "propertyquarry_shared_artifacts" in recoverable_tables
     assert "propertyquarry_research_tasks" in recoverable_tables
     assert "propertyquarry_search_agents" in recoverable_tables
     assert "propertyquarry_subscriptions" in recoverable_tables
@@ -1101,6 +1147,7 @@ def test_propertyquarry_teable_portability_gate_reports_restore_coverage() -> No
     assert "restore_propertyquarry_from_teable.py" in resume["restore_command"]
     assert "propertyquarry_saved_shortlist" in set(resume["recoverable"])
     assert "propertyquarry_review_artifacts" in set(resume["recoverable"])
+    assert "propertyquarry_shared_artifacts" in set(resume["recoverable"])
     assert "propertyquarry_search_runs" in set(resume["intentionally_lost"])
     assert "saved results" in resume["result_policy"]
     assert "live runs" in resume["result_policy"]

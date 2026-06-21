@@ -115,6 +115,16 @@ REQUIRED_TABLE_FIELDS: dict[str, set[str]] = {
         "tour_status",
         "artifact_json",
     },
+    "propertyquarry_shared_artifacts": {
+        "principal_id",
+        "run_id",
+        "property_ref",
+        "artifact_kind",
+        "artifact_url",
+        "artifact_status",
+        "visibility",
+        "artifact_json",
+    },
     "propertyquarry_research_tasks": {
         "principal_id",
         "run_id",
@@ -211,7 +221,7 @@ def main() -> int:
             ),
             "recoverable": sorted(recoverable_tables),
             "intentionally_lost": dict(sorted(INTENTIONALLY_LOSSY_TEABLE_TABLES.items())),
-            "result_policy": "saved results, review artifacts, decisions, documents, agents, preferences, delivery settings, and subscriptions must restore; live runs and provider-source diagnostics may be lost",
+            "result_policy": "saved results, review/share artifacts, decisions, documents, agents, preferences, delivery settings, and subscriptions must restore; live runs and provider-source diagnostics may be lost",
         },
         "failures": failures,
     }

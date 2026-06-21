@@ -35,6 +35,7 @@ RECOVERABLE_TEABLE_TABLES: tuple[str, ...] = (
     "propertyquarry_properties",
     "propertyquarry_property_evaluations",
     "propertyquarry_review_artifacts",
+    "propertyquarry_shared_artifacts",
     "propertyquarry_research_tasks",
     "propertyquarry_decision_ledger",
     "propertyquarry_evidence_claims",
@@ -44,7 +45,7 @@ RECOVERABLE_TEABLE_TABLES: tuple[str, ...] = (
 
 INTENTIONALLY_LOSSY_TEABLE_TABLES: dict[str, str] = {
     "propertyquarry_tenants": "tenant metadata is recreated from the new host configuration",
-    "propertyquarry_search_runs": "runs can be lost; saved results and review artifacts are restored",
+    "propertyquarry_search_runs": "runs can be lost; saved results and review/share artifacts are restored",
     "propertyquarry_provider_sources": "provider crawl/source diagnostics are run-scoped and disposable",
 }
 
@@ -291,6 +292,25 @@ def _review_artifact_index(
     return index
 
 
+def _shared_artifact_index(
+    *,
+    principal_id: str,
+    records_by_table: dict[str, list[dict[str, object]]],
+) -> dict[str, dict[str, dict[str, object]]]:
+    index: dict[str, dict[str, dict[str, object]]] = {}
+    for row in records_by_table.get("propertyquarry_shared_artifacts", []):
+        if not _matches_principal(row, principal_id=principal_id):
+            continue
+        artifact = dict(row)
+        artifact_kind = str(artifact.get("artifact_kind") or "").strip()
+        artifact_url = str(artifact.get("artifact_url") or "").strip()
+        if not artifact_kind or not artifact_url:
+            continue
+        for key in _lookup_keys_for_row(artifact):
+            index.setdefault(key, {})[artifact_kind] = artifact
+    return index
+
+
 def _research_tasks_from_rows(
     *,
     principal_id: str,
@@ -338,9 +358,11 @@ def _merge_candidate_artifacts(
     candidate: dict[str, object],
     *,
     review_artifacts: dict[str, dict[str, object]],
+    shared_artifacts: dict[str, dict[str, dict[str, object]]] | None = None,
     research_tasks: dict[str, list[dict[str, object]]],
 ) -> dict[str, object]:
     restored = dict(candidate)
+    shared_artifacts = dict(shared_artifacts or {})
     lookup_keys = _lookup_keys_for_row(restored)
     artifact: dict[str, object] = {}
     for key in lookup_keys:
@@ -369,6 +391,25 @@ def _merge_candidate_artifacts(
                 restored[target_key] = value
         if restored.get("tour_blocked_reason") and not restored.get("blocked_reason"):
             restored["blocked_reason"] = restored["tour_blocked_reason"]
+    artifact_targets = {
+        "review": ("review_url", "review_status"),
+        "packet": ("packet_url", "packet_status"),
+        "public_packet": ("public_packet_url", "packet_status"),
+        "tour": ("tour_url", "tour_status"),
+        "walkthrough": ("walkthrough_url", "walkthrough_status"),
+        "video": ("video_url", "video_status"),
+    }
+    for key in lookup_keys:
+        for artifact_kind, shared in shared_artifacts.get(key, {}).items():
+            target_url, target_status = artifact_targets.get(str(artifact_kind or ""), ("", ""))
+            if not target_url:
+                continue
+            artifact_url = str(shared.get("artifact_url") or "").strip()
+            if artifact_url and not restored.get(target_url):
+                restored[target_url] = artifact_url
+            artifact_status = str(shared.get("artifact_status") or "").strip()
+            if artifact_status and not restored.get(target_status):
+                restored[target_status] = artifact_status
     attached_tasks: list[dict[str, object]] = []
     seen_task_ids: set[str] = set()
     for key in lookup_keys:
@@ -394,9 +435,11 @@ def _saved_candidates_from_evaluations(
     principal_id: str,
     records_by_table: dict[str, list[dict[str, object]]],
     review_artifacts: dict[str, dict[str, object]] | None = None,
+    shared_artifacts: dict[str, dict[str, dict[str, object]]] | None = None,
     research_tasks: dict[str, list[dict[str, object]]] | None = None,
 ) -> list[dict[str, object]]:
     review_artifacts = dict(review_artifacts or {})
+    shared_artifacts = dict(shared_artifacts or {})
     research_tasks = dict(research_tasks or {})
     properties = {
         str(row.get("property_ref") or "").strip(): dict(row)
@@ -433,6 +476,7 @@ def _saved_candidates_from_evaluations(
         candidate = _merge_candidate_artifacts(
             candidate,
             review_artifacts=review_artifacts,
+            shared_artifacts=shared_artifacts,
             research_tasks=research_tasks,
         )
         candidates.append(candidate)
@@ -445,9 +489,11 @@ def _saved_candidates_from_saved_shortlist(
     principal_id: str,
     records_by_table: dict[str, list[dict[str, object]]],
     review_artifacts: dict[str, dict[str, object]] | None = None,
+    shared_artifacts: dict[str, dict[str, dict[str, object]]] | None = None,
     research_tasks: dict[str, list[dict[str, object]]] | None = None,
 ) -> list[dict[str, object]]:
     review_artifacts = dict(review_artifacts or {})
+    shared_artifacts = dict(shared_artifacts or {})
     research_tasks = dict(research_tasks or {})
     candidates: list[dict[str, object]] = []
     seen: set[str] = set()
@@ -482,6 +528,7 @@ def _saved_candidates_from_saved_shortlist(
         candidate = _merge_candidate_artifacts(
             candidate,
             review_artifacts=review_artifacts,
+            shared_artifacts=shared_artifacts,
             research_tasks=research_tasks,
         )
         candidates.append(candidate)
@@ -690,6 +737,10 @@ def build_restore_bundle(
         principal_id=normalized_principal,
         records_by_table=records_by_table,
     )
+    restored_shared_artifacts = _shared_artifact_index(
+        principal_id=normalized_principal,
+        records_by_table=records_by_table,
+    )
     restored_research_tasks = _research_tasks_from_rows(
         principal_id=normalized_principal,
         records_by_table=records_by_table,
@@ -701,6 +752,7 @@ def build_restore_bundle(
             principal_id=normalized_principal,
             records_by_table=records_by_table,
             review_artifacts=restored_review_artifacts,
+            shared_artifacts=restored_shared_artifacts,
             research_tasks=restored_research_task_index,
         )
     if not saved_candidates:
@@ -708,6 +760,7 @@ def build_restore_bundle(
             principal_id=normalized_principal,
             records_by_table=records_by_table,
             review_artifacts=restored_review_artifacts,
+            shared_artifacts=restored_shared_artifacts,
             research_tasks=restored_research_task_index,
         )
     if saved_candidates:
@@ -763,6 +816,11 @@ def build_restore_bundle(
         "review_artifact_count": len({
             str(row.get("projection_id") or row.get("property_ref") or row.get("property_url") or "").strip()
             for row in records_by_table.get("propertyquarry_review_artifacts", [])
+            if _matches_principal(dict(row), principal_id=normalized_principal)
+        }),
+        "shared_artifact_count": len({
+            str(row.get("projection_id") or row.get("artifact_url") or "").strip()
+            for row in records_by_table.get("propertyquarry_shared_artifacts", [])
             if _matches_principal(dict(row), principal_id=normalized_principal)
         }),
         "research_task_count": len(restored_research_tasks),
