@@ -84,6 +84,45 @@ def _split_csv(raw: str) -> tuple[str, ...]:
     return tuple(item.strip().lower() for item in str(raw or "").split(",") if item.strip())
 
 
+def _safe_public_url(raw_url: str, *, allowed_hosts: tuple[str, ...]) -> str:
+    raw = str(raw_url or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme != "https":
+        return ""
+    host = str(parsed.hostname or "").strip().lower()
+    if not host or parsed.username or parsed.password:
+        return ""
+    if allowed_hosts and host not in allowed_hosts:
+        return ""
+    return urllib.parse.urlunparse(("https", parsed.netloc, parsed.path.rstrip("/") or "/", "", parsed.query, "")).strip()
+
+
+def brilliant_directories_public_site_url() -> str:
+    allowed_hosts = _split_csv(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS") or "")
+    explicit_site_url = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL") or "").strip()
+    if explicit_site_url:
+        return _safe_public_url(explicit_site_url, allowed_hosts=allowed_hosts).rstrip("/")
+    base_url = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL") or "").strip()
+    parsed = urllib.parse.urlparse(base_url)
+    host = str(parsed.hostname or "").strip().lower()
+    if parsed.scheme != "https" or not host:
+        return ""
+    return _safe_public_url(f"https://{parsed.netloc}/", allowed_hosts=allowed_hosts).rstrip("/")
+
+
+def brilliant_directories_public_pricing_url() -> str:
+    allowed_hosts = _split_csv(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS") or "")
+    explicit_pricing_url = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PRICING_URL") or "").strip()
+    if explicit_pricing_url:
+        return _safe_public_url(explicit_pricing_url, allowed_hosts=allowed_hosts)
+    site_url = brilliant_directories_public_site_url().rstrip("/")
+    if not site_url:
+        return ""
+    return _safe_public_url(f"{site_url}/pricing", allowed_hosts=allowed_hosts)
+
+
 def _sha256_short(value: str) -> str:
     if not value:
         return ""

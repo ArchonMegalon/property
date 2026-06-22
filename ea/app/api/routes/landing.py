@@ -139,9 +139,43 @@ from app.services.public_heyy_live_chat import heyy_live_chat_head_snippet as _h
 from app.services.public_rybbit import rybbit_head_snippet as _rybbit_head_snippet
 from app.services.registration_email import email_delivery_enabled, property_notification_preview
 from app.services.fliplink import build_fliplink_packet_service
+from app.services import brilliant_directories as brilliant_directories_service
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+
+
+def _brilliant_directories_public_profile_rows(
+    profiles: list[object],
+    *,
+    directory_host: str = "",
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    normalized_host = str(directory_host or "").strip().lower()
+    for raw_profile in profiles:
+        if not isinstance(raw_profile, dict):
+            continue
+        profile = dict(raw_profile)
+        public_url = str(profile.get("public_url") or "").strip()
+        href = ""
+        if public_url.startswith("https://"):
+            href = public_url
+        elif public_url and normalized_host:
+            href = f"https://{normalized_host}/{public_url.lstrip('/')}"
+        rows.append(
+            {
+                "profile_id": str(profile.get("profile_id") or "").strip(),
+                "display_name": str(profile.get("display_name") or "").strip(),
+                "category": str(profile.get("category") or "").strip(),
+                "city": str(profile.get("city") or "").strip(),
+                "region": str(profile.get("region") or "").strip(),
+                "country_code": str(profile.get("country_code") or "").strip(),
+                "summary": str(profile.get("summary") or "").strip(),
+                "tags": [str(item).strip() for item in list(profile.get("tags") or []) if str(item).strip()][:6],
+                "href": href,
+            }
+        )
+    return [row for row in rows if row.get("profile_id") and row.get("display_name")]
 
 
 def _google_sign_in_enabled() -> bool:
@@ -1899,6 +1933,78 @@ def landing(
     )
 
 
+@router.get("/directory", response_class=HTMLResponse)
+def property_directory_page(
+    request: Request,
+    keyword: str = Query(default="", max_length=140),
+    category: str = Query(default="", max_length=96),
+    city: str = Query(default="", max_length=96),
+    country_code: str = Query(default="", max_length=12),
+    page: int = Query(default=1, ge=1, le=100),
+    limit: int = Query(default=12, ge=1, le=50),
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    directory_status = "disabled"
+    directory_error = ""
+    directory_host = ""
+    directory_profiles: list[dict[str, object]] = []
+    directory_query = {
+        "keyword": str(keyword or "").strip(),
+        "category": str(category or "").strip(),
+        "city": str(city or "").strip(),
+        "country_code": str(country_code or "").strip().upper(),
+        "page": int(page or 1),
+        "limit": int(limit or 12),
+    }
+    try:
+        config = brilliant_directories_service.load_brilliant_directories_config()
+        directory_host = str(config.host or "").strip()
+        if config.configured:
+            packet = brilliant_directories_service.fetch_brilliant_directories_member_projection_packet(
+                config,
+                purpose="PropertyQuarry public directory landing",
+                keyword=str(directory_query["keyword"]),
+                category=str(directory_query["category"]),
+                city=str(directory_query["city"]),
+                country_code=str(directory_query["country_code"]),
+                page=int(directory_query["page"]),
+                limit=int(directory_query["limit"]),
+            )
+            packet_payload = packet.as_dict()
+            directory_profiles = _brilliant_directories_public_profile_rows(
+                list(packet_payload.get("profiles") or []),
+                directory_host=directory_host,
+            )
+            directory_status = "ready"
+    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
+        directory_status = "unavailable"
+        directory_error = str(exc)
+
+    return _render_public_template(
+        request,
+        "property_directory.html",
+        **_public_context(
+            request=request,
+            current_nav="directory",
+            page_title="PropertyQuarry Directory",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "directory_status": directory_status,
+                "directory_error": directory_error,
+                "directory_profiles": directory_profiles,
+                "directory_query": directory_query,
+                "directory_public_site_url": brilliant_directories_service.brilliant_directories_public_site_url(),
+                "meta_description": "PropertyQuarry directory for public partner, advisor, relocation, and local-service profiles connected through the governed Brilliant Directories lane.",
+                "canonical_path": "/directory",
+            },
+        ),
+    )
+
+
 @router.get("/product", response_class=HTMLResponse)
 def product_page() -> RedirectResponse:
     return RedirectResponse("/", status_code=307)
@@ -2093,7 +2199,7 @@ def pricing_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-) -> HTMLResponse:
+) -> Response:
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
     checkout_enabled_plans: list[str] = []

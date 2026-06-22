@@ -542,6 +542,86 @@ def test_brilliant_directories_runtime_route_fetches_public_member_projection(
     assert b"bd-secret-token" not in (sent.body or b"")
 
 
+def test_brilliant_directories_public_directory_page_is_white_label_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    client = build_property_client(principal_id="pq-brilliant-directories-public-disabled")
+
+    response = client.get("/directory", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "PropertyQuarry Directory" in response.text
+    assert "Find the people around a property decision." in response.text
+    assert "Directory connection pending" in response.text
+    assert "Search directory" in response.text
+    assert "brilliantdirectories.com" not in response.text.lower()
+
+
+def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+
+    def fake_execute(request: object, *, timeout_seconds: float = 30.0, opener: object | None = None) -> dict[str, object]:
+        del timeout_seconds, opener
+        assert getattr(request, "url", "") == "https://directory.example/api/v2/user/search"
+        return {
+            "message": [
+                {
+                    "user_id": "24",
+                    "company": "Vienna Relocation Advisors",
+                    "email": "private@example.test",
+                    "phone_number": "+43 1 555",
+                    "address1": "Secret Street 1",
+                    "filename": "austria/vienna/vienna-relocation-advisors",
+                    "city": "Vienna",
+                    "state_ln": "Vienna",
+                    "country_code": "AT",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(brilliant_directories_service, "execute_brilliant_directories_api_request", fake_execute)
+    client = build_property_client(principal_id="pq-brilliant-directories-public-ready")
+
+    response = client.get(
+        "/directory?keyword=relocation&city=Vienna&country_code=AT",
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    serialized = response.text
+    assert "Vienna Relocation Advisors" in serialized
+    assert "https://directory.example/austria/vienna/vienna-relocation-advisors" in serialized
+    assert "1 public profile shown" in serialized
+    assert "private@example.test" not in serialized
+    assert "+43 1 555" not in serialized
+    assert "Secret Street" not in serialized
+
+
+def test_brilliant_directories_pricing_stays_propertyquarry_white_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PRICING_URL", "https://directory.example/pricing")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    client = build_property_client(principal_id="pq-brilliant-directories-pricing")
+
+    response = client.get("/pricing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "<h1>Pricing</h1>" in response.text
+    assert "directory.example/pricing" not in response.text
+
+
 def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR", str(tmp_path))

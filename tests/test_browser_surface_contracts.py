@@ -113,11 +113,17 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     landing = client.get("/")
     assert "Search once. Rank the right homes. Decide with evidence." in landing.text
-    assert "research the shortlist" in landing.text
+    assert "ranked shortlist" in landing.text
     assert "Open search" in landing.text
-    assert "Built for focused private search first" in landing.text
-    assert "Upgrade only when it helps" in landing.text
+    assert "Hard filters stay hard" in landing.text
+    assert "Preferences score" in landing.text
     assert "sample-memo" not in landing.text
+
+    directory = client.get("/directory")
+    assert directory.status_code == 200
+    assert "Find the people around a property decision." in directory.text
+    assert "Directory connection pending" in directory.text
+    assert "Search directory" in directory.text
 
     pricing = client.get("/pricing")
     assert "<h1>Pricing</h1>" in pricing.text

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 PUBLIC_NAV = (
     {"href": "/", "label": "Product", "key": "product"},
+    {"href": "/directory", "label": "Directory", "key": "directory"},
     {"href": "/security", "label": "Security", "key": "security"},
     {"href": "/pricing", "label": "Pricing", "key": "pricing"},
     {"href": "/sign-in?signing_in=1", "label": "Sign in", "key": "sign-in"},
