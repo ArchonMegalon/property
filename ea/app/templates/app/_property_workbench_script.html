@@ -2957,10 +2957,14 @@
         setSearchLaunchBusy(false);
       }
     };
-    root.querySelector('[data-property-save]')?.addEventListener('click', async () => {
-      try { await savePreferences(); } catch (err) {
-        root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the search.';
-      }
+    root.querySelectorAll('[data-property-save], [data-property-save-top]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        try {
+          await savePreferences();
+        } catch (err) {
+          root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the search.';
+        }
+      });
     });
     root.querySelectorAll('[data-property-start-top]').forEach((button) => {
       button.addEventListener('click', (event) => {

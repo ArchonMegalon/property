@@ -1826,7 +1826,8 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
     assert "home_sign_in" not in response.text
     assert "Signing you in" not in response.text
     assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in response.text
-    assert response.text.count("/static/property/home/example-shortlist-home-") == 3
+    assert response.text.count("/app/api/property/map-previews/") >= 3
+    assert "/static/property/home/example-shortlist-home-" not in response.text
     assert "/static/property/home/example-shortlist-collage.png" not in response.text
 
 
@@ -2841,7 +2842,7 @@ def test_property_scope_preview_map_only_rejects_point_thumbnail_pipeline(monkey
     preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna")
 
     assert preview["preview_kind"] == "osm_map_pending"
-    assert preview["image_url"] == "/app/api/property/map-previews/0000000000000000000000000000000000000000.png"
+    assert preview["image_url"] == ""
     assert preview["has_district_overlay"] is False
 
 
@@ -2951,7 +2952,7 @@ def test_property_scope_preview_map_only_never_uses_point_thumbnail(monkeypatch)
     preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna")
 
     assert preview["preview_kind"] == "osm_map_pending"
-    assert preview["image_url"] == "/app/api/property/map-previews/0000000000000000000000000000000000000000.png"
+    assert preview["image_url"] == ""
     assert preview["has_district_overlay"] is False
 
 
@@ -6013,7 +6014,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "pqx-automation-scope-empty" not in template
     assert "pqx-automation-scope-empty" not in page.text
     assert "osm_map_pending" in template
-    assert "/app/api/property/map-previews/0000000000000000000000000000000000000000.png" in template
+    assert "/app/api/property/map-previews/0000000000000000000000000000000000000000.png" not in template
     assert '.pqx-button[data-pqx-loading="true"]::before' in template
     assert "@keyframes pqxSpin" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")

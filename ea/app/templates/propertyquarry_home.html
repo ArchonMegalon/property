@@ -177,26 +177,8 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, rgba(18, 21, 18, 0.04), rgba(18, 21, 18, 0.24));
+    background: linear-gradient(180deg, rgba(18, 21, 18, 0.02), rgba(18, 21, 18, 0.12));
     pointer-events: none;
-  }
-  .pq-row-overlay {
-    position: absolute;
-    right: 5px;
-    bottom: 5px;
-    width: 28px;
-    height: 28px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.82);
-    border-radius: 7px;
-    box-shadow: 0 8px 18px rgba(18, 21, 18, 0.22);
-    background: rgba(255, 255, 255, 0.92);
-  }
-  .pq-row-overlay img {
-    width: 100%;
-    height: 100%;
-    display: block;
-    object-fit: cover;
   }
   .pq-row-copy {
     min-width: 0;
@@ -368,10 +350,9 @@
         <article class="pq-row">
           <div class="pq-row-main">
             <div class="pq-row-thumb">
-              <img src="{{ row.get('asset_url') or (scope_preview.get('image_url') or '/app/api/property/map-previews/0000000000000000000000000000000000000000.png') }}" alt="{{ row.get('title') or 'Example shortlist home' }}" loading="lazy" style="object-position: {{ row.get('asset_position') or '50% 50%' }};">
-              <span class="pq-row-overlay" aria-hidden="true">
-                <img src="{{ scope_preview.get('image_url') or '/app/api/property/map-previews/0000000000000000000000000000000000000000.png' }}" alt="">
-              </span>
+              {% if scope_preview.get('image_url') %}
+              <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or row.get('title') or 'Example shortlist area' }}" loading="lazy">
+              {% endif %}
             </div>
             <div class="pq-row-copy">
               <strong>{{ row.get('title') }}</strong>

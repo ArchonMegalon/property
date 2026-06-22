@@ -1081,6 +1081,10 @@
       gap: 10px;
       padding: 14px 16px;
     }
+    .pqx-surface-search .pqx-setup-intro {
+      gap: 10px;
+      padding: 14px 14px 12px;
+    }
     .pqx-setup.pqx-surface-search > [data-pqx-mobile-panel="results"] {
       max-height: calc(100vh - 172px);
       overflow: auto;
@@ -1092,6 +1096,12 @@
     .pqx-surface-search > [data-pqx-mobile-panel="results"] {
       gap: 10px;
       padding: 12px 14px;
+    }
+    .pqx-surface-search .pqx-title h1 {
+      font-size: clamp(1.18rem, 1.7vw, 1.68rem);
+      line-height: 1.05;
+      max-width: none;
+      text-wrap: pretty;
     }
     .pqx-setup-intro {
       display: grid;
@@ -1149,6 +1159,10 @@
       word-break: normal;
       hyphens: auto;
     }
+    .pqx-surface-search .pqx-dashboard-row {
+      gap: 1px;
+      padding: 8px 0;
+    }
     .pqx-previous-search-list {
       display: grid;
       gap: 0;
@@ -1166,6 +1180,18 @@
       min-width: 0;
       content-visibility: auto;
       contain-intrinsic-size: 260px;
+    }
+    .pqx-surface-search .pqx-previous-search {
+      gap: 6px;
+      padding: 8px 0;
+      contain-intrinsic-size: 220px;
+    }
+    .pqx-surface-search .pqx-previous-scope-preview {
+      gap: 3px;
+    }
+    .pqx-surface-search .pqx-previous-search-list .pqx-dashboard-row strong {
+      font-size: 0.95rem;
+      line-height: 1.2;
     }
     .pqx-previous-scope-preview {
       position: relative;
@@ -1929,6 +1955,9 @@
       min-height: 34px;
       white-space: nowrap;
     }
+    .pqx-surface-search [data-property-actions] {
+      display: none !important;
+    }
     .pqx-workflow {
       display: flex;
       flex-wrap: nowrap;
@@ -2495,6 +2524,9 @@
       .pqx-surface-search .pqx-dashboard-row,
       .pqx-surface-search .pqx-previous-search {
         padding: 8px;
+      }
+      .pqx-surface-search .pqx-setup-intro {
+        padding: 12px;
       }
       .pqx-surface-search .pqx-previous-scope-image {
         aspect-ratio: 16 / 7;
@@ -5691,6 +5723,9 @@
         flex: 1 1 0;
         min-height: 38px;
       }
+      .pqx-surface-search [data-property-actions] {
+        display: grid !important;
+      }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] {
         position: sticky;
         top: 0;
@@ -6308,7 +6343,7 @@
             </span>
             <h1>
               {% if surface_mode == 'search' %}
-              Edit the brief.
+              Search brief
               {% elif surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
               {{ hero_title or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
@@ -6577,6 +6612,9 @@
               </span>
               {% if setup_mode and console_form and show_form_controls and surface_mode != 'agents' %}
               <span class="pqx-inline-status pqx-launch-status" data-property-launch-status aria-live="polite"></span>
+              {% if surface_mode == 'search' %}
+              <button class="pqx-button subtle" type="button" data-property-save-top>Save search</button>
+              {% endif %}
               <button class="pqx-button primary" type="button" data-property-start-top aria-label="{{ console_form.get('submit_label') or 'Launch search' }}">{{ console_form.get('submit_label') or 'Launch search' }}</button>
               {% endif %}
             </div>

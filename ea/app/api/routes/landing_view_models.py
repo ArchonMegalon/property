@@ -1570,7 +1570,7 @@ def _property_scope_map_pending_preview(
 ) -> dict[str, object]:
     label = normalized_query or market_label or "Search area"
     return {
-        "image_url": "/app/api/property/map-previews/0000000000000000000000000000000000000000.png",
+        "image_url": "",
         "alt": f"Search area preview for {label}",
         "summary": ", ".join(list(selected_labels or [])[:2]) if selected_labels else label,
         "count_label": "",
