@@ -2293,12 +2293,10 @@ def pricing_page(
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
     checkout_enabled_plans: list[str] = []
-    checkout_provider_labels_by_plan: dict[str, str] = {}
     checkout_order_endpoints_by_plan: dict[str, str] = {}
     for paid_plan in ("plus", "agent"):
         if payfunnels_configured(plan_key=paid_plan):
             checkout_enabled_plans.append(paid_plan)
-            checkout_provider_labels_by_plan[paid_plan] = "PayFunnels"
             checkout_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/payfunnels/order"
     checkout_session_ready = access_identity is not None or _workspace_session_payload(request, container) is not None
     return _render_public_template(
@@ -2315,7 +2313,6 @@ def pricing_page(
                 "pricing_tiers": PRICING_TIERS,
                 "plan_catalog": tuple(commercial.get("plan_catalog") or ()),
                 "pricing_checkout_enabled_plans": checkout_enabled_plans,
-                "pricing_checkout_provider_labels_by_plan": checkout_provider_labels_by_plan,
                 "pricing_order_endpoints_by_plan": checkout_order_endpoints_by_plan,
                 "pricing_checkout_session_ready": checkout_session_ready,
                 "meta_description": "Compare PropertyQuarry plans by search breadth, shortlist density, research depth, and the quality of the property review page.",

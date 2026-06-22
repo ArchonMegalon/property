@@ -3452,6 +3452,8 @@ def test_public_ctas_and_selected_review_panel_expose_rybbit_events() -> None:
     workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     assert 'data-rybbit-event="home_create_account"' in home
     assert 'data-rybbit-event="pricing_checkout_start"' in pricing
+    assert "data-pricing-provider" not in pricing
+    assert "Opening secure checkout" in pricing
     assert 'data-rybbit-event="property_open_page"' in selected_review
     assert 'data-rybbit-event="property_open_page"' in workbench_script
     assert 'data-rybbit-event="property_request_tour"' in workbench_script
@@ -4568,6 +4570,13 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert billing.text.count("Checkout") <= 2
     billing_payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
     assert 'row_item("Provider", str(property_state.get("billing_checkout_provider_label")' not in billing_payload_source
+    assert "payment confirmation" in billing_payload_source
+    view_model_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_view_models.py").read_text(encoding="utf-8")
+    console_source = (Path(__file__).resolve().parents[1] / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+    assert "billing_provider_labels_by_plan" not in view_model_source
+    assert "billing_checkout_provider_label" not in view_model_source
+    assert "providerLabel" not in console_source
+    assert "Opening secure checkout" in console_source
 
 
 def test_property_billing_surface_shows_compact_payment_history() -> None:

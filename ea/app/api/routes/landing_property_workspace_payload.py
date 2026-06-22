@@ -2044,9 +2044,9 @@ def property_workspace_payload(
             "Limits",
         ),
         row_item(
-            "Checkout",
-            str(property_state.get("billing_checkout_provider_label") or "Unavailable"),
-            "Provider",
+            "Payment",
+            "Available" if bool(property_state.get("billing_checkout_enabled")) else "Unavailable",
+            "Ready" if bool(property_state.get("billing_checkout_enabled")) else "Inactive",
         ),
     ]
     pending_plan_key = str(commercial_state.get("pending_plan_key") or "").strip()
@@ -2058,7 +2058,7 @@ def property_workspace_payload(
         billing_rows.append(
             row_item(
                 "Checkout pending",
-                f"{pending_plan_key.title()} checkout is waiting for provider confirmation.",
+                f"{pending_plan_key.title()} checkout is waiting for payment confirmation.",
                 "Pending",
             )
         )
