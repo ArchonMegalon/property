@@ -24,6 +24,7 @@ from app.services.propertyquarry_teable_projection import (  # noqa: E402
 
 
 TEABLE_RESTORE_CONTRACT_VERSION = "propertyquarry.teable_restore_coverage.v1"
+SUPPORTED_PROPERTY_NOTIFICATION_CHANNELS = {"email", "telegram", "whatsapp"}
 
 RECOVERABLE_TEABLE_TABLES: tuple[str, ...] = (
     "propertyquarry_users",
@@ -195,6 +196,19 @@ def _coerce_dict(value: object) -> dict[str, object]:
     if isinstance(parsed, dict):
         return dict(parsed)
     return {}
+
+
+def _coerce_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value or "").strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on", "enabled"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off", "disabled", ""}:
+        return False
+    return False
 
 
 def _stable_ref(value: object, *, prefix: str) -> str:
@@ -767,26 +781,80 @@ def build_restore_bundle(
         preferences["saved_shortlist_candidates"] = saved_candidates
     if restored_research_tasks and not isinstance(preferences.get("restored_research_tasks"), list):
         preferences["restored_research_tasks"] = restored_research_tasks
+    delivery_settings_json = _coerce_dict(delivery.get("settings_json"))
     selected_channels = [
-        str(value or "").strip().lower()
-        for value in _coerce_list(delivery.get("selected_channels_json") or user.get("selected_channels_json"))
-        if str(value or "").strip()
+        channel
+        for value in _coerce_list(
+            delivery.get("selected_channels_json")
+            or delivery_settings_json.get("selected_channels")
+            or user.get("selected_channels_json")
+        )
+        if (channel := str(value or "").strip().lower()) in SUPPORTED_PROPERTY_NOTIFICATION_CHANNELS
     ]
-    preferred_channel = str(delivery.get("preferred_channel") or "email").strip().lower() or "email"
+    preferred_channel = str(
+        delivery.get("preferred_channel")
+        or delivery_settings_json.get("preferred_channel")
+        or "email"
+    ).strip().lower() or "email"
+    if preferred_channel not in SUPPORTED_PROPERTY_NOTIFICATION_CHANNELS:
+        preferred_channel = "email"
     if preferred_channel and preferred_channel not in selected_channels:
         selected_channels.append(preferred_channel)
+    for channel, enabled_field in (
+        ("email", "email_enabled"),
+        ("telegram", "telegram_enabled"),
+        ("whatsapp", "whatsapp_enabled"),
+    ):
+        if (
+            _coerce_bool(delivery.get(enabled_field))
+            or _coerce_bool(delivery_settings_json.get(enabled_field))
+        ) and channel not in selected_channels:
+            selected_channels.append(channel)
     whatsapp_phone = str(delivery.get("whatsapp_ai_support_phone") or "").strip()
     if whatsapp_phone and "whatsapp" not in selected_channels:
         selected_channels.append("whatsapp")
+    email_enabled = "email" in selected_channels or preferred_channel == "email"
+    telegram_enabled = "telegram" in selected_channels or preferred_channel == "telegram"
+    whatsapp_enabled = "whatsapp" in selected_channels or preferred_channel == "whatsapp" or bool(whatsapp_phone)
+    telegram_bot_status = str(
+        delivery.get("telegram_bot_status")
+        or delivery_settings_json.get("telegram_bot_status")
+        or ""
+    ).strip()
+    whatsapp_opt_in = (
+        _coerce_bool(delivery.get("whatsapp_notification_opt_in"))
+        or _coerce_bool(delivery_settings_json.get("whatsapp_notification_opt_in"))
+    )
     property_notifications = {
         "preferred_channel": preferred_channel,
-        "preferred_label": str(delivery.get("preferred_label") or preferred_channel.title()).strip(),
-        "notification_scope": str(delivery.get("notification_scope") or "scout_updates").strip(),
-        "whatsapp_notification_opt_in": bool(delivery.get("whatsapp_notification_opt_in")),
+        "preferred_label": str(
+            delivery.get("preferred_label")
+            or delivery_settings_json.get("preferred_label")
+            or preferred_channel.title()
+        ).strip(),
+        "notification_scope": str(
+            delivery.get("notification_scope")
+            or delivery_settings_json.get("notification_scope")
+            or "scout_updates"
+        ).strip(),
+        "email_enabled": email_enabled,
+        "telegram_enabled": telegram_enabled,
+        "telegram_bot": {"status_label": telegram_bot_status} if telegram_bot_status else {},
+        "whatsapp_enabled": whatsapp_enabled,
+        "whatsapp_notification_opt_in": whatsapp_opt_in,
         "whatsapp_ai_support_phone": whatsapp_phone,
+        "whatsapp_ai_support_phone_last4": "".join(ch for ch in whatsapp_phone if ch.isdigit())[-4:],
         "whatsapp_ai_support_status": "ready" if whatsapp_phone else "missing",
-        "whatsapp_ai_support_purpose": str(delivery.get("whatsapp_ai_support_purpose") or "").strip(),
-        "signal_status": str(delivery.get("signal_status") or "coming_soon").strip(),
+        "whatsapp_ai_support_purpose": str(
+            delivery.get("whatsapp_ai_support_purpose")
+            or delivery_settings_json.get("whatsapp_ai_support_purpose")
+            or ""
+        ).strip(),
+        "signal_status": str(
+            delivery.get("signal_status")
+            or delivery_settings_json.get("signal_status")
+            or "coming_soon"
+        ).strip(),
     }
     decision_loop_rows = _decision_loop_rows_from_records(
         principal_id=normalized_principal,

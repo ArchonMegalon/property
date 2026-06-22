@@ -287,11 +287,19 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_users"][0]["principal_id"] == "pq-user-1"
     assert records["propertyquarry_delivery_settings"][0]["principal_id"] == "pq-user-1"
     assert records["propertyquarry_delivery_settings"][0]["preferred_channel"] == "whatsapp"
+    assert records["propertyquarry_delivery_settings"][0]["email_enabled"] is True
+    assert records["propertyquarry_delivery_settings"][0]["telegram_enabled"] is True
+    assert records["propertyquarry_delivery_settings"][0]["telegram_bot_status"] == "Open the bot and send /start"
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_notification_opt_in"] is True
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_enabled"] is True
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_phone"] == "+436641234567"
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_phone_last4"] == "4567"
     assert records["propertyquarry_delivery_settings"][0]["whatsapp_ai_support_purpose"] == "ai_support_only"
+    assert records["propertyquarry_delivery_settings"][0]["settings_json"]["email_enabled"] is True
+    assert records["propertyquarry_delivery_settings"][0]["settings_json"]["telegram_enabled"] is True
+    assert records["propertyquarry_delivery_settings"][0]["settings_json"]["telegram_bot_status"] == "Open the bot and send /start"
+    assert records["propertyquarry_delivery_settings"][0]["settings_json"]["whatsapp_enabled"] is True
+    assert records["propertyquarry_delivery_settings"][0]["settings_json"]["whatsapp_ai_support_phone_last4"] == "4567"
     assert records["propertyquarry_delivery_settings"][0]["settings_json"]["whatsapp_ai_support_purpose"] == "ai_support_only"
     assert records["propertyquarry_delivery_settings"][0]["signal_status"] == "coming_soon"
     assert records["propertyquarry_subscriptions"][0]["current_plan_key"] == "plus"
@@ -756,7 +764,7 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
                     "region": "AT",
                     "language": "de",
                     "timezone": "Europe/Vienna",
-                    "selected_channels_json": ["email"],
+                    "selected_channels_json": ["email", "signal"],
                 }
             ],
             "propertyquarry_delivery_settings": [
@@ -765,7 +773,10 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
                     "preferred_channel": "whatsapp",
                     "preferred_label": "WhatsApp",
                     "notification_scope": "scout_updates",
-                    "selected_channels_json": ["email", "whatsapp"],
+                    "selected_channels_json": ["email"],
+                    "telegram_enabled": True,
+                    "telegram_bot_status": "Open the bot and send /start",
+                    "whatsapp_enabled": True,
                     "whatsapp_notification_opt_in": True,
                     "whatsapp_ai_support_phone": "+436641234567",
                     "whatsapp_ai_support_purpose": "propertyquarry_ai_support_only",
@@ -990,10 +1001,17 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
     state = bundle["onboarding_state"]
     assert bundle["saved_result_count"] == 1
     assert state["workspace_name"] == "Restored PropertyQuarry"
-    assert state["selected_channels"] == ["email", "whatsapp"]
+    assert state["selected_channels"] == ["email", "telegram", "whatsapp"]
     notifications = state["channel_preferences_json"]["property_notifications"]
     assert notifications["preferred_channel"] == "whatsapp"
+    assert notifications["email_enabled"] is True
+    assert notifications["telegram_enabled"] is True
+    assert notifications["telegram_bot"]["status_label"] == "Open the bot and send /start"
+    assert notifications["whatsapp_enabled"] is True
+    assert notifications["whatsapp_notification_opt_in"] is True
     assert notifications["whatsapp_ai_support_phone"] == "+436641234567"
+    assert notifications["whatsapp_ai_support_phone_last4"] == "4567"
+    assert notifications["signal_status"] == "coming_soon"
     preferences = state["property_search_preferences_json"]
     assert preferences["location_query"] == "1020 Wien"
     assert preferences["selected_platforms"] == ["willhaben"]
@@ -1038,6 +1056,47 @@ def test_propertyquarry_teable_restore_bundle_recovers_results_and_delivery_sett
         "Please send the floorplan"
     )
     assert bundle["decision_loop_rows"]["propertyquarry_documents"][0]["document_type"] == "floorplan"
+
+
+def test_propertyquarry_teable_restore_does_not_reenable_signal_channel() -> None:
+    namespace = runpy.run_path("scripts/restore_propertyquarry_from_teable.py", run_name="__test__")
+    build_restore_bundle = namespace["build_restore_bundle"]
+
+    bundle = build_restore_bundle(
+        principal_id="pq-restore-signal",
+        records_by_table={
+            "propertyquarry_users": [
+                {
+                    "principal_id": "pq-restore-signal",
+                    "workspace_name": "Signal Later",
+                    "workspace_mode": "personal",
+                    "selected_channels_json": ["signal"],
+                }
+            ],
+            "propertyquarry_delivery_settings": [
+                {
+                    "principal_id": "pq-restore-signal",
+                    "preferred_channel": "signal",
+                    "selected_channels_json": ["signal"],
+                    "settings_json": {"selected_channels": ["signal"], "preferred_channel": "signal"},
+                }
+            ],
+            "propertyquarry_preferences": [
+                {
+                    "principal_id": "pq-restore-signal",
+                    "preferences_json": {},
+                }
+            ],
+        },
+    )
+
+    state = bundle["onboarding_state"]
+    notifications = state["channel_preferences_json"]["property_notifications"]
+    assert state["selected_channels"] == ["email"]
+    assert notifications["preferred_channel"] == "email"
+    assert notifications["email_enabled"] is True
+    assert notifications["telegram_enabled"] is False
+    assert notifications["whatsapp_enabled"] is False
 
 
 def test_propertyquarry_teable_restore_recovers_saved_shortlist_without_runs() -> None:
@@ -1154,6 +1213,15 @@ def test_propertyquarry_teable_portability_gate_reports_restore_coverage() -> No
     assert "propertyquarry_review_artifacts" in set(resume["recoverable"])
     assert "propertyquarry_shared_artifacts" in set(resume["recoverable"])
     assert "propertyquarry_search_runs" in set(resume["intentionally_lost"])
+    assert {
+        "email_enabled",
+        "telegram_enabled",
+        "telegram_bot_status",
+        "whatsapp_enabled",
+        "whatsapp_notification_opt_in",
+        "whatsapp_ai_support_phone_last4",
+        "signal_status",
+    }.issubset(set(resume["delivery_recovery_fields"]))
     assert "saved results" in resume["result_policy"]
     assert "live runs" in resume["result_policy"]
 

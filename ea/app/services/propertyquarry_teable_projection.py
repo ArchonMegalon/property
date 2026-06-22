@@ -896,8 +896,13 @@ def build_propertyquarry_teable_projection_records(
             "preferred_label": _text(property_notifications.get("preferred_label") or preferred_channel.title(), limit=120),
             "notification_scope": _text(property_notifications.get("notification_scope") or "scout_updates", limit=120),
             "selected_channels": selected_channels,
+            "email_enabled": "email" in selected_channels or preferred_channel == "email",
+            "telegram_enabled": "telegram" in selected_channels or preferred_channel == "telegram",
+            "telegram_bot_status": _text(telegram_bot.get("status_label"), limit=120),
+            "whatsapp_enabled": "whatsapp" in selected_channels or preferred_channel == "whatsapp" or bool(whatsapp_ai_support_phone),
             "whatsapp_notification_opt_in": bool(property_notifications.get("whatsapp_notification_opt_in")),
             "whatsapp_ai_support_enabled": bool(whatsapp_ai_support_phone),
+            "whatsapp_ai_support_phone_last4": whatsapp_ai_support_digits[-4:],
             "whatsapp_ai_support_purpose": whatsapp_ai_support_purpose,
             "signal_status": _text(property_notifications.get("signal_status") or "coming_soon", limit=80),
         }

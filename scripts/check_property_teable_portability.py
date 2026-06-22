@@ -29,13 +29,20 @@ REQUIRED_TABLE_FIELDS: dict[str, set[str]] = {
     "propertyquarry_delivery_settings": {
         "principal_id",
         "preferred_channel",
+        "preferred_label",
         "notification_scope",
         "selected_channels_json",
+        "email_enabled",
         "telegram_enabled",
+        "telegram_bot_status",
         "whatsapp_enabled",
         "whatsapp_notification_opt_in",
+        "whatsapp_ai_support_enabled",
         "whatsapp_ai_support_phone",
+        "whatsapp_ai_support_phone_last4",
+        "whatsapp_ai_support_purpose",
         "signal_status",
+        "settings_json",
     },
     "propertyquarry_subscriptions": {
         "principal_id",
@@ -232,6 +239,7 @@ def main() -> int:
             "recoverable": sorted(recoverable_tables),
             "intentionally_lost": dict(sorted(INTENTIONALLY_LOSSY_TEABLE_TABLES.items())),
             "result_policy": "saved results, review/share artifacts, decisions, documents, agents, preferences, delivery settings, and subscriptions must restore; live runs and provider-source diagnostics may be lost",
+            "delivery_recovery_fields": sorted(REQUIRED_TABLE_FIELDS["propertyquarry_delivery_settings"]),
         },
         "failures": failures,
     }
