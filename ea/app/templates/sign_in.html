@@ -241,14 +241,26 @@
         <button class="btn" type="button" disabled aria-disabled="true">Facebook unavailable</button>
         {% endif %}
       </div>
-      {% if sign_in_id_austria_enabled %}
-      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="enabled">
+      {% if sign_in_id_austria_visible %}
+      <div class="auth-provider-card{% if not sign_in_id_austria_enabled %} disabled{% endif %}" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="{% if sign_in_id_austria_enabled %}enabled{% else %}disabled{% endif %}">
         <span class="auth-provider-icon" aria-hidden="true">ID</span>
         <span>
           <strong>ID Austria</strong>
-          <p>Verified Austrian identity.</p>
+          <p>
+            {% if sign_in_id_austria_enabled %}
+            Verified Austrian identity
+            {% elif not sign_in_id_austria_configured %}
+            Not configured on this deployment
+            {% else %}
+            Available in Austria
+            {% endif %}
+          </p>
         </span>
+        {% if sign_in_id_austria_enabled %}
         <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
+        {% else %}
+        <button class="btn" type="button" disabled aria-disabled="true">ID Austria unavailable</button>
+        {% endif %}
       </div>
       {% endif %}
       <div class="auth-provider-status" data-auth-provider-status role="status" aria-live="polite"></div>

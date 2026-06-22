@@ -292,6 +292,27 @@ def test_sign_in_page_hides_id_austria_outside_austria(monkeypatch: pytest.Monke
     assert "id_austria_error=id_austria_austria_ip_required" in direct.headers["location"]
 
 
+def test_sign_in_page_shows_disabled_id_austria_for_austrian_request_when_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in (
+        "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID",
+        "PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET",
+        "PROPERTYQUARRY_ID_AUSTRIA_STATE_SECRET",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in", headers={"CF-IPCountry": "AT"})
+
+    assert response.status_code == 200
+    assert "ID Austria" in response.text
+    assert "ID Austria unavailable" in response.text
+    assert "Not configured on this deployment" in response.text
+    assert 'data-auth-provider="id-austria" data-auth-provider-state="disabled"' in response.text
+    assert 'href="/sign-in/id-austria"' not in response.text
+
+
 def test_sign_in_id_austria_get_starts_oidc_for_visible_link(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_id_austria(monkeypatch)
     client = _client(monkeypatch)
