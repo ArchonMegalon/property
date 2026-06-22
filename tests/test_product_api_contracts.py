@@ -13424,6 +13424,56 @@ def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source
     assert response["tour_url"] == "https://propertyquarry.com/tours/demo-danube-1"
 
 
+def test_property_visual_status_keeps_polling_while_rendering(monkeypatch) -> None:
+    principal_id = "property-visual-status-rendering-poll"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    rendering_candidate = {
+        "title": "Rendering visual candidate",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/rendering-visual-42",
+        "source_ref": "willhaben:rendering-visual-42",
+        "tour_status": "rendering",
+        "tour_url": "",
+        "tour_eta_minutes": "5",
+        "tour_requested_at": "2026-06-22T10:00:00+00:00",
+        "tour_status_updated_at": "2026-06-22T10:03:00+00:00",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-status-rendering-poll"
+        return {
+            "run_id": run_id,
+            "updated_at": "2026-06-22T10:03:00+00:00",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "top_candidates": [dict(rendering_candidate)],
+                    }
+                ]
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="willhaben:rendering-visual-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/rendering-visual-42",
+    )
+
+    assert response["status"] == "rendering"
+    assert response["status_label"] == "3D tour rendering"
+    assert response["eta_label"]
+    assert response["progress_pct"] >= 58
+    assert response["poll_after_seconds"] == 10
+
+
 def test_property_tour_followup_dedupes_by_request_kind(monkeypatch) -> None:
     principal_id = "property-tour-followup-request-kind"
     client = build_product_client(principal_id=principal_id)

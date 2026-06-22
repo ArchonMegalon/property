@@ -2188,7 +2188,7 @@ def _safe_provider_live_360_url(value: object) -> str:
 
 def _property_tour_status_is_pending(value: object) -> bool:
     normalized = str(value or "").strip().lower()
-    return normalized in {"queued", "pending", "processing", "running", "in_progress", "started"}
+    return normalized in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}
 
 
 def _property_tour_status_is_terminal(value: object) -> bool:
