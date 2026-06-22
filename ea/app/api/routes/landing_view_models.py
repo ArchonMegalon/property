@@ -3588,7 +3588,7 @@ def app_section_payload(
                 "label": "Exclude heavy renovation candidates",
                 "value": "true",
                 "checked": bool(property_preferences.get("investment_avoid_major_renovation")),
-                "tooltip": "Exclude listings whose own text suggests major renovation, core refurbishment, or a fixer-upper posture.",
+                "tooltip": "Exclude listings whose own text suggests major renovation, core refurbishment, or fixer-upper condition.",
                 "step": "what",
                 "hidden": not show_investment_underwriting_controls,
             },
@@ -4456,7 +4456,7 @@ def app_section_payload(
                 "label": "Duplicate, scam, and stale scoring",
                 "value": "true",
                 "checked": bool(property_preferences.get("enable_trust_risk_scoring")),
-                "tooltip": "Generate trust-verification work for duplicate, stale, and scam risk rather than treating all sources equally.",
+                "tooltip": "Check duplicate, stale, and scam risk rather than treating all sources equally.",
                 "step": "children",
             },
             {
@@ -4844,7 +4844,7 @@ def app_section_payload(
             "title": "Policies",
             "summary": "Policies stay understandable: what the assistant may read, draft, send, remember, and escalate.",
             "cards": [
-                {"eyebrow": "Assistant posture", "title": "Current rules", "items": privacy_lines},
+                {"eyebrow": "Assistant rules", "title": "Current rules", "items": privacy_lines},
                 {"eyebrow": "Suggested changes", "title": "What to unlock next", "items": suggested},
                 {"eyebrow": "Guardrails", "title": "Why these rules exist", "items": trust_notes},
             ],
@@ -4862,8 +4862,8 @@ def app_section_payload(
             "title": "Rules",
             "summary": "Rules stay boring and explicit once the first working loop already exists.",
             "cards": [
-                {"eyebrow": "Account", "title": "Current account posture", "items": string_rows([f"Name: {workspace.get('name') or 'PropertyQuarry'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No account posture yet.",), tag="Account", detail="These are the current PropertyQuarry defaults.")},
-                {"eyebrow": "Policy", "title": "Assistant behavior", "items": string_rows(privacy_lines, ("No privacy posture set yet.",), tag="Rule", detail="These controls shape what the assistant may do.")},
+                {"eyebrow": "Account", "title": "Current account settings", "items": string_rows([f"Name: {workspace.get('name') or 'PropertyQuarry'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No account settings yet.",), tag="Account", detail="These are the current PropertyQuarry defaults.")},
+                {"eyebrow": "Policy", "title": "Assistant behavior", "items": string_rows(privacy_lines, ("No privacy rules set yet.",), tag="Rule", detail="These controls shape what the assistant may do.")},
                 {"eyebrow": "Channels", "title": "Selected linked channels", "items": channel_items},
             ],
         },
@@ -4875,9 +4875,9 @@ def app_section_payload(
             ),
             "cards": [
                 {
-                    "eyebrow": "Search posture",
+                    "eyebrow": "Search brief",
                     "title": "What this search is optimizing for",
-                    "body": "The crawl posture stays explicit: market, research language, target location, property shape, and who the ranking is trying to satisfy.",
+                    "body": "The brief stays explicit: market, research language, target location, property shape, and who the ranking is trying to satisfy.",
                     "items": property_market_summary_items
                     + [
                         row_item(
@@ -4898,7 +4898,7 @@ def app_section_payload(
                     "body": "Each market switches the provider catalog. The saved selection should be a deliberate subset, not a hard-coded Austria-only list.",
                     "items": [
                         row_item(
-                            "Country bundle",
+                            "Country coverage",
                             f"{property_country_label} | {property_provider_total_for_country or len(platform_options)} supported providers",
                             "Coverage",
                         ),
@@ -5019,7 +5019,7 @@ def admin_section_payload(section: str) -> dict[str, object]:
             "title": "Audit Trail",
             "summary": "Evidence, telemetry, and delivery state stay visible to admins without leaking into the public product story.",
             "cards": [
-                {"eyebrow": "Audit", "title": "Trace surfaces", "items": ["/v1/runtime/lanes/telemetry", "/v1/evidence", "/v1/delivery/pending"]},
+                {"eyebrow": "Audit", "title": "Trace surfaces", "items": ["/v1/evidence", "/v1/delivery/pending"]},
                 {"eyebrow": "Goal", "title": "What this surface needs", "items": ["Receipts", "Execution state", "Delivery confirmations"]},
             ],
         },
@@ -5027,15 +5027,15 @@ def admin_section_payload(section: str) -> dict[str, object]:
             "title": "Operators",
             "summary": "Admin identity, backlog, and approval work stay in the admin surface.",
             "cards": [
-                {"eyebrow": "Human runtime", "title": "Admin endpoints", "items": ["/v1/human/operators", "/v1/human/tasks"]},
+                {"eyebrow": "Human review", "title": "Admin endpoints", "items": ["/v1/human/tasks"]},
                 {"eyebrow": "Trust boundary", "title": "Why this is separate", "items": ["Admin identity is separate from the customer workspace surface.", "Audit trails depend on trusted admin records."]},
             ],
         },
         "api": {
             "title": "Runtime",
-            "summary": "The operator-center contract belongs in the admin surface, not on the public product pages.",
+            "summary": "The admin center belongs behind the admin surface, not on public product pages.",
             "cards": [
-                {"eyebrow": "OpenAPI", "title": "Schemas and runtime entrypoints", "items": ["/openapi.json", "/v1/plans/compile", "/v1/rewrite", "/v1/responses"]},
+                {"eyebrow": "OpenAPI", "title": "Schemas and entrypoints", "items": ["/openapi.json", "/v1/plans/compile", "/v1/rewrite", "/v1/responses"]},
                 {"eyebrow": "Docs", "title": "Reference material", "items": ["README", "ARCHITECTURE_MAP", "CI smoke suite"]},
             ],
         },
@@ -5046,7 +5046,7 @@ def admin_section_payload(section: str) -> dict[str, object]:
             {"label": "Surface", "value": "admin"},
             {"label": "Access", "value": "admin-only"},
             {"label": "Audience", "value": "admins"},
-            {"label": "Goal", "value": "operator center"},
+            {"label": "Goal", "value": "admin center"},
         ],
         **payload,
     }

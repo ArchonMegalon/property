@@ -75,7 +75,7 @@ FEATURE_CARDS = (
 
 HOW_STEPS = (
     {"title": "Create the account", "body": "Use email first, then optional Google identity so return access stays simple and narrow."},
-    {"title": "Set your search posture", "body": "Define market, budget, household needs, and hard rules before the first sweep runs."},
+    {"title": "Set your search brief", "body": "Define market, budget, household needs, and hard rules before the first sweep runs."},
     {"title": "Review the shortlist", "body": "Keep the first run focused on ranked candidates, property pages, and visible feedback."},
 )
 
@@ -87,7 +87,7 @@ PERSONAS = (
 
 TRUST_CARDS = (
     {"title": "Tight account permissions", "body": "Google is optional identity and return access, not a hidden demand for broad mailbox permissions."},
-    {"title": "Visible research posture", "body": "The product should make clear which portals were scanned, which assumptions were made, and what still needs verification."},
+    {"title": "Visible research", "body": "The product should make clear which portals were scanned, which assumptions were made, and what still needs checking."},
     {"title": "Saved learning loop", "body": "Feedback, property reasons, and shortlist context stay visible so search quality improves instead of drifting."},
 )
 
@@ -190,7 +190,7 @@ PUBLIC_TRUST_PAGES = {
                 "title": "What the product stores",
                 "body": "The app can store account identity, saved search preferences, run history, shortlist decisions, feedback, generated packets, tour history, and delivery settings.",
                 "items": (
-                    "Exact addresses, documents, and internal source URLs stay private unless a user explicitly shares a redacted artifact.",
+                    "Exact addresses, documents, and internal source URLs stay private unless a user explicitly shares a redacted page or file.",
                     "Preference learning is used to improve ranking for the account and must stay separable from cross-customer analytics.",
                     "Connected services should use the narrowest practical permission set for the selected workflow.",
                 ),
@@ -274,7 +274,7 @@ PUBLIC_TRUST_PAGES = {
         "summary": "Public contact, responsible-party, and escalation information for PropertyQuarry.",
         "band": (
             {
-                "title": "Responsible operator",
+                "title": "Responsible owner",
                 "body": "PropertyQuarry is responsible for this public product surface and the property-research workflows it offers.",
             },
             {
@@ -294,7 +294,7 @@ PUBLIC_TRUST_PAGES = {
                 ),
             },
             {
-                "eyebrow": "Market posture",
+                "eyebrow": "Market boundaries",
                 "title": "Jurisdiction and provider boundaries",
                 "body": "PropertyQuarry is a property research and decision-support product. Provider content, public data, generated media, and investment views stay bound to their source, observation date, and disclosure limits.",
                 "items": (
@@ -307,7 +307,7 @@ PUBLIC_TRUST_PAGES = {
         "faqs": (
             {
                 "question": "Why is this page explicit?",
-                "answer": "A paid property product needs a visible responsible-party surface, especially when it handles household preferences and shared artifacts.",
+                "answer": "A paid property product needs a visible responsible-party surface, especially when it handles household preferences and shared pages.",
             },
             {
                 "question": "Where should urgent data or wrong-area issues go?",
@@ -335,7 +335,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Fast triage",
                 "title": "What to send",
-                "body": "The fastest repair report includes concrete evidence and avoids screenshots as the only source of truth.",
+                "body": "The fastest repair report includes the affected URL, run ID, and what looked wrong.",
                 "items": (
                     "Run ID or shared property URL",
                     "Expected location, transaction mode, and hard filters",

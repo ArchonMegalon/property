@@ -513,7 +513,7 @@ PUBLIC_GUIDE_WIEN = {
             "items": (
                 "Request the floorplan and check whether the room layout actually fits the household.",
                 "Separate cold rent or purchase price from operating costs and reserve exposure.",
-                "Look for heating type, energy certificate posture, and anything that could change monthly cost.",
+                "Look for heating type, energy certificate, and anything that could change monthly cost.",
                 "Check the wider area for daily needs, transit, schools, and obvious noise sources.",
             ),
         },
@@ -522,7 +522,7 @@ PUBLIC_GUIDE_WIEN = {
             "title": "Questions worth sending before you spend more time",
             "items": (
                 "Can you send the current floorplan and the latest Betriebskosten breakdown?",
-                "What has changed in the building or reserve posture in the last 12 months?",
+                "What has changed in the building or reserve fund in the last 12 months?",
                 "Which rooms face the street and which face the courtyard?",
                 "Are there any missing documents that would normally be shared before a viewing?",
             ),
@@ -1285,7 +1285,7 @@ def _public_context(
         "suggested_actions": _list_rows(
             preview.get("suggested_actions"),
             (
-                "Turn the workspace posture into a useful shortlist and research loop.",
+                "Turn the saved brief into a useful shortlist and research loop.",
                 "Add more channels only after the first loop already feels useful.",
             ),
         ),
@@ -3560,7 +3560,7 @@ def property_research_packet(
         },
         {
             "eyebrow": "Energy & heating",
-            "title": "Energy posture and heating",
+            "title": "Energy and heating",
             "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("energy_rows") or [])],
         },
         {
@@ -4037,7 +4037,7 @@ def app_shell(
                     "title": "Property page is being rebuilt",
                     "detail": (
                         "Repair queued for the missing property page. The shortlist below remains usable while "
-                        "PropertyQuarry rebuilds or preserves a recovery receipt."
+                        "PropertyQuarry rebuilds the page or keeps the shortlist usable."
                         if repair_task_ref
                         else "That property page is not available from the current packet. The shortlist below remains usable while the run can be refreshed."
                     ),

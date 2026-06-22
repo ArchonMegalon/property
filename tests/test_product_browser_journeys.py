@@ -857,7 +857,7 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     assert primary_connected.status_code == 200
     assert "Google is linked for sign-in and verified return access only." in primary_connected.text
     assert "tibor@girschele.com" in primary_connected.text
-    assert "Google link posture" in primary_connected.text
+    assert "Google link" in primary_connected.text
 
     started_secondary = client.get(
         "/app/actions/google/connect",

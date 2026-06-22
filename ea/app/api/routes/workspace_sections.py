@@ -715,12 +715,12 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
             href="/app/settings/support",
         ),
         _row(
-            "Workspace diagnostics bundle",
-            str(readiness.get("detail") or "Export support-ready workspace bundle"),
+            "Support export",
+            str(readiness.get("detail") or "Export account details for support"),
             "Bundle",
             href="/app/settings/support",
             action_href="/app/api/diagnostics/export",
-            action_label="Open bundle",
+            action_label="Open export",
             action_method="get",
             return_to=return_to,
             secondary_action_href="/app/api/diagnostics/export?download=1",
@@ -958,7 +958,7 @@ def workspace_section_payload(
                         _commitment_rows(waiting_commitments[:8], return_to="/app/commitments")
                         + _handoff_rows(snapshot.handoffs[:8], operator_id=operator_key, return_to="/app/commitments")
                     )[:8]
-                    or [_row("No external waits", "Nothing is currently waiting on another party or operator handoff.", "Clear")],
+                    or [_row("No external waits", "Nothing is currently waiting on another party or handoff.", "Clear")],
                 },
                 {
                     "eyebrow": "Unresolved promises",
@@ -1180,7 +1180,7 @@ def workspace_section_payload(
                 },
                 {
                     "eyebrow": "Commitment pressure",
-                    "title": "What operator work is protecting",
+                    "title": "What support work protects",
                     "body": "Operator tasks are only useful when they keep the right commitments from slipping.",
                     "items": _commitment_rows(snapshot.commitments[:8], return_to="/admin/office"),
                 },
@@ -1282,7 +1282,7 @@ def workspace_section_payload(
                         "type": "checkbox",
                         "value": "true",
                         "checked": bool(assistant_notifications.get("whatsapp_notification_opt_in")),
-                        "help": "Enable only when you want morning memo, queue follow-up, support follow-up, or operator handoff notices over WhatsApp.",
+                        "help": "Enable only when you want morning memo, queue follow-up, support follow-up, or handoff notices over WhatsApp.",
                     },
                     {
                         "label": "Delivery time",
@@ -1361,9 +1361,9 @@ def workspace_section_payload(
                 },
                 {
                     "eyebrow": "Google connection" if property_brand else "Google signal loop",
-                    "title": "Connected Google identity posture" if property_brand else "What is feeding the office loop",
+                    "title": "Connected Google identity" if property_brand else "What is feeding the office loop",
                     "body": (
-                        "PropertyQuarry only needs identity, token health, and reauth posture here."
+                        "PropertyQuarry only needs identity, token health, and reauth status here."
                         if property_brand
                         else "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review."
                     ),
@@ -1435,7 +1435,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Workspace rules",
                     "title": "What this office currently allows",
-                    "body": "Rules explain the review-first posture, channel boundary, and durable controls behind the current loop.",
+                    "body": "Rules explain review, channel boundaries, and durable controls behind the current loop.",
                     "items": _rule_rows(snapshot.rules[:8]),
                 },
                 {
@@ -1505,7 +1505,7 @@ def workspace_section_payload(
                         _row("Support fallout", str(support_fallout.get("detail") or "No support fallout mirrored."), "Support", href="/app/settings/outcomes"),
                         _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch", href="/app/settings/outcomes"),
                         _row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route", href="/app/settings/outcomes"),
-                        _row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route", href="/app/settings/outcomes"),
+                        _row("Route status", str(route_stewardship.get("canary_status") or "No route note published."), "Route", href="/app/settings/outcomes"),
                         _row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route", href="/app/settings/outcomes"),
                         _row("Journey freshness", str(journey_freshness.get("detail") or "No journey freshness note yet."), "Freshness", href="/app/settings/outcomes"),
                         _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/outcomes"),

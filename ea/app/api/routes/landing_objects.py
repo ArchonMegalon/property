@@ -188,7 +188,7 @@ def commitment_detail(
             {"label": "Due", "value": str(commitment.due_at or "")[:10] or "No due date"},
             {"label": "Risk", "value": str(commitment.risk_level or "normal").title()},
         ],
-        object_sidebar_title="Commitment posture",
+        object_sidebar_title="Commitment status",
         object_sidebar_copy="A commitment stays visible until it is closed, deferred, dropped, or reopened with a reason.",
         object_sidebar_rows=[
             _object_detail_row("Source", str(commitment.source_type or "manual").replace("_", " ").title(), "Source"),
@@ -448,7 +448,7 @@ def deadline_detail(
         object_sections=[
             {
                 "eyebrow": "Window",
-                "title": "Current deadline posture",
+                "title": "Current deadline",
                 "items": [
                     _object_detail_row(deadline.title, deadline.summary or "Deadline window is active in the office loop.", str(deadline.priority or "normal").title()),
                     _object_detail_row("Start", str(deadline.start_at or "")[:19] or "No start time recorded.", "Start"),
@@ -977,7 +977,7 @@ def handoff_detail(
             _object_detail_row(
                 "Manual resolution",
                 resolved_manual_detail
-                or "Record the real delivery outcome when the operator finished the send outside EA or needs to keep the blocker visible.",
+                or "Record the real delivery outcome when a person finished the send outside EA or needs to keep the blocker visible.",
                 "Resolution",
                 href=f"/app/handoffs/{handoff_ref}",
                 action_href=f"/app/actions/handoffs/{handoff_ref}/complete" if delivery_followup_open else "",
@@ -1105,7 +1105,7 @@ def thread_detail(
     elif delivery_followup_open:
         retry_detail = "Try the stored approved draft again after reconnecting Google."
     elif resume_followup_available:
-        retry_detail = "Resume the blocked delivery handoff so the operator can retry or close it from the thread context."
+        retry_detail = "Resume the blocked delivery handoff so it can be retried or closed from the thread context."
     else:
         retry_detail = "Retry send is no longer needed for this thread."
     manual_resolution_secondary_value = "reauth_needed" if delivery_reason.startswith("google_") else "failed"
@@ -1203,7 +1203,7 @@ def thread_detail(
             _object_detail_row(
                 "Manual resolution",
                 resolved_manual_detail
-                or "Record the real delivery outcome when the operator finished the send outside EA or needs to keep the blocker visible.",
+                or "Record the real delivery outcome when a person finished the send outside EA or needs to keep the blocker visible.",
                 "Resolution",
                 href=f"/app/handoffs/{linked_handoff_ref}" if linked_handoff_ref else "",
                 action_href=f"/app/actions/handoffs/{linked_handoff_ref}/complete" if delivery_followup_open else "",
@@ -1373,12 +1373,12 @@ def rule_detail(
         object_sidebar_rows=[
             _object_detail_row("Impact", rule.impact or "No impact summary projected yet.", "Impact"),
             _object_detail_row("Simulation", simulated_effect or "Run a simulation in Settings before changing this rule.", "Simulate"),
-            _object_detail_row("Change posture", "Approval gate applies." if rule.requires_approval else "Directly editable in the current plan.", "Governance"),
+            _object_detail_row("Change control", "Approval gate applies." if rule.requires_approval else "Directly editable in the current plan.", "Governance"),
         ],
         object_sections=[
             {
                 "eyebrow": "Rule summary",
-                "title": "Current posture",
+                "title": "Current state",
                 "items": [
                     _object_detail_row(rule.label, rule.summary or "No rule summary projected.", str(rule.status or "active").title()),
                     _object_detail_row("Current value", str(rule.current_value or "Not set"), "Value"),

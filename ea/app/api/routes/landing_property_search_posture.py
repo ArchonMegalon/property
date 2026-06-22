@@ -103,7 +103,7 @@ def build_property_market_summary_items(
     if bool(property_preferences.get("prefer_good_air_quality")):
         items.append(row_item("Air quality", "Prefer stronger station-backed air quality", "Risk"))
     if bool(property_preferences.get("avoid_noise_risk_area")):
-        items.append(row_item("Noise posture", "Avoid noise-risk areas", "Risk"))
+        items.append(row_item("Noise", "Avoid noise-risk areas", "Risk"))
     if bool(property_preferences.get("require_high_speed_internet")):
         items.append(row_item("Home office", "High-speed internet required", "Infrastructure"))
     if bool(property_preferences.get("require_energy_certificate")):

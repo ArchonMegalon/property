@@ -189,7 +189,7 @@ def property_workspace_payload(
         )
     except Exception:
         current_platform_cap = 3
-    search_posture_card = cards_by_eyebrow.get("search posture", {})
+    search_posture_card = cards_by_eyebrow.get("search brief") or cards_by_eyebrow.get("search posture", {})
     market_coverage_card = cards_by_eyebrow.get("market coverage", {})
     shortlist_card = cards_by_eyebrow.get("shortlist", {})
     run_card = cards_by_eyebrow.get("run status", {})
@@ -1985,8 +1985,8 @@ def property_workspace_payload(
             "Alerts",
         ),
         row_item(
-            "Account posture",
-            "Billing, saved defaults, and security should stay explicit and product-specific.",
+            "Account settings",
+            "Billing, saved defaults, and security stay easy to find.",
             "Control",
         ),
     ]
@@ -2147,14 +2147,14 @@ def property_workspace_payload(
         billing_decision_rows.append(
             row_item(
                 "When to jump to Agent",
-                "Move when the search needs both full provider coverage and the heaviest research posture at the same time.",
+                "Move when the search needs both full provider coverage and the heaviest research depth at the same time.",
                 "Next tier",
             )
         )
     else:
         billing_decision_rows.append(
             row_item(
-                "Agent posture",
+                "Agent plan",
                 "The focus here is not another upgrade. It is making sure deeper research is actually useful.",
                 "Current tier",
             )
@@ -2272,7 +2272,7 @@ def property_workspace_payload(
             "action_label": "Refine brief",
         },
         {
-            "title": "Latest run posture",
+            "title": "Latest run",
             "detail": run_message or "Open the search desk to launch or monitor the next sweep.",
             "tag": run_status_label,
             "action_href": f"/app/properties{run_suffix}",
@@ -2426,9 +2426,9 @@ def property_workspace_payload(
             "primary_cards": [learning_card],
             "secondary_cards": [
                 {
-                    "eyebrow": "Saved posture",
+                    "eyebrow": "Saved brief",
                     "title": "Current profile state",
-                    "body": "The saved search posture should be easy to inspect without reopening the full brief.",
+                    "body": "The saved search brief should be easy to inspect without reopening the full workflow.",
                     "items": list(search_posture_card.get("items") or []),
                 },
                 {
@@ -2462,7 +2462,7 @@ def property_workspace_payload(
                 {
                     "eyebrow": "Saved search",
                     "title": "The alert lane should still expose the search brief driving it",
-                    "body": "Recurring alerts are only useful when the user can still see and revise the search posture behind them.",
+                    "body": "Recurring alerts are only useful when the user can still see and revise the saved search behind them.",
                     "items": saved_search_rows,
                 },
                 {
@@ -2699,7 +2699,7 @@ def property_workspace_payload(
                     "items": [
                         row_item("Search", "Change areas, filters, providers, or shortlist depth.", "Search"),
                         row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
-                        row_item("Security", "Review retention and identity posture.", "Trust"),
+                        row_item("Security", "Review retention and identity settings.", "Trust"),
                     ],
                 },
             ],
@@ -2710,7 +2710,7 @@ def property_workspace_payload(
                 "items": [
                     {
                         "title": "Security",
-                        "detail": "Review trust and data posture.",
+                        "detail": "Review trust and data settings.",
                         "tag": "Public",
                         "action_href": "/security",
                         "action_method": "get",
@@ -2761,7 +2761,7 @@ def property_workspace_payload(
                     "items": [
                         row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
                         row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
-                        row_item("Security", "Review retention and identity posture.", "Trust"),
+                        row_item("Security", "Review retention and identity settings.", "Trust"),
                     ],
                 },
             ],
@@ -2786,7 +2786,7 @@ def property_workspace_payload(
                     },
                     {
                         "title": "Security",
-                        "detail": "Review trust and data posture.",
+                        "detail": "Review trust and data settings.",
                         "tag": "Public",
                         "action_href": "/security",
                         "action_method": "get",

@@ -4569,7 +4569,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Manual clearance required" in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
     assert "What the wider evidence says" in packet.text
-    assert "Energy posture and heating" in packet.text
+    assert "Energy and heating" in packet.text
     assert "School context" in packet.text
     assert "Gymnasium progression" in packet.text
     assert "Return and costs" in packet.text
@@ -5656,7 +5656,7 @@ def test_property_search_posture_summary_hides_child_rows_when_parent_toggles_ar
     search_posture_card = next(
         card
         for card in list(payload.get("primary_cards") or [])
-        if str(card.get("eyebrow") or "").strip() == "Search posture"
+        if str(card.get("eyebrow") or "").strip() == "Search brief"
     )
     labels = {
         str(item.get("title") or "").strip()
@@ -5702,7 +5702,7 @@ def test_property_search_posture_summary_uses_selected_market_currency() -> None
     search_posture_card = next(
         card
         for card in list(payload.get("primary_cards") or [])
-        if str(card.get("eyebrow") or "").strip() == "Search posture"
+        if str(card.get("eyebrow") or "").strip() == "Search brief"
     )
     equity_row = next(
         item

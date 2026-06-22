@@ -806,8 +806,8 @@ def _property_packet_official_posture_rows(facts: dict[str, object]) -> list[dic
     for row in _official_risk_posture_rows(official):
         rows.append(
             _object_detail_row(
-                str(row.get("title") or "Authority posture").strip(),
-                str(row.get("detail") or "").strip() or "Official-source authority posture is not attached yet.",
+                str(row.get("title") or "Official checks").strip(),
+                str(row.get("detail") or "").strip() or "No official-source check is attached yet.",
                 str(row.get("tag") or "Pending").strip() or "Pending",
             )
         )
@@ -1012,7 +1012,7 @@ def _property_packet_everyday_fit_rows(
             if minutes > 0:
                 commute_rows.append(f"{label} <= {minutes} min")
         if commute_rows:
-            rows.append(_object_detail_row("Commute posture", " | ".join(commute_rows), "Reachability"))
+            rows.append(_object_detail_row("Commute fit", " | ".join(commute_rows), "Reachability"))
     return rows
 
 
@@ -1151,7 +1151,7 @@ def _property_investment_risk_rows(facts: dict[str, object], snapshot: dict[str,
         rows.append(_object_detail_row("Heating type still unknown", "Yield assumptions can be wrong if the heating setup drives renovation or tenant demand risk.", "Medium"))
     occupancy = str(facts.get("occupancy_status") or "").strip().lower()
     if occupancy:
-        rows.append(_object_detail_row("Occupancy posture", str(facts.get("occupancy_status") or "").strip(), "Risk" if any(token in occupancy for token in ("occup", "vermiet", "bewohn", "uthyrd", "zamieszk")) else "Watch"))
+        rows.append(_object_detail_row("Occupancy", str(facts.get("occupancy_status") or "").strip(), "Risk" if any(token in occupancy for token in ("occup", "vermiet", "bewohn", "uthyrd", "zamieszk")) else "Watch"))
     payback_years = snapshot.get("payback_years")
     if isinstance(payback_years, (int, float)) and float(payback_years) > 35.0:
         rows.append(_object_detail_row("Long payback horizon", f"Estimated payback is about {float(payback_years):.1f} years at current rent assumptions.", "Medium"))
@@ -1184,7 +1184,7 @@ def _property_investment_context_rows(
         provider_label = provider_channel.replace("_", " ").strip().title() if provider_channel else "Genossenschaften"
         rows.append(_object_detail_row("Provider lane", f"{provider_label} cooperative supply lane.", "Source"))
         if marketing_type:
-            rows.append(_object_detail_row("Offer posture", marketing_type, "Source"))
+            rows.append(_object_detail_row("Offer type", marketing_type, "Source"))
             if listing_mode == "buy" and marketing_type.lower().startswith("miet"):
                 risk_rows.append(
                     _object_detail_row(

@@ -455,10 +455,10 @@ def settings_plan_detail(
         page_title="PropertyQuarry plan",
         current_nav="settings",
         console_title="Plan",
-        console_summary="Search access, billing posture, messaging scope, and collaborator boundaries for this account.",
+        console_summary="Search access, billing, messaging, and collaborator limits for this account.",
         object_kind="Commercial boundary",
         object_title=str(plan.get("display_name") or "Pilot"),
-        object_summary=_propertyquarry_copy(billing.get("contract_note"), fallback="Commercial posture is not yet set."),
+        object_summary=_propertyquarry_copy(billing.get("contract_note"), fallback="Commercial terms are not set yet."),
         object_meta=[
             {"label": "Account scope", "value": plan_scope},
             {"label": "Billing state", "value": str(billing.get("billing_state") or "unknown")},
@@ -468,7 +468,7 @@ def settings_plan_detail(
             {"label": "Rules", "value": "Open settings"},
         ],
         object_sidebar_title="Why this boundary matters",
-        object_sidebar_copy="Commercial scope explains what the account may connect, how many collaborators can help, and what support posture applies when something goes wrong.",
+        object_sidebar_copy="Commercial scope explains what the account may connect, how many collaborators can help, and what support applies when something goes wrong.",
         object_sidebar_rows=[
             _object_detail_row("Channels", ", ".join(selected_channels) or "Google-first path", "Channels"),
             _object_detail_row("Messaging scope", "Included" if entitlements.get("messaging_channels_enabled") else "Upgrade required for messaging channels", "Entitlement"),
@@ -478,7 +478,7 @@ def settings_plan_detail(
         object_sections=[
             {
                 "eyebrow": "Plan",
-                "title": "Plan and billing posture",
+                "title": "Plan and billing",
                 "items": [
                     _object_detail_row("Plan", str(plan.get("display_name") or "Pilot"), "Plan"),
                     _object_detail_row("Account scope", plan_scope, "Plan"),
@@ -565,7 +565,7 @@ def settings_usage_detail(
                 {"label": "Repair status", "value": str(property_usage["repair_status"])},
             ],
             object_sidebar_title="What usage means here",
-            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, homes ranked, artifacts prepared, and whether repair work is still open.",
+            object_sidebar_copy="PropertyQuarry usage is measured by searches completed, homes ranked, pages prepared, and whether repair work is still open.",
             object_sidebar_rows=[
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
@@ -1179,7 +1179,7 @@ def settings_outcomes_detail(
         current_nav="settings",
         console_title="Outcomes",
         console_summary="First value, review activity, commitment closure, and correction signals explain whether this office is actually getting value.",
-        object_kind="Outcome posture",
+        object_kind="Outcome",
         object_title=str(outcomes.get("success_summary") or "Outcomes"),
         object_summary=(
             f"Memo open rate {outcomes.get('memo_open_rate') or 0} · "
@@ -1474,7 +1474,7 @@ def settings_google_detail(
             if is_property_brand
             else "Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop."
         ),
-        object_kind="Connection posture" if is_property_brand else "Sync posture",
+        object_kind="Connection" if is_property_brand else "Sync state",
         object_title=primary_email or "Google not connected",
         object_summary=sync_summary,
         object_meta=object_meta,
@@ -1518,7 +1518,7 @@ def settings_google_detail(
         object_sections=[
             {
                 "eyebrow": "Connection",
-                "title": "Google binding and token posture" if not is_property_brand else "Google identity and account posture",
+                "title": "Google binding and token state" if not is_property_brand else "Google identity and account",
                 "items": [
                     _object_detail_row("Connected", "Yes" if connected_account_total else "No", "Google"),
                     _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
@@ -1528,7 +1528,7 @@ def settings_google_detail(
                     _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
                     _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
                     _object_detail_row("Last send verification", verify_detail, "Verify"),
-                    _object_detail_row("Google link posture", email_link_detail, "Access"),
+                    _object_detail_row("Google link", email_link_detail, "Access"),
                     _object_detail_row(
                         action["label"],
                         action["detail"],
@@ -1639,7 +1639,7 @@ def settings_trust_detail(
         console_summary=(
             "Evidence, rules, source status, and recent activity explain why a result is trustworthy."
             if is_property_brand
-            else "Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened."
+            else "Evidence, rules, readiness, provider state, and recent product events make the assistant legible when the office asks why something happened."
         ),
         object_kind="Trust",
         object_title=workspace_summary,
@@ -1699,7 +1699,7 @@ def settings_trust_detail(
                     [
                         _object_detail_row(
                             "Summary",
-                            str(public_help_grounding.get("summary") or "Help posture compiles from mirrored trust and release canon."),
+                            str(public_help_grounding.get("summary") or "Help content compiles from mirrored trust and release notes."),
                             "Grounding",
                         )
                     ]
@@ -1793,7 +1793,7 @@ def settings_access_detail(
         current_nav="settings",
         console_title="Access",
         console_summary="Active access sessions are visible and revocable from the browser, not buried in API payloads or support tooling.",
-        object_kind="Access posture",
+        object_kind="Access",
         object_title=f"{len(active_sessions)} active sessions",
         object_summary=f"{total_opens} access opens recorded · {len(revoked_sessions)} revoked sessions",
         object_meta=[
@@ -1950,7 +1950,7 @@ def settings_invitations_detail(
             if is_property_brand
             else "Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop."
         ),
-        object_kind="Invitation posture",
+        object_kind="Invitations",
         object_title=f"{len(pending)} pending invitations",
         object_summary=f"{len(accepted)} accepted · {len(revoked)} revoked",
         object_meta=[
