@@ -39,6 +39,11 @@
       </div>
     </div>
     <p>{{ score_methodology.get('summary') }}</p>
+    <div class="pqx-score-bts-actions">
+      <a class="pqx-link-button" href="/app/api/properties/score-methodology/pdf?language={{ score_methodology.get('language_code') or 'en' }}" target="_blank" rel="noreferrer">
+        Open score PDF
+      </a>
+    </div>
     <div class="pqx-score-bts-grid">
       {% for step in (score_methodology.get('steps') or [])[:3] %}
       <div><strong>{{ step.get('title') }}</strong><span>{{ step.get('detail') }}</span></div>

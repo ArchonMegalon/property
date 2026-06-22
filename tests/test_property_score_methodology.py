@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.product.property_score_methodology import (
     build_property_score_methodology,
     build_property_score_methodology_for_supported_languages,
@@ -10,6 +12,9 @@ from app.services.fliplink.privacy import redact_property_packet
 from app.services.premium_dossier.compiler import compile_premium_dossier
 from app.services.premium_dossier.html import render_premium_dossier_html
 from app.services.property_market_catalog import COUNTRIES
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_score_methodology_languages_cover_country_provider_catalog() -> None:
@@ -87,3 +92,10 @@ def test_score_methodology_survives_redaction_and_renders_in_premium_html() -> N
     assert "62/100" in html
     assert "Falscher Bezirk" in html
     assert "Echte 360-Tour vorhanden." in html
+
+
+def test_results_bts_exposes_score_pdf_action() -> None:
+    template = (ROOT / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
+
+    assert "/app/api/properties/score-methodology/pdf" in template
+    assert "Open score PDF" in template

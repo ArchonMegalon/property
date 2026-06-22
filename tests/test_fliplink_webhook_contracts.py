@@ -225,6 +225,22 @@ def test_fliplink_render_route_builds_candidate_score_methodology(monkeypatch, t
     assert score_methodology["candidate_application"]["positive_signals"] == ["Echte 360-Tour vorhanden."]
 
 
+def test_score_methodology_pdf_endpoint_uses_requested_language(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    client = build_property_client(principal_id="score-methodology-owner")
+    start_workspace(client, mode="personal", workspace_name="Score Guide Office", region="AT", language="de")
+
+    response = client.get("/app/api/properties/score-methodology/pdf?language=de")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/pdf")
+    assert "propertyquarry-score-methodology-de.pdf" in response.headers.get("content-disposition", "")
+    assert response.content.startswith(b"%PDF-1.4")
+    pdf_text = response.content.decode("latin-1", errors="ignore")
+    assert "Wie der PropertyQuarry-Score berechnet" in pdf_text
+    assert "62/100" in pdf_text
+
+
 def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))

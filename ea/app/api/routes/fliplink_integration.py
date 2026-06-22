@@ -22,11 +22,12 @@ from app.domain.property_preference_events import (
     PROPERTY_PACKET_FEEDBACK_SOURCE,
     PROPERTY_PREFERENCE_DOMAIN,
 )
-from app.product.property_score_methodology import build_property_score_methodology
+from app.product.property_score_methodology import build_property_score_methodology, build_property_score_methodology_pdf_source
 from app.product.service import build_product_service
 from app.settings import get_settings, resolve_signing_secret
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
+from app.services.fliplink.pdf_renderer import render_property_packet_pdf_legacy
 from app.services.public_branding import request_brand
 
 
@@ -704,6 +705,51 @@ def download_property_packet_pdf(
         media_type="application/pdf",
         filename=f"{publication_id}.pdf",
         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@authenticated_router.get("/app/api/properties/score-methodology/pdf")
+def download_property_score_methodology_pdf(
+    language: str = Query(default="", max_length=16),
+    country: str = Query(default="", max_length=8),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> FileResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {}) if isinstance(status.get("workspace"), dict) else {}
+    country_code = str(country or workspace.get("country_code") or workspace.get("region") or "AT").strip() or "AT"
+    language_code = str(language or workspace.get("language") or "").strip()
+    source_payload = build_property_score_methodology_pdf_source(
+        language_code=language_code,
+        country_code=country_code,
+    )
+    methodology = (
+        dict(source_payload.get("score_methodology") or {})
+        if isinstance(source_payload.get("score_methodology"), dict)
+        else {}
+    )
+    resolved_language = str(methodology.get("language_code") or "en").strip().lower() or "en"
+    artifact_root = Path(str(container.settings.storage.artifacts_dir)).resolve()
+    rendered = render_property_packet_pdf_legacy(
+        artifact_root=artifact_root,
+        publication_id=f"score-methodology-{resolved_language}",
+        principal_id="propertyquarry-score-methodology",
+        source=source_payload,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.ANONYMOUS_PUBLIC,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        include_exact_address=False,
+        include_floorplan=False,
+        include_photos=False,
+    )
+    pdf_path = Path(str(rendered.get("pdf_path") or "")).resolve()
+    if (pdf_path != artifact_root and artifact_root not in pdf_path.parents) or not pdf_path.is_file():
+        raise HTTPException(status_code=500, detail="property_score_methodology_pdf_not_available")
+    return FileResponse(
+        str(pdf_path),
+        media_type="application/pdf",
+        filename=f"propertyquarry-score-methodology-{resolved_language}.pdf",
+        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
     )
 
 

@@ -412,6 +412,57 @@ def build_property_score_methodology(
     }
 
 
+def build_property_score_methodology_pdf_source(
+    *,
+    language_code: object = "",
+    country_code: object = "",
+) -> dict[str, object]:
+    candidate = {
+        "fit_score": 62,
+        "match_reasons": [
+            "Selected area is respected.",
+            "Verified costs, floorplan, and 360 evidence raise confidence.",
+            "Commute and daily-life preferences score well.",
+        ],
+        "mismatch_reasons": [
+            "One soft preference is missing and lowers rank without excluding.",
+            "Heating detail still needs confirmation before a final decision.",
+        ],
+    }
+    methodology = build_property_score_methodology(
+        language_code=language_code,
+        country_code=country_code,
+        candidate=candidate,
+    )
+    return {
+        "title": str(methodology.get("pdf_title") or "PropertyQuarry score methodology"),
+        "summary": str(methodology.get("summary") or ""),
+        "source_label": "PropertyQuarry scoring engine",
+        "language_code": str(methodology.get("language_code") or "en"),
+        "country_code": str(country_code or "").strip().upper(),
+        "fit_score": candidate["fit_score"],
+        "recommendation": "Strong fit",
+        "match_reasons": list(candidate["match_reasons"]),
+        "mismatch_reasons": list(candidate["mismatch_reasons"]),
+        "viewing_questions": [
+            "Verify the still-missing fact with the agent.",
+            "Compare the route and noise evidence during an actual viewing.",
+        ],
+        "property_facts": {
+            "language_code": str(methodology.get("language_code") or "en"),
+            "country_code": str(country_code or "").strip().upper(),
+            "postal_name": "Demo market",
+            "price_display": "Example budget",
+            "area_m2": 82,
+            "rooms": 3,
+            "has_floorplan": True,
+            "nearest_school_m": 430,
+            "nearest_supermarket_m": 260,
+        },
+        "score_methodology": methodology,
+    }
+
+
 def build_property_score_methodology_for_supported_languages() -> list[dict[str, object]]:
     return [
         build_property_score_methodology(language_code=language_code)
