@@ -135,6 +135,28 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "Open listing" in review
 
 
+def test_property_research_detail_right_rail_stays_compact() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    research = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
+
+    assert "Open the exact pin in Google Maps here" not in research
+    assert "prd-map-actions" in research
+    assert "Open overlay" in research
+    assert "Media and plans" in research
+
+
+def test_property_research_detail_uses_property_shell_and_real_title() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    base_console = (repo_root / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
+    landing_route = (repo_root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
+
+    assert "['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account']" in base_console
+    assert "PropertyQuarry workspace" in base_console
+    assert "Account overview" in base_console
+    assert 'console_title=display_title' in landing_route
+    assert 'console_summary=display_source_label' in landing_route
+
+
 def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_noise() -> None:
     client = build_property_client(principal_id="pq-rendered-surface-click-audit")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
@@ -1892,7 +1914,9 @@ def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch)
         "Walkthrough ready",
     ):
         assert f'>{label}</a>' in authed_home.text
-    assert authed_home.text.count('href="/app/shortlist"') >= 3
+    assert 'href="/app/shortlist?example=1#results-list"' in authed_home.text
+    assert 'href="/app/shortlist?example=1#tour-preview"' in authed_home.text
+    assert 'href="/app/shortlist?example=1#walkthrough-preview"' in authed_home.text
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:

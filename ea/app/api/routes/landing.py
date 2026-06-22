@@ -1910,6 +1910,21 @@ def landing(
         principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
     example_shortlist_href = "/app/shortlist" if authenticated_principal else "/sign-in?signing_in=1"
+    example_shortlist_detail_href = (
+        "/app/shortlist?example=1#results-list"
+        if authenticated_principal
+        else "/sign-in?signing_in=1"
+    )
+    example_shortlist_tour_href = (
+        "/app/shortlist?example=1#tour-preview"
+        if authenticated_principal
+        else "/sign-in?signing_in=1"
+    )
+    example_shortlist_walkthrough_href = (
+        "/app/shortlist?example=1#walkthrough-preview"
+        if authenticated_principal
+        else "/sign-in?signing_in=1"
+    )
     example_shortlist = [
         {
             "title": "Clear floorplan, right district",
@@ -1918,6 +1933,9 @@ def landing(
             "tour_label": "3D tour ready",
             "walkthrough_label": "Walkthrough ready",
             "href": example_shortlist_href,
+            "detail_href": example_shortlist_detail_href,
+            "tour_href": example_shortlist_tour_href,
+            "walkthrough_href": example_shortlist_walkthrough_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
         },
         {
@@ -1927,6 +1945,9 @@ def landing(
             "tour_label": "3D tour queued",
             "walkthrough_label": "Walkthrough queued",
             "href": example_shortlist_href,
+            "detail_href": example_shortlist_detail_href,
+            "tour_href": example_shortlist_tour_href,
+            "walkthrough_href": example_shortlist_walkthrough_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1040 Vienna, 1050 Vienna"),
         },
         {
@@ -1936,6 +1957,9 @@ def landing(
             "tour_label": "3D tour on request",
             "walkthrough_label": "Walkthrough on request",
             "href": example_shortlist_href,
+            "detail_href": example_shortlist_detail_href,
+            "tour_href": example_shortlist_tour_href,
+            "walkthrough_href": example_shortlist_walkthrough_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1180 Vienna, 1190 Vienna"),
         },
     ]
@@ -3581,6 +3605,21 @@ def property_research_packet(
         "caption": str(orientation_preview.get("caption") or "").strip(),
         "district_rows": list(orientation_preview.get("district_rows") or []),
     }
+    location_preview_image_url = str(location_preview.get("image_url") or "").strip()
+    if gallery_items:
+        seen_gallery_urls: set[str] = set()
+        filtered_gallery_items: list[dict[str, object]] = []
+        for item in gallery_items:
+            if not isinstance(item, dict):
+                continue
+            item_url = str(item.get("url") or "").strip()
+            if not item_url:
+                continue
+            if item_url == location_preview_image_url or item_url in seen_gallery_urls:
+                continue
+            seen_gallery_urls.add(item_url)
+            filtered_gallery_items.append(dict(item))
+        gallery_items = filtered_gallery_items
     flythrough_url = str(candidate.get("flythrough_url") or "").strip()
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
@@ -3834,8 +3873,8 @@ def property_research_packet(
                 page_title=f"PropertyQuarry {display_title}",
                 current_nav="research",
                 context=context,
-                console_title="Property",
-                console_summary="",
+                console_title=display_title,
+                console_summary=display_source_label,
                 nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
                 workspace_label=str(workspace.get("name") or "PropertyQuarry"),
                 cards=[],

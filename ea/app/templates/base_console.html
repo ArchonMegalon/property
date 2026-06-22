@@ -1260,7 +1260,7 @@
 </head>
 <body>
   {% set brand_home_href = '/?home=1' if brand.key == 'propertyquarry' else (brand.app_home or '/app/properties') %}
-  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'agents', 'account'] %}
+  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account'] %}
   {% if property_app_nav %}
   {% set mobile_nav = namespace(items=[]) %}
   {% set run_query = request.url.query %}
@@ -1407,7 +1407,7 @@
       <div class="console-topbar">
         <div class="console-title">
           <div class="context">
-            {% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}Account overview{% endif %}
+            {% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% elif property_app_nav %}PropertyQuarry workspace{% else %}Account overview{% endif %}
           </div>
           <h1>{{ page_heading or console_title or page_title }}</h1>
           {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}

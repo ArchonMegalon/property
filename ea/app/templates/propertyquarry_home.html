@@ -359,6 +359,9 @@
         {% for row in example_shortlist %}
         {% set scope_preview = row.get('scope_preview') or {} %}
         {% set row_href = row.get('href') or '/sign-in?signing_in=1' %}
+        {% set detail_href = row.get('detail_href') or row_href %}
+        {% set tour_href = row.get('tour_href') or row_href %}
+        {% set walkthrough_href = row.get('walkthrough_href') or row_href %}
         <article class="pq-row">
           <div class="pq-row-main">
             <div class="pq-row-thumb">
@@ -370,10 +373,10 @@
             </div>
             <div class="pq-row-copy">
               <strong><a class="pq-row-link" href="{{ row_href }}">{{ row.get('title') }}</a></strong>
-              <span><a class="pq-row-link" href="{{ row_href }}">{{ row.get('detail') }}</a></span>
+              <span><a class="pq-row-link" href="{{ detail_href }}">{{ row.get('detail') }}</a></span>
               <div class="pq-row-actions" aria-label="Example media status">
-                <a class="pq-mini-tag pq-row-link" href="{{ row_href }}">{{ row.get('tour_label') }}</a>
-                <a class="pq-mini-tag pq-row-link" href="{{ row_href }}">{{ row.get('walkthrough_label') }}</a>
+                <a class="pq-mini-tag pq-row-link" href="{{ tour_href }}">{{ row.get('tour_label') }}</a>
+                <a class="pq-mini-tag pq-row-link" href="{{ walkthrough_href }}">{{ row.get('walkthrough_label') }}</a>
               </div>
             </div>
           </div>
