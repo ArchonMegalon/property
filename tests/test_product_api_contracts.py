@@ -13708,6 +13708,129 @@ def test_property_tour_followup_tasks_auto_process_user_visual_requests(monkeypa
     assert updated_task.resolution == "ready"
 
 
+def test_property_tour_followup_tasks_keep_pending_when_visual_is_still_processing(monkeypatch) -> None:
+    principal_id = "property-tour-followup-keep-pending"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": str(kwargs.get("request_kind") or "tour"),
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "",
+            "tour_status": "pending",
+            "flythrough_url": "",
+            "flythrough_status": "processing",
+            "status_label": "Walkthrough rendering",
+        },
+    )
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-pending-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-pending-1",
+        external_id="demo-pending-1",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-pending-1",
+        candidate_ref="candidate-pending-1",
+        allow_floorplan_only=True,
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 0
+    assert result["failed_total"] == 0
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "pending"
+    assert updated_task.resolution == ""
+
+
+def test_property_tour_followup_tasks_do_not_rerun_fresh_processing_visual(monkeypatch) -> None:
+    principal_id = "property-tour-followup-fresh-processing"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-fresh-processing-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-fresh-processing-1",
+        external_id="demo-fresh-processing-1",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-fresh-processing-1",
+        candidate_ref="candidate-fresh-processing-1",
+        allow_floorplan_only=True,
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "flythrough_status": "processing",
+            "flythrough_requested_at": "2026-06-22T10:00:00+00:00",
+            "flythrough_status_updated_at": "2026-06-22T10:05:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_utcnow",
+        lambda: datetime(2026, 6, 22, 10, 8, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: pytest.fail("fresh in-flight visual must not be reissued"),
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 0
+    assert result["failed_total"] == 0
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "pending"
+    assert updated_task.resolution == ""
+
+
 def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
@@ -13808,6 +13931,53 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
         item["payload"]["tour_url"] == "https://myexternalbrain.com/tours/recreated-apartment"
         for item in events.json()["items"]
     )
+
+
+def test_recreate_property_tour_followup_keeps_pending_when_visual_is_still_processing(monkeypatch) -> None:
+    principal_id = "property-tour-followup-recreate-pending"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-recreate-pending-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-recreate-pending-1",
+        external_id="demo-recreate-pending-1",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-recreate-pending-1",
+        candidate_ref="candidate-recreate-pending-1",
+        allow_floorplan_only=True,
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "flythrough_status": "processing",
+            "flythrough_url": "",
+            "tour_status": "pending",
+            "tour_url": "",
+        },
+    )
+
+    result = service.recreate_property_tour_followup(
+        principal_id=principal_id,
+        handoff_ref=f"human_task:{task.human_task_id}",
+        operator_id="",
+        actor="operator-office",
+    )
+
+    assert result is not None
+    assert result.status == "pending"
+    assert result.resolution == ""
 
 
 def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monkeypatch) -> None:

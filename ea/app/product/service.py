@@ -27439,7 +27439,7 @@ class ProductService:
                 resolution = requested_status
             elif (str(result.get("flythrough_url") or "").strip() if request_kind == "flythrough" else str(result.get("tour_url") or "").strip()):
                 resolution = "ready"
-        if resolution in {"sent", "ready", "queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+        if resolution in {"sent", "ready", "blocked", "failed", "skipped", "not_applicable"}:
             completed = self.complete_handoff(
                 principal_id=principal_id,
                 handoff_ref=handoff_ref,
@@ -29964,6 +29964,80 @@ class ProductService:
                 source_ref=source_ref,
                 property_url=property_url,
             )
+            existing_status = (
+                str(existing_visual_state.get("flythrough_status") or "").strip().lower()
+                if request_kind == "flythrough"
+                else str(existing_visual_state.get("tour_status") or "").strip().lower()
+            )
+            existing_ready_url = (
+                str(existing_visual_state.get("flythrough_url") or "").strip()
+                if request_kind == "flythrough"
+                else str(existing_visual_state.get("tour_url") or "").strip()
+            )
+            existing_requested_at = (
+                str(existing_visual_state.get("flythrough_requested_at") or "").strip()
+                if request_kind == "flythrough"
+                else str(existing_visual_state.get("tour_requested_at") or "").strip()
+            )
+            existing_status_updated_at = (
+                str(existing_visual_state.get("flythrough_status_updated_at") or "").strip()
+                if request_kind == "flythrough"
+                else str(existing_visual_state.get("tour_status_updated_at") or "").strip()
+            )
+            if existing_ready_url:
+                completed = self.complete_handoff(
+                    principal_id=normalized_principal,
+                    handoff_ref=f"human_task:{task.human_task_id}",
+                    operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
+                    actor=actor,
+                    resolution="ready",
+                )
+                resolved.append(
+                    {
+                        "human_task_id": f"human_task:{task.human_task_id}",
+                        "handoff_ref": f"human_task:{task.human_task_id}",
+                        "property_url": property_url,
+                        "request_kind": request_kind,
+                        "resolution": "ready",
+                        "status": "ready",
+                        "status_label": "Open walkthrough" if request_kind == "flythrough" else "Open 3D tour",
+                        "tour_url": existing_ready_url if request_kind != "flythrough" else "",
+                        "flythrough_url": existing_ready_url if request_kind == "flythrough" else "",
+                        "returned": completed is not None,
+                    }
+                )
+                continue
+            if _property_tour_status_is_terminal(existing_status):
+                if existing_status in {"blocked", "failed", "skipped", "not_applicable"}:
+                    blocked_total += 1
+                completed = self.complete_handoff(
+                    principal_id=normalized_principal,
+                    handoff_ref=f"human_task:{task.human_task_id}",
+                    operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
+                    actor=actor,
+                    resolution=existing_status,
+                )
+                resolved.append(
+                    {
+                        "human_task_id": f"human_task:{task.human_task_id}",
+                        "handoff_ref": f"human_task:{task.human_task_id}",
+                        "property_url": property_url,
+                        "request_kind": request_kind,
+                        "resolution": existing_status,
+                        "status": existing_status,
+                        "status_label": "",
+                        "tour_url": "",
+                        "flythrough_url": "",
+                        "returned": completed is not None,
+                    }
+                )
+                continue
+            if _property_tour_status_is_pending(existing_status) and not self._property_visual_request_is_stale(
+                status=existing_status,
+                requested_at=existing_requested_at,
+                status_updated_at=existing_status_updated_at,
+            ):
+                continue
             processing_state = {
                 "blocked_reason": "",
             }
@@ -30056,6 +30130,8 @@ class ProductService:
                     resolution = "ready"
             if resolution in {"blocked", "failed", "skipped", "not_applicable"}:
                 blocked_total += 1
+            if _property_tour_status_is_pending(resolution):
+                continue
             completed = self.complete_handoff(
                 principal_id=normalized_principal,
                 handoff_ref=f"human_task:{task.human_task_id}",
