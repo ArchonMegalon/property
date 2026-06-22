@@ -934,6 +934,35 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
         assert marker not in page.text
 
 
+def test_propertyquarry_account_surfaces_use_persisted_property_plan() -> None:
+    client = build_property_client(principal_id="exec-property-agent-plan")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+    container = client.app.state.container
+    container.onboarding.upsert_property_search_preferences(
+        principal_id="exec-property-agent-plan",
+        property_search_preferences_json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+
+    billing = client.get("/app/billing")
+    usage = client.get("/app/settings/usage")
+
+    assert billing.status_code == 200
+    assert usage.status_code == 200
+    assert '<strong>Agent</strong>' in billing.text
+    assert 'Active plan.' in billing.text
+    assert '<strong>Current plan</strong>' in usage.text
+    assert '<small>Agent</small>' in usage.text
+    assert '<small>Free</small>' not in usage.text
+
+
 def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
     client = build_property_client(principal_id="exec-property-support-trust-copy")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")

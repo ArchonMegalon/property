@@ -44905,10 +44905,16 @@ class ProductService:
     def workspace_diagnostics(self, *, principal_id: str) -> dict[str, object]:
         status = self._container.onboarding.status(principal_id=principal_id)
         workspace = dict(status.get("workspace") or {})
+        property_preferences = dict(status.get("property_search_preferences") or {})
         delivery_preferences = dict(status.get("delivery_preferences") or {})
         morning_memo = dict(delivery_preferences.get("morning_memo") or {})
         selected_channels = tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip())
         plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
+        property_billing_snapshot = (
+            property_commercial_snapshot(property_preferences)
+            if property_preferences
+            else {}
+        )
         snapshot = self.workspace_snapshot(principal_id=principal_id)
         queue_health, assignment_suggestions = self._queue_health(principal_id=principal_id)
         readiness_ok, readiness_label = self._container.readiness.check()
@@ -45212,6 +45218,21 @@ class ProductService:
         seats_remaining = max(seat_limit - seats_used, 0)
         seat_overage = max(seats_used - seat_limit, 0)
         commercial_snapshot = workspace_commercial_snapshot(plan, seats_used=seats_used, selected_channels=selected_channels)
+        property_billing = dict(property_billing_snapshot or {})
+        property_commercial = dict(property_billing_snapshot.get("property_commercial") or {})
+        if property_billing:
+            commercial_snapshot["billing"] = property_billing
+        if property_commercial:
+            merged_property_commercial = dict(property_commercial)
+            merged_property_commercial.setdefault(
+                "warnings",
+                [str(value) for value in (commercial_snapshot.get("commercial", {}).get("warnings") or []) if str(value).strip()],
+            )
+            merged_property_commercial.setdefault(
+                "blocked_actions",
+                [str(value) for value in (commercial_snapshot.get("commercial", {}).get("blocked_actions") or []) if str(value).strip()],
+            )
+            commercial_snapshot["commercial"] = merged_property_commercial
         selected_messaging = [str(value) for value in (commercial_snapshot.get("commercial", {}).get("selected_messaging_channels") or []) if str(value).strip()]
         warnings = [str(value) for value in (commercial_snapshot.get("commercial", {}).get("warnings") or []) if str(value).strip()]
         blocked_actions = [str(value) for value in (commercial_snapshot.get("commercial", {}).get("blocked_actions") or []) if str(value).strip()]
