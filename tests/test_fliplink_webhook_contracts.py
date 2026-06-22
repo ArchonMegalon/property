@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.product.property_score_methodology import supported_property_score_methodology_languages
 from app.repositories import property_packet_publications
 from app.repositories.property_packet_publications import build_property_packet_publication_repository
 from app.services.fliplink.pdf_renderer import PDF_RENDERER_VERSION
@@ -239,6 +240,25 @@ def test_score_methodology_pdf_endpoint_uses_requested_language(monkeypatch, tmp
     pdf_text = response.content.decode("latin-1", errors="ignore")
     assert "Wie der PropertyQuarry-Score berechnet" in pdf_text
     assert "62/100" in pdf_text
+
+
+def test_score_methodology_pdf_endpoint_supports_every_country_provider_language(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    client = build_property_client(principal_id="score-methodology-language-owner")
+    start_workspace(client, mode="personal", workspace_name="Score Guide Languages", region="AT", language="de")
+
+    for language_code in supported_property_score_methodology_languages():
+        response = client.get(f"/app/api/properties/score-methodology/pdf?language={language_code}")
+        assert response.status_code == 200, f"{language_code}: {response.text}"
+        assert response.headers["content-type"].startswith("application/pdf")
+        assert (
+            f"propertyquarry-score-methodology-{language_code}.pdf"
+            in response.headers.get("content-disposition", "")
+        )
+        assert response.content.startswith(b"%PDF-1.4")
+        pdf_text = response.content.decode("latin-1", errors="ignore")
+        assert "62/100" in pdf_text
 
 
 def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch, tmp_path: Path) -> None:
