@@ -581,6 +581,72 @@
       });
       return button;
     };
+    const visualPendingStates = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
+    const applyPendingVisualButtonState = (button) => {
+      if (!button) return;
+      const state = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
+      if (!visualPendingStates.includes(state)) return;
+      const progress = Math.max(0, Math.min(100, Number(button.getAttribute('data-pw-visual-progress') || '0') || 0));
+      const eta = String(button.getAttribute('data-pw-visual-eta') || '').trim();
+      const detail = String(button.getAttribute('data-pw-visual-detail') || '').trim();
+      const pollSeconds = Math.max(0, Number(button.getAttribute('data-pw-visual-poll-seconds') || '10') || 10);
+      button.disabled = true;
+      button.classList.add('is-processing');
+      button.setAttribute('aria-disabled', 'true');
+      button.style.setProperty('--pqx-fill', `${progress}%`);
+      if (detail || eta) {
+        button.setAttribute('title', [detail, eta ? `ETA ${eta}` : ''].filter(Boolean).join(' · '));
+      }
+      const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
+      const runId = String(button.getAttribute('data-run-id') || '').trim();
+      const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim();
+      const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
+      const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
+      if (runId && requestKind) {
+        window.setTimeout(() => {
+          fetch(`/app/api/signals/property/visual-status?${new URLSearchParams({
+            run_id: runId,
+            request_kind: requestKind,
+            candidate_ref: candidateRef,
+            source_ref: sourceRef,
+            property_url: propertyUrl,
+          }).toString()}`, {
+            method: 'GET',
+            credentials: 'same-origin',
+          })
+            .then((response) => response.ok ? response.json() : null)
+            .then((payload) => {
+              if (!payload || typeof payload !== 'object') return;
+              const nextReadyUrl = String((requestKind === 'flythrough' ? payload.flythrough_url : payload.tour_url) || '').trim();
+              const nextStatus = String((requestKind === 'flythrough' ? payload.flythrough_status : payload.tour_status) || payload.status || '').trim().toLowerCase();
+              const nextLabel = String(payload.status_label || button.textContent || '').trim();
+              const nextDetail = String(payload.status_detail || '').trim();
+              const nextEta = String(payload.eta_label || '').trim();
+              const nextProgress = Math.max(0, Math.min(100, Number(payload.progress_pct || 0) || 0));
+              button.textContent = nextLabel || button.textContent;
+              button.setAttribute('data-pw-visual-state', nextReadyUrl ? 'ready' : nextStatus);
+              button.setAttribute('data-pw-visual-progress', String(nextProgress));
+              button.setAttribute('data-pw-visual-eta', nextEta);
+              button.setAttribute('data-pw-visual-detail', nextDetail);
+              button.style.setProperty('--pqx-fill', `${nextProgress}%`);
+              if (nextDetail || nextEta) {
+                button.setAttribute('title', [nextDetail, nextEta ? `ETA ${nextEta}` : ''].filter(Boolean).join(' · '));
+              }
+              if (nextReadyUrl) {
+                button.disabled = false;
+                button.classList.remove('is-processing');
+                button.classList.add('is-ready');
+                button.removeAttribute('aria-disabled');
+                button.setAttribute('data-pw-visual-ready-url', nextReadyUrl);
+              }
+              if (visualRequestStatusNode && nextDetail) {
+                visualRequestStatusNode.textContent = nextDetail;
+              }
+            })
+            .catch(() => null);
+        }, pollSeconds * 1000);
+      }
+    };
     const requestVisualAsset = async (candidate, kind, button) => {
       if (!candidate) return;
       const existingReadyUrl = String(button?.getAttribute?.('data-pw-visual-ready-url') || '').trim();
@@ -717,6 +783,9 @@
         }
       }
     };
+    root.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
+      applyPendingVisualButtonState(button);
+    });
 {% if surface_mode not in ['agents', 'account', 'billing'] %}
 {% include "app/_property_workbench_feedback_script.html" %}
 {% endif %}

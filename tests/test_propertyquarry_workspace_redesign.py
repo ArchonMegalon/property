@@ -134,6 +134,9 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "Open 3D tour" in review
     assert "Open listing" in review
     assert "Open property" in review
+    assert "data-pw-visual-poll-seconds=\"10\"" in review
+    assert "pqx-progress-button is-processing" in review
+    assert "Share results" in review
 
 
 def test_property_research_detail_right_rail_stays_compact() -> None:
