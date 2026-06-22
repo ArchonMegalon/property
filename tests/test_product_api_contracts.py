@@ -9172,6 +9172,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
         json={
             "property_url": packet["property_url"],
             "binding_id": "browseract-binding-1",
+            "auto_deliver": True,
         },
     )
     assert created.status_code == 200
@@ -11282,6 +11283,7 @@ def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile
         json={
             "property_url": packet["property_url"],
             "binding_id": "browseract-binding-1",
+            "auto_deliver": True,
         },
     )
     assert created.status_code == 200
@@ -11369,7 +11371,7 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
 
     created = client.post(
         "/app/api/signals/willhaben/property-tour",
-        json={"property_url": packet["property_url"], "binding_id": "browseract-binding-1"},
+        json={"property_url": packet["property_url"], "binding_id": "browseract-binding-1", "auto_deliver": True},
     )
     assert created.status_code == 200
     body = created.json()
@@ -18135,6 +18137,7 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
         json={
             "property_url": packet["property_url"],
             "binding_id": "browseract-binding-fallback-1",
+            "auto_deliver": True,
         },
     )
     assert created.status_code == 200
