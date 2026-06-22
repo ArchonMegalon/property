@@ -3,6 +3,7 @@
 <style>
   .prd-shell,
   .prd-hero,
+  .prd-media-stack,
   .prd-headline,
   .prd-summary-stack,
   .prd-meta,
@@ -24,6 +25,10 @@
   .prd-hero {
     grid-template-columns: minmax(0, 1.04fr) minmax(296px, 0.68fr);
     align-items: start;
+    gap: 6px;
+  }
+  .prd-media-stack {
+    align-content: start;
     gap: 6px;
   }
   .prd-body {
@@ -124,6 +129,11 @@
     flex-wrap: wrap;
     gap: 5px;
   }
+  .prd-headline-panel .prd-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
   .prd-media-actions {
     display: none;
   }
@@ -131,6 +141,18 @@
   .prd-actions .pqx-button {
     min-height: 30px;
     padding: 5px 10px;
+  }
+  .prd-headline-panel .prd-actions .console-action,
+  .prd-headline-panel .prd-actions .pqx-button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    text-align: center;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.15;
+    padding: 6px 8px;
   }
   @media (pointer: coarse) {
     .prd-actions .console-action,
@@ -408,6 +430,12 @@
   .prd-meta {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 5px;
+  }
+  .prd-current-read {
+    padding: 6px;
+  }
+  .prd-current-read .prd-summary-grid {
+    margin-top: 0;
   }
   .prd-meta-card span {
     display: block;
@@ -990,6 +1018,9 @@
     .prd-lightbox-card {
       padding: 8px;
     }
+    .prd-headline-panel .prd-actions {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
     .prd-headline-panel h1 {
       font-size: 1rem;
       line-height: 1.16;
@@ -1186,6 +1217,9 @@
     }
   }
   @media (max-width: 520px) {
+    .prd-headline-panel .prd-actions {
+      grid-template-columns: 1fr;
+    }
     .prd-meta {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
@@ -1211,32 +1245,53 @@
 
 <section class="prd-shell" data-property-research-detail>
   <section class="prd-hero" data-pqx-screenfit-target="research-detail-hero">
-    <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}" data-object-media-stage>
-      <div class="prd-media-badge">
-        {% if research_media.get('show_status_line') %}
-          {{ research_media.get('status_label') or 'Media' }}
+    <section class="prd-media-stack">
+      <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}" data-object-media-stage>
+        <div class="prd-media-badge">
+          {% if research_media.get('show_status_line') %}
+            {{ research_media.get('status_label') or 'Media' }}
+          {% elif research_preview_image %}
+            Photos
+          {% elif research_location_preview.get('image_url') %}
+            Area map
+          {% else %}
+            Media
+          {% endif %}
+        </div>
+        {% if research_media.get('embed_href') %}
+        <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
         {% elif research_preview_image %}
-          Photos
+        <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}">
         {% elif research_location_preview.get('image_url') %}
-          Area map
+        <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy" data-prd-hero-image>
         {% else %}
-          Media
+        <div class="prd-media-empty">{{ research_media.get('status_detail') or 'No media attached yet.' }}</div>
         {% endif %}
-      </div>
-      {% if research_media.get('embed_href') %}
-      <iframe src="{{ research_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
-      {% elif research_preview_image %}
-      <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}">
-      {% elif research_location_preview.get('image_url') %}
-      <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy" data-prd-hero-image>
-      {% else %}
-      <div class="prd-media-empty">{{ research_media.get('status_detail') or 'No media attached yet.' }}</div>
-      {% endif %}
-      <div class="prd-media-gradient" aria-hidden="true"></div>
-      <div class="prd-media-caption">
-        <strong data-prd-hero-title>{{ research_title }}</strong>
-        <span data-prd-hero-summary>{{ research_summary }}</span>
-      </div>
+        <div class="prd-media-gradient" aria-hidden="true"></div>
+        <div class="prd-media-caption">
+          <strong data-prd-hero-title>{{ research_title }}</strong>
+          <span data-prd-hero-summary>{{ research_summary }}</span>
+        </div>
+      </section>
+      <section class="prd-band prd-current-read">
+        <div class="prd-kicker">Current read</div>
+        <div class="prd-summary-grid">
+          {% for row in research_overview_rows[:4] %}
+          <div class="prd-summary-box">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.value }}</strong>
+          </div>
+          {% endfor %}
+          <div class="prd-summary-box">
+            <span>Best reason to act</span>
+            <strong>{{ (research_match_reasons or [research_summary])|first }}</strong>
+          </div>
+          <div class="prd-summary-box">
+            <span>Main concern</span>
+            <strong>{{ (research_mismatch_reasons or ['Some evidence is still missing before the file is clean.'])|first }}</strong>
+          </div>
+        </div>
+      </section>
     </section>
     {% set mobile_visual_actions = research_actions|selectattr('kind')|list %}
     {% set visual_status = namespace(active=None) %}
@@ -1428,26 +1483,6 @@
 
   <section class="prd-body">
     <section class="prd-sections">
-      <section class="prd-band">
-        <div class="prd-kicker">Current read</div>
-        <div class="prd-summary-grid">
-          {% for row in research_overview_rows[:4] %}
-          <div class="prd-summary-box">
-            <span>{{ row.label }}</span>
-            <strong>{{ row.value }}</strong>
-          </div>
-          {% endfor %}
-          <div class="prd-summary-box">
-            <span>Best reason to act</span>
-            <strong>{{ (research_match_reasons or [research_summary])|first }}</strong>
-          </div>
-          <div class="prd-summary-box">
-            <span>Main concern</span>
-            <strong>{{ (research_mismatch_reasons or ['Some evidence is still missing before the file is clean.'])|first }}</strong>
-          </div>
-        </div>
-      </section>
-
       {% if research_missing_rows or research_investment_risk_rows %}
       <section class="prd-band">
         <div class="prd-kicker">Watch-outs</div>
