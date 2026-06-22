@@ -38,6 +38,7 @@ def test_score_methodology_languages_cover_country_provider_catalog() -> None:
 def test_score_methodology_applies_candidate_signals_and_band() -> None:
     payload = build_property_score_methodology(
         language_code="de",
+        country_code="AT",
         candidate={
             "fit_score": 62,
             "match_reasons": ["Echte 360-Tour vorhanden.", "Betriebskosten sind belegt."],
@@ -45,6 +46,7 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
         },
     )
 
+    assert payload["country_code"] == "AT"
     assert payload["candidate_application"]["fit_score"] == 62
     assert payload["candidate_application"]["band_label"] == "Starke Passung"
     assert payload["candidate_application"]["positive_signals"] == ["Echte 360-Tour vorhanden.", "Betriebskosten sind belegt."]
@@ -98,4 +100,15 @@ def test_results_bts_exposes_score_pdf_action() -> None:
     template = (ROOT / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
 
     assert "/app/api/properties/score-methodology/pdf" in template
+    assert "&country=" in template
     assert "Open score PDF" in template
+
+
+def test_selected_property_score_cards_expose_score_pdf_action() -> None:
+    desktop = (ROOT / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+    mobile = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    assert "/app/api/properties/score-methodology/pdf" in desktop
+    assert "/app/api/properties/score-methodology/pdf" in mobile
+    assert desktop.count("Open score PDF") >= 1
+    assert mobile.count("Open score PDF") >= 1

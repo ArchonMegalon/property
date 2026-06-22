@@ -384,6 +384,7 @@ def build_property_score_methodology(
         "contract_name": "propertyquarry.score_methodology.v1",
         "version": "2026-06-22",
         "language_code": str(copy.get("language_code") or "en"),
+        "country_code": str(country_code or "").strip().upper(),
         "language_label": str(copy.get("language_label") or "English"),
         "title": str(copy.get("title") or "Behind the score"),
         "subtitle": str(copy.get("subtitle") or ""),
