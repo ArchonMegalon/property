@@ -2041,12 +2041,14 @@ def property_directory_profile_page(
     profile_meta_description = (
         "PropertyQuarry directory profile details stay on PropertyQuarry with only reviewed public information shown."
     )
+    profile_robots_directive = "noindex, follow, noarchive, nosnippet"
     if directory_profile:
         display_name = str(directory_profile.get("display_name") or "").strip()
         category = str(directory_profile.get("category") or "").strip()
         city = str(directory_profile.get("city") or "").strip()
         country_code = str(directory_profile.get("country_code") or "").strip()
         summary = str(directory_profile.get("summary") or "").strip()
+        profile_robots_directive = "index, follow, max-image-preview:large"
         if display_name:
             profile_title = f"{display_name} | PropertyQuarry Directory"
         if summary:
@@ -2074,6 +2076,7 @@ def property_directory_profile_page(
                 "directory_profile_status": directory_profile_status,
                 "directory_profile_error": directory_profile_error,
                 "meta_description": profile_meta_description,
+                "robots_directive": profile_robots_directive,
                 "canonical_path": f"/directory/profile/{urllib.parse.quote(normalized_profile_id, safe='')}",
             },
         ),

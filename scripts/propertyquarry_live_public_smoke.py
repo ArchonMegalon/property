@@ -212,6 +212,11 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             (
                 ("directory_profile_white_label", "Profile details stay on PropertyQuarry" in text and "brilliant directories" not in lowered_visible and "brilliantdirectories" not in lowered_visible),
                 ("directory_profile_local_navigation", "Back to directory" in text and "Contact support" in text),
+                (
+                    "directory_profile_placeholder_noindex",
+                    "Profile details stay on PropertyQuarry" not in text
+                    or 'name="robots" content="noindex, follow, noarchive, nosnippet"' in text,
+                ),
             )
         )
     elif path in {"/privacy", "/terms", "/support", "/imprint", "/cookies", "/subprocessors", "/refunds", "/disclaimers"}:

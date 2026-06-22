@@ -735,6 +735,11 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert "provider returned" not in response.text.lower()
     assert "provider stores" not in response.text.lower()
 
+    profile_response = client.get("/directory/profile/sample", headers={"host": "propertyquarry.com"})
+    assert profile_response.status_code == 200
+    assert '<meta name="robots" content="noindex, follow, noarchive, nosnippet">' in profile_response.text
+    assert profile_response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
+
 
 def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
     monkeypatch: pytest.MonkeyPatch,
@@ -809,6 +814,8 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
         '<meta name="description" content="Helps international renters prepare a Vienna search.">'
         in profile_response.text
     )
+    assert '<meta name="robots" content="index, follow, max-image-preview:large">' in profile_response.text
+    assert profile_response.headers.get("X-Robots-Tag") == "index, follow, max-image-preview:large"
     assert "Vienna Relocation Advisors" in profile_response.text
     assert "Helps international renters prepare a Vienna search." in profile_response.text
     assert "Relocation" in profile_response.text
