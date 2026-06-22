@@ -8,11 +8,6 @@
   {% if card.get('title') == 'Public pages' %}{% set public_card.value = card %}{% endif %}
 {% endfor %}
 {% set profile_item = (profile_card.value.get('items') or [{}])[0] if profile_card.value else {} %}
-{% set public_items = public_card.value.get('items') or [] if public_card.value else [] %}
-{% set security_item = namespace(value={}) %}
-{% for item in public_items %}
-  {% if item.get('title') in ['Security', 'How it works'] %}{% set security_item.value = item %}{% endif %}
-{% endfor %}
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
@@ -93,15 +88,6 @@
       <a class="pqx-link-button" href="/app/billing">Open billing</a>
     </section>
 
-    <section class="pqx-account-action-card" id="settings">
-      <div>
-        <span class="pqx-small">Trust</span>
-        <h2>How it works</h2>
-        <p>Scoring, privacy, sharing, and retention.</p>
-      </div>
-      <a class="pqx-link-button" href="/how-it-works">Open guide</a>
-    </section>
-
     <section class="pqx-account-action-card" id="data-export">
       <div>
         <span class="pqx-small">Data</span>
@@ -122,29 +108,23 @@
       </form>
     </section>
 
-    <section class="pqx-account-action-card" id="access-links">
-      <div>
-        <span class="pqx-small">Access</span>
-        <h2>Access links</h2>
-        <p>Issue or revoke account links.</p>
-      </div>
-      <a class="pqx-link-button" href="/app/settings/access">Manage access links</a>
-    </section>
-
-    <section class="pqx-account-action-card" id="shared-links">
+    <section class="pqx-account-action-card" id="sharing-access">
       <div>
         <span class="pqx-small">Sharing</span>
-        <h2>Public packets and tours</h2>
-        <p>Review or revoke shared pages.</p>
+        <h2>Access and shared pages</h2>
+        <p>Issue account links and revoke public packets or tours from one place.</p>
       </div>
-      <a class="pqx-link-button" href="/app/properties/packets">Manage shared links</a>
+      <div class="pqx-account-card-actions">
+        <a class="pqx-link-button" href="/app/settings/access">Access links</a>
+        <a class="pqx-link-button" href="/app/properties/packets">Shared pages</a>
+      </div>
     </section>
 
     <section class="pqx-account-action-card" id="connected-services">
       <div>
-        <span class="pqx-small">Connections</span>
-        <h2>Connected services</h2>
-        <p>Identity, delivery, and source permissions.</p>
+        <span class="pqx-small">Trust</span>
+        <h2>Connections and privacy</h2>
+        <p>Identity providers, privacy preferences, and how scoring works.</p>
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/google">Google</a>
@@ -154,16 +134,9 @@
         {% if id_austria_sign_in_enabled is defined and id_austria_sign_in_enabled %}
         <a class="pqx-link-button" href="/app/actions/id-austria/connect?return_to=/app/account">ID Austria</a>
         {% endif %}
+        <a class="pqx-link-button" href="/cookies">Privacy</a>
+        <a class="pqx-link-button" href="/how-it-works">How it works</a>
       </div>
-    </section>
-
-    <section class="pqx-account-action-card" id="analytics-preferences">
-      <div>
-        <span class="pqx-small">Measurement</span>
-        <h2>Analytics and learning</h2>
-        <p>Product analytics and preference learning.</p>
-      </div>
-      <a class="pqx-link-button" href="/cookies">Review preferences</a>
     </section>
 
     <section class="pqx-account-action-card" id="delete-account">

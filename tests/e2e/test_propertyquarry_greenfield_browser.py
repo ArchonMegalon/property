@@ -2922,6 +2922,8 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("body", has_text="Notifications")).to_be_visible()
                 expect(page.locator("body", has_text="Export account data")).to_be_visible()
                 expect(page.get_by_role("link", name="Open billing")).to_be_visible()
+                expect(page.locator("body", has_text="Access and shared pages")).to_be_visible()
+                expect(page.locator("body", has_text="Connections and privacy")).to_be_visible()
             else:
                 expect(page.locator("body", has_text="Billing history")).to_be_visible()
                 expect(page.locator("body", has_text="Cancellation and refunds")).to_be_visible()

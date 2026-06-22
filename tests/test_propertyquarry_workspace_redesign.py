@@ -9378,19 +9378,19 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Edit search" in account.text
     assert account.text.count("Edit search") == 1
     assert "Open automation" not in account.text
-    assert account.text.count("Open pricing") == 1
+    assert account.text.count("Open billing") == 1
     assert "Account" in account.text
     assert "Automation and reports" not in account.text
     assert "Recurring intelligence leaving this account" not in account.text
     assert "Delivery lane" not in account.text
     assert 'href="/app/search' in account.text
     assert "Operating posture" not in account.text
-    assert 'id="settings"' in account.text
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
-    assert "Open pricing" in account.text
+    assert "Open billing" in account.text
+    assert "Connections and privacy" in account.text
     assert "How it works" in account.text
-    assert "Open guide" in account.text
+    assert "Privacy" in account.text
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text
@@ -9419,13 +9419,14 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'href="/app/api/property/account/export?download=1"' in account.text
     assert "Clear search history" in account.text
     assert 'action="/app/api/property/search-runs/clear"' in account.text
-    assert "Manage access links" in account.text
+    assert "Access and shared pages" in account.text
+    assert "Access links" in account.text
     assert 'href="/app/settings/access"' in account.text
-    assert "Public packets and tours" in account.text
+    assert "Shared pages" in account.text
     assert 'href="/app/properties/packets"' in account.text
-    assert "Connected services" in account.text
+    assert "Connections and privacy" in account.text
     assert 'href="/app/settings/google"' in account.text
-    assert "Analytics and learning" in account.text
+    assert 'href="/how-it-works"' in account.text
     assert 'href="/cookies"' in account.text
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
@@ -9448,7 +9449,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Used only for PropertyQuarry AI support." not in account.text
     assert "Save alerts and AI support number" not in account.text
     assert 'name="whatsapp_ai_support_phone"' in account.text
-    assert "PropertyQuarry bot" in account.text
+    assert "Telegram" in account.text
     assert "@propertyquarry_bot" in account.text
     assert 'href="https://t.me/propertyquarry_bot"' in account.text
     assert "telegram-secret-token" not in account.text
@@ -9456,7 +9457,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "generic history" not in account.text
     assert "EA host" not in account.text
     assert 'value="whatsapp"' in account.text
-    assert 'value="signal" disabled' in account.text
+    assert 'value="signal"' not in account.text
     access_links = client.get("/app/settings/access", headers=headers)
     assert access_links.status_code == 200
     assert "Create an access link" in access_links.text
