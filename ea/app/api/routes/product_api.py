@@ -116,6 +116,7 @@ from app.container import AppContainer
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.fliplink import build_fliplink_packet_service
 from app.services import poppy_ai as poppy_ai_service
+from app.services import brilliant_directories as brilliant_directories_service
 from app.services.dadan_feedback import dadan_feedback_signals
 from app.services.dadan import DadanVideoRequestService
 from app.services.heyy_whatsapp_service import HeyyWhatsAppBridgeService
@@ -1665,6 +1666,48 @@ def get_property_map_preview_file(
             "X-Robots-Tag": "noindex, nofollow",
         },
     )
+
+
+@router.get("/property/directories/brilliant-directories/members")
+def get_property_brilliant_directories_members(
+    keyword: str = Query(default="", max_length=140),
+    category: str = Query(default="", max_length=96),
+    city: str = Query(default="", max_length=96),
+    country_code: str = Query(default="", max_length=12),
+    page: int = Query(default=1, ge=1, le=100),
+    limit: int = Query(default=12, ge=1, le=50),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    del context
+    try:
+        config = brilliant_directories_service.load_brilliant_directories_config()
+    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if not config.configured:
+        return {
+            "provider": brilliant_directories_service.BRILLIANT_DIRECTORIES_PROVIDER_KEY,
+            "status": "disabled",
+            "profile_count": 0,
+            "profiles": [],
+            "publication_allowed": False,
+            "direct_property_truth_mutation_allowed": False,
+        }
+    try:
+        packet = brilliant_directories_service.fetch_brilliant_directories_member_projection_packet(
+            config,
+            purpose="PropertyQuarry public directory member lookup",
+            keyword=keyword,
+            category=category,
+            city=city,
+            country_code=country_code,
+            page=page,
+            limit=limit,
+        )
+    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    payload = packet.as_dict()
+    payload["status"] = "ready"
+    return payload
 
 
 @router.get("/properties/{property_ref:path}/magic-fit-scene", response_model=PropertyMagicFitSceneOut | None)

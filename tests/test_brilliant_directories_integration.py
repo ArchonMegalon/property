@@ -21,6 +21,7 @@ from app.services.brilliant_directories import (
     load_brilliant_directories_config,
 )
 from app.services import brilliant_directories as brilliant_directories_service
+from tests.product_test_helpers import build_property_client, start_workspace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -451,6 +452,94 @@ def test_brilliant_directories_live_style_search_projection_uses_public_fields_o
     assert payload["profiles"][0]["display_name"] == "Vienna Relocation Advisors"
     assert "private@example.test" not in serialized
     assert "+43 1 555" not in serialized
+
+
+def test_brilliant_directories_runtime_route_reports_disabled_without_network(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    client = build_property_client(principal_id="pq-brilliant-directories-disabled")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get(
+        "/app/api/property/directories/brilliant-directories/members?city=Vienna&country_code=AT",
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "brilliant_directories"
+    assert payload["status"] == "disabled"
+    assert payload["profile_count"] == 0
+    assert payload["profiles"] == []
+    assert payload["publication_allowed"] is False
+    assert payload["direct_property_truth_mutation_allowed"] is False
+
+
+def test_brilliant_directories_runtime_route_fetches_public_member_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    captured_requests: list[object] = []
+
+    def fake_execute(request: object, *, timeout_seconds: float = 30.0, opener: object | None = None) -> dict[str, object]:
+        del timeout_seconds, opener
+        captured_requests.append(request)
+        return {
+            "message": [
+                {
+                    "user_id": "24",
+                    "company": "Vienna Relocation Advisors",
+                    "email": "private@example.test",
+                    "phone_number": "+43 1 555",
+                    "address1": "Secret Street 1",
+                    "lat": "48.2",
+                    "lon": "16.3",
+                    "filename": "austria/vienna/vienna-relocation-advisors",
+                    "city": "Vienna",
+                    "state_ln": "Vienna",
+                    "country_code": "AT",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(brilliant_directories_service, "execute_brilliant_directories_api_request", fake_execute)
+    client = build_property_client(principal_id="pq-brilliant-directories-runtime")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get(
+        "/app/api/property/directories/brilliant-directories/members"
+        "?keyword=relocation&category=advisor&city=Vienna&country_code=AT&limit=8",
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = json.dumps(payload, sort_keys=True)
+    assert payload["status"] == "ready"
+    assert payload["contract_name"] == "propertyquarry.brilliant_directories_projection.v1"
+    assert payload["profile_count"] == 1
+    assert payload["profiles"][0]["display_name"] == "Vienna Relocation Advisors"
+    assert payload["profiles"][0]["public_url"] == "austria/vienna/vienna-relocation-advisors"
+    assert "private@example.test" not in serialized
+    assert "+43 1 555" not in serialized
+    assert "Secret Street" not in serialized
+    assert "48.2" not in serialized
+    assert "16.3" not in serialized
+    assert captured_requests
+    sent = captured_requests[0]
+    assert sent.url == "https://directory.example/api/v2/user/search"
+    assert b"q=relocation" in (sent.body or b"")
+    assert b"category=advisor" in (sent.body or b"")
+    assert b"city=Vienna" in (sent.body or b"")
+    assert b"country_code=AT" in (sent.body or b"")
+    assert b"limit=8" in (sent.body or b"")
+    assert b"bd-secret-token" not in (sent.body or b"")
 
 
 def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
