@@ -1640,9 +1640,7 @@ def get_property_magic_fit_reference_file(
 def get_property_map_preview_file(
     preview_id: str,
     container: AppContainer = Depends(get_container),
-    context: RequestContext = Depends(get_request_context),
 ) -> FileResponse:
-    del context
     safe_preview_id = _api_safe_token(preview_id, "preview")
     if not re.fullmatch(r"[0-9a-f]{40}", safe_preview_id):
         raise HTTPException(status_code=404, detail="property_map_preview_not_found")

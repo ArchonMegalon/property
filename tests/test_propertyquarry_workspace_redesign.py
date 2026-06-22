@@ -2825,7 +2825,7 @@ def test_property_scope_preview_falls_back_to_country_center_with_unknown_region
     assert preview_render_calls[0]["cache_key"]["lon_key"] == int(10.4515 * 10000)
 
 
-def test_property_map_preview_route_serves_private_cached_png(tmp_path, monkeypatch) -> None:
+def test_property_map_preview_route_serves_opaque_cached_png_without_workspace_cookie(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
     preview_id = "a" * 40
     preview_root = tmp_path / "map_previews"
@@ -2836,7 +2836,7 @@ def test_property_map_preview_route_serves_private_cached_png(tmp_path, monkeypa
         b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
     )
     client = build_property_client(principal_id="pq-map-preview-route")
-    start_workspace(client, mode="personal", workspace_name="Property Office")
+    client.headers.pop("X-EA-Principal-ID", None)
 
     response = client.get(f"/app/api/property/map-previews/{preview_id}.png", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
