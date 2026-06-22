@@ -581,19 +581,18 @@ def test_propertyquarry_teable_sync_discovers_property_tables_from_base_credenti
 def test_propertyquarry_teable_table_discovery_resolves_propertyquarry_base_by_name(monkeypatch) -> None:
     class _FakeResponse:
         def __init__(self, payload: object) -> None:
-            self._payload = json.dumps(payload).encode("utf-8")
+            self.headers = {"content-type": "application/json"}
+            self._payload = payload
 
-        def __enter__(self):
-            return self
+        def raise_for_status(self) -> None:
+            return None
 
-        def __exit__(self, *_args):
-            return False
-
-        def read(self) -> bytes:
+        def json(self) -> object:
             return self._payload
 
-    def _urlopen(request, timeout=20):  # noqa: ANN001
-        url = str(getattr(request, "full_url", request))
+    def _get(url, **kwargs):  # noqa: ANN001
+        assert kwargs["allow_redirects"] is False
+        assert kwargs["headers"]["Authorization"] == "Bearer teable-key"
         if url == "https://teable.example/api/space":
             return _FakeResponse({"spaces": [{"id": "space-1", "role": "owner"}]})
         if url == "https://teable.example/api/space/space-1/base":
@@ -611,7 +610,7 @@ def test_propertyquarry_teable_table_discovery_resolves_propertyquarry_base_by_n
             )
         raise AssertionError(f"unexpected Teable URL: {url}")
 
-    monkeypatch.setattr(pq_teable_projection.urllib.request, "urlopen", _urlopen)
+    monkeypatch.setattr(pq_teable_projection.requests, "get", _get)
 
     config = discover_propertyquarry_teable_table_config(
         base_url="https://teable.example",
@@ -627,11 +626,11 @@ def test_propertyquarry_teable_table_discovery_resolves_propertyquarry_base_by_n
 def test_propertyquarry_teable_request_rejects_non_https_base(monkeypatch) -> None:
     calls: list[object] = []
 
-    def _urlopen(*args, **_kwargs):  # noqa: ANN001
+    def _get(*args, **_kwargs):  # noqa: ANN001
         calls.extend(args)
-        raise AssertionError("urlopen should not be called for non-HTTPS Teable endpoints")
+        raise AssertionError("requests.get should not be called for non-HTTPS Teable endpoints")
 
-    monkeypatch.setattr(pq_teable_projection.urllib.request, "urlopen", _urlopen)
+    monkeypatch.setattr(pq_teable_projection.requests, "get", _get)
 
     assert (
         pq_teable_projection._teable_request_json(

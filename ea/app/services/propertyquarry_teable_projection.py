@@ -5,9 +5,9 @@ import hashlib
 import json
 import os
 from typing import Any
-import urllib.error
 import urllib.parse
-import urllib.request
+
+import requests
 
 
 PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
@@ -437,24 +437,26 @@ def _teable_request_json(*, base_url: str, api_key: str, path: str, timeout: int
     parsed_base = urllib.parse.urlparse(normalized_base_url)
     if parsed_base.scheme != "https" or not parsed_base.netloc:
         return {}
-    request = urllib.request.Request(
-        f"{normalized_base_url}{path}",
-        method="GET",
-        headers={
-            "Authorization": f"Bearer {normalized_api_key}",
-            "Accept": "application/json",
-            "User-Agent": "PropertyQuarryTeableDiscovery/1.0",
-        },
-    )
     try:
-        # The Teable base URL is parsed and restricted to HTTPS before this call.
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
-            payload = response.read().decode("utf-8")
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        response = requests.get(
+            f"{normalized_base_url}{path}",
+            timeout=timeout,
+            allow_redirects=False,
+            headers={
+                "Authorization": f"Bearer {normalized_api_key}",
+                "Accept": "application/json",
+                "User-Agent": "PropertyQuarryTeableDiscovery/1.0",
+            },
+        )
+        response.raise_for_status()
+    except (requests.RequestException, TimeoutError, OSError):
+        return {}
+    content_type = str(response.headers.get("content-type", "")).lower()
+    if content_type and "json" not in content_type:
         return {}
     try:
-        return json.loads(payload)
-    except Exception:
+        return response.json()
+    except ValueError:
         return {}
 
 
