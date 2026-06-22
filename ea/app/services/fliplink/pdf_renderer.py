@@ -2373,6 +2373,9 @@ def render_property_packet_pdf_legacy(
         include_floorplan=include_floorplan,
         include_photos=include_photos,
     )
+    redacted_payload = dict(redaction.payload or {})
+    if source.get("score_methodology_only"):
+        redacted_payload["score_methodology_only"] = True
     title = str(redaction.payload.get("title") or source.get("title") or "PropertyQuarry packet").strip() or "PropertyQuarry packet"
     recommended_title = f"{title} - {packet_kind.value.replace('_', ' ').title()}"
     sections = _packet_sections(payload=redaction.payload, packet_kind=packet_kind)
@@ -2380,7 +2383,7 @@ def render_property_packet_pdf_legacy(
     media_refs = _media_refs(redaction.payload)
     media_link_count = sum(len(items) for items in media_refs.values())
     pdf_bytes = _visual_pdf(
-        payload=redaction.payload,
+        payload=redacted_payload,
         title=title,
         recommended_title=recommended_title,
         packet_kind=packet_kind,
@@ -2389,15 +2392,15 @@ def render_property_packet_pdf_legacy(
         summary=str(redaction.payload.get("fit_summary") or redaction.payload.get("recommendation") or ""),
         media_counts=media_counts,
         media_refs=media_refs,
-        magic_fit_scene=dict(redaction.payload.get("magic_fit_scene") or {}) if isinstance(redaction.payload.get("magic_fit_scene"), dict) else {},
-        diorama_scene=dict(redaction.payload.get("diorama_scene") or {}) if isinstance(redaction.payload.get("diorama_scene"), dict) else {},
-        comparison_rows=_comparison_rows(redaction.payload.get("comparison_rows")),
-        packet_facts=dict(redaction.payload.get("facts") or {}) if isinstance(redaction.payload.get("facts"), dict) else {},
+        magic_fit_scene=dict(redacted_payload.get("magic_fit_scene") or {}) if isinstance(redacted_payload.get("magic_fit_scene"), dict) else {},
+        diorama_scene=dict(redacted_payload.get("diorama_scene") or {}) if isinstance(redacted_payload.get("diorama_scene"), dict) else {},
+        comparison_rows=_comparison_rows(redacted_payload.get("comparison_rows")),
+        packet_facts=dict(redacted_payload.get("facts") or {}) if isinstance(redacted_payload.get("facts"), dict) else {},
         sections=sections,
-        narrative_lines=_property_narrative(redaction.payload),
-        tour_url=_resolve_pdf_primary_tour_url(source=source, payload=redaction.payload),
-        flythrough_url=_resolve_pdf_flythrough_url(source=source, payload=redaction.payload),
-        review_url=_resolve_pdf_review_url(source=source, payload=redaction.payload),
+        narrative_lines=_property_narrative(redacted_payload),
+        tour_url=_resolve_pdf_primary_tour_url(source=source, payload=redacted_payload),
+        flythrough_url=_resolve_pdf_flythrough_url(source=source, payload=redacted_payload),
+        review_url=_resolve_pdf_review_url(source=source, payload=redacted_payload),
     )
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     principal_token = _safe_token(principal_id, "principal")
@@ -2436,7 +2439,7 @@ def render_property_packet_pdf_legacy(
         "pdf_sha256": pdf_sha256,
         "pdf_size_bytes": len(pdf_bytes),
         "receipt": receipt,
-        "redacted_payload": redaction.payload,
+        "redacted_payload": redacted_payload,
         "recommended_title": recommended_title,
     }
 
