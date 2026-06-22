@@ -1053,6 +1053,24 @@ def test_facebook_oauth_start_rejects_cross_host_redirect_override(monkeypatch: 
         )
 
 
+def test_facebook_oauth_start_ignores_unsupported_email_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_SCOPES", "public_profile,email")
+
+    from app.services import facebook_oauth as facebook_service
+
+    packet = facebook_service.build_facebook_oauth_start(principal_id="user-facebook-scopes")
+    parsed = urllib.parse.urlparse(packet.auth_url)
+    query = urllib.parse.parse_qs(parsed.query)
+
+    assert packet.requested_scopes == ("public_profile",)
+    assert query["scope"][0] == "public_profile"
+    assert "email" not in query["scope"][0]
+
+
 def _patch_facebook_profile_only(monkeypatch: pytest.MonkeyPatch, *, subject: str = "facebook-user-signin", name: str = "Tibor Girschele") -> None:
     from app.services import facebook_oauth as facebook_service
 
@@ -1205,6 +1223,49 @@ def test_sign_in_facebook_callback_fails_closed_without_returned_scopes(monkeypa
     assert callback.status_code == 303
     assert callback.headers["location"].startswith("/sign-in?")
     assert "facebook_error=facebook_oauth_granted_scopes_missing" in callback.headers["location"]
+
+
+def test_sign_in_facebook_callback_fails_closed_on_unexpected_email_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_STATE_SECRET", "test-facebook-state-secret")
+    client = _client(monkeypatch)
+
+    sign_in_start = client.post("/sign-in/facebook", follow_redirects=False)
+    assert sign_in_start.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)
+
+    from app.services import facebook_oauth as facebook_service
+
+    monkeypatch.setattr(
+        facebook_service,
+        "_exchange_facebook_code_for_token",
+        lambda **kwargs: {
+            "access_token": "facebook-access-token",
+            "scope": "public_profile,email",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        facebook_service,
+        "_fetch_facebook_userinfo",
+        lambda **kwargs: {
+            "id": "facebook-user-signin",
+            "name": "Tibor Girschele",
+        },
+    )
+
+    callback = client.get(
+        "/facebook/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/sign-in?")
+    assert "facebook_error=facebook_oauth_unexpected_granted_scopes" in callback.headers["location"]
 
 
 def test_sign_in_facebook_callback_rejects_replayed_state_before_second_token_exchange(

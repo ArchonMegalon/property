@@ -177,6 +177,7 @@ def complete_facebook_oauth_callback(
     returned_scopes = _split_scope_text(returned_scope_text)
     if not returned_scopes:
         raise RuntimeError("facebook_oauth_granted_scopes_missing")
+    _validate_facebook_granted_scopes(requested_scopes=requested_scopes, granted_scopes=returned_scopes)
     if not principal_id:
         if browser_source == "sign_in":
             principal_id = _find_facebook_principal(
@@ -370,6 +371,16 @@ def _facebook_identity_scopes() -> tuple[str, ...]:
     if "public_profile" not in scopes:
         scopes = tuple(sorted((*scopes, "public_profile")))
     return scopes
+
+
+def _validate_facebook_granted_scopes(*, requested_scopes: tuple[str, ...], granted_scopes: tuple[str, ...]) -> None:
+    granted = {str(scope or "").strip() for scope in granted_scopes if str(scope or "").strip()}
+    unexpected = granted - _FACEBOOK_SUPPORTED_IDENTITY_SCOPES
+    if unexpected:
+        raise RuntimeError("facebook_oauth_unexpected_granted_scopes")
+    missing = {str(scope or "").strip() for scope in requested_scopes if str(scope or "").strip()} - granted
+    if missing:
+        raise RuntimeError("facebook_oauth_required_scope_missing")
 
 
 def _normalize_graph_version(raw: str | None) -> str:
