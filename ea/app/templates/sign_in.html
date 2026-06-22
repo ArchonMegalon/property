@@ -232,55 +232,44 @@
       <a class="btn" href="/register">{{ brand.create_label }}</a>
       {% endif %}
     </div>
+    {% set show_google_provider = sign_in_google_enabled %}
+    {% set show_facebook_provider = sign_in_facebook_enabled %}
+    {% set show_id_austria_provider = sign_in_id_austria_visible and sign_in_id_austria_enabled %}
+    {% if show_google_provider or show_facebook_provider or show_id_austria_provider %}
     <div class="auth-provider-stack" aria-label="Sign-in providers">
-      <div class="auth-provider-card{% if not sign_in_google_enabled %} disabled{% endif %}" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="{% if sign_in_google_enabled %}enabled{% else %}disabled{% endif %}">
+      {% if show_google_provider %}
+      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="enabled">
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
-          <p>{% if sign_in_google_enabled %}Ready{% else %}Unavailable{% endif %}</p>
+          <p>Google account</p>
         </span>
-        {% if sign_in_google_enabled %}
         <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
-        {% else %}
-        <button class="btn" type="button" disabled aria-disabled="true">Google unavailable</button>
-        {% endif %}
       </div>
-      <div class="auth-provider-card{% if not sign_in_facebook_enabled %} disabled{% endif %}" data-auth-provider-card data-auth-provider="facebook" data-auth-provider-state="{% if sign_in_facebook_enabled %}enabled{% else %}disabled{% endif %}">
+      {% endif %}
+      {% if show_facebook_provider %}
+      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="facebook" data-auth-provider-state="enabled">
         <span class="auth-provider-icon" aria-hidden="true">f</span>
         <span>
           <strong>Facebook</strong>
-          <p>{% if sign_in_facebook_enabled %}Ready{% else %}Unavailable{% endif %}</p>
+          <p>Facebook account</p>
         </span>
-        {% if sign_in_facebook_enabled %}
         <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
-        {% else %}
-        <button class="btn" type="button" disabled aria-disabled="true">Facebook unavailable</button>
-        {% endif %}
       </div>
-      {% if sign_in_id_austria_visible %}
-      <div class="auth-provider-card{% if not sign_in_id_austria_enabled %} disabled{% endif %}" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="{% if sign_in_id_austria_enabled %}enabled{% else %}disabled{% endif %}">
+      {% endif %}
+      {% if show_id_austria_provider %}
+      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="enabled">
         <span class="auth-provider-icon" aria-hidden="true">ID</span>
         <span>
           <strong>ID Austria</strong>
-          <p>
-            {% if sign_in_id_austria_enabled %}
-            Ready
-            {% elif not sign_in_id_austria_configured %}
-            Unavailable
-            {% else %}
-            Austria only
-            {% endif %}
-          </p>
+          <p>Austrian identity</p>
         </span>
-        {% if sign_in_id_austria_enabled %}
         <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
-        {% else %}
-        <button class="btn" type="button" disabled aria-disabled="true">ID Austria unavailable</button>
-        {% endif %}
       </div>
       {% endif %}
       <div class="auth-provider-status" data-auth-provider-status role="status" aria-live="polite"></div>
     </div>
+    {% endif %}
     {% if sign_in_connected_provider %}
     <div class="access-feedback" data-sign-in-provider-connected>
       <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>
