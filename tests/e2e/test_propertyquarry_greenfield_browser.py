@@ -2495,7 +2495,10 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("ready on this page")
         updated_button = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
         expect(updated_button).to_be_visible()
-        assert updated_button.get_attribute("data-pw-visual-href")
+        updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
+        assert updated_href
+        assert "/tours/" in updated_href
+        assert "pane=flythrough-pane" in updated_href
     finally:
         context.close()
 

@@ -2305,6 +2305,14 @@ def _property_visual_eta_label(
 def _normalize_property_flythrough_result(result: dict[str, object] | None) -> dict[str, object]:
     payload = dict(result or {})
     video_url = str(payload.get("video_url") or payload.get("flythrough_url") or "").strip()
+    flythrough_url = str(payload.get("flythrough_url") or "").strip()
+    tour_url = str(payload.get("tour_url") or "").strip()
+    if not flythrough_url and tour_url:
+        flythrough_url = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
+    elif not flythrough_url:
+        flythrough_url = video_url
+    if flythrough_url:
+        payload["flythrough_url"] = flythrough_url
     status = str(payload.get("status") or "").strip().lower()
     if video_url and status not in {"rendered", "existing", "ready"}:
         payload["status"] = "rendered"
@@ -13036,6 +13044,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
     return {
         "slug": slug,
         "video_url": public_video_url,
+        "flythrough_url": str(payload.get("flythrough_url") or _property_tour_deep_link(normalized_url, pane="flythrough-pane", autoplay=True)).strip(),
         "video_file_path": str(local_video_path),
         "audio_probe_ref": str(local_video_path),
         "provider_key": video_provider,
@@ -30371,7 +30380,7 @@ class ProductService:
                     allow_below_threshold=True,
                 ) or {})
                 flythrough_result = _normalize_property_flythrough_result(raw_flythrough_result)
-                flythrough_url = str(flythrough_result.get("video_url") or "").strip()
+                flythrough_url = str(flythrough_result.get("flythrough_url") or flythrough_result.get("video_url") or "").strip()
                 flythrough_status = str(flythrough_result.get("status") or "").strip().lower()
                 payload["flythrough_url"] = flythrough_url
                 payload["flythrough_status"] = flythrough_status
@@ -34450,7 +34459,7 @@ class ProductService:
                         "tour_url": str(tour_result.get("tour_url") or "").strip(),
                         "tour_status": str(tour_result.get("status") or "").strip(),
                         "blocked_reason": str(tour_result.get("blocked_reason") or "").strip(),
-                        "flythrough_url": str(flythrough_result.get("video_url") or "").strip(),
+                        "flythrough_url": str(flythrough_result.get("flythrough_url") or flythrough_result.get("video_url") or "").strip(),
                         "flythrough_status": str(flythrough_result.get("status") or "").strip(),
                         "flythrough_provider": str(
                             flythrough_result.get("provider_key")
@@ -34839,7 +34848,7 @@ class ProductService:
                         allow_below_threshold=True,
                     ) or {})
                     best_flythrough_result = _normalize_property_flythrough_result(raw_best_flythrough_result)
-                    best_visual_candidate["flythrough_url"] = str(best_flythrough_result.get("video_url") or "").strip()
+                    best_visual_candidate["flythrough_url"] = str(best_flythrough_result.get("flythrough_url") or best_flythrough_result.get("video_url") or "").strip()
                     best_visual_candidate["flythrough_status"] = str(best_flythrough_result.get("status") or "").strip()
                     best_visual_candidate["flythrough_provider"] = str(
                         best_flythrough_result.get("provider_key")
@@ -38203,6 +38212,7 @@ class ProductService:
                     "provider_key": str(existing_delivery.get("provider_key") or "").strip().lower() or "hosted",
                     "tour_url": renderable_tour_url,
                     "video_url": str(existing_delivery.get("video_url") or "").strip(),
+                    "flythrough_url": str(existing_delivery.get("flythrough_url") or _property_tour_deep_link(renderable_tour_url, pane="flythrough-pane", autoplay=True)).strip(),
                     "duration_seconds": actual_seconds,
                     "required_duration_seconds": required_seconds,
                     "reason": "",

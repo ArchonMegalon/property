@@ -22922,6 +22922,7 @@ def test_existing_hosted_walkthrough_is_reused_even_when_not_magicfit(monkeypatc
         "_hosted_property_tour_video_delivery",
         lambda tour_url: {
             "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+            "flythrough_url": "https://propertyquarry.com/tours/demo?pane=flythrough-pane&autoplay=1",
             "provider_key": "local_slideshow",
             "duration_seconds": 120.0,
             "coverage_proof": "boundary_verified_frame_continuation",
@@ -22957,6 +22958,20 @@ def test_existing_hosted_walkthrough_is_reused_even_when_not_magicfit(monkeypatc
     assert result["status"] == "existing"
     assert result["provider_key"] == "local_slideshow"
     assert result["video_url"] == "https://propertyquarry.com/tours/files/demo/tour.mp4"
+    assert result["flythrough_url"] == "https://propertyquarry.com/tours/demo?pane=flythrough-pane&autoplay=1"
+
+
+def test_normalize_property_flythrough_result_prefers_hosted_tour_deep_link() -> None:
+    result = product_service._normalize_property_flythrough_result(
+        {
+            "status": "rendered",
+            "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+            "tour_url": "https://propertyquarry.com/tours/demo",
+        }
+    )
+
+    assert result["video_url"] == "https://propertyquarry.com/tours/files/demo/tour.mp4"
+    assert result["flythrough_url"] == "https://propertyquarry.com/tours/demo?pane=flythrough-pane&autoplay=1"
 
 
 def test_pdf_appendix_exit_gate_rejects_missing_hero_poster(tmp_path: Path) -> None:
