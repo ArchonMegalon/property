@@ -65,7 +65,7 @@
               <div class="pqx-filtered-dialog-head">
                 <div>
                   <strong>Widen the shortlist</strong>
-                  <div class="pqx-note">Hard rules only. Soft preferences already stay in scoring.</div>
+                  <div class="pqx-note">Hard rules only. Soft preferences stay in scoring.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
@@ -94,7 +94,7 @@
                       data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
                       data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
                     >
-                    <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes updates as the slider moves.</span>
+                    <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes updates live.</span>
                   </label>
                   {% endif %}
                   <div class="pqx-actions">
@@ -110,8 +110,8 @@
                       <button
                         type="button"
                         class="pqx-tooltip"
-                        title="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability changes."
-                        aria-label="Estimated homes currently blocked mainly by this rule. The actual shortlist gain can be lower after deduplication and availability changes."
+                        title="Estimated homes mostly blocked by this rule. Actual gains can be lower after deduplication and availability changes."
+                        aria-label="Estimated homes mostly blocked by this rule. Actual gains can be lower after deduplication and availability changes."
                         aria-expanded="false"
                         data-tooltip-trigger
                       >?</button>

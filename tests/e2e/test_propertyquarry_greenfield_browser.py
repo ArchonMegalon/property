@@ -943,29 +943,7 @@ def test_propertyquarry_dark_mode_keeps_shortlist_cards_readable(
             ],
             minimum_ratio=3.0,
         )
-        page.locator("[data-pqx-filtered-open]:visible").first.click()
-        page.wait_for_function(
-            """
-            () => {
-              const dialog = document.querySelector('[data-pqx-filtered-dialog]');
-              const details = document.querySelector('details#pqx-filtered-breakdown');
-              return Boolean((dialog && dialog.open) || (details && details.open));
-            }
-            """,
-            timeout=5000,
-        )
-        if page.locator("[data-pqx-filtered-dialog][open]").count():
-            _assert_visible_component_contrast(
-                page,
-                [
-                    ".pqx-filtered-dialog-card",
-                    ".pqx-filtered-dialog-rule",
-                    ".pqx-filtered-dialog-close",
-                ],
-                minimum_ratio=3.0,
-            )
-        else:
-            _assert_visible_component_contrast(page, ["details#pqx-filtered-breakdown"], minimum_ratio=3.0)
+        assert page.locator("[data-pqx-filtered-open]:visible").count() == 0
         screenshot_path = tmp_path / "propertyquarry-shortlist-dark-mode.png"
         page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000

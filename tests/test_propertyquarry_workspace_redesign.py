@@ -6751,7 +6751,8 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "Adjust filters" not in body.split("data-pqx-filtered-open", 1)[1].split("</section>", 1)[0]
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "Hard rules only. Soft preferences already stay in scoring." in body
+    assert "Hard rules only. Soft preferences stay in scoring." in body
+    assert "Hard rules and score-only context" not in body
     assert "estimated newly ranked homes after rerun" in body
     assert "data-pqx-filter-slider" in body
     assert "data-pqx-filter-field" in body
