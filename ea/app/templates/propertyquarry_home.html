@@ -263,12 +263,6 @@
         {% if public_signed_in or signing_in_progress %}
         <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
         <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open latest run</a>
-        {% if public_signed_in and not signing_in_progress %}
-        <form method="post" action="/app/actions/sign-out">
-          <input type="hidden" name="return_to" value="/">
-          <button class="btn ghost" type="submit">Log out</button>
-        </form>
-        {% endif %}
         {% else %}
         <a class="btn primary" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
         <a class="btn" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>

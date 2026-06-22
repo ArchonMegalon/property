@@ -5456,8 +5456,8 @@ def test_propertyquarry_workspace_session_root_home_override_stays_public() -> N
     assert 'href="/?home=1" aria-label="PropertyQuarry home"' in public_home.text
     assert 'href="/app/search"' in public_home.text
     assert 'action="/app/actions/sign-out"' in public_home.text
-    assert 'href="/app/actions/sign-out?return_to=/"' in public_home.text
-    assert ">Log out<" in public_home.text
+    assert 'href="/app/actions/sign-out?return_to=/"' not in public_home.text
+    assert public_home.text.count(">Log out<") == 1
     assert ">Sign in<" not in public_home.text
     assert "Signing you in" not in public_home.text
     assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in public_home.text

@@ -830,9 +830,6 @@
       <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
       {% endif %}
       {% endfor %}
-      {% if public_signed_in and not signing_in_progress %}
-      <a href="/app/actions/sign-out?return_to=/">Log out</a>
-      {% endif %}
       <a href="/docs" class="{% if current_nav == 'docs' %}active{% endif %}">Docs</a>
       <a href="/integrations" class="{% if current_nav == 'integrations' %}active{% endif %}">Integrations</a>
     </div>

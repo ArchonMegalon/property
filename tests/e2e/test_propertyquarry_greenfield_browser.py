@@ -509,8 +509,10 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
     tmp_path: Path,
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
     desktop = _new_public_context(browser, mobile=False, width=1440, height=820)
     mobile = _new_public_context(browser, mobile=True)
+    signed_in = _new_public_context(browser, mobile=False, width=1440, height=820)
     try:
         desktop_page = desktop.new_page()
         response = desktop_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
@@ -563,6 +565,16 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         mobile_home = tmp_path / "propertyquarry-public-home-mobile.png"
         mobile_page.screenshot(path=str(mobile_home), full_page=True)
         assert mobile_home.exists()
+
+        _issue_browser_workspace_session(client=client, context=signed_in, base_url=base_url)
+        signed_page = signed_in.new_page()
+        response = signed_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(signed_page.get_by_role("link", name="Open search").first).to_be_visible()
+        expect(signed_page.get_by_role("link", name="Open latest run")).to_be_visible()
+        expect(signed_page.locator(".topbar form[action='/app/actions/sign-out'] button", has_text="Log out")).to_be_visible()
+        assert signed_page.get_by_text("Log out", exact=True).count() == 1
+        assert signed_page.locator(".pq-hero-copy form[action='/app/actions/sign-out']").count() == 0
 
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
@@ -620,6 +632,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
     finally:
         desktop.close()
         mobile.close()
+        signed_in.close()
 
 
 def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -> None:
