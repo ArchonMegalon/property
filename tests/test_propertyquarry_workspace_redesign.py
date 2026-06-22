@@ -121,6 +121,35 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert ">Open</a>" not in billing
 
 
+def test_property_workspace_payload_strips_same_surface_card_actions() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "agents",
+        status={"workspace": {"name": "Automation Office"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent"},
+            "commercial": {},
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    selected_card = next(
+        card
+        for card in list(payload.get("primary_cards") or [])
+        if str(card.get("eyebrow") or "").strip() == "Selected search"
+    )
+    scope_row = next(
+        item
+        for item in list(selected_card.get("items") or [])
+        if isinstance(item, dict) and str(item.get("title") or "").strip() == "Scope"
+    )
+
+    assert "action_href" not in scope_row
+    assert "action_label" not in scope_row
+    assert scope_row.get("secondary_action_href") == "/app/properties"
+    assert scope_row.get("secondary_action_label") == "Edit"
+
+
 def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent_gating() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     results = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
@@ -9428,6 +9457,18 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text
+
+
+def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> None:
+    client = build_property_client(principal_id="pq-billing-compact")
+    start_workspace(client, mode="personal", workspace_name="Compact Billing")
+
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+    assert billing.status_code == 200
+    rendered_text = re.sub(r"\s+", " ", billing.text)
+    assert "Plan and payments" in rendered_text
+    assert "Current access and payments" in rendered_text
+    assert "When to upgrade" not in rendered_text
 
 
 def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) -> None:

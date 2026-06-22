@@ -2039,6 +2039,36 @@ def property_workspace_payload(
             cleaned.pop("href", None)
         return cleaned
 
+    def _strip_current_surface_actions_from_item(item: dict[str, object]) -> dict[str, object]:
+        cleaned = dict(item)
+        for href_key, label_key, method_key in (
+            ("action_href", "action_label", "action_method"),
+            ("secondary_action_href", "secondary_action_label", "secondary_action_method"),
+            ("tertiary_action_href", "tertiary_action_label", "tertiary_action_method"),
+            ("quaternary_action_href", "quaternary_action_label", "quaternary_action_method"),
+        ):
+            if _href_targets_current_surface(cleaned.get(href_key)):
+                cleaned.pop(href_key, None)
+                cleaned.pop(label_key, None)
+                cleaned.pop(method_key, None)
+        return cleaned
+
+    def _strip_current_surface_actions_from_cards(cards: object) -> list[dict[str, object]]:
+        cleaned_cards: list[dict[str, object]] = []
+        for raw_card in list(cards or []):
+            if not isinstance(raw_card, dict):
+                continue
+            cleaned_card = dict(raw_card)
+            cleaned_items = []
+            for raw_item in list(cleaned_card.get("items") or []):
+                if isinstance(raw_item, dict):
+                    cleaned_items.append(_strip_current_surface_actions_from_item(raw_item))
+                else:
+                    cleaned_items.append(raw_item)
+            cleaned_card["items"] = cleaned_items
+            cleaned_cards.append(cleaned_card)
+        return cleaned_cards
+
     hero_actions = {
         section_key: [
             dict(action)
@@ -2713,10 +2743,10 @@ def property_workspace_payload(
         },
         "billing": {
             "title": "Billing",
-            "summary": "Plan, checkout, and the current search allowance.",
+            "summary": "Plan and payments.",
             "hero_kicker": "Billing",
             "hero_title": "Your plan.",
-            "hero_summary": "Current access, checkout status, and search capacity.",
+            "hero_summary": "Current access and payments.",
             "hero_actions": hero_actions["billing"],
             "hero_highlights": hero_highlights["billing"],
             "primary_cards": [
@@ -2754,12 +2784,6 @@ def property_workspace_payload(
                     "title": "Tier changes",
                     "body": "",
                     "items": billing_upgrade_rows,
-                },
-                {
-                    "eyebrow": "Decision",
-                    "title": "When to upgrade",
-                    "body": "",
-                    "items": billing_decision_rows,
                 },
                 {
                     "eyebrow": "History",
@@ -2928,6 +2952,8 @@ def property_workspace_payload(
     }
 
     payload = dict(sections.get(section, sections["properties"]))
+    payload["primary_cards"] = _strip_current_surface_actions_from_cards(payload.get("primary_cards"))
+    payload["secondary_cards"] = _strip_current_surface_actions_from_cards(payload.get("secondary_cards"))
     payload["account_status"] = dict(status or {})
     shortlist_snapshot = build_property_shortlist_snapshot(
         workbench_results,
