@@ -235,7 +235,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             "/support": ("Support", "wrong-area matches"),
             "/imprint": ("Imprint", "How to reach PropertyQuarry"),
             "/cookies": ("Cookies and Analytics", "essential cookies"),
-            "/subprocessors": ("Subprocessors", "Vendor control plane"),
+            "/subprocessors": ("Subprocessors", "Service partner registry"),
             "/refunds": ("Refunds and Cancellation", "failed payment recovery"),
             "/disclaimers": ("Disclaimers", "Generated visualization"),
         }

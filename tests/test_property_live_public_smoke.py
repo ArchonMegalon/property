@@ -46,7 +46,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/support": "PropertyQuarry Support wrong-area matches",
         "https://propertyquarry.com/imprint": "PropertyQuarry Imprint How to reach PropertyQuarry",
         "https://propertyquarry.com/cookies": "PropertyQuarry Cookies and Analytics essential cookies",
-        "https://propertyquarry.com/subprocessors": "PropertyQuarry Subprocessors Vendor control plane",
+        "https://propertyquarry.com/subprocessors": "PropertyQuarry Subprocessors Service partner registry",
         "https://propertyquarry.com/refunds": "PropertyQuarry Refunds and Cancellation failed payment recovery",
         "https://propertyquarry.com/disclaimers": "PropertyQuarry Disclaimers Generated visualization",
         "https://propertyquarry.com/register": "PropertyQuarry Create account",

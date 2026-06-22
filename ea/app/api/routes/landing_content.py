@@ -163,7 +163,7 @@ PRICING_TIERS = (
 
 DOC_LINKS = (
     {"title": "Docs", "href": "/docs", "body": "Product and runtime references for teams that want the detailed operating model."},
-    {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery lanes."},
+    {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery options."},
     {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/property/blob/main/ARCHITECTURE_MAP.md", "body": "Route and system documentation for operators and developers."},
 )
 
@@ -359,8 +359,8 @@ PUBLIC_TRUST_PAGES = {
                 "answer": "Send the selected area, the listing URL or title, the normalized postal code shown, and why that postal code should have been excluded.",
             },
             {
-                "question": "What if a provider keeps failing?",
-                "answer": "Provider failures should trigger bounded repair attempts and then a visible partial-coverage status if that provider cannot be recovered.",
+                "question": "What if a listing source keeps failing?",
+                "answer": "Source failures should trigger bounded repair attempts and then a visible partial-coverage status if that source cannot be recovered.",
             },
         ),
     },
@@ -399,7 +399,7 @@ PUBLIC_TRUST_PAGES = {
         "nav": "subprocessors",
         "title": "Subprocessors",
         "kicker": "Vendors",
-        "summary": "PropertyQuarry integrations should be governed by purpose, data class, region, retention, usage limits, and off-switch state.",
+        "summary": "PropertyQuarry integrations should be limited by purpose, data class, region, retention, usage limits, and off-switch state.",
         "band": (
             {
                 "title": "Purpose-limited",
@@ -407,18 +407,18 @@ PUBLIC_TRUST_PAGES = {
             },
             {
                 "title": "Replaceable",
-                "body": "External vendors should sit behind stable internal interfaces so the product is not shaped by one temporary provider.",
+                "body": "External services should sit behind stable internal interfaces so the product is not shaped by one temporary partner.",
             },
         ),
         "sections": (
             {
                 "eyebrow": "Registry",
-                "title": "Vendor control plane",
-                "body": "Each integration should record enabled state, allowed data classes, exact-location permissions, retention, quota, health, and fallback.",
+                "title": "Service partner registry",
+                "body": "Each integration should record enabled state, allowed data classes, exact-location permissions, retention, quota, health, and backup options.",
                 "items": (
-                    "Identity and authentication providers",
-                    "Email, WhatsApp, and Telegram delivery providers",
-                    "PDF, tour, media, analytics, and external research providers",
+                    "Identity and authentication services",
+                    "Email, WhatsApp, and Telegram delivery services",
+                    "PDF, tour, media, analytics, and external research services",
                 ),
             },
         ),

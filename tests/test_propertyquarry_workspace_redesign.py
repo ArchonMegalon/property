@@ -3413,7 +3413,7 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
         "/support": ("Support", "wrong-area matches"),
         "/imprint": ("Imprint", "How to reach PropertyQuarry"),
         "/cookies": ("Cookies and Analytics", "essential cookies"),
-        "/subprocessors": ("Subprocessors", "Vendor control plane"),
+        "/subprocessors": ("Subprocessors", "Service partner registry"),
         "/refunds": ("Refunds and Cancellation", "failed payment recovery"),
         "/disclaimers": ("Disclaimers", "Generated visualization"),
     }
@@ -3426,6 +3426,20 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
         assert "receipts" not in page.text.lower()
         assert "Replace placeholder" not in page.text
         assert "Before public paid launch" not in page.text
+        assert "Vendor control plane" not in page.text
+        assert "provider keeps failing" not in page.text.lower()
+        assert "Provider failures" not in page.text
+        assert "delivery lanes" not in page.text
+
+    integrations = client.get("/integrations")
+    assert integrations.status_code == 200
+    assert "Future delivery options" in integrations.text
+    assert "delivery lanes" not in integrations.text
+
+    docs = client.get("/docs")
+    assert docs.status_code == 200
+    assert "later delivery options" in docs.text
+    assert "delivery lanes" not in docs.text
 
 
 def test_public_guide_and_market_pages_render_editorial_seo_surface() -> None:
