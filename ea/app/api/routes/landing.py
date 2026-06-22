@@ -53,6 +53,7 @@ from app.api.routes.landing_view_models import (
     channel_cards as _channel_cards,
     humanize as _humanize,
     list_rows as _list_rows,
+    _property_scope_preview_map_only,
     property_workspace_payload as _property_workspace_payload,
 )
 from app.api.routes.landing_property_research import (
@@ -1908,6 +1909,38 @@ def landing(
     else:
         principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
+    example_shortlist = [
+        {
+            "title": "Clear floorplan, right district",
+            "detail": "Balcony helps. Costs need confirmation.",
+            "score": 84,
+            "tour_label": "3D tour ready",
+            "walkthrough_label": "Walkthrough ready",
+            "asset_url": "/static/property/home/example-shortlist-collage.png",
+            "asset_position": "10% 22%",
+            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
+        },
+        {
+            "title": "Quiet layout near transit",
+            "detail": "Good fit. Parking evidence missing.",
+            "score": 78,
+            "tour_label": "3D tour queued",
+            "walkthrough_label": "Walkthrough queued",
+            "asset_url": "/static/property/home/example-shortlist-collage.png",
+            "asset_position": "50% 18%",
+            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1040 Vienna, 1050 Vienna"),
+        },
+        {
+            "title": "Strong price, open risk",
+            "detail": "Kept visible because hard rules pass.",
+            "score": 72,
+            "tour_label": "3D tour on request",
+            "walkthrough_label": "Walkthrough on request",
+            "asset_url": "/static/property/home/example-shortlist-collage.png",
+            "asset_position": "86% 18%",
+            "scope_preview": _property_scope_preview_map_only("AT", "wien", "1180 Vienna, 1190 Vienna"),
+        },
+    ]
     return _render_public_template(
         request,
         "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "marketing_home.html",
@@ -1927,6 +1960,7 @@ def landing(
                 "landing_faqs": LANDING_FAQS,
                 "doc_links": DOC_LINKS,
                 "plan_catalog": tuple(commercial.get("plan_catalog") or ()),
+                "example_shortlist": example_shortlist,
                 "meta_description": "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, open the dossier, and decide with evidence.",
                 "structured_data_json": [
                     {

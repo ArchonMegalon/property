@@ -141,17 +141,89 @@
     display: grid;
     gap: clamp(4px, 0.9vh, 6px);
   }
+  .pq-example-list {
+    display: grid;
+    gap: 6px;
+  }
   .pq-row {
     align-items: start;
-    padding: clamp(5px, 1vh, 8px) 0;
+    padding: 6px 0;
     border-top: 1px solid var(--line);
   }
   .pq-row:first-of-type {
     border-top: 0;
   }
+  .pq-row-main {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+  .pq-row-thumb {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    aspect-ratio: 1.18 / 1;
+    background: var(--panel-2);
+  }
+  .pq-row-thumb img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .pq-row-thumb::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(18, 21, 18, 0.04), rgba(18, 21, 18, 0.24));
+    pointer-events: none;
+  }
+  .pq-row-overlay {
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    width: 28px;
+    height: 28px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.82);
+    border-radius: 7px;
+    box-shadow: 0 8px 18px rgba(18, 21, 18, 0.22);
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .pq-row-overlay img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+  .pq-row-copy {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
   .pq-row strong {
     display: block;
     line-height: 1.25;
+  }
+  .pq-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .pq-mini-tag {
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 8px;
+    background: var(--panel-2);
+    color: var(--text-soft);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
   }
   .pq-score {
     color: var(--good);
@@ -291,27 +363,28 @@
           <strong>Ranked homes</strong>
           <span class="pq-tag">5 ranked · 22 filtered</span>
         </div>
+        {% for row in example_shortlist %}
+        {% set scope_preview = row.get('scope_preview') or {} %}
         <article class="pq-row">
-          <div>
-            <strong>Clear floorplan, right district</strong>
-            <span>Balcony helps. Costs need confirmation.</span>
+          <div class="pq-row-main">
+            <div class="pq-row-thumb">
+              <img src="{{ row.get('asset_url') or (scope_preview.get('image_url') or '/app/api/property/map-previews/0000000000000000000000000000000000000000.png') }}" alt="{{ row.get('title') or 'Example shortlist home' }}" loading="lazy" style="object-position: {{ row.get('asset_position') or '50% 50%' }};">
+              <span class="pq-row-overlay" aria-hidden="true">
+                <img src="{{ scope_preview.get('image_url') or '/app/api/property/map-previews/0000000000000000000000000000000000000000.png' }}" alt="">
+              </span>
+            </div>
+            <div class="pq-row-copy">
+              <strong>{{ row.get('title') }}</strong>
+              <span>{{ row.get('detail') }}</span>
+              <div class="pq-row-actions" aria-label="Example media status">
+                <span class="pq-mini-tag">{{ row.get('tour_label') }}</span>
+                <span class="pq-mini-tag">{{ row.get('walkthrough_label') }}</span>
+              </div>
+            </div>
           </div>
-          <div class="pq-score">84</div>
+          <div class="pq-score">{{ row.get('score') }}</div>
         </article>
-        <article class="pq-row">
-          <div>
-            <strong>Quiet layout near transit</strong>
-            <span>Good fit. Parking evidence missing.</span>
-          </div>
-          <div class="pq-score">78</div>
-        </article>
-        <article class="pq-row">
-          <div>
-            <strong>Strong price, open risk</strong>
-            <span>Kept visible because hard rules pass.</span>
-          </div>
-          <div class="pq-score">72</div>
-        </article>
+        {% endfor %}
       </section>
     </aside>
   </section>
