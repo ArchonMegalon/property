@@ -121,6 +121,20 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert ">Open</a>" not in billing
 
 
+def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent_gating() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    results = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
+    review = (repo_root / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+
+    assert "loop.first and brief.get('plan_key') == 'agent'" not in results
+    assert "Request walkthrough" in results
+    assert "Open walkthrough" in results
+    assert "<summary><strong>More actions</strong></summary>" not in review
+    assert "Request walkthrough" in review
+    assert "Open 3D tour" in review
+    assert "Open listing" in review
+
+
 def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_noise() -> None:
     client = build_property_client(principal_id="pq-rendered-surface-click-audit")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")

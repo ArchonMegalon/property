@@ -162,7 +162,6 @@
             data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}"
           >Request 3D tour</button>
           {% endif %}
-          {% if loop.first and brief.get('plan_key') == 'agent' %}
           {% set walkthrough = candidate.get('flythrough') or {} %}
           {% set walkthrough_label = walkthrough.get('label') or ('Open walkthrough' if walkthrough.get('url') else 'Request walkthrough') %}
           {% set walkthrough_eta = walkthrough.get('eta_label') or '' %}
@@ -189,21 +188,6 @@
           >Request walkthrough</button>
           {% else %}
           <button class="pqx-progress-button is-blocked" type="button" disabled title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">Walkthrough unavailable</button>
-          {% endif %}
-          {% elif candidate.get('flythrough', {}).get('url') %}
-          <a class="pqx-result-open" href="{{ candidate.get('flythrough', {}).get('url') }}">Open walkthrough</a>
-          {% elif visual_property_url %}
-          <button
-            class="pqx-result-open pqx-result-open-button"
-            type="button"
-            data-pw-visual-request="flythrough"
-            data-property-url="{{ visual_property_url }}"
-            data-source-ref="{{ candidate.get('source_ref') or '' }}"
-            data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
-            data-run-id="{{ run.get('run_id') or '' }}"
-            data-rybbit-event="property_request_flythrough"
-            data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}"
-          >Request walkthrough</button>
           {% endif %}
         {% if candidate.get('packet_url') %}
           <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">Open property</a>

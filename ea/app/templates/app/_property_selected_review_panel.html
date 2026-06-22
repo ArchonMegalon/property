@@ -21,23 +21,32 @@
           {% if selected.get('location_label') %}<span class="pqx-result-fact">{{ selected.get('location_label') }}</span>{% endif %}
         </div>
       </div>
+      {% set selected_visual_property_url = selected.get('property_url') or selected.get('source_url') or selected.get('listing_url') %}
+      {% set selected_tour = selected.get('tour', {}) %}
+      {% set selected_flythrough = selected.get('flythrough', {}) %}
       <div class="pqx-context-actions" data-pw-actions>
         {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open property page</a>{% endif %}
+        {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
+        {% if selected_tour.get('url') %}
+        <a class="pqx-link-button" href="{{ selected_tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open 3D tour</a>
+        {% elif selected_tour.get('status') in ['queued', 'processing'] %}
+        <button class="pqx-button" type="button" disabled title="{{ (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
+        {% elif selected_visual_property_url %}
+        <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request 3D tour</button>
+        {% endif %}
+        {% if selected_flythrough.get('url') %}
+        <a class="pqx-link-button" href="{{ selected_flythrough.get('url') }}">Open walkthrough</a>
+        {% elif selected_flythrough.get('status') in ['queued', 'processing'] %}
+        <button class="pqx-button" type="button" disabled title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
+        {% elif selected_visual_property_url %}
+        <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request walkthrough</button>
+        {% endif %}
         <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Share this home</button>
       </div>
-      <details class="pqx-decision-advanced" style="margin-top:12px;">
-        <summary><strong>More actions</strong></summary>
-        <div class="pqx-actions" style="margin-top:14px;">
-          {% set selected_visual_property_url = selected.get('property_url') or selected.get('source_url') or selected.get('listing_url') %}
-          {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
-          {% if not selected.get('tour', {}).get('url') and selected_visual_property_url %}
-          <button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request 3D tour</button>
-          <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') or '' }}">Request walkthrough</button>
-          {% endif %}
-          <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>
-        </div>
-        <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected.get('tour', {}).get('url') %}Need a remote view? Request a 3D tour or walkthrough from the available source material.{% endif %}</div>
-      </details>
+      <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected_tour.get('url') %}Request a 3D tour or walkthrough when the listing deserves deeper screening.{% endif %}</div>
+      <div class="pqx-actions" style="margin-top:10px;">
+        <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>
+      </div>
     </div>
   </div>
   <div class="pqx-evidence">
