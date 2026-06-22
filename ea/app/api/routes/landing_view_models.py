@@ -4671,7 +4671,7 @@ def app_section_payload(
                 {
                     "key": "what",
                     "label": "What",
-                    "detail": "Property type, budget, size, and move-in guardrails.",
+                    "detail": "Type, budget, size, move-in.",
                 },
                 {
                     "key": "children",
@@ -4691,7 +4691,7 @@ def app_section_payload(
                 {
                     "key": "providers",
                     "label": "Sources",
-                    "detail": "Choose trusted sources, then save or launch.",
+                    "detail": "Choose trusted sources.",
                 },
             ],
         },

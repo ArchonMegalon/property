@@ -4664,7 +4664,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Library nearby means" not in setup.text
     assert "Supermarket radius" in setup.text
     assert "providers: { label: 'Providers'" not in template
-    assert "providers: { label: 'Sources', detail: 'Choose trusted sources, then save or launch.' }" in template
+    assert "providers: { label: 'Sources', detail: 'Choose trusted sources.' }" in template
     assert "If good matches are scarce" in setup.text
     assert 'name="max_distance_to_zoo_m"' in setup.text
     assert 'name="max_distance_to_market_m"' in setup.text
@@ -8057,7 +8057,7 @@ def test_propertyquarry_workspace_exposes_investment_goal_and_guardrails() -> No
     assert "investment_strategy: investmentResearchEnabled" in brief_script
     assert "min_dscr: investmentResearchEnabled" in brief_script
     assert "const searchGoalField = form.querySelector('select[name=\"search_goal\"]');" in workbench_script
-    assert "{ label: 'What', detail: 'Property type, budget, size, and move-in guardrails.' }" in workbench_script
+    assert "{ label: 'What', detail: 'Type, budget, size, move-in.' }" in workbench_script
     assert "form.dataset.propertyExcludedSteps = 'children,reachability';" in workbench_script
     assert "form.dataset.propertyExcludedSteps = 'areas';" in workbench_script
     assert "const isSearchStep = !activeStep || activeStep === 'search' || activeStep === 'areas';" in workbench_script

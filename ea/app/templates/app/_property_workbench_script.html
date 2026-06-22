@@ -2070,7 +2070,7 @@
         search: isInvestment
           ? { label: 'Market', detail: 'Market, listing mode, and budget.' }
           : { label: 'Where', detail: 'Country, market, and target areas.' },
-        what: { label: 'What', detail: 'Property type, budget, size, and move-in guardrails.' },
+        what: { label: 'What', detail: 'Type, budget, size, move-in.' },
         areas: { label: 'Strategy', detail: 'Target areas, spillover distance, and investment guardrails.' },
         children: isInvestment
           ? { label: 'Guardrails', detail: 'Execution risk, legal context, and which weak listings should be excluded.' }
@@ -2081,7 +2081,7 @@
         research: isInvestment
           ? { label: 'Underwriting', detail: 'Return, risk, and external evidence depth.' }
           : { label: 'Research depth', detail: 'Risk, supply, and how much evidence each strong match should carry.' },
-        providers: { label: 'Sources', detail: 'Choose trusted sources, then save or launch.' },
+        providers: { label: 'Sources', detail: 'Choose trusted sources.' },
       };
       return map[key] || { label: fallbackLabel, detail: fallbackDetail };
     };

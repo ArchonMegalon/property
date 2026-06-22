@@ -3,20 +3,20 @@
 <style>
   .pricing-wrap {
     display: grid;
-    gap: 10px;
-    padding-top: 2px;
+    gap: 8px;
+    padding-top: 0;
   }
   .tier-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
   }
   .tier-card {
-    min-height: 268px;
+    min-height: 244px;
     display: grid;
     grid-template-rows: auto auto 1fr auto;
-    gap: 10px;
-    padding: 11px;
+    gap: 8px;
+    padding: 10px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.025);
@@ -33,24 +33,24 @@
   }
   .tier-top h2 {
     margin: 0;
-    font-size: 1.2rem;
+    font-size: 1.08rem;
   }
   .tier-price {
     color: var(--accent);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     font-weight: 700;
     white-space: nowrap;
   }
   .tier-copy {
     margin: 0;
-    min-height: 30px;
+    min-height: 0;
     color: var(--text-dim);
-    font-size: 0.9rem;
-    line-height: 1.3;
+    font-size: 0.84rem;
+    line-height: 1.24;
   }
   .tier-facts {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     align-content: start;
     margin: 0;
     padding: 0;
@@ -60,10 +60,10 @@
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    padding-top: 6px;
+    padding-top: 5px;
     border-top: 1px solid var(--line);
     color: var(--text-dim);
-    font-size: 0.92rem;
+    font-size: 0.88rem;
   }
   .tier-facts strong {
     color: var(--text);
@@ -72,12 +72,12 @@
   }
   .tier-actions {
     display: grid;
-    gap: 8px;
+    gap: 6px;
   }
   .tier-provider {
-    min-height: 16px;
+    min-height: 14px;
     color: var(--text-dim);
-    font-size: 0.82rem;
+    font-size: 0.78rem;
   }
   @media (max-width: 980px) {
     .tier-grid {
@@ -99,11 +99,11 @@
       </div>
       <p class="tier-copy">
         {% if plan.plan_key == "free" %}
-        Try a focused shortlist with a simple property page.
+        Focused shortlist and property page.
         {% elif plan.plan_key == "plus" %}
-        More coverage, deeper review, and richer property pages.
+        More coverage and deeper review.
         {% else %}
-        Managed search with full property pages for serious buyers.
+        Full-depth search for serious buyers.
         {% endif %}
       </p>
       <ul class="tier-facts">
