@@ -349,6 +349,297 @@ _TRANSLATION_HINTS: dict[str, dict[str, object]] = {
 }
 
 
+_LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
+    "es": {
+        "calculation_title": "Calculo de ejemplo: por que esta vivienda llega a 62",
+        "steps_label": "Reglas aplicadas",
+        "examples_label": "Ejemplos",
+        "calculation_rows": [
+            ("Inicio", "+50", "La vivienda empieza neutral cuando supera las reglas duras."),
+            ("Reglas duras superadas", "+8", "Pais, zona, alquiler/compra, tipo, presupuesto, habitaciones y superficie no contradicen la busqueda."),
+            ("Calidad de evidencia", "+10", "Plano, gastos y una fuente 360/tour real hacen la vivienda mas verificable a distancia."),
+            ("Preferencias flexibles", "+6", "Vida diaria, trayectos y preferencias familiares encajan lo suficiente para subir el rango."),
+            ("Confianza de ubicacion", "+4", "La ubicacion es concreta para comparar zonas elegidas y evidencia cercana."),
+            ("Calefaccion pendiente", "-8", "La calefaccion sigue sin confirmar, asi que baja la confianza."),
+            ("Un deseo falta", "-3", "Un deseo ausente baja el rango, pero no filtra la vivienda."),
+            ("Riesgo abierto", "-5", "Las incognitas restantes quedan como preguntas de visita."),
+            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+        ],
+    },
+    "fr": {
+        "calculation_title": "Calcul d'exemple: pourquoi ce bien arrive a 62",
+        "steps_label": "Regles appliquees",
+        "examples_label": "Exemples",
+        "calculation_rows": [
+            ("Depart", "+50", "Le bien commence neutre apres avoir passe les regles strictes."),
+            ("Regles strictes passees", "+8", "Pays, zone, location/achat, type, budget, pieces et surface ne contredisent pas la recherche."),
+            ("Qualite des preuves", "+10", "Plan, charges et vraie source 360/tour rendent le bien plus verifiable a distance."),
+            ("Preferences souples", "+6", "Quotidien, trajets et preferences familiales correspondent assez pour relever le rang."),
+            ("Confiance de localisation", "+4", "La localisation est assez concrete pour comparer zones choisies et preuves proches."),
+            ("Chauffage inconnu", "-8", "Le chauffage reste a confirmer, donc la confiance baisse."),
+            ("Un souhait manque", "-3", "Un souhait manquant baisse le rang, mais ne filtre pas le bien."),
+            ("Risque a verifier", "-5", "Les inconnues restantes deviennent des questions de visite."),
+            ("Resultat", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+        ],
+    },
+    "it": {
+        "calculation_title": "Calcolo di esempio: perche questa casa arriva a 62",
+        "steps_label": "Regole applicate",
+        "examples_label": "Esempi",
+        "calculation_rows": [
+            ("Inizio", "+50", "La casa parte neutra dopo aver superato le regole dure."),
+            ("Regole dure superate", "+8", "Paese, area, affitto/acquisto, tipo, budget, stanze e superficie non sono in conflitto."),
+            ("Qualita prove", "+10", "Planimetria, costi e una vera fonte 360/tour rendono la casa piu verificabile da remoto."),
+            ("Preferenze morbide", "+6", "Vita quotidiana, spostamenti e preferenze familiari alzano abbastanza il rango."),
+            ("Fiducia posizione", "+4", "La posizione e abbastanza concreta per confrontare aree e prove vicine."),
+            ("Riscaldamento aperto", "-8", "Il riscaldamento e ancora da confermare, quindi la fiducia scende."),
+            ("Un desiderio manca", "-3", "Un desiderio mancante abbassa il rango, ma non filtra la casa."),
+            ("Rischio da verificare", "-5", "Le incognite restanti diventano domande per la visita."),
+            ("Risultato", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+        ],
+    },
+    "nl": {
+        "calculation_title": "Voorbeeldberekening: waarom deze woning op 62 uitkomt",
+        "steps_label": "Toegepaste regels",
+        "examples_label": "Voorbeelden",
+        "calculation_rows": [
+            ("Start", "+50", "De woning start neutraal zodra de harde regels zijn gehaald."),
+            ("Harde regels gehaald", "+8", "Land, gebied, huur/koop, type, budget, kamers en oppervlakte spreken de zoekopdracht niet tegen."),
+            ("Bewijskwaliteit", "+10", "Plattegrond, kosten en een echte 360/tourbron maken de woning beter op afstand te controleren."),
+            ("Zachte voorkeuren", "+6", "Dagelijks leven, routes en gezinsvoorkeuren passen goed genoeg om de rang te verhogen."),
+            ("Locatievertrouwen", "+4", "De locatie is concreet genoeg om gekozen gebieden en nabije evidence te vergelijken."),
+            ("Verwarming open", "-8", "De verwarming is nog onbekend, dus vertrouwen daalt tot verificatie."),
+            ("Een wens ontbreekt", "-3", "Een ontbrekende wens verlaagt de rang, maar filtert de woning niet."),
+            ("Open verificatierisico", "-5", "Resterende onbekenden blijven als kijkvragen staan."),
+            ("Eindscore", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+        ],
+    },
+    "pt": {
+        "calculation_title": "Calculo de exemplo: porque esta casa chega a 62",
+        "steps_label": "Regras aplicadas",
+        "examples_label": "Exemplos",
+        "calculation_rows": [
+            ("Inicio", "+50", "A casa comeca neutra depois de passar as regras duras."),
+            ("Regras duras cumpridas", "+8", "Pais, zona, arrendar/comprar, tipo, orcamento, quartos e area nao entram em conflito."),
+            ("Qualidade da evidencia", "+10", "Planta, custos e uma fonte 360/tour real tornam a casa mais verificavel remotamente."),
+            ("Preferencias suaves", "+6", "Vida diaria, trajetos e preferencias familiares encaixam o suficiente para subir o ranking."),
+            ("Confianca de localizacao", "+4", "A localizacao e concreta o suficiente para comparar zonas escolhidas e evidencia proxima."),
+            ("Aquecimento em aberto", "-8", "O aquecimento ainda precisa de confirmacao, entao a confianca baixa."),
+            ("Um desejo falta", "-3", "Um desejo em falta baixa o ranking, mas nao filtra a casa."),
+            ("Risco a verificar", "-5", "As restantes incertezas ficam como perguntas de visita."),
+            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+        ],
+    },
+    "pl": {
+        "calculation_title": "Przykladowe obliczenie: dlaczego ta nieruchomosc ma 62",
+        "steps_label": "Zastosowane reguly",
+        "examples_label": "Przyklady",
+        "calculation_rows": [
+            ("Start", "+50", "Nieruchomosc startuje neutralnie po przejsciu twardych regul."),
+            ("Twarde reguly spelnione", "+8", "Kraj, obszar, najem/zakup, typ, budzet, pokoje i metraz nie kloca sie z wyszukiwaniem."),
+            ("Jakosc dowodow", "+10", "Plan, koszty i prawdziwe 360/tour ulatwiaja zdalna weryfikacje."),
+            ("Miekkie preferencje", "+6", "Codziennosc, dojazdy i potrzeby rodzinne pasuja na tyle, by podniesc ranking."),
+            ("Zaufanie lokalizacji", "+4", "Lokalizacja jest dosc konkretna do porownania z wybranymi obszarami i pobliskimi dowodami."),
+            ("Ogrzewanie otwarte", "-8", "Ogrzewanie nadal wymaga potwierdzenia, wiec zaufanie spada."),
+            ("Brakuje jednego zyczenia", "-3", "Brak zyczenia obniza ranking, ale nie filtruje oferty."),
+            ("Otwarte ryzyko", "-5", "Pozostale niewiadome zostaja pytaniami na ogladanie."),
+            ("Wynik koncowy", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+        ],
+    },
+    "sv": {
+        "calculation_title": "Exempelberakning: varfor bostaden landar pa 62",
+        "steps_label": "Tillampade regler",
+        "examples_label": "Exempel",
+        "calculation_rows": [
+            ("Start", "+50", "Bostaden startar neutralt nar den passerat de harda reglerna."),
+            ("Harda regler passerade", "+8", "Land, omrade, hyra/kop, typ, budget, rum och yta motsager inte sokningen."),
+            ("Evidenskvalitet", "+10", "Planritning, kostnader och riktig 360/tour-kalla gor bostaden lattare att fjarrverifiera."),
+            ("Mjuka preferenser", "+6", "Vardag, rutter och familjepreferenser passar nog for att hoja rankingen."),
+            ("Platsfortroende", "+4", "Platsen ar tillrackligt konkret for att jamfora valda omraden och nara evidens."),
+            ("Varme okand", "-8", "Varmeinformation saknas fortfarande, sa fortroendet sjunker."),
+            ("Ett onskemal saknas", "-3", "Ett saknat onskemal sanker rang men filtrerar inte bort bostaden."),
+            ("Oppen verifieringsrisk", "-5", "Kvarvarande okanda blir fragor vid visning."),
+            ("Slutpoang", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+        ],
+    },
+}
+
+
+_LOCALIZED_PDF_EXAMPLE_COPY: dict[str, dict[str, tuple[str, ...] | str]] = {
+    "en": {
+        "source_label": "PropertyQuarry scoring engine",
+        "recommendation": "Strong fit",
+        "match_reasons": (
+            "Selected area is respected.",
+            "Verified costs, floorplan, and 360 evidence raise confidence.",
+            "Commute and daily-life preferences score well.",
+        ),
+        "mismatch_reasons": (
+            "One soft preference is missing and lowers rank without excluding.",
+            "Heating detail still needs confirmation before a final decision.",
+        ),
+        "viewing_questions": (
+            "Verify the still-missing fact with the agent.",
+            "Compare the route and noise evidence during an actual viewing.",
+        ),
+        "postal_name": "Demo market",
+        "price_display": "Example budget",
+    },
+    "de": {
+        "source_label": "PropertyQuarry-Scoring-Engine",
+        "recommendation": "Starke Passung",
+        "match_reasons": (
+            "Das ausgewaehlte Gebiet wird respektiert.",
+            "Belegte Kosten, Grundriss und 360-Evidenz erhoehen das Vertrauen.",
+            "Wege und Alltagspraeferenzen schneiden gut ab.",
+        ),
+        "mismatch_reasons": (
+            "Ein weicher Wunsch fehlt und senkt den Rang ohne Ausschluss.",
+            "Das Heizungsdetail muss vor der finalen Entscheidung bestaetigt werden.",
+        ),
+        "viewing_questions": (
+            "Den noch fehlenden Fakt mit Makler oder Anbieter bestaetigen.",
+            "Weg- und Laermbelege bei einer echten Besichtigung vergleichen.",
+        ),
+        "postal_name": "Demomarkt",
+        "price_display": "Beispielbudget",
+    },
+    "es": {
+        "source_label": "Motor de puntuacion PropertyQuarry",
+        "recommendation": "Encaje fuerte",
+        "match_reasons": (
+            "La zona seleccionada se respeta.",
+            "Costes verificados, plano y evidencia 360 aumentan la confianza.",
+            "Trayectos y preferencias diarias puntuan bien.",
+        ),
+        "mismatch_reasons": (
+            "Falta una preferencia flexible y baja el rango sin excluir.",
+            "La calefaccion necesita confirmacion antes de decidir.",
+        ),
+        "viewing_questions": (
+            "Verificar el dato pendiente con el agente.",
+            "Comparar ruta y ruido durante una visita real.",
+        ),
+        "postal_name": "Mercado demo",
+        "price_display": "Presupuesto de ejemplo",
+    },
+    "fr": {
+        "source_label": "Moteur de score PropertyQuarry",
+        "recommendation": "Fit fort",
+        "match_reasons": (
+            "La zone choisie est respectee.",
+            "Charges verifiees, plan et preuve 360 augmentent la confiance.",
+            "Trajets et preferences du quotidien scorent bien.",
+        ),
+        "mismatch_reasons": (
+            "Une preference souple manque et baisse le rang sans exclure.",
+            "Le chauffage doit encore etre confirme avant decision.",
+        ),
+        "viewing_questions": (
+            "Verifier le fait manquant avec l'agent.",
+            "Comparer trajet et bruit pendant une vraie visite.",
+        ),
+        "postal_name": "Marche demo",
+        "price_display": "Budget d'exemple",
+    },
+    "it": {
+        "source_label": "Motore di scoring PropertyQuarry",
+        "recommendation": "Fit forte",
+        "match_reasons": (
+            "L'area selezionata e rispettata.",
+            "Costi verificati, planimetria e 360 aumentano la fiducia.",
+            "Spostamenti e preferenze quotidiane hanno buon punteggio.",
+        ),
+        "mismatch_reasons": (
+            "Manca una preferenza morbida e abbassa il rango senza escludere.",
+            "Il riscaldamento va ancora confermato prima della decisione.",
+        ),
+        "viewing_questions": (
+            "Verificare il fatto mancante con l'agente.",
+            "Confrontare percorso e rumore durante una visita reale.",
+        ),
+        "postal_name": "Mercato demo",
+        "price_display": "Budget di esempio",
+    },
+    "nl": {
+        "source_label": "PropertyQuarry score-engine",
+        "recommendation": "Sterke fit",
+        "match_reasons": (
+            "Het geselecteerde gebied wordt gerespecteerd.",
+            "Geverifieerde kosten, plattegrond en 360-evidence verhogen vertrouwen.",
+            "Route- en dagelijkse voorkeuren scoren goed.",
+        ),
+        "mismatch_reasons": (
+            "Een zachte voorkeur ontbreekt en verlaagt rang zonder uitsluiting.",
+            "Verwarming moet nog bevestigd worden voor een eindbesluit.",
+        ),
+        "viewing_questions": (
+            "Verifieer het ontbrekende feit met de makelaar.",
+            "Vergelijk route- en geluidsevidence tijdens een echte bezichtiging.",
+        ),
+        "postal_name": "Demomarkt",
+        "price_display": "Voorbeeldbudget",
+    },
+    "pt": {
+        "source_label": "Motor de pontuacao PropertyQuarry",
+        "recommendation": "Ajuste forte",
+        "match_reasons": (
+            "A zona selecionada e respeitada.",
+            "Custos verificados, planta e evidencia 360 aumentam a confianca.",
+            "Trajetos e preferencias diarias pontuam bem.",
+        ),
+        "mismatch_reasons": (
+            "Falta uma preferencia suave e baixa o ranking sem excluir.",
+            "O aquecimento ainda precisa de confirmacao antes da decisao.",
+        ),
+        "viewing_questions": (
+            "Confirmar o facto em falta com o agente.",
+            "Comparar trajeto e ruido numa visita real.",
+        ),
+        "postal_name": "Mercado demo",
+        "price_display": "Orcamento de exemplo",
+    },
+    "pl": {
+        "source_label": "Silnik scoringowy PropertyQuarry",
+        "recommendation": "Silne dopasowanie",
+        "match_reasons": (
+            "Wybrany obszar jest respektowany.",
+            "Zweryfikowane koszty, plan i 360 zwiekszaja zaufanie.",
+            "Dojazdy i codzienne preferencje wypadaja dobrze.",
+        ),
+        "mismatch_reasons": (
+            "Brakuje jednej miekkiej preferencji i obniza ranking bez wykluczenia.",
+            "Ogrzewanie trzeba jeszcze potwierdzic przed decyzja.",
+        ),
+        "viewing_questions": (
+            "Potwierdz brakujacy fakt z agentem.",
+            "Porownaj droge i halas podczas prawdziwego ogladania.",
+        ),
+        "postal_name": "Rynek demo",
+        "price_display": "Przykladowy budzet",
+    },
+    "sv": {
+        "source_label": "PropertyQuarry scoringmotor",
+        "recommendation": "Stark match",
+        "match_reasons": (
+            "Valt omrade respekteras.",
+            "Verifierade kostnader, planritning och 360-evidens hojer fortroendet.",
+            "Pendling och vardagspreferenser scorer bra.",
+        ),
+        "mismatch_reasons": (
+            "En mjuk preferens saknas och sanker rang utan att exkludera.",
+            "Varmeuppgift maste fortfarande bekraftas fore beslut.",
+        ),
+        "viewing_questions": (
+            "Verifiera den saknade uppgiften med maklaren.",
+            "Jamfor rutt- och bullerevidens vid en riktig visning.",
+        ),
+        "postal_name": "Demomarknad",
+        "price_display": "Exempelbudget",
+    },
+}
+
+
 def supported_property_score_methodology_languages() -> tuple[str, ...]:
     return tuple(sorted({str(country.default_language or "en").strip().lower() for country in COUNTRIES if str(country.default_language or "").strip()}))
 
@@ -362,6 +653,10 @@ def _localized(language_code: object = "", *, country_code: object = "") -> dict
         base.update(_LOCALIZED_COPY["de"])
     elif code in _TRANSLATION_HINTS:
         base.update(_TRANSLATION_HINTS[code])
+    if code in _LOCALIZED_CALCULATION_COPY:
+        base.update(_LOCALIZED_CALCULATION_COPY[code])
+    if code in _LOCALIZED_PDF_EXAMPLE_COPY:
+        base.update(_LOCALIZED_PDF_EXAMPLE_COPY[code])
     base["language_code"] = code
     base["language_label"] = _LANGUAGE_NAMES.get(code, code.upper())
     return base
@@ -453,17 +748,11 @@ def build_property_score_methodology_pdf_source(
     language_code: object = "",
     country_code: object = "",
 ) -> dict[str, object]:
+    copy = _localized(language_code, country_code=country_code)
     candidate = {
         "fit_score": 62,
-        "match_reasons": [
-            "Selected area is respected.",
-            "Verified costs, floorplan, and 360 evidence raise confidence.",
-            "Commute and daily-life preferences score well.",
-        ],
-        "mismatch_reasons": [
-            "One soft preference is missing and lowers rank without excluding.",
-            "Heating detail still needs confirmation before a final decision.",
-        ],
+        "match_reasons": list(copy.get("match_reasons") or ()),
+        "mismatch_reasons": list(copy.get("mismatch_reasons") or ()),
     }
     methodology = build_property_score_methodology(
         language_code=language_code,
@@ -473,22 +762,19 @@ def build_property_score_methodology_pdf_source(
     return {
         "title": str(methodology.get("pdf_title") or "PropertyQuarry score methodology"),
         "summary": str(methodology.get("summary") or ""),
-        "source_label": "PropertyQuarry scoring engine",
+        "source_label": str(copy.get("source_label") or "PropertyQuarry scoring engine"),
         "language_code": str(methodology.get("language_code") or "en"),
         "country_code": str(country_code or "").strip().upper(),
         "fit_score": candidate["fit_score"],
-        "recommendation": "Strong fit",
+        "recommendation": str(copy.get("recommendation") or "Strong fit"),
         "match_reasons": list(candidate["match_reasons"]),
         "mismatch_reasons": list(candidate["mismatch_reasons"]),
-        "viewing_questions": [
-            "Verify the still-missing fact with the agent.",
-            "Compare the route and noise evidence during an actual viewing.",
-        ],
+        "viewing_questions": list(copy.get("viewing_questions") or ()),
         "property_facts": {
             "language_code": str(methodology.get("language_code") or "en"),
             "country_code": str(country_code or "").strip().upper(),
-            "postal_name": "Demo market",
-            "price_display": "Example budget",
+            "postal_name": str(copy.get("postal_name") or "Demo market"),
+            "price_display": str(copy.get("price_display") or "Example budget"),
             "area_m2": 82,
             "rooms": 3,
             "has_floorplan": True,

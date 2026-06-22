@@ -368,6 +368,11 @@ def test_brilliant_directories_projection_rejects_private_property_and_contact_f
         build_directory_profile_projection({"id": "1", "name": "Agent", "property_facts": {"price": 1000}})
     assert "private_field_blocked" in str(ranking_error.value)
 
+    for forbidden in ("billing", "payment", "invoice"):
+        with pytest.raises(BrilliantDirectoriesApiError) as billing_error:
+            build_directory_profile_projection({"id": "1", "name": "Agent", forbidden: "private"})
+        assert "private_field_blocked" in str(billing_error.value)
+
 
 def test_brilliant_directories_search_response_strips_private_member_fields() -> None:
     packet = build_brilliant_directories_projection_packet_from_search_response(
@@ -736,7 +741,8 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert '<meta name="robots" content="noindex, follow, noarchive, nosnippet">' in response.text
     assert response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
     assert "PropertyQuarry Directory" in response.text
-    assert "Find the people around a property decision." in response.text
+    assert "Property advisors." in response.text
+    assert "Reviewed public profiles for relocation, financing, inspections, and local support." in response.text
     assert "Directory coming soon" in response.text
     assert "governed directory lane" not in response.text
     assert "another branded site" not in response.text
@@ -912,8 +918,12 @@ def test_brilliant_directories_pricing_stays_propertyquarry_white_label(
     response = client.get("/pricing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
     assert response.status_code == 200
-    assert "<h1>Pricing</h1>" in response.text
+    assert "Start free" in response.text
+    assert "Join waitlist" in response.text
+    assert "Request access." in response.text
     assert "directory.example" not in response.text
+    assert "Brilliant Directories" not in response.text
+    assert "brilliantdirectories" not in response.text.lower()
 
 
 def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

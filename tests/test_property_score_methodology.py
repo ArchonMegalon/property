@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.product.property_score_methodology import (
     build_property_score_methodology,
+    build_property_score_methodology_pdf_source,
     build_property_score_methodology_for_supported_languages,
     supported_property_score_methodology_languages,
 )
@@ -31,8 +32,42 @@ def test_score_methodology_languages_cover_country_provider_catalog() -> None:
         assert len(payload["steps"]) >= 6
         assert len(payload["examples"]) >= 5
         assert payload["score_bands"][-1] == {"range": "60+", "meaning": payload["score_bands"][-1]["meaning"]}
+        assert payload["calculation_title"]
+        assert payload["calculation_rows"][-1]["delta"] == "=62"
+        assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in payload["calculation_rows"][-1]["why"]
         if payload["language_code"] != "en":
             assert not str(payload["summary"]).startswith("The score is not portal popularity")
+            assert not str(payload["calculation_title"]).startswith("Example calculation")
+            assert not any(str(row.get("label") or "") == "Final score" for row in payload["calculation_rows"])
+
+
+def test_score_methodology_pdf_source_localizes_demo_signals_for_every_language() -> None:
+    english_phrases = {
+        "Selected area is respected.",
+        "Verified costs, floorplan, and 360 evidence raise confidence.",
+        "Commute and daily-life preferences score well.",
+        "One soft preference is missing and lowers rank without excluding.",
+        "Heating detail still needs confirmation before a final decision.",
+        "Verify the still-missing fact with the agent.",
+        "Compare the route and noise evidence during an actual viewing.",
+        "Example budget",
+        "Demo market",
+    }
+
+    for language_code in supported_property_score_methodology_languages():
+        source = build_property_score_methodology_pdf_source(language_code=language_code)
+        assert source["fit_score"] == 62
+        assert source["score_methodology"]["calculation_rows"][-1]["delta"] == "=62"
+        if language_code == "en":
+            continue
+        rendered_values = {
+            *[str(value) for value in source["match_reasons"]],
+            *[str(value) for value in source["mismatch_reasons"]],
+            *[str(value) for value in source["viewing_questions"]],
+            str(source["property_facts"]["price_display"]),
+            str(source["property_facts"]["postal_name"]),
+        }
+        assert not english_phrases.intersection(rendered_values), language_code
 
 
 def test_score_methodology_applies_candidate_signals_and_band() -> None:
