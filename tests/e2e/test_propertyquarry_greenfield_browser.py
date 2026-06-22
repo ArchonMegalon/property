@@ -1768,6 +1768,48 @@ def test_propertyquarry_workspace_sign_out_works_in_real_browser(
         context.close()
 
 
+def test_propertyquarry_account_and_billing_hide_redundant_top_actions(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    context = _new_context(browser, mobile=False)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/account", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.get_by_role("button", name="Dark mode")).to_be_visible()
+        assert page.get_by_role("button", name=re.compile("Browser alerts", re.I)).count() == 0
+        assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
+        assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
+
+        account_summary = page.locator(".pqx-account-menu > summary")
+        expect(account_summary).to_be_visible()
+        account_summary.click()
+        expect(page.locator(".pqx-account-menu-links")).not_to_contain_text("Profile")
+        expect(page.locator(".pqx-account-menu-links")).not_to_contain_text("Settings")
+        expect(page.locator(".pqx-account-menu-links")).to_contain_text("Upgrade")
+        expect(page.locator(".pqx-account-menu-form button", has_text="Log out")).to_be_visible()
+
+        response = page.goto(f"{base_url}/app/billing", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.get_by_role("button", name="Dark mode")).to_be_visible()
+        assert page.get_by_role("button", name=re.compile("Browser alerts", re.I)).count() == 0
+        assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
+        assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
+
+        account_summary = page.locator(".pqx-account-menu > summary")
+        account_summary.click()
+        expect(page.locator(".pqx-account-menu-links")).not_to_contain_text("Upgrade")
+        expect(page.locator(".pqx-account-menu-links")).to_contain_text("Profile")
+        expect(page.locator(".pqx-account-menu-form button", has_text="Log out")).to_be_visible()
+    finally:
+        context.close()
+
+
 def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

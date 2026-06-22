@@ -29,6 +29,9 @@
 {% set mobile_panel_count = (1 if has_mobile_results_panel else 0) + (1 if has_mobile_property_panel else 0) + (1 if has_mobile_brief_panel else 0) %}
 {% set mobile_primary = setup_mobile_primary if setup_mode else ('results' if has_results or run_terminal_no_results else 'property') %}
 {% set show_form_controls = show_brief_form and setup_mode %}
+{% set result_surface = surface_mode in ['search', 'properties', 'shortlist'] %}
+{% set account_surface = surface_mode in ['account', 'settings'] %}
+{% set billing_surface = surface_mode == 'billing' %}
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
 {% set empty_outcome = workbench.get('empty_outcome') or {} %}
@@ -6283,14 +6286,16 @@
           {% endif %}
         </div>
         {% endif %}
-        {% if has_results %}
+        {% if has_results and result_surface %}
         <a class="pqx-link-button subtle" href="/app/properties/packets">Review</a>
         {% endif %}
-        {% if has_results %}
+        {% if has_results and result_surface %}
         <a class="pqx-link-button subtle" href="/app/search">Edit search</a>
         {% endif %}
         <button class="pqx-button subtle" type="button" data-pqx-theme-toggle aria-pressed="false">Dark mode</button>
+        {% if result_surface %}
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
+        {% endif %}
         <span class="pqx-context-actions" data-pw-top-actions></span>
         {% if run_active and run.get('run_id') %}
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
@@ -6306,9 +6311,15 @@
               <strong>{{ account_nav.label }}</strong>
             </div>
             <div class="pqx-account-menu-links">
+              {% if not billing_surface %}
               <a class="pqx-link-button" href="{{ account_nav.billing_href }}">Upgrade</a>
+              {% endif %}
+              {% if not account_surface %}
               <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Profile</a>
+              {% endif %}
+              {% if not account_surface %}
               <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Settings</a>
+              {% endif %}
               <form class="pqx-account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
                 <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
                 <button class="pqx-button subtle" type="submit">Log out</button>
