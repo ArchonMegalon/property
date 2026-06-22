@@ -199,16 +199,18 @@
         <button class="btn" type="button" disabled aria-disabled="true">Google unavailable</button>
         {% endif %}
       </div>
-      {% if sign_in_facebook_enabled %}
-      <div class="auth-provider-card" data-auth-provider-card>
+      <div class="auth-provider-card{% if not sign_in_facebook_enabled %} disabled{% endif %}" data-auth-provider-card>
         <span class="auth-provider-icon" aria-hidden="true">f</span>
         <span>
           <strong>Facebook</strong>
-          <p>Identity only</p>
+          <p>{% if sign_in_facebook_enabled %}Identity only{% else %}Not configured on this deployment{% endif %}</p>
         </span>
+        {% if sign_in_facebook_enabled %}
         <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
+        {% else %}
+        <button class="btn" type="button" disabled aria-disabled="true">Facebook unavailable</button>
+        {% endif %}
       </div>
-      {% endif %}
       {% if sign_in_id_austria_enabled %}
       <div class="auth-provider-card" data-auth-provider-card>
         <span class="auth-provider-icon" aria-hidden="true">ID</span>

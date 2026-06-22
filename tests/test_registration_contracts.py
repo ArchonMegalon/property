@@ -209,6 +209,7 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
 
     assert response.status_code == 200
     assert "Google unavailable" in response.text
+    assert "Facebook unavailable" in response.text
     assert "Not configured on this deployment" in response.text
     assert "Continue with Facebook" not in response.text
     assert 'href="/sign-in/google"' not in response.text
@@ -491,6 +492,7 @@ def test_sign_in_facebook_requires_dedicated_state_secret(monkeypatch: pytest.Mo
     direct = client.get("/sign-in/facebook", follow_redirects=False)
 
     assert response.status_code == 200
+    assert "Facebook unavailable" in response.text
     assert "Continue with Facebook" not in response.text
     assert 'href="/sign-in/facebook"' not in response.text
     assert direct.status_code == 303
@@ -1333,7 +1335,9 @@ def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytes
     assert response.status_code == 200
     assert 'href="/sign-in/google"' in response.text
     assert "Continue with Google" in response.text
+    assert "Facebook unavailable" in response.text
     assert "Continue with Facebook" not in response.text
+    assert 'href="/sign-in/facebook"' not in response.text
     assert 'id="google_sign_in_email"' not in response.text
     assert 'placeholder="you@company.com"' not in response.text
 

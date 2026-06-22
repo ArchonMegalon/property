@@ -560,7 +560,9 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         google_link = desktop_page.get_by_role("link", name="Continue with Google")
         google_unavailable = desktop_page.get_by_role("button", name="Google unavailable")
         assert google_link.count() or google_unavailable.count()
-        expect(desktop_page.get_by_role("link", name="Continue with Facebook")).to_have_count(0)
+        facebook_link = desktop_page.get_by_role("link", name="Continue with Facebook")
+        facebook_unavailable = desktop_page.get_by_role("button", name="Facebook unavailable")
+        assert facebook_link.count() or facebook_unavailable.count()
         if google_link.count():
             desktop_page.evaluate(
                 """() => {
