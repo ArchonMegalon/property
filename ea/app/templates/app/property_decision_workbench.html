@@ -5659,7 +5659,7 @@
       .pqx-main {
         width: min(calc(100vw - 20px), 760px);
         padding-top: 8px;
-        padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
       }
       .pqx-workflow,
       .pqx-surface-search .pqx-workflow {
@@ -5730,7 +5730,7 @@
         flex: 1 1 0;
         min-height: 38px;
       }
-      .pqx-surface-search [data-property-actions] {
+      .pqx-surface-search [data-property-actions]:not([hidden]) {
         display: grid !important;
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] {
@@ -5755,6 +5755,9 @@
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] .pqx-workflow-step.active {
         box-shadow: 0 8px 18px rgba(41, 37, 30, 0.12);
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-workflow-step strong {
+        font-size: 10.5px;
       }
       .pqx-result-panel,
       .pqx-review,
@@ -6116,28 +6119,33 @@
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] {
         position: sticky;
-        bottom: max(8px, env(safe-area-inset-bottom, 0px));
+        bottom: max(6px, env(safe-area-inset-bottom, 0px));
         z-index: 30;
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
+        gap: 6px;
         margin: 4px -2px 0;
-        padding: 8px;
+        padding: 6px;
         border: 1px solid var(--pq-line);
-        border-radius: 12px;
+        border-radius: 10px;
         background: color-mix(in srgb, var(--pq-paper) 94%, transparent);
-        box-shadow: 0 18px 36px rgba(41, 37, 30, 0.16);
+        box-shadow: 0 12px 26px rgba(41, 37, 30, 0.12);
         backdrop-filter: blur(16px);
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-actions {
         flex-direction: row;
         align-items: stretch;
-        gap: 8px;
+        gap: 6px;
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button {
         width: auto;
         flex: 1 1 0;
-        min-height: 44px;
+        min-height: 38px;
+        padding: 0 12px;
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button.subtle {
+        flex: 0 0 auto;
+        min-width: 112px;
       }
     }
     @media (max-width: 520px) {

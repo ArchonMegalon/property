@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+from datetime import datetime, timezone
 
 from app.domain.models import ConnectorBinding, OnboardingState
 from app.repositories.onboarding_state import InMemoryOnboardingStateRepository, OnboardingStateRepository
@@ -43,6 +44,7 @@ from app.services.property_market_catalog import (
     normalize_property_type_values,
     provider_options,
 )
+from app.services.propertyquarry_teable_projection import fetch_propertyquarry_subscription_fields
 from app.services.provider_registry import ProviderRegistryService
 from app.services.telegram_delivery import _telegram_binding_principal_candidates
 from app.services.tool_runtime import ToolRuntimeService
@@ -83,6 +85,71 @@ def _google_oauth_missing_config_detail(error_code: str) -> str:
         normalized,
         normalized or "Google OAuth is not configured for this host.",
     )
+
+
+def _parse_utc(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _property_commercial_has_billing_evidence(commercial: dict[str, object] | None) -> bool:
+    payload = dict(commercial or {})
+    if any(
+        payload.get(key)
+        for key in (
+            "last_order_id",
+            "last_capture_id",
+            "pending_order_id",
+            "pending_plan_key",
+            "captured_at",
+            "plan_source",
+            "last_billing_event_id",
+            "last_billing_event_type",
+        )
+    ):
+        return True
+    billing_events = payload.get("billing_events_json")
+    return isinstance(billing_events, list) and bool(billing_events)
+
+
+def _property_commercial_is_paid(commercial: dict[str, object] | None) -> bool:
+    return str(dict(commercial or {}).get("active_plan_key") or "").strip().lower() in {"plus", "agent"}
+
+
+def _property_commercial_restore_candidate_from_teable(fields: dict[str, object] | None) -> dict[str, object]:
+    payload = dict(fields or {})
+    commercial_json = payload.get("commercial_json")
+    if isinstance(commercial_json, str) and commercial_json.strip():
+        try:
+            parsed = json.loads(commercial_json)
+            if isinstance(parsed, dict):
+                payload = {**parsed, **payload}
+        except Exception:
+            pass
+    candidate = normalize_property_commercial(
+        {
+            "active_plan_key": payload.get("active_plan_key") or payload.get("current_plan_key"),
+            "status": payload.get("status"),
+            "active_until": payload.get("active_until"),
+            "last_order_id": payload.get("last_order_id"),
+            "last_capture_id": payload.get("last_capture_id"),
+            "last_payment_status": payload.get("last_payment_status"),
+            "last_payment_amount_eur": payload.get("last_payment_amount_eur"),
+            "captured_at": payload.get("captured_at"),
+            "pending_plan_key": payload.get("pending_plan_key"),
+            "plan_source": payload.get("plan_source") or "teable_projection_restore",
+            "billing_events_json": payload.get("billing_events_json") or [],
+        }
+    )
+    return candidate if _property_commercial_is_paid(candidate) else {}
 
 WORKSPACE_MODE_ALIASES = {
     "personal": "personal",
@@ -413,12 +480,22 @@ class OnboardingService(AssistantOnboardingService):
         incoming_commercial = dict(normalized_preferences.get("property_commercial") or {}) if isinstance(normalized_preferences.get("property_commercial"), dict) else {}
         existing_commercial = dict(existing_preferences.get("property_commercial") or {}) if isinstance(existing_preferences.get("property_commercial"), dict) else {}
         incoming_has_explicit_commercial = isinstance(raw_incoming_preferences.get("property_commercial"), dict) and bool(raw_incoming_preferences.get("property_commercial"))
+        incoming_is_empty_free = (
+            incoming_has_explicit_commercial
+            and not _property_commercial_is_paid(incoming_commercial)
+            and not _property_commercial_has_billing_evidence(incoming_commercial)
+        )
         if not incoming_has_explicit_commercial and existing_commercial:
+            normalized_preferences["property_commercial"] = existing_commercial
+        elif incoming_is_empty_free and _property_commercial_is_paid(existing_commercial):
             normalized_preferences["property_commercial"] = existing_commercial
         raw_preferences = dict(normalized_preferences.get("raw_preferences") or {}) if isinstance(normalized_preferences.get("raw_preferences"), dict) else {}
         incoming_raw_commercial = dict(raw_preferences.get("property_commercial") or {}) if isinstance(raw_preferences.get("property_commercial"), dict) else {}
         existing_raw_commercial = dict(existing_raw_preferences.get("property_commercial") or {}) if isinstance(existing_raw_preferences.get("property_commercial"), dict) else {}
         if not incoming_has_explicit_commercial and not incoming_raw_commercial and existing_raw_commercial:
+            raw_preferences["property_commercial"] = existing_raw_commercial
+            normalized_preferences["raw_preferences"] = raw_preferences
+        elif incoming_is_empty_free and _property_commercial_is_paid(existing_commercial) and existing_raw_commercial:
             raw_preferences["property_commercial"] = existing_raw_commercial
             normalized_preferences["raw_preferences"] = raw_preferences
         existing_has_saved_agents = isinstance(existing_preferences.get("search_agents"), (list, tuple)) and bool(existing_preferences.get("search_agents"))
@@ -443,6 +520,50 @@ class OnboardingService(AssistantOnboardingService):
             status=state.status,
         )
         return self.status(principal_id=principal_id, state_override=saved)
+
+    def _restore_property_commercial_from_teable(
+        self,
+        *,
+        principal_id: str,
+        state: OnboardingState | None,
+    ) -> OnboardingState | None:
+        if state is None:
+            return None
+        current_preferences = dict(state.property_search_preferences_json or {})
+        current_commercial = (
+            dict(current_preferences.get("property_commercial") or {})
+            if isinstance(current_preferences.get("property_commercial"), dict)
+            else {}
+        )
+        if _property_commercial_is_paid(current_commercial):
+            return state
+        remote_fields = fetch_propertyquarry_subscription_fields(principal_id=principal_id)
+        remote_commercial = _property_commercial_restore_candidate_from_teable(remote_fields)
+        if not remote_commercial:
+            return state
+        remote_active_until = _parse_utc(remote_commercial.get("active_until"))
+        if remote_active_until is not None and remote_active_until <= datetime.now(timezone.utc):
+            return state
+        merged_preferences = dict(current_preferences)
+        merged_preferences["property_commercial"] = remote_commercial
+        raw_preferences = dict(merged_preferences.get("raw_preferences") or {}) if isinstance(merged_preferences.get("raw_preferences"), dict) else {}
+        raw_preferences["property_commercial"] = remote_commercial
+        merged_preferences["raw_preferences"] = raw_preferences
+        return self._repo.upsert_state(
+            principal_id=state.principal_id,
+            onboarding_id=state.onboarding_id,
+            workspace_name=state.workspace_name,
+            workspace_mode=state.workspace_mode,
+            region=state.region,
+            language=state.language,
+            timezone=state.timezone,
+            selected_channels=state.selected_channels,
+            property_search_preferences_json=merged_preferences,
+            privacy_preferences_json=dict(state.privacy_preferences_json),
+            channel_preferences_json=dict(state.channel_preferences_json),
+            brief_preview_json=dict(state.brief_preview_json),
+            status=state.status,
+        )
 
     def update_property_search_agent(
         self,
@@ -1062,6 +1183,7 @@ class OnboardingService(AssistantOnboardingService):
 
     def status(self, *, principal_id: str, state_override: OnboardingState | None = None) -> dict[str, object]:
         state = state_override or self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
+        state = self._restore_property_commercial_from_teable(principal_id=principal_id, state=state)
         google_binding = self._preferred_google_binding(principal_id=principal_id)
         google_state = self._provider_registry.binding_state(GOOGLE_PROVIDER_KEY, principal_id=principal_id)
         connectors = self._connectors_for_status(principal_id=principal_id)

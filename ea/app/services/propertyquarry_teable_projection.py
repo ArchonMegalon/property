@@ -460,6 +460,79 @@ def _teable_request_json(*, base_url: str, api_key: str, path: str, timeout: int
         return {}
 
 
+def fetch_propertyquarry_subscription_fields(
+    *,
+    principal_id: str,
+    base_url: str = "",
+    api_key: str = "",
+    base_id: str = "",
+    table_config: dict[str, dict[str, object]] | None = None,
+) -> dict[str, object]:
+    normalized_principal = str(principal_id or "").strip()
+    normalized_base_url = str(base_url or os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip()
+    normalized_api_key = str(api_key or os.environ.get("TEABLE_API_KEY") or "").strip()
+    normalized_base_id = str(
+        base_id
+        or os.environ.get("PROPERTYQUARRY_TEABLE_BASE_ID")
+        or os.environ.get("TEABLE_BASE_ID")
+        or ""
+    ).strip()
+    if not normalized_principal or not normalized_api_key:
+        return {}
+    config = dict(table_config or {})
+    if not config:
+        raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        if not raw:
+            raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        if raw:
+            try:
+                config = {
+                    str(key or "").strip(): dict(value or {})
+                    for key, value in dict(json.loads(raw) or {}).items()
+                    if str(key or "").strip()
+                }
+            except Exception:
+                config = {}
+    if not config:
+        config = discover_propertyquarry_teable_table_config(
+            base_url=normalized_base_url,
+            api_key=normalized_api_key,
+            base_id=normalized_base_id,
+            base_name=str(os.environ.get("PROPERTYQUARRY_TEABLE_TENANT_NAME") or "PropertyQuarry").strip(),
+        )
+    subscription_table = dict(config.get("propertyquarry_subscriptions") or {})
+    table_id = str(subscription_table.get("table_id") or "").strip()
+    if not table_id:
+        return {}
+    skip = 0
+    take = 200
+    while True:
+        query = urllib.parse.urlencode(
+            {
+                "fieldKeyType": "name",
+                "cellFormat": "json",
+                "take": take,
+                "skip": skip,
+            },
+            doseq=True,
+        )
+        payload = _teable_request_json(
+            base_url=normalized_base_url,
+            api_key=normalized_api_key,
+            path=f"/api/table/{urllib.parse.quote(table_id)}/record?{query}",
+        )
+        records = _teable_items(payload, ("records", "data", "items"))
+        if not records:
+            return {}
+        for record in records:
+            fields = dict(record.get("fields") or {})
+            if str(fields.get("principal_id") or "").strip() == normalized_principal:
+                return fields
+        if len(records) < take:
+            return {}
+        skip += take
+
+
 def _propertyquarry_teable_table_ids_for_base(
     *,
     base_url: str,

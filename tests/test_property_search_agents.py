@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.api.routes.landing_property_saved_searches import format_property_search_agent
+import app.services.onboarding as onboarding_service
 from app.services.onboarding import OnboardingService
 from tests.product_test_helpers import build_property_client, start_workspace
 
@@ -518,3 +519,78 @@ def test_property_search_agent_payloads_do_not_embed_other_agents() -> None:
         assert "active_search_agent_id" not in payload
         assert "raw_preferences" not in payload
         assert "property_commercial" not in payload
+
+
+def test_property_search_preferences_recover_paid_commercial_state_from_teable(monkeypatch) -> None:
+    principal_id = "pq-teable-restore"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property restore")
+
+    created = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "property_commercial": {"active_plan_key": "free", "status": "free"},
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    monkeypatch.setattr(
+        onboarding_service,
+        "fetch_propertyquarry_subscription_fields",
+        lambda **kwargs: {
+            "principal_id": principal_id,
+            "current_plan_key": "agent",
+            "status": "active",
+            "active_until": "2999-01-01T00:00:00+00:00",
+            "plan_source": "teable_projection",
+            "commercial_json": "{\"active_plan_key\":\"agent\",\"status\":\"active\",\"active_until\":\"2999-01-01T00:00:00+00:00\",\"plan_source\":\"teable_projection\"}",
+        },
+    )
+
+    restored = client.get("/v1/onboarding/property-search/preferences")
+    assert restored.status_code == 200, restored.text
+    commercial = restored.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "agent"
+    assert commercial["status"] == "active"
+    assert commercial["plan_source"] == "teable_projection"
+
+
+def test_property_search_preferences_ignore_empty_free_overwrite_when_paid_exists() -> None:
+    client = build_property_client(principal_id="pq-commercial-overwrite-guard")
+    start_workspace(client, mode="personal", workspace_name="Property preserve")
+
+    seeded = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+                "plan_source": "billing",
+            },
+        },
+    )
+    assert seeded.status_code == 200, seeded.text
+
+    downgraded = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "property_commercial": {"active_plan_key": "free", "status": "free"},
+        },
+    )
+    assert downgraded.status_code == 200, downgraded.text
+    commercial = downgraded.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "agent"
+    assert commercial["status"] == "active"
