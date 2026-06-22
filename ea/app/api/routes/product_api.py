@@ -125,6 +125,7 @@ from app.services.dossier_writer.neuronwriter_adapter import create_neuronwriter
 from app.services.registration_email import property_notification_preview
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+public_router = APIRouter(prefix="/app/api", tags=["product-public-assets"])
 
 _PROPERTY_DECISION_REASON_KEYS: frozenset[str] = frozenset(
     {
@@ -1636,7 +1637,7 @@ def get_property_magic_fit_reference_file(
     )
 
 
-@router.get("/property/map-previews/{preview_id}.png")
+@public_router.get("/property/map-previews/{preview_id}.png")
 def get_property_map_preview_file(
     preview_id: str,
     container: AppContainer = Depends(get_container),

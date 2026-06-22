@@ -60,6 +60,7 @@ def _include_public_routes(
     dadan_public_router: APIRouter,
     heyy_public_router: APIRouter,
     payfunnels_public_router: APIRouter,
+    product_api_public_router: APIRouter,
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
@@ -75,6 +76,7 @@ def _include_public_routes(
     app.include_router(dadan_public_router)
     app.include_router(heyy_public_router)
     app.include_router(payfunnels_public_router)
+    app.include_router(product_api_public_router)
     if settings.public_results_enabled:
         from app.api.routes.public_results import router as public_results_router
 
@@ -260,6 +262,7 @@ def create_app() -> FastAPI:
     policy_router = route_modules["policy"].router
     providers_router = route_modules["providers"].router
     product_api_router = route_modules["product_api"].router
+    product_api_public_router = route_modules["product_api"].public_router
     product_api_delivery_router = route_modules["product_api_delivery"].router
     payfunnels_public_router = route_modules["product_api_delivery"].public_payfunnels_router
     product_api_workspace_router = route_modules["product_api_workspace"].router
@@ -292,6 +295,7 @@ def create_app() -> FastAPI:
         dadan_public_router=dadan_public_router,
         heyy_public_router=heyy_public_router,
         payfunnels_public_router=payfunnels_public_router,
+        product_api_public_router=product_api_public_router,
         health_router=health_router,
         register_router=register_router,
     )
