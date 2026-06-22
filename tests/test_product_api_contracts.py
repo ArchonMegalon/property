@@ -13546,6 +13546,58 @@ def test_property_visual_status_keeps_polling_while_rendering(monkeypatch) -> No
     assert response["poll_after_seconds"] == 10
 
 
+def test_property_visual_eta_uses_rendering_transition_time(monkeypatch) -> None:
+    monkeypatch.setattr(
+        product_service,
+        "_utcnow",
+        lambda: datetime(2026, 6, 22, 10, 40, tzinfo=timezone.utc),
+    )
+
+    eta_label = product_service._property_visual_eta_label(
+        request_kind="tour",
+        status="rendering",
+        eta_minutes="10",
+        requested_at="2026-06-22T10:00:00+00:00",
+        status_updated_at="2026-06-22T10:34:00+00:00",
+    )
+    progress_pct = product_service._property_visual_progress_pct(
+        request_kind="tour",
+        status="rendering",
+        eta_minutes="10",
+        requested_at="2026-06-22T10:00:00+00:00",
+        status_updated_at="2026-06-22T10:34:00+00:00",
+    )
+
+    assert eta_label == "about 10 min"
+    assert progress_pct == 58
+
+
+def test_property_visual_eta_marks_long_running_rendering_as_delayed_from_render_start(monkeypatch) -> None:
+    monkeypatch.setattr(
+        product_service,
+        "_utcnow",
+        lambda: datetime(2026, 6, 22, 10, 52, tzinfo=timezone.utc),
+    )
+
+    eta_label = product_service._property_visual_eta_label(
+        request_kind="flythrough",
+        status="processing",
+        eta_minutes="10",
+        requested_at="2026-06-22T10:00:00+00:00",
+        status_updated_at="2026-06-22T10:34:00+00:00",
+    )
+    progress_pct = product_service._property_visual_progress_pct(
+        request_kind="flythrough",
+        status="processing",
+        eta_minutes="10",
+        requested_at="2026-06-22T10:00:00+00:00",
+        status_updated_at="2026-06-22T10:34:00+00:00",
+    )
+
+    assert eta_label == "delayed · 18 min so far"
+    assert progress_pct == 72
+
+
 def test_property_tour_followup_dedupes_by_request_kind(monkeypatch) -> None:
     principal_id = "property-tour-followup-request-kind"
     client = build_product_client(principal_id=principal_id)

@@ -2210,11 +2210,22 @@ def _property_parse_iso_datetime(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _property_visual_elapsed_minutes(*, requested_at: object = "", status_updated_at: object = "") -> int:
-    started = _property_parse_iso_datetime(requested_at) or _property_parse_iso_datetime(status_updated_at)
+def _property_visual_elapsed_minutes(
+    *,
+    status: object = "",
+    requested_at: object = "",
+    status_updated_at: object = "",
+) -> int:
+    normalized_status = str(status or "").strip().lower()
+    requested_dt = _property_parse_iso_datetime(requested_at)
+    updated_dt = _property_parse_iso_datetime(status_updated_at)
+    if normalized_status in {"processing", "running", "in_progress", "started", "rendering", "repairing"}:
+        started = updated_dt or requested_dt
+    else:
+        started = requested_dt or updated_dt
     if started is None:
         return 0
-    elapsed = datetime.now(timezone.utc) - started
+    elapsed = _utcnow() - started
     return max(int(elapsed.total_seconds() // 60), 0)
 
 
@@ -2243,6 +2254,7 @@ def _property_visual_progress_pct(
     if str(ready_url or "").strip():
         return 100
     elapsed_minutes = _property_visual_elapsed_minutes(
+        status=normalized_status,
         requested_at=requested_at,
         status_updated_at=status_updated_at,
     )
@@ -2280,6 +2292,7 @@ def _property_visual_eta_label(
     if normalized_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
         eta_value = _property_visual_initial_eta_minutes(status=normalized_status, eta_minutes=eta_minutes)
         elapsed_minutes = _property_visual_elapsed_minutes(
+            status=normalized_status,
             requested_at=requested_at,
             status_updated_at=status_updated_at,
         )
