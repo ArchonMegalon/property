@@ -13202,6 +13202,49 @@ def test_property_visual_status_route_returns_current_visual_snapshot(monkeypatc
     assert body["poll_after_seconds"] == 10
 
 
+def test_property_visual_request_queue_preserves_original_requested_timestamp(monkeypatch) -> None:
+    principal_id = "property-visual-request-preserve-start"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    persisted: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {"tour_requested_at": "2026-06-22T10:00:00+00:00"},
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted.update(dict(kwargs.get("visual_state") or {})),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_tour_followup",
+        lambda self, **kwargs: type("Followup", (), {"human_task_id": "task-visual-1"})(),
+    )
+    monkeypatch.setattr(ProductService, "_start_property_tour_followup_worker", lambda self, **kwargs: None)
+    monkeypatch.setattr(ProductService, "_record_product_event", lambda self, **kwargs: None)
+
+    response = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/preserve-start-1",
+        request_kind="tour",
+        source_ref="willhaben:preserve-start-1",
+        run_id="run-42",
+        candidate_ref="candidate-42",
+        auto_deliver=False,
+        allow_floorplan_only=True,
+    )
+
+    assert response["status"] == "queued"
+    assert persisted["tour_requested_at"] == "2026-06-22T10:00:00+00:00"
+    assert str(persisted["tour_status_updated_at"] or "").strip()
+    assert persisted["tour_status_updated_at"] != persisted["tour_requested_at"]
+
+
 def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> None:
     principal_id = "property-visual-status-stale-retry"
     client = build_product_client(principal_id=principal_id)
@@ -13263,6 +13306,66 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
     assert response["status_label"] == "Open 3D tour"
     assert response["tour_url"] == "https://propertyquarry.com/tours/stale-visual-42"
     assert response["poll_after_seconds"] == 0
+
+
+def test_property_tour_followup_processing_preserves_original_requested_timestamp(monkeypatch) -> None:
+    principal_id = "property-visual-followup-preserve-start"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/preserve-followup-1",
+        title="Preserve followup start",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:preserve-followup-1",
+        external_id="preserve-followup-1",
+        connector_binding_id="",
+        request_kind="tour",
+        run_id="run-42",
+        candidate_ref="candidate-42",
+        allow_floorplan_only=True,
+    )
+
+    persisted_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {"tour_requested_at": "2026-06-22T10:00:00+00:00"},
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted_calls.append(dict(kwargs.get("visual_state") or {})),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: {
+            "status": "ready",
+            "status_label": "Open 3D tour",
+            "tour_url": "https://propertyquarry.com/tours/preserve-followup-1",
+            "flythrough_url": "",
+            "tour_status": "ready",
+        },
+    )
+
+    response = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="test",
+        limit=1,
+    )
+
+    assert response["attempted_total"] == 1
+    assert persisted_calls
+    processing_state = persisted_calls[0]
+    assert processing_state["tour_requested_at"] == "2026-06-22T10:00:00+00:00"
+    assert str(processing_state["tour_status_updated_at"] or "").strip()
+    assert processing_state["tour_status_updated_at"] != processing_state["tour_requested_at"]
 
 
 def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source_copy(monkeypatch) -> None:

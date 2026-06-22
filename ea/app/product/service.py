@@ -29652,6 +29652,88 @@ class ProductService:
         except Exception:
             pass
 
+    def _current_property_search_visual_state(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        candidate_ref: str = "",
+        source_ref: str = "",
+        property_url: str = "",
+    ) -> dict[str, str]:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_principal = str(principal_id or "").strip()
+        normalized_candidate_ref = str(candidate_ref or "").strip()
+        normalized_source_ref = str(source_ref or "").strip()
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_run_id or not normalized_principal:
+            return {}
+        snapshot = self._snapshot_property_search_run(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        if not isinstance(snapshot, dict):
+            return {}
+        summary = dict(snapshot.get("summary") or {})
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+
+        def _candidate_identity(candidate_row: dict[str, object], source_label: str) -> str:
+            return hashlib.sha1(
+                "|".join(
+                    (
+                        str(candidate_row.get("title") or "").strip(),
+                        urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0],
+                        str(candidate_row.get("review_url") or "").strip(),
+                        str(candidate_row.get("source_ref") or "").strip(),
+                        source_label,
+                    )
+                ).encode("utf-8")
+            ).hexdigest()[:16]
+
+        def _matching_state(candidate_row: dict[str, object], source_label: str) -> dict[str, str]:
+            candidate_source_ref = str(candidate_row.get("source_ref") or "").strip()
+            candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
+            candidate_identity = _candidate_identity(candidate_row, source_label)
+            matches_candidate = False
+            if normalized_source_ref:
+                matches_candidate = candidate_source_ref == normalized_source_ref
+                if matches_candidate and normalized_property_url and candidate_property_url:
+                    matches_candidate = candidate_property_url == normalized_property_url
+            elif normalized_candidate_ref:
+                matches_candidate = candidate_identity == normalized_candidate_ref
+                if matches_candidate and normalized_property_url and candidate_property_url:
+                    matches_candidate = candidate_property_url == normalized_property_url
+            elif normalized_property_url:
+                matches_candidate = candidate_property_url == normalized_property_url
+            if not matches_candidate:
+                return {}
+            return {
+                "tour_requested_at": str(candidate_row.get("tour_requested_at") or "").strip(),
+                "tour_status_updated_at": str(candidate_row.get("tour_status_updated_at") or "").strip(),
+                "flythrough_requested_at": str(candidate_row.get("flythrough_requested_at") or "").strip(),
+                "flythrough_status_updated_at": str(candidate_row.get("flythrough_status_updated_at") or "").strip(),
+                "tour_status": str(candidate_row.get("tour_status") or "").strip().lower(),
+                "flythrough_status": str(candidate_row.get("flythrough_status") or "").strip().lower(),
+            }
+
+        for candidate in list(summary.get("ranked_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            source_label = str(candidate.get("source_label") or candidate.get("source_url") or "Source").strip()
+            matched = _matching_state(dict(candidate), source_label)
+            if matched:
+                return matched
+        for source in sources:
+            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+            for key in ("top_candidates", "research_candidates"):
+                for candidate in list(source.get(key) or []):
+                    if not isinstance(candidate, dict):
+                        continue
+                    matched = _matching_state(dict(candidate), source_label)
+                    if matched:
+                        return matched
+        return {}
+
     def _start_property_tour_followup_worker(
         self,
         *,
@@ -29847,40 +29929,49 @@ class ProductService:
                 failed_total += 1
                 continue
             started_at = _now_iso()
+            existing_visual_state = self._current_property_search_visual_state(
+                principal_id=normalized_principal,
+                run_id=run_id,
+                candidate_ref=candidate_ref,
+                source_ref=source_ref,
+                property_url=property_url,
+            )
             processing_state = {
                 "blocked_reason": "",
             }
             if request_kind == "flythrough":
+                flythrough_requested_at = str(existing_visual_state.get("flythrough_requested_at") or "").strip() or started_at
                 processing_state.update(
                     {
                         "flythrough_status": "processing",
                         "flythrough_eta_minutes": "10",
-                        "flythrough_requested_at": started_at,
+                        "flythrough_requested_at": flythrough_requested_at,
                         "flythrough_status_updated_at": started_at,
                         "flythrough_progress_pct": str(
                             _property_visual_progress_pct(
                                 request_kind="flythrough",
                                 status="processing",
                                 eta_minutes="10",
-                                requested_at=started_at,
+                                requested_at=flythrough_requested_at,
                                 status_updated_at=started_at,
                             )
                         ),
                     }
                 )
             else:
+                tour_requested_at = str(existing_visual_state.get("tour_requested_at") or "").strip() or started_at
                 processing_state.update(
                     {
                         "tour_status": "processing",
                         "tour_eta_minutes": "10",
-                        "tour_requested_at": started_at,
+                        "tour_requested_at": tour_requested_at,
                         "tour_status_updated_at": started_at,
                         "tour_progress_pct": str(
                             _property_visual_progress_pct(
                                 request_kind="tour",
                                 status="processing",
                                 eta_minutes="10",
-                                requested_at=started_at,
+                                requested_at=tour_requested_at,
                                 status_updated_at=started_at,
                             )
                         ),
@@ -30026,6 +30117,13 @@ class ProductService:
             and str(os.getenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS") or "").strip().lower() not in {"1", "true", "yes", "on"}
         ):
             request_opened_at = _now_iso()
+            existing_visual_state = self._current_property_search_visual_state(
+                principal_id=principal_id,
+                run_id=str(run_id or "").strip(),
+                candidate_ref=str(candidate_ref or "").strip(),
+                source_ref=normalized_source_ref,
+                property_url=normalized_property_url,
+            )
             title = "Selected property"
             human_task_id = ""
             try:
@@ -30055,20 +30153,25 @@ class ProductService:
             )
             eta_label = _property_visual_eta_label(request_kind=normalized_kind, status="queued")
             progress_pct = _property_visual_progress_pct(request_kind=normalized_kind, status="queued")
+            persisted_requested_at = (
+                str(existing_visual_state.get("flythrough_requested_at") or "").strip()
+                if normalized_kind == "flythrough"
+                else str(existing_visual_state.get("tour_requested_at") or "").strip()
+            ) or request_opened_at
             visual_state = {
                 "tour_url": "",
                 "vendor_tour_url": "",
                 "tour_status": "pending",
                 "tour_eta_minutes": "10",
-                "tour_requested_at": request_opened_at,
+                "tour_requested_at": persisted_requested_at if normalized_kind == "tour" else str(existing_visual_state.get("tour_requested_at") or "").strip(),
                 "tour_status_updated_at": request_opened_at,
-                "tour_progress_pct": str(_property_visual_progress_pct(request_kind="tour", status="queued")),
+                "tour_progress_pct": str(_property_visual_progress_pct(request_kind="tour", status="queued", requested_at=(persisted_requested_at if normalized_kind == "tour" else str(existing_visual_state.get("tour_requested_at") or "").strip()), status_updated_at=request_opened_at)),
                 "flythrough_url": "",
                 "flythrough_status": "queued" if normalized_kind == "flythrough" else "",
                 "flythrough_eta_minutes": "10" if normalized_kind == "flythrough" else "",
-                "flythrough_requested_at": request_opened_at if normalized_kind == "flythrough" else "",
+                "flythrough_requested_at": persisted_requested_at if normalized_kind == "flythrough" else str(existing_visual_state.get("flythrough_requested_at") or "").strip(),
                 "flythrough_status_updated_at": request_opened_at if normalized_kind == "flythrough" else "",
-                "flythrough_progress_pct": str(_property_visual_progress_pct(request_kind="flythrough", status="queued")) if normalized_kind == "flythrough" else "",
+                "flythrough_progress_pct": str(_property_visual_progress_pct(request_kind="flythrough", status="queued", requested_at=(persisted_requested_at if normalized_kind == "flythrough" else str(existing_visual_state.get("flythrough_requested_at") or "").strip()), status_updated_at=request_opened_at)) if normalized_kind == "flythrough" else "",
                 "blocked_reason": "",
             }
             self._persist_property_search_visual_state(
