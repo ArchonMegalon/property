@@ -315,8 +315,11 @@ def test_app_surface_routes_render_without_product_drift() -> None:
 
     settings = client.get("/app/settings")
     assert str(settings.url).endswith("/app/account")
-    assert "Useful account controls" in settings.text
-    assert "Identity, plan, delivery, and editable defaults." in settings.text
+    assert "Search defaults" in settings.text
+    assert "Notification type" in settings.text
+    assert "Export account data" in settings.text
+    assert "Clear search history" in settings.text
+    assert "Log out" in settings.text
 
 
 def test_propertyquarry_management_settings_use_property_language() -> None:
