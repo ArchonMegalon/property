@@ -1500,13 +1500,11 @@ def _property_console_context(
     selected_country = normalize_country_code(preferences.get("country_code"))
     commercial = property_commercial_snapshot(preferences)
     billing_order_endpoints_by_plan: dict[str, str] = {}
-    billing_provider_labels_by_plan: dict[str, str] = {}
     billing_enabled_plans: list[str] = []
     for paid_plan in ("plus", "agent"):
         if payfunnels_configured(plan_key=paid_plan):
             billing_enabled_plans.append(paid_plan)
             billing_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/checkout/order"
-            billing_provider_labels_by_plan[paid_plan] = "PayFunnels"
     default_billing_plan = billing_enabled_plans[0] if billing_enabled_plans else ""
     selected_platforms = {
         str(value or "").strip().lower()
@@ -1770,7 +1768,6 @@ def _property_console_context(
         default_billing_plan=default_billing_plan,
         billing_enabled_plans=billing_enabled_plans,
         billing_order_endpoints_by_plan=billing_order_endpoints_by_plan,
-        billing_provider_labels_by_plan=billing_provider_labels_by_plan,
     )
     country_catalog_snapshot = _property_country_catalog_snapshot()
 
@@ -1809,13 +1806,10 @@ def _property_console_context(
         "start_endpoint": "/app/api/property/search-runs",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,
-        "billing_checkout_provider": str(billing_truth.get("checkout_provider") or ""),
-        "billing_checkout_provider_label": str(billing_truth.get("checkout_provider_label") or ""),
         "billing_checkout_enabled": bool(billing_truth.get("checkout_enabled")),
         "billing_checkout_enabled_plans": list(billing_truth.get("checkout_enabled_plans") or []),
         "billing_order_endpoint": str(billing_truth.get("order_endpoint") or ""),
         "billing_order_endpoints_by_plan": dict(billing_truth.get("order_endpoints_by_plan") or {}),
-        "billing_provider_labels_by_plan": dict(billing_truth.get("provider_labels_by_plan") or {}),
         "billing_truth": billing_truth,
     }
 

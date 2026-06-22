@@ -1756,11 +1756,12 @@ def test_property_surface_state_builds_billing_truth_snapshot() -> None:
         default_billing_plan="agent",
         billing_enabled_plans=["plus", "agent"],
         billing_order_endpoints_by_plan={"agent": "/billing/order"},
-        billing_provider_labels_by_plan={"agent": "PayFunnels"},
         fleet_digest={"summary": "Visible"},
     )
     assert snapshot["current_plan_label"] == "Agent"
-    assert snapshot["checkout_provider"] == "payfunnels"
+    assert "checkout_provider" not in snapshot
+    assert "checkout_provider_label" not in snapshot
+    assert "provider_labels_by_plan" not in snapshot
     assert snapshot["order_endpoint"] == "/billing/order"
     assert snapshot["fleet_digest"] == {"summary": "Visible"}
 

@@ -858,7 +858,6 @@ def build_property_billing_truth_snapshot(
     default_billing_plan: str,
     billing_enabled_plans: list[str],
     billing_order_endpoints_by_plan: dict[str, str],
-    billing_provider_labels_by_plan: dict[str, str],
     fleet_digest: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return PropertyBillingTruthSnapshot(
@@ -867,17 +866,10 @@ def build_property_billing_truth_snapshot(
         research_depth=str(commercial.get("research_depth") or "deep").strip() or "deep",
         max_platforms=int(commercial.get("max_platforms") or 0),
         max_results_per_source=int(commercial.get("max_results_per_source") or 0),
-        checkout_provider=(
-            "payfunnels"
-            if default_billing_plan and billing_provider_labels_by_plan.get(default_billing_plan) == "PayFunnels"
-            else ("paypal" if default_billing_plan and billing_provider_labels_by_plan.get(default_billing_plan) == "PayPal" else "")
-        ),
-        checkout_provider_label=str(billing_provider_labels_by_plan.get(default_billing_plan) or ""),
         checkout_enabled=bool(billing_enabled_plans),
         checkout_enabled_plans=tuple(billing_enabled_plans),
         order_endpoint=str(billing_order_endpoints_by_plan.get(default_billing_plan) or ""),
         order_endpoints_by_plan=dict(billing_order_endpoints_by_plan),
-        provider_labels_by_plan=dict(billing_provider_labels_by_plan),
         fleet_digest=dict(fleet_digest or {}),
     ).to_dict()
 

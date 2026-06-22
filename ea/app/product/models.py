@@ -505,13 +505,10 @@ class PropertyBillingTruthSnapshot:
     research_depth: str
     max_platforms: int
     max_results_per_source: int
-    checkout_provider: str = ""
-    checkout_provider_label: str = ""
     checkout_enabled: bool = False
     checkout_enabled_plans: tuple[str, ...] = ()
     order_endpoint: str = ""
     order_endpoints_by_plan: dict[str, str] = field(default_factory=dict)
-    provider_labels_by_plan: dict[str, str] = field(default_factory=dict)
     fleet_digest: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
