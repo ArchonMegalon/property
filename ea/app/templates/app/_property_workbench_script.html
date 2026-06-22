@@ -44,11 +44,15 @@
         browserNotificationButton.hidden = true;
         return;
       }
-      browserNotificationButton.hidden = false;
       const permission = String(window.Notification?.permission || 'default');
+      if (permission === 'denied') {
+        browserNotificationButton.hidden = true;
+        return;
+      }
+      browserNotificationButton.hidden = false;
       const enabled = browserNotificationsEnabled();
-      browserNotificationButton.textContent = enabled ? 'Browser alerts on' : (permission === 'denied' ? 'Browser alerts blocked' : 'Browser alerts off');
-      browserNotificationButton.disabled = permission === 'denied';
+      browserNotificationButton.textContent = enabled ? 'Browser alerts on' : 'Browser alerts off';
+      browserNotificationButton.disabled = false;
       browserNotificationButton.setAttribute('aria-pressed', enabled ? 'true' : 'false');
     };
     const requestBrowserNotifications = async () => {
@@ -1594,9 +1598,10 @@
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
+      const panelClass = rows.length === 1 ? ' is-single-result' : '';
       if (!rows.length) {
         return `
-          <section class="pqx-result-panel active" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
+          <section class="pqx-result-panel active${panelClass}" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
             <div class="pqx-result-panel-head">
               <div class="pqx-results-headline">
                 <div class="pqx-note pqx-results-summary-row">
@@ -1699,7 +1704,7 @@
         `;
       }).join('');
       return `
-        <section class="pqx-result-panel active" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
+        <section class="pqx-result-panel active${panelClass}" data-pqx-mobile-panel="results" data-pqx-ranked-candidates>
           <div class="pqx-result-panel-head">
             <div class="pqx-results-headline">
               <div class="pqx-note pqx-results-summary-row">

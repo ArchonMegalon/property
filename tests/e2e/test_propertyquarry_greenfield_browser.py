@@ -2210,7 +2210,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         assert response is not None and response.ok
         assert page.locator(".prd-media-frame").is_visible()
         assert "Open the space before you read the rest" not in page.content()
-        _assert_research_packet_360_first(page, min_stage_height=220, max_stage_height=380)
+        _assert_research_packet_360_first(page, min_stage_height=190, max_stage_height=380)
         body_box = page.locator(".prd-body").first.bounding_box()
         assert body_box is not None
         viewport_height = page.viewport_size["height"] if page.viewport_size else 900
@@ -2247,7 +2247,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
             assert first_screen["galleryBottom"] <= first_screen["viewportHeight"] + 1
         page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
-        assert page.get_by_text("At a glance").first.is_visible()
+        assert page.get_by_text("Current read").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.evaluate(
@@ -2395,15 +2395,13 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const body = document.querySelector('.prd-body');
               const media = document.querySelector('.prd-media-frame');
               const actions = document.querySelector('.prd-actions');
-              const meta = document.querySelector('.prd-summary-stack .prd-meta');
-              const metaCards = Array.from(document.querySelectorAll('.prd-summary-stack .prd-meta-card'));
+              const summaryBoxes = Array.from(document.querySelectorAll('.prd-current-read .prd-summary-box'));
               const shell = document.querySelector('[data-property-research-detail]');
               const feedback = document.querySelector('[data-object-feedback]');
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
               const mediaRect = media ? media.getBoundingClientRect() : null;
               const actionsStyle = actions ? getComputedStyle(actions) : null;
-              const metaStyle = meta ? getComputedStyle(meta) : null;
               const shellRect = shell ? shell.getBoundingClientRect() : null;
               const feedbackRect = feedback ? feedback.getBoundingClientRect() : null;
               const feedbackStyle = feedback ? getComputedStyle(feedback) : null;
@@ -2417,9 +2415,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 mediaHeight: mediaRect ? Math.round(mediaRect.height) : 0,
                 actionsDisplay: actionsStyle ? actionsStyle.display : '',
                 actionsColumns: actionsStyle ? actionsStyle.gridTemplateColumns : '',
-                metaColumns: metaStyle ? metaStyle.gridTemplateColumns.split(' ').length : 0,
-                metaCardCount: metaCards.length,
-                metaTallestCard: Math.max(0, ...metaCards.map((card) => Math.round(card.getBoundingClientRect().height))),
+                summaryBoxCount: summaryBoxes.length,
+                summaryTallestCard: Math.max(0, ...summaryBoxes.map((card) => Math.round(card.getBoundingClientRect().height))),
                 feedbackHeight: feedbackRect ? Math.round(feedbackRect.height) : 0,
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
                 feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
@@ -2434,9 +2431,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert 190 <= layout["mediaHeight"] <= 360
         assert layout["actionsDisplay"] == "grid"
         assert "px" in layout["actionsColumns"]
-        assert layout["metaColumns"] == 2
-        assert layout["metaCardCount"] >= 4
-        assert layout["metaTallestCard"] <= 76
+        assert layout["summaryBoxCount"] == 4
+        assert layout["summaryTallestCard"] <= 82
         assert 360 <= layout["feedbackHeight"] <= 590
         assert layout["feedbackOverflowY"] in {"auto", "scroll"}
         assert layout["feedbackScrolls"] is True
@@ -3995,7 +3991,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         separator = "&" if "?" in packet_url else "?"
         response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="At a glance").is_visible()
+        assert page.locator("body", has_text="Current read").is_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Clippy prompt loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()

@@ -17,13 +17,13 @@
     gap: 10px;
   }
   .prd-shell {
-    width: min(1180px, calc(100vw - 28px));
+    width: min(1140px, calc(100vw - 24px));
     margin: 0 auto;
-    padding-bottom: 10px;
-    gap: 7px;
+    padding-bottom: 8px;
+    gap: 6px;
   }
   .prd-hero {
-    grid-template-columns: minmax(0, 1.04fr) minmax(296px, 0.68fr);
+    grid-template-columns: minmax(0, 1.08fr) minmax(272px, 0.62fr);
     align-items: start;
     gap: 6px;
   }
@@ -32,9 +32,9 @@
     gap: 6px;
   }
   .prd-body {
-    grid-template-columns: minmax(0, 1fr) minmax(252px, 292px);
+    grid-template-columns: minmax(0, 1fr) minmax(228px, 272px);
     align-items: start;
-    gap: 8px;
+    gap: 6px;
   }
   .prd-headline {
     grid-template-columns: 1fr;
@@ -190,16 +190,16 @@
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    min-height: clamp(164px, 21vh, 208px);
-    max-height: min(calc(100vh - 430px), 220px);
+    min-height: clamp(150px, 19vh, 192px);
+    max-height: min(calc(100vh - 448px), 198px);
     padding: 0;
     background: var(--panel-2);
     border: 1px solid var(--line);
     border-radius: 10px;
   }
   .prd-media-frame.prd-media-frame-live {
-    min-height: clamp(176px, 23vh, 228px);
-    max-height: min(calc(100vh - 418px), 234px);
+    min-height: clamp(164px, 21vh, 210px);
+    max-height: min(calc(100vh - 432px), 214px);
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -560,8 +560,8 @@
   }
   .prd-summary-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
   }
   .prd-hero-gallery {
     align-self: start;
@@ -1064,6 +1064,9 @@
       font-size: 0.9rem;
       line-height: 1.18;
     }
+    .prd-summary-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
     .prd-summary-box p,
     .prd-key-point span,
     .prd-gate-item span,
@@ -1282,14 +1285,6 @@
             <strong>{{ row.value }}</strong>
           </div>
           {% endfor %}
-          <div class="prd-summary-box">
-            <span>Best reason to act</span>
-            <strong>{{ (research_match_reasons or [research_summary])|first }}</strong>
-          </div>
-          <div class="prd-summary-box">
-            <span>Main concern</span>
-            <strong>{{ (research_mismatch_reasons or ['Some evidence is still missing before the file is clean.'])|first }}</strong>
-          </div>
         </div>
       </section>
     </section>
@@ -1394,17 +1389,6 @@
       </section>
 
       <aside class="prd-summary-stack">
-        <section class="prd-panel">
-          <div class="prd-kicker">At a glance</div>
-          <div class="prd-meta">
-            {% for row in research_overview_rows %}
-            <div class="prd-meta-card">
-              <span>{{ row.label }}</span>
-              <strong>{{ row.value }}</strong>
-            </div>
-            {% endfor %}
-          </div>
-        </section>
         {% if research_location_preview.get('image_url') %}
         <section class="prd-map-card prd-panel">
           <div class="prd-map-inline">
