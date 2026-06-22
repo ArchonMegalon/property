@@ -118,10 +118,40 @@
     background: color-mix(in srgb, var(--accent-soft) 18%, var(--panel) 82%);
   }
   .auth-provider-card.disabled {
-    opacity: 0.68;
+    background: color-mix(in srgb, var(--panel-2) 78%, var(--bg) 22%);
+    border-color: color-mix(in srgb, var(--line) 78%, transparent);
+    color: var(--text-soft);
+  }
+  .auth-provider-card.disabled .auth-provider-icon {
+    background: color-mix(in srgb, var(--panel-3) 64%, var(--bg) 36%);
+    border-color: var(--line);
+    color: var(--text-soft);
   }
   .auth-provider-card .btn[disabled] {
     cursor: not-allowed;
+    color: var(--text-soft);
+    background: color-mix(in srgb, var(--panel-2) 86%, var(--bg) 14%);
+    border-color: var(--line);
+  }
+  html[data-pq-theme="dark"] .auth-provider-stack {
+    background: color-mix(in srgb, var(--panel-2) 84%, var(--bg) 16%);
+  }
+  html[data-pq-theme="dark"] .auth-provider-stack .auth-provider-card {
+    background: color-mix(in srgb, var(--panel) 84%, var(--bg) 16%);
+    border-color: color-mix(in srgb, var(--line) 70%, transparent);
+  }
+  html[data-pq-theme="dark"] .auth-provider-stack .auth-provider-card:hover {
+    background: color-mix(in srgb, var(--panel-2) 82%, var(--accent-soft) 18%);
+  }
+  html[data-pq-theme="dark"] .auth-provider-stack .auth-provider-card.disabled {
+    background: color-mix(in srgb, var(--panel-2) 88%, var(--bg) 12%);
+    border-color: var(--line);
+    color: var(--text-soft);
+  }
+  html[data-pq-theme="dark"] .auth-provider-stack .auth-provider-card.disabled .auth-provider-icon,
+  html[data-pq-theme="dark"] .auth-provider-stack .auth-provider-card .btn[disabled] {
+    background: var(--panel-3);
+    border-color: var(--line);
     color: var(--text-soft);
   }
   .auth-provider-card.is-submitting .auth-provider-icon {
@@ -187,7 +217,7 @@
       {% endif %}
     </div>
     <div class="auth-provider-stack" aria-label="Sign-in providers">
-      <div class="auth-provider-card{% if not sign_in_google_enabled %} disabled{% endif %}" data-auth-provider-card>
+      <div class="auth-provider-card{% if not sign_in_google_enabled %} disabled{% endif %}" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="{% if sign_in_google_enabled %}enabled{% else %}disabled{% endif %}">
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
@@ -199,7 +229,7 @@
         <button class="btn" type="button" disabled aria-disabled="true">Google unavailable</button>
         {% endif %}
       </div>
-      <div class="auth-provider-card{% if not sign_in_facebook_enabled %} disabled{% endif %}" data-auth-provider-card>
+      <div class="auth-provider-card{% if not sign_in_facebook_enabled %} disabled{% endif %}" data-auth-provider-card data-auth-provider="facebook" data-auth-provider-state="{% if sign_in_facebook_enabled %}enabled{% else %}disabled{% endif %}">
         <span class="auth-provider-icon" aria-hidden="true">f</span>
         <span>
           <strong>Facebook</strong>
@@ -212,7 +242,7 @@
         {% endif %}
       </div>
       {% if sign_in_id_austria_enabled %}
-      <div class="auth-provider-card" data-auth-provider-card>
+      <div class="auth-provider-card" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="enabled">
         <span class="auth-provider-icon" aria-hidden="true">ID</span>
         <span>
           <strong>ID Austria</strong>

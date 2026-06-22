@@ -784,6 +784,59 @@ def _assert_dark_mode_surfaces_stay_readable(page: Page, selectors: list[str]) -
     assert offenders == []
 
 
+def _assert_disabled_auth_provider_rows_are_intentional(page: Page) -> None:
+    rows = page.evaluate(
+        """
+        () => {
+          const parseColor = (value) => {
+            const match = String(value || '').match(/rgba?\\(([^)]+)\\)/);
+            if (!match) return null;
+            const parts = match[1].split(',').map((part) => Number.parseFloat(part.trim()));
+            if (parts.length < 3) return null;
+            return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
+          };
+          const light = (color) => color && color.a >= 0.65 && color.r >= 242 && color.g >= 242 && color.b >= 238;
+          const effectiveBackground = (node) => {
+            let current = node;
+            while (current && current.nodeType === Node.ELEMENT_NODE) {
+              const color = parseColor(window.getComputedStyle(current).backgroundColor);
+              if (color && color.a > 0.08) return color;
+              current = current.parentElement;
+            }
+            return parseColor(window.getComputedStyle(document.body).backgroundColor);
+          };
+          return Array.from(document.querySelectorAll('[data-auth-provider-card][data-auth-provider-state="disabled"]'))
+            .map((card) => {
+              const icon = card.querySelector('.auth-provider-icon');
+              const button = card.querySelector('.btn[disabled]');
+              const cardStyle = window.getComputedStyle(card);
+              const iconStyle = icon ? window.getComputedStyle(icon) : null;
+              const buttonStyle = button ? window.getComputedStyle(button) : null;
+              return {
+                provider: card.getAttribute('data-auth-provider') || '',
+                opacity: Number.parseFloat(cardStyle.opacity || '1'),
+                links: card.querySelectorAll('a[href]').length,
+                buttonDisabled: Boolean(button && button.disabled),
+                buttonCursor: buttonStyle ? buttonStyle.cursor : '',
+                cardBackgroundLight: light(effectiveBackground(card)),
+                iconBackgroundLight: icon ? light(effectiveBackground(icon)) : true,
+                buttonBackgroundLight: button ? light(effectiveBackground(button)) : true,
+              };
+            });
+        }
+        """
+    )
+    assert rows, "the sign-in fixture should exercise at least one unavailable provider"
+    for row in rows:
+        assert row["opacity"] >= 0.99, row
+        assert row["links"] == 0, row
+        assert row["buttonDisabled"] is True, row
+        assert row["buttonCursor"] == "not-allowed", row
+        assert row["cardBackgroundLight"] is False, row
+        assert row["iconBackgroundLight"] is False, row
+        assert row["buttonBackgroundLight"] is False, row
+
+
 def _assert_research_packet_360_first(page: Page, *, min_stage_height: int, max_stage_height: int | None = None) -> None:
     media = page.locator("[data-object-media-stage]").first
     ooda = page.get_by_text("Property details").first
@@ -1001,6 +1054,17 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
             assert response is not None and response.ok
             expect(public_page.locator("html")).to_have_attribute("data-pq-theme", "dark")
             _assert_dark_mode_surfaces_stay_readable(public_page, public_selectors)
+            if route == "/sign-in":
+                _assert_disabled_auth_provider_rows_are_intentional(public_page)
+                _assert_visible_component_contrast(
+                    public_page,
+                    [
+                        '[data-auth-provider-card][data-auth-provider-state="disabled"]',
+                        '[data-auth-provider-card][data-auth-provider-state="disabled"] .auth-provider-icon',
+                        '[data-auth-provider-card][data-auth-provider-state="disabled"] .btn',
+                    ],
+                    minimum_ratio=3.0,
+                )
             public_shot = tmp_path / screenshot_name
             public_page.screenshot(path=str(public_shot), full_page=False, animations="disabled", caret="hide")
             assert public_shot.exists() and public_shot.stat().st_size > 20_000

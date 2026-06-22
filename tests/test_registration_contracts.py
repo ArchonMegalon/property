@@ -217,6 +217,10 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert "auth-provider-card" in response.text
     assert 'class="auth-provider-icon"' in response.text
     assert 'class="auth-provider-card disabled"' in response.text
+    assert 'data-auth-provider="google" data-auth-provider-state="disabled"' in response.text
+    assert 'data-auth-provider="facebook" data-auth-provider-state="disabled"' in response.text
+    assert 'html[data-pq-theme="dark"] .auth-provider-stack .auth-provider-card.disabled' in response.text
+    assert "opacity: 0.68" not in response.text
     assert 'data-auth-provider-status role="status" aria-live="polite"' in response.text
     assert "If the provider does not open, use the secure email link or try again." in response.text
     assert "Still here. Try the provider again, or use the secure email link." in response.text
