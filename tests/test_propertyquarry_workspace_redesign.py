@@ -8904,6 +8904,78 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
     assert "1210 Wien" in packet.text
 
 
+def test_property_research_packet_prefers_ready_ranked_visual_state_over_stale_source_copy(monkeypatch) -> None:
+    principal_id = "pq-research-packet-prefers-ranked-visual"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    stale_candidate = {
+        "title": "Danubeflats demo",
+        "summary": "EUR 6,400 · 90.5 m² · 1220 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-danube-1",
+        "source_ref": "willhaben:demo-danube-1",
+        "tour_status": "blocked",
+        "flythrough_status": "blocked",
+        "blocked_reason": "property_tour_execution_failed",
+        "property_facts": {
+            "price_eur": 6400.0,
+            "area_m2": 90.5,
+            "postal_name": "1220 Wien",
+        },
+    }
+    ready_candidate = {
+        **stale_candidate,
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/demo-danube-1",
+        "flythrough_status": "ready",
+        "flythrough_url": "https://propertyquarry.com/tours/demo-danube-1?pane=flythrough-pane&autoplay=1",
+        "blocked_reason": "",
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [ready_candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [stale_candidate],
+                        "research_candidates": [stale_candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    headers = {"host": "propertyquarry.com"}
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **ready_candidate,
+            "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+        }
+    )
+    packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-ranked-visual"}, headers=headers)
+    assert packet.status_code == 200
+    visible_text = re.sub(r"<script\\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<style\\b[^>]*>.*?</style>", " ", visible_text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<[^>]+>", " ", visible_text)
+    assert "Open 3D tour" in visible_text
+    assert "No hosted 3D tour yet" not in visible_text
+    assert "property_tour_execution_failed" not in visible_text
+
+
 def test_property_research_packet_uses_cross_run_lookup_for_missing_candidate(monkeypatch) -> None:
     principal_id = "pq-research-packet-cross-run"
     client = build_property_client(principal_id=principal_id)

@@ -13265,6 +13265,62 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
     assert response["poll_after_seconds"] == 0
 
 
+def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source_copy(monkeypatch) -> None:
+    principal_id = "property-visual-status-prefers-ranked"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    stale_candidate = {
+        "title": "Danubeflats demo",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-danube-1",
+        "source_ref": "willhaben:demo-danube-1",
+        "tour_status": "blocked",
+        "flythrough_status": "blocked",
+        "blocked_reason": "property_tour_execution_failed",
+    }
+    ready_candidate = {
+        **stale_candidate,
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/demo-danube-1",
+        "flythrough_status": "ready",
+        "flythrough_url": "https://propertyquarry.com/tours/demo-danube-1?pane=flythrough-pane&autoplay=1",
+        "blocked_reason": "",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-status-prefers-ranked"
+        return {
+            "run_id": run_id,
+            "updated_at": "2026-06-22T10:00:00+00:00",
+            "summary": {
+                "ranked_candidates": [dict(ready_candidate)],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "top_candidates": [dict(stale_candidate)],
+                        "research_candidates": [dict(stale_candidate)],
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="willhaben:demo-danube-1",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-danube-1",
+    )
+
+    assert response["status"] == "ready"
+    assert response["status_label"] == "Open 3D tour"
+    assert response["tour_url"] == "https://propertyquarry.com/tours/demo-danube-1"
+
+
 def test_property_tour_followup_dedupes_by_request_kind(monkeypatch) -> None:
     principal_id = "property-tour-followup-request-kind"
     client = build_product_client(principal_id=principal_id)

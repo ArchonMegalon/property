@@ -199,18 +199,62 @@ def _property_candidate_ref(candidate: dict[str, object]) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def _property_candidate_resolution_priority(candidate: dict[str, object]) -> tuple[int, int, int]:
+    tour_url = str(candidate.get("tour_url") or "").strip()
+    flythrough_url = str(candidate.get("flythrough_url") or "").strip()
+    tour_status = str(candidate.get("tour_status") or "").strip().lower()
+    flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
+    ready_score = int(bool(tour_url)) + int(bool(flythrough_url))
+    active_score = int(tour_status == "ready") + int(flythrough_status == "ready")
+    if active_score <= 0:
+        active_score += int(tour_status in {"created", "completed", "published"}) + int(
+            flythrough_status in {"created", "completed", "published"}
+        )
+    payload_score = sum(
+        1
+        for key in ("packet_url", "review_url", "property_url", "vendor_tour_url", "summary", "fit_summary")
+        if str(candidate.get(key) or "").strip()
+    )
+    payload_score += len(dict(candidate.get("property_facts") or {})) if isinstance(candidate.get("property_facts"), dict) else 0
+    return (ready_score, active_score, payload_score)
+
+
+def _property_merge_candidate_rows(candidates: list[dict[str, object]]) -> dict[str, object]:
+    if not candidates:
+        return {}
+    ranked = sorted(candidates, key=_property_candidate_resolution_priority, reverse=True)
+    base = dict(ranked[0])
+    merged_facts: dict[str, object] = {}
+    for candidate in reversed(ranked):
+        facts = candidate.get("property_facts")
+        if isinstance(facts, dict):
+            merged_facts.update(dict(facts))
+    for candidate in ranked[1:]:
+        for key, value in candidate.items():
+            if key == "property_facts":
+                continue
+            if base.get(key) in (None, "", [], {}):
+                base[key] = value
+    if merged_facts:
+        if isinstance(base.get("property_facts"), dict):
+            merged_facts = {**merged_facts, **dict(base.get("property_facts") or {})}
+        base["property_facts"] = merged_facts
+    return base
+
+
 def _property_shortlist_candidates_from_context(property_context: dict[str, object]) -> list[dict[str, object]]:
     run_payload = dict(property_context.get("run") or {})
     run_summary = dict(run_payload.get("summary") or {})
     run_id = str(run_payload.get("run_id") or "").strip()
-    packet_candidates: list[dict[str, object]] = []
-    for candidate in list(run_summary.get("ranked_candidates") or []):
-        if not isinstance(candidate, dict):
-            continue
-        candidate_row = dict(candidate)
-        source_label = str(candidate_row.get("source_label") or candidate_row.get("source_url") or "Source").strip()
+    packet_candidates: dict[str, list[dict[str, object]]] = {}
+
+    def _append_candidate(candidate_row: dict[str, object], source_label: str) -> None:
+        candidate_row = dict(candidate_row)
         candidate_row.setdefault("source_label", source_label)
-        candidate_row.setdefault("property_facts", dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {})
+        candidate_row.setdefault(
+            "property_facts",
+            dict(candidate_row.get("property_facts") or {}) if isinstance(candidate_row.get("property_facts"), dict) else {},
+        )
         packet_ref = _property_candidate_ref(
             {
                 "candidate_ref": str(candidate_row.get("candidate_ref") or candidate_row.get("research_candidate_ref") or "").strip(),
@@ -225,33 +269,24 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
         if run_id:
             packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
         candidate_row.setdefault("packet_url", packet_url)
-        packet_candidates.append(candidate_row)
+        packet_candidates.setdefault(packet_ref, []).append(candidate_row)
+
+    for candidate in list(run_summary.get("ranked_candidates") or []):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_row = dict(candidate)
+        source_label = str(candidate_row.get("source_label") or candidate_row.get("source_url") or "Source").strip()
+        _append_candidate(candidate_row, source_label)
     for source in list(run_summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
         source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-        for candidate in list(source.get("top_candidates") or [])[:5]:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_row = dict(candidate)
-            candidate_row.setdefault("source_label", source_label)
-            candidate_row.setdefault("property_facts", dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {})
-            packet_ref = _property_candidate_ref(
-                {
-                    "candidate_ref": str(candidate_row.get("candidate_ref") or candidate_row.get("research_candidate_ref") or "").strip(),
-                    "title": str(candidate_row.get("title") or "").strip(),
-                    "property_url": str(candidate_row.get("property_url") or "").strip(),
-                    "review_url": str(candidate_row.get("review_url") or "").strip(),
-                    "source_ref": str(candidate_row.get("source_ref") or "").strip(),
-                    "source_label": source_label,
-                }
-            )
-            packet_url = f"/app/research/{packet_ref}"
-            if run_id:
-                packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
-            candidate_row.setdefault("packet_url", packet_url)
-            packet_candidates.append(candidate_row)
-    return packet_candidates
+        for key in ("top_candidates", "research_candidates"):
+            for candidate in list(source.get(key) or [])[:5]:
+                if not isinstance(candidate, dict):
+                    continue
+                _append_candidate(dict(candidate), source_label)
+    return [_property_merge_candidate_rows(rows) for rows in packet_candidates.values()]
 
 
 def _property_lookup_candidate(
@@ -263,30 +298,34 @@ def _property_lookup_candidate(
     if not normalized_ref:
         return None
     summary = dict(dict(property_context.get("run") or {}).get("summary") or {})
+    matches: list[dict[str, object]] = []
     for candidate in list(summary.get("ranked_candidates") or []):
         if not isinstance(candidate, dict):
             continue
         candidate_row = dict(candidate)
         if _property_candidate_ref(candidate_row) == normalized_ref:
-            return candidate_row
+            matches.append(candidate_row)
     for source in list(summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
         source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-        for raw_candidate in list(source.get("top_candidates") or []):
-            if not isinstance(raw_candidate, dict):
-                continue
-            candidate = dict(raw_candidate)
-            candidate.setdefault("source_label", source_label)
-            if _property_candidate_ref(candidate) == normalized_ref:
-                return candidate
+        for key in ("top_candidates", "research_candidates"):
+            for raw_candidate in list(source.get(key) or []):
+                if not isinstance(raw_candidate, dict):
+                    continue
+                candidate = dict(raw_candidate)
+                candidate.setdefault("source_label", source_label)
+                if _property_candidate_ref(candidate) == normalized_ref:
+                    matches.append(candidate)
     for candidate in _property_shortlist_candidates_from_context(property_context):
         if not isinstance(candidate, dict):
             continue
         candidate_row = dict(candidate)
         if _property_candidate_ref(candidate_row) == normalized_ref:
-            return candidate
-    return None
+            matches.append(candidate_row)
+    if not matches:
+        return None
+    return _property_merge_candidate_rows(matches)
 
 
 def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[str, object]:

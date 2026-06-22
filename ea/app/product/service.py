@@ -30337,7 +30337,65 @@ class ProductService:
             raise ValueError("property_visual_status_run_missing")
         summary = dict(snapshot.get("summary") or {})
         sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
-        matched_candidate: dict[str, object] | None = None
+        matched_candidates: list[dict[str, object]] = []
+
+        def _candidate_identity(candidate_row: dict[str, object], source_label: str) -> str:
+            return hashlib.sha1(
+                "|".join(
+                    (
+                        str(candidate_row.get("title") or "").strip(),
+                        urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0],
+                        str(candidate_row.get("review_url") or "").strip(),
+                        str(candidate_row.get("source_ref") or "").strip(),
+                        source_label,
+                    )
+                ).encode("utf-8")
+            ).hexdigest()[:16]
+
+        def _candidate_priority(candidate_row: dict[str, object]) -> tuple[int, int, int]:
+            tour_url = str(candidate_row.get("tour_url") or "").strip()
+            flythrough_url = str(candidate_row.get("flythrough_url") or "").strip()
+            tour_status = str(candidate_row.get("tour_status") or "").strip().lower()
+            flythrough_status = str(candidate_row.get("flythrough_status") or "").strip().lower()
+            ready_score = int(bool(tour_url)) + int(bool(flythrough_url))
+            active_score = int(tour_status == "ready") + int(flythrough_status == "ready")
+            if active_score <= 0:
+                active_score += int(tour_status in {"created", "completed", "published"}) + int(
+                    flythrough_status in {"created", "completed", "published"}
+                )
+            payload_score = sum(
+                1
+                for key in ("review_url", "property_url", "vendor_tour_url", "summary", "fit_summary")
+                if str(candidate_row.get(key) or "").strip()
+            )
+            payload_score += len(dict(candidate_row.get("property_facts") or {})) if isinstance(candidate_row.get("property_facts"), dict) else 0
+            return (ready_score, active_score, payload_score)
+
+        def _append_if_match(candidate_row: dict[str, object], source_label: str) -> None:
+            candidate_source_ref = str(candidate_row.get("source_ref") or "").strip()
+            candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
+            candidate_identity = _candidate_identity(candidate_row, source_label)
+            matches_candidate = False
+            if normalized_source_ref:
+                matches_candidate = candidate_source_ref == normalized_source_ref
+                if matches_candidate and normalized_property_url and candidate_property_url:
+                    matches_candidate = candidate_property_url == normalized_property_url
+            elif normalized_candidate_ref:
+                matches_candidate = candidate_identity == normalized_candidate_ref
+                if matches_candidate and normalized_property_url and candidate_property_url:
+                    matches_candidate = candidate_property_url == normalized_property_url
+            elif normalized_property_url:
+                matches_candidate = candidate_property_url == normalized_property_url
+            if matches_candidate:
+                matched_candidates.append(candidate_row)
+
+        for candidate in list(summary.get("ranked_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            candidate_row = dict(candidate)
+            source_label = str(candidate_row.get("source_label") or candidate_row.get("source_url") or "Source").strip()
+            candidate_row.setdefault("source_label", source_label)
+            _append_if_match(candidate_row, source_label)
         for source in sources:
             source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
             for key in ("top_candidates", "research_candidates"):
@@ -30346,39 +30404,10 @@ class ProductService:
                         continue
                     candidate_row = dict(candidate)
                     candidate_row.setdefault("source_label", source_label)
-                    candidate_source_ref = str(candidate_row.get("source_ref") or "").strip()
-                    candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
-                    candidate_identity = hashlib.sha1(
-                        "|".join(
-                            (
-                                str(candidate_row.get("title") or "").strip(),
-                                candidate_property_url,
-                                str(candidate_row.get("review_url") or "").strip(),
-                                candidate_source_ref,
-                                source_label,
-                            )
-                        ).encode("utf-8")
-                    ).hexdigest()[:16]
-                    matches_candidate = False
-                    if normalized_source_ref:
-                        matches_candidate = candidate_source_ref == normalized_source_ref
-                        if matches_candidate and normalized_property_url and candidate_property_url:
-                            matches_candidate = candidate_property_url == normalized_property_url
-                    elif normalized_candidate_ref:
-                        matches_candidate = candidate_identity == normalized_candidate_ref
-                        if matches_candidate and normalized_property_url and candidate_property_url:
-                            matches_candidate = candidate_property_url == normalized_property_url
-                    elif normalized_property_url:
-                        matches_candidate = candidate_property_url == normalized_property_url
-                    if matches_candidate:
-                        matched_candidate = candidate_row
-                        break
-                if matched_candidate is not None:
-                    break
-            if matched_candidate is not None:
-                break
-        if matched_candidate is None:
+                    _append_if_match(candidate_row, source_label)
+        if not matched_candidates:
             raise ValueError("property_visual_status_candidate_missing")
+        matched_candidate = dict(sorted(matched_candidates, key=_candidate_priority, reverse=True)[0])
 
         tour_url = str(matched_candidate.get("tour_url") or "").strip()
         flythrough_url = str(matched_candidate.get("flythrough_url") or "").strip()
