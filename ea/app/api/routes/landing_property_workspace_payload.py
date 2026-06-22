@@ -404,8 +404,8 @@ def property_workspace_payload(
     fleet_digest = dict(billing_truth.get("fleet_digest") or property_state.get("fleet_digest") or {}) if wants_credit_digest else {}
     fleet_digest_items = [
         row_item(
-            str(item.get("title") or "Repair notes"),
-            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Repair notes pending"),
+            str(item.get("title") or "Retry update"),
+            str(item.get("detail") or item.get("value") or "").strip() or str(fleet_digest.get("preview_text") or "Retry update pending"),
             str(item.get("tag") or "Repair"),
         )
         for item in list(fleet_digest.get("items") or [])[:4]
@@ -1881,7 +1881,7 @@ def property_workspace_payload(
             {"href": "/app/account#delivery", "label": "Delivery"},
         ],
         "agents": [
-            {"href": f"/app/search{run_suffix}", "label": "New watch", "tone": "primary"},
+            {"href": f"/app/search{run_suffix}", "label": "New search", "tone": "primary"},
             {"href": f"/app/search{run_suffix}", "label": "Edit brief"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
         ],
@@ -1929,7 +1929,7 @@ def property_workspace_payload(
         "alerts": [
             {"label": "Delivered", "value": str(len(recent_matches_card.get("items") or [])), "detail": "Hosted pages or packets already sent.", "href": f"/app/alerts{run_suffix}"},
             {"label": "Run events", "value": str(len(run_events[-4:])), "detail": "Recent run updates visible to the user.", "href": f"/app/alerts{run_suffix}"},
-            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Portals currently feeding the alert lane.", "href": f"/app/properties{run_suffix}"},
+            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Selected sources for saved-search alerts.", "href": f"/app/properties{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest saved-search sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "agents": [
@@ -2461,14 +2461,14 @@ def property_workspace_payload(
             "secondary_cards": [
                 {
                     "eyebrow": "Saved search",
-                    "title": "The alert lane should still expose the search brief driving it",
-                    "body": "Recurring alerts are only useful when the user can still see and revise the saved search behind them.",
+                    "title": "The saved search stays editable",
+                    "body": "Recurring alerts are only useful when the saved search behind them is easy to review and change.",
                     "items": saved_search_rows,
                 },
                 {
-                    "eyebrow": "Delivery",
-                    "title": "Delivery rules",
-                    "body": "Outbound channels must stay opt-in, quiet-hour aware, and easy to stop.",
+                    "eyebrow": "Alerts",
+                    "title": "Notification rules",
+                    "body": "Email, Telegram, and WhatsApp stay opt-in, quiet-hour aware, and easy to stop.",
                     "items": delivery_governance_rows,
                 },
                 run_card,
@@ -2487,8 +2487,8 @@ def property_workspace_payload(
             "hero_highlights": hero_highlights["agents"],
             "primary_cards": [
                 {
-                    "eyebrow": "Selected watch",
-                    "title": str((selected_agent or {}).get("name") or "Open one market watch"),
+                    "eyebrow": "Selected search",
+                    "title": str((selected_agent or {}).get("name") or "Open a saved search"),
                     "body": (
                         ""
                         if selected_agent
@@ -2497,7 +2497,7 @@ def property_workspace_payload(
                     "items": (
                         [
                             {
-                                "title": "Watching",
+                                "title": "Scope",
                                 "detail": str((selected_agent or {}).get("scope_label") or "No scope saved"),
                                 "tag": str((selected_agent or {}).get("status_label") or "Idle"),
                                 "action_href": selected_agent_open_href or f"/app/agents{run_suffix}",
@@ -2507,8 +2507,8 @@ def property_workspace_payload(
                                 "secondary_action_method": "get",
                                 "secondary_action_label": "Edit",
                             },
-                            row_item("Notification budget", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
-                            row_item("Run cadence", str((selected_agent or {}).get("run_label") or "Waiting for the first scheduler run."), "Timing"),
+                            row_item("Notification cap", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
+                            row_item("Schedule", str((selected_agent or {}).get("run_label") or "Waiting for the first run."), "Timing"),
                             row_item(
                                 "Latest finished run",
                                 (
@@ -2522,20 +2522,20 @@ def property_workspace_payload(
                     ),
                 },
                 {
-                    "eyebrow": "Watchlist",
-                    "title": "Watchlist",
+                    "eyebrow": "Saved searches",
+                    "title": "Saved searches",
                     "body": "",
                     "items": agent_management_rows,
                 }
             ],
             "secondary_cards": [
                 {
-                    "eyebrow": "Delivery",
-                    "title": "Delivery",
+                    "eyebrow": "Alerts",
+                    "title": "Alerts",
                     "body": "",
                     "items": [
-                        row_item("Delivery", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly delivery cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
-                        row_item("Reports", "Daily, weekly, and repair digests use the saved delivery channel.", "Alerts"),
+                        row_item("Notification cap", str((selected_agent or {}).get("delivery_label") or "Set a daily or weekly cap."), str((selected_agent or {}).get("notification_label") or "Budget")),
+                        row_item("Updates", "Daily and weekly alerts use the chosen notification channel.", "Alerts"),
                         row_item(
                             "Latest outcome",
                             (
@@ -2548,13 +2548,13 @@ def property_workspace_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Repair",
-                    "title": "Repair",
+                    "eyebrow": "Recovery",
+                    "title": "Recovery",
                     "body": "",
                     "items": repair_truth_rows + (
                         fleet_digest_items[:2]
                         if fleet_digest_items
-                        else [row_item("Repair notes", "Provider retries and repair outcomes will appear here after the next saved-search run.", "Repair")]
+                        else [row_item("Retry updates", "If a source fails, the next saved-search run will show whether it recovered.", "Recovery")]
                     ),
                 },
                 {

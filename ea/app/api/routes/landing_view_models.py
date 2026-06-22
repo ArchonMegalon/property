@@ -2505,9 +2505,9 @@ def app_section_payload(
     ready_channels = sum(1 for card in cards if card["tone"] == "good")
     selected_count = len(selected) or len([card for card in cards if card["status"] != "not selected"]) or 0
     stats = [
-        {"label": "Approvals", "value": str(len(approvals))},
-        {"label": "Human tasks", "value": str(len(human_tasks))},
-        {"label": "Queued delivery", "value": str(len(pending_delivery))},
+        {"label": "Reviews", "value": str(len(approvals))},
+        {"label": "Follow-ups", "value": str(len(human_tasks))},
+        {"label": "Queued alerts", "value": str(len(pending_delivery))},
         {
             "label": "Channels ready",
             "value": f"{ready_channels}/{selected_count}" if selected_count else str(ready_channels),
@@ -2517,9 +2517,9 @@ def app_section_payload(
         preview.get("first_brief_preview") or preview.get("first_brief"),
         ("Connect Google sign-in if you want a faster return path and verified account access.",),
     )
-    suggested = list_rows(preview.get("suggested_actions"), ("Finish onboarding and request the first memo.",))
-    trust_notes = list_rows(preview.get("trust_notes"), ("Keep approvals and retention rules explicit.",))
-    people = list_rows(preview.get("top_contacts"), ("No people surfaced yet.",))
+    suggested = list_rows(preview.get("suggested_actions"), ("Finish onboarding and create the first saved search.",))
+    trust_notes = list_rows(preview.get("trust_notes"), ("Keep retention and sharing settings explicit.",))
+    people = list_rows(preview.get("top_contacts"), ("No collaborators added yet.",))
     themes = list_rows(preview.get("top_themes"), ("No themes surfaced yet.",))
     approvals_items = approval_rows(approvals)
     human_task_items = human_task_rows(human_tasks)
@@ -2527,13 +2527,13 @@ def app_section_payload(
     live_queue = (approvals_items + human_task_items)[:6]
     privacy_lines = [
         f"Retention: {humanize(str(privacy.get('retention_mode') or 'not set'))}",
-        f"Drafts: {'allowed' if privacy.get('allow_drafts') else 'manual only'}",
+        f"Prepared messages: {'allowed' if privacy.get('allow_drafts') else 'manual only'}",
         f"Action suggestions: {'allowed' if privacy.get('allow_action_suggestions') else 'off'}",
-        f"Automatic briefs: {'allowed' if privacy.get('allow_auto_briefs') else 'off'}",
+        f"Scheduled emails: {'allowed' if privacy.get('allow_auto_briefs') else 'off'}",
     ]
     if privacy.get("allow_auto_briefs"):
         privacy_lines.append(
-            "Memo schedule: "
+            "Email schedule: "
             + " · ".join(
                 part
                 for part in (
@@ -2553,7 +2553,7 @@ def app_section_payload(
             "Recommended",
         ),
         row_item(
-            "Connect Google for workspace context",
+            "Connect Google for return access",
             "Treat Google as optional account access first; only widen scopes later if the product truly needs them.",
             "Linked",
         ),
@@ -2563,13 +2563,13 @@ def app_section_payload(
             "Linked",
         ),
         row_item(
-            "Keep work bounded",
-            "Approvals, human tasks, and queued delivery stay explicit instead of hiding behind automation copy.",
+            "Keep automation bounded",
+            "Reviews, follow-ups, and queued alerts stay explicit instead of hiding behind automation copy.",
             "Guardrail",
         ),
     ]
     follow_up_context_items = [
-        row_item(title, "Keep the underlying promise, thread, or deadline attached to the work item.", "Context")
+        row_item(title, "Keep the property, question, or deadline attached to the follow-up.", "Context")
         for title in trust_notes
     ]
     property_state = dict(property_context or {})
@@ -4696,139 +4696,139 @@ def app_section_payload(
     }
     mapping: dict[str, dict[str, object]] = {
         "today": {
-            "title": "Morning Memo",
+            "title": "Today",
             "summary": str(
                 preview.get("headline")
                 or status.get("next_step")
-                or "Start with the operating memo, clear the decision queue, and keep commitments from drifting."
+                or "Start with the current search, review the strongest homes, and keep follow-ups visible."
             ),
             "cards": [
                 {
-                    "eyebrow": "Live queue",
+                    "eyebrow": "Today",
                     "title": "What needs action now",
-                    "body": "The day opens on real approvals and human tasks instead of a motivational dashboard.",
+                    "body": "Start with real property decisions instead of a generic dashboard.",
                     "items": live_queue
                     or string_rows(
                         first_brief,
                         ("Connect Google sign-in if you want easier return access from the same account.",),
                         tag="Next",
-                        detail="This is the shortest path to a real working day.",
+                        detail="This is the shortest path to a useful search session.",
                     ),
                 },
                 {
-                    "eyebrow": "Outbound work",
-                    "title": "What is queued to leave the office loop",
-                    "body": "Pending delivery stays visible so drafts, approvals, and sends never blur together.",
+                    "eyebrow": "Alerts",
+                    "title": "What is queued",
+                    "body": "Queued alerts stay visible and easy to stop.",
                     "items": pending_delivery_items
                     or string_rows(
                         suggested,
-                        ("No queued delivery yet.",),
+                        ("No queued alerts yet.",),
                         tag="Review",
-                        detail="Once a draft or action is ready, it will show up here.",
+                        detail="Once an alert or follow-up is ready, it will show up here.",
                     ),
                 },
                 {
-                    "eyebrow": "Brief signal",
-                    "title": "What is shaping the day",
-                    "body": "The memo stays narrative, but it still points at work that exists.",
-                    "items": string_rows(first_brief, ("No memo items yet.",), tag="Memo", detail="Use the memo to set the order of operations."),
+                    "eyebrow": "Search signal",
+                    "title": "What is shaping the search",
+                    "body": "The current brief stays visible and tied to real results.",
+                    "items": string_rows(first_brief, ("No search items yet.",), tag="Search", detail="Use this to decide what to review first."),
                 },
                 {
                     "eyebrow": "Identity and channels",
                     "title": "Keep setup boring and useful",
-                    "body": "Identity stays simple. Channels widen coverage only after the first loop works.",
+                    "body": "Identity stays simple. Channels widen coverage only after the first search works.",
                     "items": identity_posture_items,
                 },
             ],
         },
         "queue": {
-            "title": "Decision Queue",
-            "summary": str(preview.get("headline") or "Turn the day into decisions: approve, assign, defer, or close."),
+            "title": "Decisions",
+            "summary": str(preview.get("headline") or "Turn search activity into clear decisions: pursue, maybe, dismiss, or follow up."),
             "cards": [
                 {
-                    "eyebrow": "Decision pressure",
+                    "eyebrow": "Decision signal",
                     "title": "What changed",
                     "body": "The queue explains what changed, why it matters, and what decision belongs next.",
-                    "items": string_rows(first_brief, ("No memo items yet.",), tag="Memo", detail="This is the current ranked memo item."),
+                    "items": string_rows(first_brief, ("No search items yet.",), tag="Search", detail="This is the current ranked search signal."),
                 },
                 {
                     "eyebrow": "Themes",
                     "title": "Recurring topics",
-                    "body": "Themes help the user understand the day without reopening every thread.",
-                    "items": string_rows(themes, ("No themes surfaced yet.",), tag="Theme", detail="This theme is active in the current workspace."),
+                    "body": "Themes help compare results without reopening every property.",
+                    "items": string_rows(themes, ("No themes surfaced yet.",), tag="Theme", detail="This theme is active in the current search."),
                 },
                 {
-                    "eyebrow": "Live queue",
+                    "eyebrow": "Open reviews",
                     "title": "What the queue clears",
-                    "body": "A useful queue terminates in real approvals, assignments, or outbound actions.",
+                    "body": "A useful queue ends in a property decision or a clear follow-up.",
                     "items": live_queue
                     or string_rows(
                         suggested,
                         ("No live review items yet.",),
                         tag="Queue",
-                        detail="Once the office loop starts moving, the memo points here.",
+                        detail="Once the search starts moving, review items appear here.",
                     ),
                 },
                 {
-                    "eyebrow": "Stakeholders",
-                    "title": "People affected by the queue",
-                    "body": "Stakeholders only matter if they stay attached to the decisions and commitments in front of the team.",
-                    "items": string_rows(people, ("No people surfaced yet.",), tag="Person", detail="This person is active in the current memo."),
+                    "eyebrow": "Collaborators",
+                    "title": "People attached to decisions",
+                    "body": "People only matter here when they are tied to a property decision.",
+                    "items": string_rows(people, ("No collaborators added yet.",), tag="Person", detail="This person is active in the current search."),
                 },
             ],
         },
         "commitments": {
-            "title": "Commitments",
-            "summary": "Messages, meetings, and notes only matter when they update a commitment, create a decision, or close a loop.",
+            "title": "Follow-ups",
+            "summary": "Questions, viewings, and notes only matter when they move a property decision forward.",
             "cards": [
                 {
-                    "eyebrow": "Commitment pressure",
+                    "eyebrow": "Follow-up pressure",
                     "title": "What is in motion",
-                    "body": "This surface shows which commitments are active, which decisions are waiting, and which drafts are holding things up.",
+                    "body": "This page shows which property questions are active and which decisions are waiting.",
                     "items": live_queue
                     or string_rows(
                         suggested,
-                        ("No live commitment queue yet.",),
-                        tag="Draft",
-                        detail="Once drafts or approvals exist, they will appear here.",
+                        ("No live follow-ups yet.",),
+                        tag="Follow-up",
+                        detail="Once questions or alerts exist, they will appear here.",
                     ),
                 },
                 {
-                    "eyebrow": "Queued delivery",
-                    "title": "What is waiting to leave",
-                    "body": "Outbound work is part of the commitment loop, not hidden afterthought state.",
+                    "eyebrow": "Queued alerts",
+                    "title": "What is waiting",
+                    "body": "Alerts and property questions stay visible before they leave the account.",
                     "items": pending_delivery_items
                     or string_rows(
                         channel_lines,
-                        ("No delivery queue yet.",),
+                        ("No alert queue yet.",),
                         tag="Ready",
-                        detail="Connected channels determine what the queue can actually move.",
+                        detail="Connected channels determine which alerts can be sent.",
                     ),
                 },
                 {
-                    "eyebrow": "Decision pressure",
+                    "eyebrow": "Priority",
                     "title": "What will bubble up next",
-                    "body": "The commitment ledger gets its order from pressure and deadlines, not from unread-count theater.",
-                    "items": string_rows(first_brief, ("No priorities surfaced yet.",), tag="Memo", detail="This is the current upstream signal for the commitment queue."),
+                    "body": "Follow-ups are ordered by search priority and deadlines, not noise.",
+                    "items": string_rows(first_brief, ("No priorities surfaced yet.",), tag="Search", detail="This is the current signal for the follow-up queue."),
                 },
             ],
         },
         "people": {
-            "title": "People Graph",
-            "summary": "The product moat lives in the relationship system: people, recurring themes, open loops, and office pressure that survive beyond one session.",
+            "title": "People",
+            "summary": "Keep collaborators tied to concrete property decisions, notes, and outcomes.",
             "cards": [
-                {"eyebrow": "Stakeholders", "title": "Who matters right now", "items": string_rows(people, ("No people surfaced yet.",), tag="Person", detail="These people are shaping the current office loop.")},
-                {"eyebrow": "Relationship themes", "title": "What keeps recurring", "items": string_rows(themes, ("No themes surfaced yet.",), tag="Theme", detail="Recurring pressure and themes stay durable in the workspace.")},
-                {"eyebrow": "Rules", "title": "What the office memory may keep", "items": string_rows(privacy_lines, ("No retention policy set yet.",), tag="Policy", detail="These rules bound what the workspace retains.")},
+                {"eyebrow": "Collaborators", "title": "Who matters right now", "items": string_rows(people, ("No collaborators added yet.",), tag="Person", detail="These people are attached to the current search.")},
+                {"eyebrow": "Shared themes", "title": "What keeps recurring", "items": string_rows(themes, ("No themes surfaced yet.",), tag="Theme", detail="Recurring themes stay available in the workspace.")},
+                {"eyebrow": "Settings", "title": "What the account may keep", "items": string_rows(privacy_lines, ("No retention policy set yet.",), tag="Setting", detail="These settings define what the workspace retains.")},
             ],
         },
         "evidence": {
             "title": "Evidence",
-            "summary": "Evidence explains why something surfaced: which signal, which channel, which context, and which rule put it in front of the team.",
+            "summary": "Evidence explains why something surfaced: which property signal, channel, context, and rule put it in front of you.",
             "cards": [
-                {"eyebrow": "Memo evidence", "title": "Why items surfaced", "items": string_rows(first_brief, ("No evidence rows surfaced yet.",), tag="Evidence", detail="This is one of the signals behind the current operating view.")},
-                {"eyebrow": "Trust notes", "title": "What keeps the surface explainable", "items": string_rows(trust_notes, ("No trust notes yet.",), tag="Rule", detail="These constraints explain why the assistant behaved this way.")},
-                {"eyebrow": "Channel sources", "title": "Where the evidence came from", "items": channel_items},
+                {"eyebrow": "Search evidence", "title": "Why items surfaced", "items": string_rows(first_brief, ("No evidence rows surfaced yet.",), tag="Evidence", detail="This is one of the signals behind the current view.")},
+                {"eyebrow": "Settings", "title": "What keeps results explainable", "items": string_rows(trust_notes, ("No settings notes yet.",), tag="Rule", detail="These settings explain the product behavior.")},
+                {"eyebrow": "Sources", "title": "Where the evidence came from", "items": channel_items},
             ],
         },
         "channels": {
@@ -4841,29 +4841,29 @@ def app_section_payload(
             ],
         },
         "automations": {
-            "title": "Policies",
-            "summary": "Policies stay understandable: what the assistant may read, draft, send, remember, and escalate.",
+            "title": "Settings",
+            "summary": "Settings stay understandable: alerts, prepared messages, retention, and sharing.",
             "cards": [
-                {"eyebrow": "Assistant rules", "title": "Current rules", "items": privacy_lines},
+                {"eyebrow": "Account rules", "title": "Current rules", "items": privacy_lines},
                 {"eyebrow": "Suggested changes", "title": "What to unlock next", "items": suggested},
                 {"eyebrow": "Guardrails", "title": "Why these rules exist", "items": trust_notes},
             ],
         },
         "activity": {
-            "title": "Audit",
-            "summary": "Audit explains what changed, what left the system, and which rule or review point allowed it.",
+            "title": "Activity",
+            "summary": "Activity shows what changed, what was sent, and which setting allowed it.",
             "cards": [
                 {"eyebrow": "Account", "title": "Current state", "items": string_rows([f"Status: {status_label}", f"Setup state: {status.get('onboarding_id') or 'not started'}", f"Next step: {status.get('next_step') or 'None'}"], ("No account state yet.",), tag="State", detail="This is the current account status.")},
                 {"eyebrow": "Channels", "title": "Recent changes", "items": channel_items},
-                {"eyebrow": "Trust", "title": "Why this feed matters", "items": string_rows(trust_notes, ("No trust notes yet.",), tag="Context", detail="This keeps the activity feed understandable.")},
+                {"eyebrow": "Settings", "title": "Why this feed matters", "items": string_rows(trust_notes, ("No settings notes yet.",), tag="Context", detail="This keeps the activity feed understandable.")},
             ],
         },
         "settings": {
-            "title": "Rules",
-            "summary": "Rules stay boring and explicit once the first working loop already exists.",
+            "title": "Settings",
+            "summary": "Settings stay boring and explicit once the first useful search already exists.",
             "cards": [
                 {"eyebrow": "Account", "title": "Current account settings", "items": string_rows([f"Name: {workspace.get('name') or 'PropertyQuarry'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No account settings yet.",), tag="Account", detail="These are the current PropertyQuarry defaults.")},
-                {"eyebrow": "Policy", "title": "Assistant behavior", "items": string_rows(privacy_lines, ("No privacy rules set yet.",), tag="Rule", detail="These controls shape what the assistant may do.")},
+                {"eyebrow": "Privacy", "title": "Product behavior", "items": string_rows(privacy_lines, ("No privacy rules set yet.",), tag="Rule", detail="These controls shape what the product may do.")},
                 {"eyebrow": "Channels", "title": "Selected linked channels", "items": channel_items},
             ],
         },

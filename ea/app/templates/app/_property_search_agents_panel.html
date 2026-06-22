@@ -10,13 +10,13 @@
 <section class="pqx-card pqx-automation-board is-compact" data-property-search-agent-management>
   <div class="pqx-section-head">
     <div>
-      <div class="pqx-small">Recurring watches</div>
+      <div class="pqx-small">Saved searches</div>
       <h2>Saved searches</h2>
-      <div class="pqx-note">Recurring briefs, delivery budgets, and recent outcomes.</div>
+      <div class="pqx-note">Recurring search briefs, alert caps, and recent outcomes.</div>
     </div>
     <div class="pqx-actions">
       <span class="pqx-pill">{{ active_total }} active</span>
-      <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">New watch</a>
+      <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">New search</a>
     </div>
   </div>
 
@@ -56,7 +56,7 @@
         </div>
         <div class="pqx-automation-rhythm">
           <span>{{ agent.get('run_label') or 'Waiting for first run' }}</span>
-          <span>{{ agent.get('delivery_label') or 'Delivery not set' }}</span>
+          <span>{{ agent.get('delivery_label') or 'Alerts not set' }}</span>
         </div>
         <div class="pqx-automation-actions">
           <button class="pqx-button primary" type="button" data-search-agent-action="run">Run</button>
@@ -71,7 +71,7 @@
     {% else %}
     <div class="pqx-empty pqx-automation-empty" data-property-search-agent-row data-search-agent-id="current" data-search-agent-payload="{}">
       <strong>No saved search yet</strong>
-      <span>Save a search brief to create the first recurring watch.</span>
+      <span>Save a search brief to create the first recurring search.</span>
       <div class="pqx-actions">
         <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">Create saved search</a>
       </div>

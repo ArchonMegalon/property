@@ -25,16 +25,16 @@ def rule_items_from_workspace(status: dict[str, object], diagnostics: dict[str, 
             status="active",
             summary="Google remains the first required connection before optional channels and advanced automation.",
             current_value="google",
-            impact="Messaging stays deferred until the first memo, first draft review, and first commitment loop are useful.",
+            impact="Extra channels stay off until the first saved search and shortlist are useful.",
         ),
         RuleItem(
             id="rule:draft_approval",
-            label="Draft approval",
+            label="Review before sending",
             scope="delivery",
             status="active",
-            summary="Outbound drafts remain reviewable before send so the office loop stays auditable.",
+            summary="Messages and property questions stay reviewable before anything is sent.",
             current_value="principal_review",
-            impact="Drafts require an explicit approval or rejection path before they leave the workspace.",
+            impact="Sensitive messages require an explicit send or discard decision.",
             requires_approval=True,
         ),
         RuleItem(
@@ -53,11 +53,11 @@ def rule_items_from_workspace(status: dict[str, object], diagnostics: dict[str, 
             status="active",
             summary="Retention controls how long account history and saved workspace activity stay available.",
             current_value=str(privacy.get("retention_mode") or plan.entitlements.audit_retention or "30d"),
-            impact="Longer retention improves diagnostics and historical auditability.",
+            impact="Longer retention keeps more saved-search history available.",
         ),
         RuleItem(
             id="rule:operator_seats",
-            label="Operator seat limit",
+            label="Seat limit",
             scope="commercial",
             status="active" if seats_used <= seat_limit else "over_limit",
             summary="Seat limits control how many people can use the workspace on this plan.",
@@ -89,9 +89,9 @@ def simulate_rule(rule: RuleItem, *, proposed_value: str, diagnostics: dict[str,
             effect = "Messaging stays off until it is explicitly enabled in the workspace."
     elif rule.id == "rule:draft_approval":
         if proposed.lower() in {"off", "disabled", "auto_send"}:
-            effect = "Disabling draft approval would allow outbound actions to leave the review queue immediately."
+            effect = "Disabling review would allow prepared messages to send immediately."
         else:
-            effect = "Approval remains a visible gate for sensitive outbound work."
+            effect = "Review stays on for sensitive outbound messages."
     elif rule.id == "rule:operator_seats":
         try:
             proposed_seats = int(float(proposed))
@@ -99,9 +99,9 @@ def simulate_rule(rule: RuleItem, *, proposed_value: str, diagnostics: dict[str,
             proposed_seats = int(entitlements.get("operator_seats") or 0)
         seats_used = int(operators.get("seats_used") or 0)
         if proposed_seats < seats_used:
-            effect = "The proposed seat count is below current usage and would force operator reassignment."
+            effect = "The proposed seat count is below current usage."
         else:
-            effect = "The proposed seat count can absorb the current operator lane."
+            effect = "The proposed seat count covers the current workspace."
     elif rule.id == "rule:memory_retention":
-        effect = "Retention changes would alter how long trust receipts and support traces remain exportable."
+        effect = "Retention changes how long saved-search history and account activity stay available."
     return replace(rule, current_value=proposed, simulated_effect=effect)

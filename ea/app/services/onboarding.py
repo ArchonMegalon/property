@@ -103,8 +103,8 @@ ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
     },
     {
         "key": "executive_ops",
-        "label": "Executive support",
-        "summary": "A heavier property operation with deeper research, more operators, and stronger delivery controls.",
+        "label": "Concierge search",
+        "summary": "A heavier property search with deeper research, more follow-up, and stronger sharing controls.",
     },
 )
 
@@ -1698,7 +1698,7 @@ class OnboardingService(AssistantOnboardingService):
             dict(morning_memo_schedule or {}).get("resolved_recipient_email")
         ):
             return "Connect Google or set a delivery email so notifications can actually send when you enable them."
-        return "Review the first shortlist, save feedback, and only then add more providers or delivery lanes."
+        return "Review the first shortlist, save feedback, and only then add more sources or alert channels."
 
     @staticmethod
     def _normalize_auto_brief_cadence(value: str) -> str:
@@ -2298,15 +2298,15 @@ class OnboardingService(AssistantOnboardingService):
             ]
         elif normalized_mode == "executive_ops":
             base = [
-                "Morning memos that connect email, chat, calendar, and commitment state",
-                "Durable relationship memory that survives inbox and chat scrollback",
-                "Drafts, meeting prep, and operator notes with attached source traces",
+                "Saved-search updates that connect ranking, alerts, and follow-up",
+                "Decision memory that keeps past shortlist feedback useful",
+                "Property questions, notes, and next steps tied to the source listing",
             ]
         else:
             base = [
-                "Reply backlog across personal channels",
-                "Upcoming commitments and who they affect",
-                "Commitments that stay visible after the thread scrolls away",
+                "One clear search brief",
+                "Ranked homes that match the selected areas and budget",
+                "Feedback that improves the next shortlist",
             ]
         if "google" in selected_channels:
             base.append("Mail triage with calendar-aware context")

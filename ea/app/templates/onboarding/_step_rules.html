@@ -50,7 +50,7 @@
 
     <section class="path-card">
       <strong>Preference tuning after results</strong>
-      <p class="copy">Use the preferences surface after first value to change profile rules, limits, or automation depth based on real use.</p>
+      <p class="copy">Use account settings after first value to change search defaults, limits, or alert depth based on real use.</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/app/settings">Open preferences</a>
@@ -60,7 +60,7 @@
 
     <section class="path-card">
       <strong>Evidence for follow-up research</strong>
-      <p class="copy">If the first shortlist does not feel useful, inspect missing facts and weak-fit reasons before adding more portals.</p>
+      <p class="copy">If the first shortlist does not feel useful, inspect missing facts and weak-fit reasons before adding more sources.</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/app/search">Open PropertyQuarry</a>
@@ -82,7 +82,7 @@
   <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="3">
     {{ shared_browser_fields|safe }}
     <div class="check-grid">
-      <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft outreach</strong>Prepare listing questions or follow-up messages for review before anything is sent.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Prepare messages</strong>Prepare listing questions or follow-up messages for review before anything is sent.</span></label>
       <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow recommendation hints</strong>Let the product surface next steps, ranking explanations, and shortlist actions.</span></label>
       <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow shortlist emails</strong>Send a scheduled summary.</span></label>
     </div>
@@ -90,7 +90,7 @@
 
     <div class="field-grid" style="margin-top: 12px;">
       <div>
-        <label for="auto_brief_cadence">Digest cadence</label>
+        <label for="auto_brief_cadence">Email cadence</label>
         <select id="auto_brief_cadence" name="auto_brief_cadence">
           <option value="daily_morning" {% if morning_memo.get('cadence', 'daily_morning') == 'daily_morning' %}selected{% endif %}>Every day</option>
           <option value="weekdays_morning" {% if morning_memo.get('cadence') == 'weekdays_morning' %}selected{% endif %}>Weekdays only</option>
@@ -101,7 +101,7 @@
         <input id="auto_brief_delivery_time_local" name="auto_brief_delivery_time_local" type="time" value="{{ morning_memo.get('delivery_time_local', '08:00') }}">
       </div>
       <div>
-        <label for="auto_brief_recipient_email">Delivery email override</label>
+        <label for="auto_brief_recipient_email">Email override</label>
         <input id="auto_brief_recipient_email" name="auto_brief_recipient_email" type="email" placeholder="Uses Google primary email by default" value="{{ morning_memo.get('recipient_email', '') }}">
       </div>
       <div>

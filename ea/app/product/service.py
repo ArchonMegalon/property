@@ -46366,11 +46366,11 @@ class ProductService:
         return [
             {
                 "key": "memo",
-                "headline": "Morning memo digest",
-                "summary": "Forward or open the ranked day brief from a mobile-safe surface.",
+                "headline": "Today digest",
+                "summary": "Open the ranked property brief from a mobile-safe page.",
                 "preview_text": (
-                    f"{len(snapshot.brief_items)} memo items, {len(at_risk_commitments)} commitments at risk, {len(open_decisions)} open decisions."
-                    + (" 1 memo blocker needs a fix action." if memo_blocker_item is not None else "")
+                    f"{len(snapshot.brief_items)} brief items, {len(at_risk_commitments)} follow-ups at risk, {len(open_decisions)} open decisions."
+                    + (" 1 item needs a fix action." if memo_blocker_item is not None else "")
                 ),
                 "items": memo_items,
                 "stats": {
@@ -46382,12 +46382,12 @@ class ProductService:
             },
             {
                 "key": "approvals",
-                "headline": "Inline approvals",
-                "summary": "Clear draft approvals, staged commitment review, and decision pressure without dropping into the full workspace.",
+                "headline": "Review queue",
+                "summary": "Review prepared messages, staged follow-ups, and open decisions without opening the full workspace.",
                 "preview_text": (
-                    f"{len(snapshot.drafts)} pending drafts, "
-                    f"{len(visible_review_candidates)} staged commitment candidates, "
-                    f"and {len(principal_queue)} principal-backed queue items are waiting."
+                    f"{len(snapshot.drafts)} prepared messages, "
+                    f"{len(visible_review_candidates)} staged follow-ups, "
+                    f"and {len(principal_queue)} account queue items are waiting."
                 ),
                 "items": approval_items,
                 "stats": {
