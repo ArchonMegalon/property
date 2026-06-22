@@ -3438,8 +3438,14 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
 
     docs = client.get("/docs")
     assert docs.status_code == 200
+    assert "Understand PropertyQuarry without reading the plumbing." in docs.text
+    assert "Product references for search, ranking, evidence, sharing, and account setup." in docs.text
     assert "later delivery options" in docs.text
     assert "delivery lanes" not in docs.text
+    assert "Architecture map" not in docs.text
+    assert "operators and developers" not in docs.text
+    assert "internal architecture" not in docs.text
+    assert "github.com/ArchonMegalon/property" not in docs.text
 
 
 def test_public_guide_and_market_pages_render_editorial_seo_surface() -> None:

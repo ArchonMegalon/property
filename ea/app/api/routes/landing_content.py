@@ -126,7 +126,7 @@ PRICING_TIERS = (
     {
         "title": "Free",
         "price": "0",
-        "body": "A narrow entry lane for account creation, profile setup, and a first useful shortlist.",
+        "body": "A focused entry path for account creation, profile setup, and a first useful shortlist.",
         "facts": (
             "1 account",
             "Limited shortlist volume",
@@ -140,7 +140,7 @@ PRICING_TIERS = (
         "price": "Paid",
         "body": "For users who want more searches, deeper property research, and more persistent review coverage.",
         "facts": (
-            "More provider coverage",
+            "More source coverage",
             "Deeper property research",
             "Email alerts and saved runs",
             "Longer shortlist history",
@@ -162,9 +162,9 @@ PRICING_TIERS = (
 )
 
 DOC_LINKS = (
-    {"title": "Docs", "href": "/docs", "body": "Product and runtime references for teams that want the detailed operating model."},
+    {"title": "Docs", "href": "/docs", "body": "Product references for search, ranking, evidence, sharing, and account setup."},
     {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery options."},
-    {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/property/blob/main/ARCHITECTURE_MAP.md", "body": "Route and system documentation for operators and developers."},
+    {"title": "Support", "href": "/support", "body": "Help for failed runs, wrong-area matches, missing facts, billing, and deletion requests."},
 )
 
 PUBLIC_TRUST_PAGES = {
