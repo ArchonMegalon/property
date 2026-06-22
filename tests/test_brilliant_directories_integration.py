@@ -63,6 +63,8 @@ def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PRICING_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER",
         "BRILLIANT_DIRECTORIES_API_KEY",
@@ -741,7 +743,6 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
-    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL", "https://directory.example")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
 
@@ -817,16 +818,13 @@ def test_brilliant_directories_pricing_stays_propertyquarry_white_label(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_env(monkeypatch)
-    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL", "https://directory.example")
-    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PRICING_URL", "https://directory.example/pricing")
-    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
     client = build_property_client(principal_id="pq-brilliant-directories-pricing")
 
     response = client.get("/pricing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
     assert response.status_code == 200
     assert "<h1>Pricing</h1>" in response.text
-    assert "directory.example/pricing" not in response.text
+    assert "directory.example" not in response.text
 
 
 def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

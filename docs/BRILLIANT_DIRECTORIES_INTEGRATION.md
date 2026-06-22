@@ -29,15 +29,13 @@ PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED=0
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED=0
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED=0
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL=
-PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL=
-PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PRICING_URL=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER=X-Api-Key
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR=_completion/brilliant_directories
 ```
 
-The adapter requires HTTPS and an explicit allowed-host list before API requests can be built or executed. Public site and pricing URLs must also be HTTPS and host-allowlisted. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
+The adapter requires HTTPS and an explicit allowed-host list before API requests can be built or executed. Customer-facing directory and pricing surfaces stay on PropertyQuarry; there is no public provider-site or provider-pricing redirect knob. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
 
 ## Implemented Local Contract
 
