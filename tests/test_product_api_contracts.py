@@ -21038,7 +21038,7 @@ def test_property_payfunnels_checkout_and_webhook_activate_plus_plan(
     monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
 
     created = client.post(
-        "/app/api/signals/property/billing/payfunnels/order",
+        "/app/api/signals/property/billing/checkout/order",
         json={"plan_key": "plus"},
     )
     assert created.status_code == 200, created.text
@@ -21046,6 +21046,12 @@ def test_property_payfunnels_checkout_and_webhook_activate_plus_plan(
     assert created_body["plan_key"] == "plus"
     assert created_body["approve_url"].startswith("https://checkout.payfunnels.example/plus?")
     assert created_body["amount_eur"] == "3.00"
+
+    route_source = Path("ea/app/api/routes/product_api_delivery.py").read_text(encoding="utf-8")
+    landing_source = Path("ea/app/api/routes/landing.py").read_text(encoding="utf-8")
+    assert '@router.post("/signals/property/billing/payfunnels/order", response_model=PropertyBillingCheckoutOut, include_in_schema=False)' in route_source
+    assert '"/app/api/signals/property/billing/payfunnels/order"' not in landing_source
+    assert '"/app/api/signals/property/billing/checkout/order"' in landing_source
 
     status_after_order = client.get("/v1/onboarding/property-search/preferences")
     assert status_after_order.status_code == 200

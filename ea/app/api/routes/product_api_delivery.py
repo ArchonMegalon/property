@@ -1030,12 +1030,11 @@ def create_property_billing_order(
     )
 
 
-@router.post("/signals/property/billing/payfunnels/order", response_model=PropertyBillingCheckoutOut)
-def create_property_billing_order_payfunnels(
+def _create_property_billing_order_payfunnels(
     body: PropertyBillingCheckoutCreateIn,
     request: Request,
-    container: AppContainer = Depends(get_container),
-    context: RequestContext = Depends(get_request_context),
+    container: AppContainer,
+    context: RequestContext,
 ) -> PropertyBillingCheckoutOut:
     try:
         spec = property_plan_spec(body.plan_key)
@@ -1074,6 +1073,26 @@ def create_property_billing_order_payfunnels(
         status=str(checkout.get("status") or ""),
         amount_eur=str(checkout.get("amount_eur") or spec.amount_eur),
     )
+
+
+@router.post("/signals/property/billing/checkout/order", response_model=PropertyBillingCheckoutOut)
+def create_property_billing_checkout_order(
+    body: PropertyBillingCheckoutCreateIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyBillingCheckoutOut:
+    return _create_property_billing_order_payfunnels(body=body, request=request, container=container, context=context)
+
+
+@router.post("/signals/property/billing/payfunnels/order", response_model=PropertyBillingCheckoutOut, include_in_schema=False)
+def create_property_billing_order_payfunnels(
+    body: PropertyBillingCheckoutCreateIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyBillingCheckoutOut:
+    return _create_property_billing_order_payfunnels(body=body, request=request, container=container, context=context)
 
 
 @router.post("/signals/property/billing/paypal/capture", response_model=PropertyBillingCaptureOut)

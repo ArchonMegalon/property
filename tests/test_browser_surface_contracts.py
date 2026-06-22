@@ -194,6 +194,7 @@ def test_pricing_surfaces_payfunnels_checkout_when_configured(monkeypatch: pytes
     assert pricing.status_code == 200
     assert "Secure checkout." in pricing.text
     assert "PayFunnels" not in pricing.text
+    assert "payfunnels/order" not in pricing.text.lower()
     assert "data-pricing-provider" not in pricing.text
     assert "Checkout uses PayFunnels" not in pricing.text
     assert "Checkout pending" not in pricing.text

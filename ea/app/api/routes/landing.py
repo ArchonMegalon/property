@@ -1505,7 +1505,7 @@ def _property_console_context(
     for paid_plan in ("plus", "agent"):
         if payfunnels_configured(plan_key=paid_plan):
             billing_enabled_plans.append(paid_plan)
-            billing_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/payfunnels/order"
+            billing_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/checkout/order"
             billing_provider_labels_by_plan[paid_plan] = "PayFunnels"
     default_billing_plan = billing_enabled_plans[0] if billing_enabled_plans else ""
     selected_platforms = {
@@ -2297,7 +2297,7 @@ def pricing_page(
     for paid_plan in ("plus", "agent"):
         if payfunnels_configured(plan_key=paid_plan):
             checkout_enabled_plans.append(paid_plan)
-            checkout_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/payfunnels/order"
+            checkout_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/checkout/order"
     checkout_session_ready = access_identity is not None or _workspace_session_payload(request, container) is not None
     return _render_public_template(
         request,

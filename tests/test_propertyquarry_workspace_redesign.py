@@ -4584,6 +4584,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Plan and limits" not in billing.text
     assert "Plan unit" not in billing.text
     assert "PayFunnels" not in billing.text
+    assert "payfunnels/order" not in billing.text.lower()
     assert "What is available now" not in billing.text
     assert "Current search access" not in billing.text
     assert billing.text.count("Plan") >= 1
