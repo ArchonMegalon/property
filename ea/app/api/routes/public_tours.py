@@ -4496,7 +4496,7 @@ def _render_tour_unavailable_page(
                 "link_kicker": "Tour link unavailable",
                 "link_title": title,
                 "link_summary": summary,
-                "link_detail_title": "What happened",
+                "link_detail_title": "Details",
                 "link_status_label": status_label,
                 "link_rows": rows,
                 "primary_action_href": "/sign-in",

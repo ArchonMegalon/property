@@ -1851,7 +1851,7 @@
           });
           root.querySelectorAll('[data-pqx-empty-results] .pqx-pref-row').forEach((row) => {
             const text = String(row.textContent || '').trim().toLowerCase();
-            if (text.includes('best next move') || text.includes('widen one rule first, then rerun.')) {
+            if (text.includes('widen one rule first, then rerun.')) {
               row.remove();
             }
           });

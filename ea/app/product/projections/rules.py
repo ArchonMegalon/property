@@ -51,7 +51,7 @@ def rule_items_from_workspace(status: dict[str, object], diagnostics: dict[str, 
             label="Memory retention",
             scope="memory",
             status="active",
-            summary="Retention controls how long trust receipts, audit signals, and workspace memory stay available.",
+            summary="Retention controls how long account history and saved workspace activity stay available.",
             current_value=str(privacy.get("retention_mode") or plan.entitlements.audit_retention or "30d"),
             impact="Longer retention improves diagnostics and historical auditability.",
         ),
@@ -60,19 +60,19 @@ def rule_items_from_workspace(status: dict[str, object], diagnostics: dict[str, 
             label="Operator seat limit",
             scope="commercial",
             status="active" if seats_used <= seat_limit else "over_limit",
-            summary="Operator seats control how much handoff work the workspace can legitimately run in one plan.",
+            summary="Seat limits control how many people can use the workspace on this plan.",
             current_value=f"{seats_used}/{seat_limit}",
-            impact="Add seats or upgrade the plan when the operator lane outgrows the current boundary.",
+            impact="Add seats or upgrade the plan when more people need access.",
             requires_approval=True,
         ),
         RuleItem(
             id="rule:audit_posture",
-            label="Audit and support bundle",
+            label="Support export",
             scope="support",
             status="active",
-            summary="Support exports include approvals, human work, provider posture, and pending delivery to explain what happened.",
+            summary="Support exports collect recent account, delivery, and plan activity when support needs context.",
             current_value=str(billing.get("support_tier") or "standard"),
-            impact="Commercial warnings surface when selected channels and plan scope drift apart." if commercial.get("warnings") else "Workspace support posture is aligned with the active plan.",
+            impact="Warnings appear when selected channels do not match the current plan." if commercial.get("warnings") else "Support settings match the active plan.",
         ),
     )
 
@@ -86,7 +86,7 @@ def simulate_rule(rule: RuleItem, *, proposed_value: str, diagnostics: dict[str,
         if proposed.lower() in {"enabled", "telegram", "whatsapp"} and not entitlements.get("messaging_channels_enabled"):
             effect = "Current plan blocks Telegram and WhatsApp. Upgrade is required before messaging can be enabled."
         else:
-            effect = "Messaging would remain deferred until after the Google-first proof loop unless explicitly enabled in the workspace."
+            effect = "Messaging stays off until it is explicitly enabled in the workspace."
     elif rule.id == "rule:draft_approval":
         if proposed.lower() in {"off", "disabled", "auto_send"}:
             effect = "Disabling draft approval would allow outbound actions to leave the review queue immediately."

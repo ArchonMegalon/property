@@ -28,6 +28,40 @@ DEFAULT_ROUTE_BUDGET_MS = {
     "/app/billing": 1200,
 }
 
+FORBIDDEN_CUSTOMER_NOISE = (
+    "billing truth",
+    "plan and limits",
+    "refresh delivery",
+    "repair status checked",
+    "what happened",
+    "what still worked",
+    "main blocker",
+    "best next move",
+    "search posture",
+    "account posture",
+    "latest run posture",
+    "saved posture",
+    "billing posture",
+    "plan and billing posture",
+    "energy posture",
+    "running-cost posture",
+    "authority posture",
+    "governed review",
+    "workspace diagnostics bundle",
+    "open bundle",
+    "support posture",
+    "runtime posture",
+    "provider posture",
+    "channel receipt",
+    "install receipt",
+    "support bundle",
+    "export bundle",
+    "outcome posture",
+    "follow-up artifacts",
+    "proof of value",
+    "operator center",
+)
+
 
 def _route_budget_for(path: str, *, route_budget_ms: int) -> int:
     normalized_path = str(path or "").split("?", 1)[0]
@@ -225,11 +259,18 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     response = client.get(path, headers={"host": "propertyquarry.com"})
     duration_ms = round((time.perf_counter() - started) * 1000)
     body = response.text or ""
+    lowered_body = body.lower()
+    noise_hits = [
+        phrase
+        for phrase in FORBIDDEN_CUSTOMER_NOISE
+        if phrase in lowered_body
+    ]
     checks = [
         {"name": "status_200", "ok": response.status_code == 200},
         {"name": "under_budget", "ok": duration_ms <= budget_ms},
         {"name": "contains_propertyquarry", "ok": "PropertyQuarry" in body},
         {"name": "no_generic_ea_copy", "ok": "Executive Assistant" not in body and "Morning Memo" not in body},
+        {"name": "no_customer_jargon", "ok": not noise_hits, "detail": ", ".join(noise_hits[:5])},
     ]
     if path == "/app/agents":
         checks.extend(

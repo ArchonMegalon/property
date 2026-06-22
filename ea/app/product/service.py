@@ -5261,7 +5261,7 @@ def _property_investment_underwriting_payload(
     overall_bucket_label = _property_investment_score_bucket_label(score)
     headline = reasons[0] if reasons else "This opportunity still needs more evidence before it can rank as a strong investment."
     if blockers:
-        headline = f"{headline} Main blocker: {blockers[0]}"
+        headline = f"{headline} Main issue: {blockers[0]}"
     tooltips = _property_investment_dimension_tooltips()
     label_map = {
         "return": "Return",
@@ -10208,11 +10208,11 @@ def _property_decision_copilot_answer(
             first_negative = negative[0]
             actions.append(
                 {
-                    "label": "Mark main blocker",
+                    "label": "Mark main reason",
                     "action": "mark_blocker",
                     "reaction": "dislike",
                     "reason_key": compact_text(first_negative.get("key"), fallback="", limit=80),
-                    "detail": compact_text(first_negative.get("label"), fallback="Main blocker", limit=160),
+                    "detail": compact_text(first_negative.get("label"), fallback="Main reason", limit=160),
                 }
             )
     elif mode == "household":
@@ -10275,16 +10275,16 @@ def _property_decision_copilot_answer(
         answer = (
             f"{property_label} is still closer to Maybe than Yes because the best fit signal is "
             f"{compact_text(best_positive.get('label'), fallback='still generic', limit=80).lower()}, "
-            f"while the main blocker is {compact_text(main_negative.get('label'), fallback='still unresolved evidence', limit=80).lower()}."
+            f"while the main issue is {compact_text(main_negative.get('label'), fallback='still unresolved evidence', limit=80).lower()}."
         )
         if fit_reasons:
             evidence.append({"title": "Why it survived", "detail": fit_reasons[0], "confidence": "High", "source": "ranking"})
         elif best_positive:
             evidence.append({"title": "Best signal", "detail": compact_text(best_positive.get("label"), fallback="Fit signal", limit=200), "confidence": "Medium", "source": "feedback_suggestions"})
         if mismatch_reasons:
-            evidence.append({"title": "Main blocker", "detail": mismatch_reasons[0], "confidence": "High", "source": "ranking"})
+            evidence.append({"title": "Main issue", "detail": mismatch_reasons[0], "confidence": "High", "source": "ranking"})
         elif main_negative:
-            evidence.append({"title": "Main blocker", "detail": compact_text(main_negative.get("label"), fallback="Still unresolved", limit=200), "confidence": "Medium", "source": "feedback_suggestions"})
+            evidence.append({"title": "Main issue", "detail": compact_text(main_negative.get("label"), fallback="Still unresolved", limit=200), "confidence": "Medium", "source": "feedback_suggestions"})
         if agent_questions:
             actions.append(
                 {

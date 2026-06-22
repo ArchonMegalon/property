@@ -94,7 +94,7 @@ ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "key": "personal",
         "label": "Personal",
-        "summary": "One private PropertyQuarry account for search posture, shortlist review, and saved feedback.",
+        "summary": "One private PropertyQuarry account for searches, shortlist review, and saved feedback.",
     },
     {
         "key": "team",

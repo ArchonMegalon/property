@@ -1216,7 +1216,7 @@
             selectedReasons.add(String(row.reason_key || ''));
             reasonButton.classList.add('active');
           }
-          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a blocker').trim()} as the current blocker. Save your answer when ready.`;
+          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a reason').trim()} as the current reason. Save your answer when ready.`;
           return;
         }
         if (action === 'ask_agent' && row.question) {

@@ -445,7 +445,7 @@ def test_public_channel_action_links_preview_before_applying_changes() -> None:
     confirmed = client.post(draft_action, follow_redirects=False)
     assert confirmed.status_code == 200
     assert "The requested action was recorded." in confirmed.text
-    assert "Open related workspace surface" in confirmed.text
+    assert "Open related page" in confirmed.text
 
     client.headers["X-EA-Principal-ID"] = principal_id
     drafts_after_confirm = client.get("/app/api/drafts")

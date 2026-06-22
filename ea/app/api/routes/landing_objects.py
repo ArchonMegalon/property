@@ -627,7 +627,7 @@ def handoff_detail(
                 "Main concern",
                 mismatch_reasons[0]
                 if mismatch_reasons
-                else "No explicit blocker was projected yet; verify missing facts before committing.",
+                else "No explicit issue was projected yet; verify missing facts before committing.",
                 "Risk",
             ),
             _object_detail_row(
@@ -660,7 +660,7 @@ def handoff_detail(
             _object_detail_row(
                 "Blocking constraints",
                 " | ".join(str(item).strip() for item in list(assessment.get("blocking_constraints_json") or []) if str(item).strip())
-                or "No hard blocker was projected.",
+                or "No hard rule was projected.",
                 "Blockers",
             ),
         ]
@@ -721,7 +721,7 @@ def handoff_detail(
                 {"label": "Source", "value": str(input_json.get('counterparty') or "Property scout").strip() or "Property scout"},
                 {"label": "Candidates", "value": str(len(candidate_properties))},
             ],
-            object_ooda_title="Current read",
+            object_ooda_title="Decision summary",
             object_ooda_copy="",
             object_ooda_rows=ooda_rows,
             object_sidebar_title="Actions",

@@ -558,7 +558,7 @@ PUBLIC_MARKET_VIENNA = {
             "items": (
                 "The strongest homes first.",
                 "The one reason each home survived the cut.",
-                "The main blocker that still needs an answer.",
+                "The main issue that still needs an answer.",
                 "The next-best fallback if this one fails.",
             ),
         },
@@ -2886,7 +2886,7 @@ def workspace_invite_preview(
             link_kicker="Invite unavailable",
             link_title="This workspace invite is no longer valid.",
             link_summary="Ask the workspace owner to send a fresh invitation or use a current sign-in link if you already have access.",
-            link_detail_title="What happened",
+            link_detail_title="Details",
             link_status_label="Invite unavailable",
             link_rows=[
                 {"label": "Invite status", "value": "Unavailable", "detail": "The invite may be expired, revoked, or already replaced."},
@@ -2909,7 +2909,7 @@ def workspace_invite_preview(
         current_nav="sign-in",
         link_kicker="Workspace invitation",
         link_title="Review this workspace invite before you join.",
-        link_summary="This secure invite opens one executive office. Accept it when you are ready to enter with the role below.",
+        link_summary="This secure invite opens one workspace. Accept it when you are ready to join.",
         link_detail_title="Invite details",
         link_status_label=str(invite.get("status") or "pending").replace("_", " ").title(),
         link_rows=[
@@ -3043,12 +3043,12 @@ def workspace_invite_accept(
                 current_nav="sign-in",
                 link_kicker="Workspace full",
                 link_title="This workspace cannot add another operator right now.",
-                link_summary="The office is at its current operator seat limit. Ask the workspace owner to free a seat or upgrade the plan before retrying.",
+                link_summary="The workspace is at its current seat limit. Ask the owner to free a seat or upgrade the plan before retrying.",
                 link_detail_title="Why acceptance stopped",
                 link_status_label="Seat limit reached",
                 link_rows=[
                     {"label": "Invite status", "value": "Pending", "detail": "The invite is still valid, but the workspace needs room before it can be accepted."},
-                    {"label": "Next step", "value": "Contact the workspace owner", "detail": "They can revoke an unused seat or expand the plan and resend access."},
+                    {"label": "Next step", "value": "Contact the workspace owner", "detail": "They can free a seat or expand the plan and resend access."},
                 ],
                 primary_action_href="/sign-in",
                 primary_action_label="Return to sign in",
@@ -3065,7 +3065,7 @@ def workspace_invite_accept(
             link_kicker="Invite unavailable",
             link_title="This workspace invite is no longer valid.",
             link_summary="Ask the workspace owner to send a fresh invitation or use another secure workspace link if you already have access.",
-            link_detail_title="What happened",
+            link_detail_title="Details",
             link_status_label="Invite unavailable",
             link_rows=[
                 {"label": "Invite state", "value": "Unavailable", "detail": "The invite may be expired, revoked, or already used."},
