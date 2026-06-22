@@ -2877,6 +2877,7 @@ def test_property_location_match_rejects_reported_off_scope_austrian_hits(
         title=title,
         summary=summary,
         listing_mode="rent",
+        property_url=property_url,
     )
 
     if expected_postal:
@@ -2885,6 +2886,9 @@ def test_property_location_match_rejects_reported_off_scope_austrian_hits(
             for row in list(enriched.get("listing_postal_evidence") or [])
             if isinstance(row, dict)
         )
+    else:
+        assert enriched.get("postal_name") != "1010 Vienna"
+        assert enriched.get("source_scope_location_placeholder_cleared") is True
     assert not _property_candidate_matches_requested_location(
         location_hints=("1010 Vienna",),
         property_url=property_url,
@@ -6148,6 +6152,86 @@ def test_property_alert_review_suppresses_candidate_outside_selected_district_ev
     assert repair_input["filter_key"] == "location_scope"
     assert dict(repair_input["diagnostics"])["postal_name"] == "1200 Wien"
     assert dict(repair_input["diagnostics"])["location_hints"] == ["1010 Vienna"]
+
+
+def test_property_alert_review_suppresses_salzburg_listing_under_vienna_source_scope(monkeypatch) -> None:
+    principal_id = "exec-property-alert-salzburg-source-scope"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Salzburg Source Scope Guard")
+    seed_product_state(client, principal_id=principal_id)
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_districts": ["1010 Vienna"],
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("Salzburg listing under 1010 source scope must not notify"),
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_fetch_property_provider_repair_snapshot",
+        lambda self, *, property_url: {},
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse in Salzburg",
+        summary="Moderne schöne Zwei-Zimmer Wohnung mit großem Ess- & Wohnbereich in Salzburg Stadt.",
+        source_ref="property-scout:https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+        external_id="willhaben-salzburg-source-scope",
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+        actor="test",
+        notify_telegram=True,
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/salzburg-stadt/demo-1631373932/",
+                "listing_title": "#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse in Salzburg",
+                "summary": "Moderne Zwei-Zimmer Wohnung mit Terrasse in Salzburg Stadt.",
+                "source_platform": "willhaben",
+                "source_family": "core_portal",
+                "property_facts_json": {
+                    "postal_name": "1010 Vienna",
+                    "source_scope_location": "1010 Vienna",
+                    "source_postal_code": "1010",
+                    "source_city": "Vienna",
+                    "price_display": "EUR 1.190",
+                },
+            },
+        ),
+        personal_fit_assessment={"fit_score": 88.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+    )
+
+    assert result["status"] == "suppressed"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
+    repair_tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert repair_tasks
+    repair_input = dict(repair_tasks[0].input_json or {})
+    assert repair_input["filter_key"] == "location_scope"
+    diagnostics = dict(repair_input["diagnostics"])
+    assert diagnostics["location_evidence_kind"] in {"url_region", "listing_concrete", "listing_postal"}
+    assert diagnostics["postal_name"] != "1010 Vienna"
+    assert "Salzburg" in diagnostics["summary"] or "Salzburg" in diagnostics["title"]
 
 
 def test_property_alert_review_suppresses_low_score_telegram_even_when_review_opens(monkeypatch) -> None:

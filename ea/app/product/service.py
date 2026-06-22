@@ -4176,6 +4176,7 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
                 title=title,
                 summary=summary,
                 listing_mode="buy",
+                property_url=normalized,
             )
         except Exception:
             facts = dict(facts or {})
@@ -4486,17 +4487,69 @@ def _property_investment_location_seed(facts: dict[str, object], preferences: di
     return str(preferences.get("location_query") or "").strip()
 
 
+def _property_url_location_conflicts_with_source_scope(*, property_url: object, facts: dict[str, object]) -> bool:
+    parsed = urllib.parse.urlparse(str(property_url or "").strip())
+    path = urllib.parse.unquote(str(parsed.path or "").strip()).casefold()
+    if not path:
+        return False
+    try:
+        has_location_probe = _property_candidate_url_has_location_probe(str(property_url or ""))
+    except Exception:
+        has_location_probe = bool(re.search(r"\b\d{4,5}\b", path))
+    if not has_location_probe:
+        return False
+    source_codes = _property_source_scope_postal_codes(facts)
+    url_codes = set(re.findall(r"\b\d{4,5}\b", path))
+    if url_codes:
+        return not source_codes or bool(url_codes - set(source_codes))
+    normalized_path = re.sub(r"[\s,;|/\\()[\]{}._-]+", " ", path).strip()
+    source_postal_code = _property_postal_code_core(facts.get("source_postal_code"))
+    source_city = str(facts.get("source_city") or "").strip().casefold()
+    scope_candidates = {
+        str(facts.get("source_scope_location") or "").strip().casefold(),
+        source_city,
+        " ".join(part for part in (source_postal_code, source_city) if part).strip().casefold(),
+    }
+    scope_candidates = {value for value in scope_candidates if value and not value.isdigit()}
+    if scope_candidates and any(value in normalized_path for value in scope_candidates):
+        return False
+    return True
+
+
+def _property_clear_source_scope_location_placeholders_for_url(
+    *,
+    facts: dict[str, object],
+    property_url: object,
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    if not _property_url_location_conflicts_with_source_scope(property_url=property_url, facts=enriched):
+        return enriched
+    cleared = False
+    for key in ("postal_name", "address", "district", "location", "city"):
+        if _property_location_value_is_source_scope_placeholder(enriched.get(key), enriched):
+            enriched.pop(key, None)
+            cleared = True
+    if cleared:
+        enriched["source_scope_location_placeholder_cleared"] = True
+        enriched.setdefault("listing_location_evidence_kind", "url_region")
+    return enriched
+
+
 def _property_enrich_facts_from_listing_text(
     *,
     facts: dict[str, object],
     title: str,
     summary: str,
     listing_mode: str,
+    property_url: object = "",
 ) -> dict[str, object]:
     enriched = dict(facts or {})
     text, instruction_flags = _property_untrusted_listing_text_for_extraction(title, summary)
     if not text:
-        return enriched
+        return _property_clear_source_scope_location_placeholders_for_url(
+            facts=enriched,
+            property_url=property_url,
+        )
     if instruction_flags:
         enriched["untrusted_listing_instruction_detected"] = True
         enriched["untrusted_listing_instruction_flags"] = list(instruction_flags[:8])
@@ -4560,7 +4613,10 @@ def _property_enrich_facts_from_listing_text(
             enriched.setdefault("address", postal_name)
             if current_address.casefold() in source_scope_candidates:
                 enriched["address"] = postal_name
-    return enriched
+    return _property_clear_source_scope_location_placeholders_for_url(
+        facts=enriched,
+        property_url=property_url,
+    )
 
 
 def _property_investment_location_match_score(
@@ -4657,6 +4713,7 @@ def _property_investment_comp_samples(
                 title=str(preview.get("title") or "").strip(),
                 summary=str(preview.get("summary") or "").strip(),
                 listing_mode=listing_mode,
+                property_url=normalized_candidate,
             )
             location_score = _property_investment_location_match_score(
                 location_query=location_query,
@@ -22732,6 +22789,7 @@ class ProductService:
             title=candidate_title,
             summary=candidate_summary,
             listing_mode=listing_mode,
+            property_url=candidate_property_url,
         )
         if location_hints and not _property_candidate_matches_requested_location(
             location_hints=location_hints,
@@ -31455,6 +31513,7 @@ class ProductService:
                     title=raw_preview_title,
                     summary=raw_preview_summary,
                     listing_mode=listing_mode,
+                    property_url=property_url,
                 )
                 preview["property_facts_json"] = preview_facts
                 if (
@@ -31513,6 +31572,7 @@ class ProductService:
                                 title=raw_preview_title,
                                 summary=raw_preview_summary,
                                 listing_mode=listing_mode,
+                                property_url=property_url,
                             )
                             preview["property_facts_json"] = preview_facts
                     except Exception:
@@ -31607,6 +31667,7 @@ class ProductService:
                                 title=preview_title,
                                 summary=preview_summary,
                                 listing_mode=listing_mode,
+                                property_url=property_url,
                             )
                             preview["property_facts_json"] = preview_facts
                     except Exception:
@@ -31765,6 +31826,7 @@ class ProductService:
                                 title=preview_title,
                                 summary=preview_summary,
                                 listing_mode=listing_mode,
+                                property_url=property_url,
                             )
                             preview["property_facts_json"] = preview_facts
                     except Exception:
@@ -32131,6 +32193,7 @@ class ProductService:
                     title=detailed_title,
                     summary=detailed_summary,
                     listing_mode=listing_mode,
+                    property_url=property_url,
                 )
                 preview["property_facts_json"] = detailed_facts
                 if _suppress_generic_listing_candidate(
@@ -37095,6 +37158,7 @@ class ProductService:
                 title=candidate_title,
                 summary=candidate_summary,
                 listing_mode=listing_mode,
+                property_url=candidate_property_url,
             )
             candidate_listing_postal_codes = _property_listing_observed_postal_codes(
                 title=candidate_title,
@@ -37401,6 +37465,7 @@ class ProductService:
             title=candidate_title,
             summary=candidate_summary,
             listing_mode=listing_mode,
+            property_url=candidate_property_url,
         )
         suppression_reason = ""
         repair_filter_key = ""
@@ -38348,6 +38413,7 @@ class ProductService:
             title=candidate_title,
             summary=candidate_summary,
             listing_mode=listing_mode,
+            property_url=candidate_property_url,
         )
         suppression_reason = ""
         repair_filter_key = ""
