@@ -3,7 +3,7 @@
 <style>
   .access-grid {
     display: grid;
-    grid-template-columns: minmax(0, 540px);
+    grid-template-columns: minmax(0, 500px);
     justify-content: center;
   }
   .access-panel,
@@ -15,7 +15,18 @@
   }
   .access-panel,
   .access-card {
-    padding: 16px;
+    padding: 14px;
+  }
+  .access-panel h1 {
+    margin: 4px 0 8px;
+    font-size: clamp(2.15rem, 5vw, 3.1rem);
+    line-height: 0.96;
+    letter-spacing: 0;
+    max-width: 9ch;
+  }
+  .access-panel .lead {
+    margin: 0 0 10px;
+    font-size: 0.98rem;
   }
   .access-card strong {
     display: block;
@@ -49,7 +60,7 @@
   .auth-provider-stack {
     display: grid;
     gap: 0;
-    margin-top: 10px;
+    margin-top: 8px;
     padding: 3px;
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -61,7 +72,7 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
-    padding: 6px;
+    padding: 5px 6px;
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
@@ -101,7 +112,7 @@
   }
   .auth-provider-card .btn {
     white-space: nowrap;
-    min-height: 32px;
+    min-height: 30px;
     padding: 0 12px;
     border-color: var(--line);
     background: color-mix(in srgb, var(--panel) 86%, var(--bg) 14%);
@@ -117,7 +128,7 @@
   }
   .auth-provider-status {
     min-height: 18px;
-    margin: 7px 4px 0;
+    margin: 6px 4px 0;
     color: var(--text-soft);
     font-size: 0.82rem;
     line-height: 1.35;
@@ -190,7 +201,11 @@
   @media (max-width: 760px) {
     .access-panel,
     .access-card {
-      padding: 16px;
+      padding: 14px;
+    }
+    .access-panel h1 {
+      max-width: none;
+      font-size: clamp(2rem, 9vw, 2.7rem);
     }
     .topbar .actions,
     .mobile-nav {
