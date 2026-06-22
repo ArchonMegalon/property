@@ -579,7 +579,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(desktop_page.get_by_text("Use your current session, email link, or connected identity.")).to_be_visible()
+        expect(desktop_page.get_by_text("Use a saved session, email link, or connected identity.")).to_be_visible()
         expect(desktop_page.get_by_role("link", name="Open current session")).to_be_visible()
         google_link = desktop_page.get_by_role("link", name="Continue with Google")
         assert desktop_page.get_by_role("button", name="Google unavailable").count() == 0
@@ -3651,6 +3651,8 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         assert response is not None and response.ok
         best_match = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
         best_match.wait_for()
+        expect(best_match.get_by_role("link", name="360 ready")).to_be_visible()
+        expect(best_match.get_by_role("link", name="Open 3D tour")).to_have_count(0)
         best_match.click()
         open_360 = best_match.get_by_role("link", name="360 ready")
         tour_url = str(open_360.get_attribute("href") or "").strip()

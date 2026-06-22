@@ -1250,8 +1250,10 @@ def property_workspace_payload(
             }
         if status in {"queued", "pending"}:
             return {"status": "queued", "label": "360 queued", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '10'} min"}
-        if status in {"processing", "running", "in_progress", "started"}:
+        if status in {"processing", "running", "in_progress", "started", "rendering"}:
             return {"status": "processing", "label": "360 rendering", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '5'} min"}
+        if status == "repairing":
+            return {"status": "processing", "label": "360 repair running", "url": "", "embed_url": "", "eta_label": "refreshing"}
         if status in {"blocked", "failed", "skipped", "not_applicable"}:
             return {"status": "blocked", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
         return {"status": "missing", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
@@ -1287,6 +1289,15 @@ def property_workspace_payload(
                 "detail": "Rendering after your request.",
                 "progress_pct": 64,
                 "eta_label": "about 5 min",
+            }
+        if status == "repairing":
+            return {
+                "status": "processing",
+                "label": "Walkthrough repair running",
+                "url": "",
+                "detail": "The request stalled, so PropertyQuarry restarted the background render.",
+                "progress_pct": 72,
+                "eta_label": "refreshing",
             }
         if status in {"blocked", "failed", "skipped", "not_applicable"}:
             return {

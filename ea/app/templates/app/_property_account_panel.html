@@ -25,7 +25,7 @@
   <div class="pqx-section-head">
     <div>
       <div class="pqx-small">Account</div>
-      <h2>Settings</h2>
+      <h2>Account</h2>
     </div>
   </div>
 
@@ -34,7 +34,7 @@
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>
-        <p>Saved search defaults.</p>
+        <p>Search defaults.</p>
       </div>
       <a class="pqx-link-button primary" href="{{ profile_item.get('action_href') or '/app/search' }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
     </section>
@@ -43,7 +43,7 @@
       <div>
         <span class="pqx-small">Alerts</span>
         <h2>Notifications</h2>
-        <p>Strong matches only.</p>
+        <p>Choose where strong matches arrive.</p>
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
@@ -61,7 +61,7 @@
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="email">
             <strong>Email</strong>
-            <span>Uses the verified account email when available.</span>
+            <span>Uses your account email.</span>
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="telegram">
             <strong>Telegram</strong>
@@ -72,7 +72,7 @@
           <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
             <label for="whatsappAiSupportPhone">WhatsApp number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
-            <span id="whatsappAiSupportCopy">Used when WhatsApp is selected.</span>
+            <span id="whatsappAiSupportCopy">Needed only when WhatsApp is on.</span>
           </div>
           <button class="pqx-link-button primary" type="submit">Save</button>
         </form>
@@ -83,7 +83,7 @@
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_card.value.get('title') or 'Plan and entitlements' }}</h2>
-        <p>Billing and access.</p>
+        <p>Plan and payments.</p>
       </div>
       <a class="pqx-link-button" href="/app/billing">Open billing</a>
     </section>
@@ -92,7 +92,7 @@
       <div>
         <span class="pqx-small">Data</span>
         <h2>Export account data</h2>
-        <p>Preferences, runs, and access links.</p>
+        <p>Preferences, runs, and shared access.</p>
       </div>
       <a class="pqx-link-button" href="/app/api/property/account/export?download=1">Export data</a>
     </section>
@@ -124,7 +124,7 @@
       <div>
         <span class="pqx-small">Trust</span>
         <h2>Connections and privacy</h2>
-        <p>Connected sign-in and privacy.</p>
+        <p>Sign-in connections and privacy.</p>
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/google">Google</a>

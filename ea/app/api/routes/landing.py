@@ -3570,7 +3570,6 @@ def property_research_packet(
         or facts.get("district")
         or facts.get("postal_name")
         or facts.get("address")
-        or facts.get("source_scope_location")
         or source_label
         or ""
     ).strip()

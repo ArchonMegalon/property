@@ -113,6 +113,12 @@
               {% elif candidate.get('tour', {}).get('status') in ['queued', 'processing'] and candidate.get('tour', {}).get('label') %}
               <span class="pqx-result-fact">{{ candidate.get('tour', {}).get('label') }}</span>
               {% endif %}
+              {% set walkthrough = candidate.get('flythrough') or {} %}
+              {% if walkthrough.get('url') %}
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}">Walkthrough ready</a>
+              {% elif walkthrough.get('status') in ['queued', 'processing'] and walkthrough.get('label') %}
+              <span class="pqx-result-fact">{{ walkthrough.get('label') }}</span>
+              {% endif %}
             </span>
           </span>
         </span>
@@ -140,7 +146,7 @@
           {% if (candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url')) and not shortlist_compact_actions %}
           <a class="pqx-result-open" href="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>
           {% endif %}
-          {% if tour.get('url') %}
+          {% if tour.get('url') and not shortlist_compact_actions %}
           <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}">Open 3D tour</a>
           {% elif tour.get('status') in ['queued', 'processing'] %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ tour.get('progress_pct') or 0 }}%;" title="{{ (tour.get('detail') or tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') }}" aria-label="{{ (tour.get('detail') or tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') }}">{{ tour.get('label') or '3D tour in progress' }}</button>
@@ -163,7 +169,7 @@
           {% set walkthrough_detail = walkthrough.get('detail') or ('Walkthrough ready' if walkthrough.get('url') else 'Request a walkthrough when the listing deserves deeper screening.') %}
           {% set walkthrough_tooltip = walkthrough_detail ~ ((' · ETA ' ~ walkthrough_eta) if walkthrough_eta else '') %}
           {% set walkthrough_progress = walkthrough.get('progress_pct') or (100 if walkthrough.get('url') else 0) %}
-          {% if walkthrough.get('url') %}
+          {% if walkthrough.get('url') and not shortlist_compact_actions %}
           <a class="pqx-progress-button is-ready" href="{{ walkthrough.get('url') }}" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">Open walkthrough</a>
           {% elif walkthrough.get('status') in ['queued', 'processing'] %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ walkthrough_progress }}%;" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">{{ walkthrough_label }}</button>

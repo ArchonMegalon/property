@@ -39,7 +39,7 @@
   .prd-headline {
     grid-template-columns: 1fr;
     align-items: start;
-    gap: 6px;
+    gap: 4px;
   }
   .prd-summary-stack,
   .prd-side-stack {
@@ -131,8 +131,8 @@
   }
   .prd-headline-panel .prd-actions {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
   }
   .prd-media-actions {
     display: none;
@@ -144,15 +144,14 @@
   }
   .prd-headline-panel .prd-actions .console-action,
   .prd-headline-panel .prd-actions .pqx-button {
-    width: 100%;
     min-width: 0;
     justify-content: center;
     text-align: center;
     white-space: normal !important;
     overflow-wrap: anywhere;
     word-break: break-word;
-    line-height: 1.15;
-    padding: 6px 8px;
+    line-height: 1.1;
+    padding: 5px 8px;
   }
   @media (pointer: coarse) {
     .prd-actions .console-action,
@@ -198,8 +197,8 @@
     border-radius: 10px;
   }
   .prd-media-frame.prd-media-frame-live {
-    min-height: clamp(164px, 21vh, 210px);
-    max-height: min(calc(100vh - 432px), 214px);
+    min-height: clamp(156px, 20vh, 196px);
+    max-height: min(calc(100vh - 440px), 202px);
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -560,7 +559,7 @@
   }
   .prd-summary-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
   }
   .prd-hero-gallery {
@@ -576,7 +575,7 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel-2);
-    padding: 6px;
+    padding: 5px 6px;
   }
   .prd-summary-box span {
     display: block;
@@ -589,13 +588,13 @@
   .prd-summary-box strong {
     display: block;
     color: var(--text);
-    font-size: 0.84rem;
-    line-height: 1.14;
+    font-size: 0.8rem;
+    line-height: 1.1;
   }
   .prd-summary-box p {
-    margin: 5px 0 0;
+    margin: 4px 0 0;
     color: var(--text-soft);
-    font-size: 11px;
+    font-size: 10px;
   }
   .prd-key-points {
     display: grid;
@@ -996,6 +995,9 @@
     }
     .prd-side-stack {
       position: static;
+    }
+    .prd-summary-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
   @media (max-width: 760px) {

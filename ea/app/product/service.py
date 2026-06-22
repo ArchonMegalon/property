@@ -7254,8 +7254,8 @@ def _property_candidate_google_maps_url(candidate: dict[str, object]) -> str:
 
 
 def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int = 50) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    seen: set[str] = set()
+    rows_by_key: dict[str, dict[str, object]] = {}
+    order_keys: list[str] = []
 
     hard_filter_reasons = {
         "area_mismatch",
@@ -7314,25 +7314,87 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
             return False
         return True
 
+    def _candidate_ref(row: dict[str, object], source_label: str) -> str:
+        explicit_ref = str(row.get("candidate_ref") or row.get("research_candidate_ref") or "").strip()
+        if explicit_ref:
+            return explicit_ref
+        raw = "|".join(
+            (
+                str(row.get("title") or "").strip(),
+                urllib.parse.urldefrag(str(row.get("property_url") or "").strip())[0],
+                str(row.get("review_url") or "").strip(),
+                str(row.get("source_ref") or "").strip(),
+                source_label,
+            )
+        )
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+    def _merge_candidate_rows(current: dict[str, object], incoming: dict[str, object]) -> dict[str, object]:
+        merged = dict(current)
+        merged_facts = dict(current.get("property_facts") or {}) if isinstance(current.get("property_facts"), dict) else {}
+        incoming_facts = dict(incoming.get("property_facts") or {}) if isinstance(incoming.get("property_facts"), dict) else {}
+        if incoming_facts:
+            merged_facts.update(incoming_facts)
+        for key, value in incoming.items():
+            if key == "property_facts":
+                continue
+            if merged.get(key) in (None, "", [], {}):
+                merged[key] = value
+                continue
+            if key in {
+                "tour_url",
+                "vendor_tour_url",
+                "flythrough_url",
+                "tour_status",
+                "flythrough_status",
+                "tour_requested_at",
+                "tour_status_updated_at",
+                "tour_eta_minutes",
+                "tour_progress_pct",
+                "flythrough_requested_at",
+                "flythrough_status_updated_at",
+                "flythrough_eta_minutes",
+                "flythrough_progress_pct",
+                "flythrough_reason",
+                "blocked_reason",
+                "packet_url",
+                "review_url",
+                "preview_image_url",
+                "property_url",
+                "map_url",
+            } and value not in (None, "", [], {}):
+                merged[key] = value
+        if merged_facts:
+            merged["property_facts"] = merged_facts
+        return merged
+
     for source in list(sources or []):
         if not isinstance(source, dict):
             continue
         source_label = str(source.get("source_label") or source.get("platform") or "Property scout").strip() or "Property scout"
-        for candidate in list(source.get("research_candidates") or source.get("top_candidates") or []):
-            if not isinstance(candidate, dict):
-                continue
-            if not _candidate_is_rankable(candidate):
-                continue
-            row = dict(candidate)
-            dedupe_key = str(row.get("source_ref") or row.get("property_url") or row.get("listing_id") or "").strip()
-            if dedupe_key and dedupe_key in seen:
-                continue
-            if dedupe_key:
-                seen.add(dedupe_key)
-            row.setdefault("source_label", source_label)
-            if not str(row.get("map_url") or "").strip():
-                row["map_url"] = _property_candidate_google_maps_url(row)
-            rows.append(row)
+        for key in ("top_candidates", "research_candidates"):
+            for candidate in list(source.get(key) or []):
+                if not isinstance(candidate, dict):
+                    continue
+                if not _candidate_is_rankable(candidate):
+                    continue
+                row = dict(candidate)
+                row.setdefault("source_label", source_label)
+                if not str(row.get("map_url") or "").strip():
+                    row["map_url"] = _property_candidate_google_maps_url(row)
+                row.setdefault("candidate_ref", _candidate_ref(row, source_label))
+                dedupe_key = str(row.get("source_ref") or row.get("property_url") or row.get("listing_id") or row.get("candidate_ref") or "").strip()
+                if dedupe_key and dedupe_key not in rows_by_key:
+                    rows_by_key[dedupe_key] = row
+                    order_keys.append(dedupe_key)
+                    continue
+                if dedupe_key:
+                    rows_by_key[dedupe_key] = _merge_candidate_rows(rows_by_key[dedupe_key], row)
+                    continue
+                synthetic_key = f"row-{len(order_keys)+1}"
+                rows_by_key[synthetic_key] = row
+                order_keys.append(synthetic_key)
+    rows = [rows_by_key[key] for key in order_keys if key in rows_by_key]
     rows.sort(key=lambda item: float(item.get("ranking_score") or item.get("investment_score") or item.get("fit_score") or 0.0), reverse=True)
     for index, row in enumerate(rows, start=1):
         row["rank"] = index
@@ -29626,6 +29688,21 @@ class ProductService:
                     elif normalized_property_url:
                         matches_candidate = candidate_property_url == normalized_property_url
                     if matches_candidate:
+                        candidate_row.setdefault(
+                            "candidate_ref",
+                            normalized_candidate_ref
+                            or hashlib.sha1(
+                                "|".join(
+                                    (
+                                        str(candidate_row.get("title") or "").strip(),
+                                        candidate_property_url,
+                                        str(candidate_row.get("review_url") or "").strip(),
+                                        candidate_source_ref,
+                                        source_label,
+                                    )
+                                ).encode("utf-8")
+                            ).hexdigest()[:16],
+                        )
                         if str(visual_state.get("tour_url") or "").strip():
                             candidate_row["tour_url"] = str(visual_state.get("tour_url") or "").strip()
                             vendor_tour_url = str(visual_state.get("vendor_tour_url") or "").strip()
@@ -34231,6 +34308,9 @@ class ProductService:
             ]
             if strong_ranked_rows:
                 ranked_rows = strong_ranked_rows[:max_results]
+                remaining_slots = max(0, int(max_results) - len(ranked_rows))
+                if remaining_slots > 0 and fallback_ranked_rows:
+                    ranked_rows.extend(fallback_ranked_rows[:remaining_slots])
             elif len(fallback_ranked_rows) > max_results:
                 ranked_rows = fallback_ranked_rows[:max_results]
             _report(

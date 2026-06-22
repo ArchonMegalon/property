@@ -272,6 +272,63 @@ def _property_customer_candidate_is_rankable(candidate: dict[str, object]) -> bo
     filter_reason = str(candidate.get("filter_reason") or "").strip().lower()
     if filter_reason in hard_filter_reasons:
         return False
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    has_location_signal = any(
+        str(value or "").strip()
+        for value in (
+            candidate.get("location"),
+            candidate.get("postal_name"),
+            candidate.get("district"),
+            candidate.get("street_address"),
+            candidate.get("exact_address"),
+            facts.get("location"),
+            facts.get("postal_name"),
+            facts.get("district"),
+            facts.get("street_address"),
+            facts.get("exact_address"),
+            facts.get("city"),
+            facts.get("address"),
+        )
+    ) or any(
+        value not in (None, "", 0, 0.0)
+        for value in (
+            candidate.get("map_lat"),
+            candidate.get("map_lng"),
+            facts.get("map_lat"),
+            facts.get("map_lng"),
+        )
+    )
+    has_price_signal = any(
+        value not in (None, "", 0, 0.0)
+        for value in (
+            candidate.get("price_eur"),
+            candidate.get("purchase_price_eur"),
+            candidate.get("buy_price_eur"),
+            facts.get("price_eur"),
+            facts.get("purchase_price_eur"),
+            facts.get("buy_price_eur"),
+        )
+    ) or any(
+        str(value or "").strip()
+        for value in (
+            candidate.get("price_display"),
+            candidate.get("purchase_price_display"),
+            candidate.get("buy_price_display"),
+            facts.get("price_display"),
+            facts.get("purchase_price_display"),
+            facts.get("buy_price_display"),
+        )
+    )
+    has_decision_signal = any(
+        str(value or "").strip()
+        for value in (
+            candidate.get("fit_summary"),
+            candidate.get("recommendation"),
+            candidate.get("review_url"),
+        )
+    ) or bool(list(candidate.get("match_reasons") or []))
+    if not has_location_signal and not has_price_signal and not has_decision_signal:
+        return False
     return True
 
 
@@ -1565,13 +1622,39 @@ def _property_scope_fallback_layout_preview(
 
 def _property_scope_map_pending_preview(
     *,
+    country_code: str,
+    region_code: str,
     normalized_query: str,
     market_label: str,
     selected_labels: list[str] | None = None,
 ) -> dict[str, object]:
     label = normalized_query or market_label or "Search area"
+    image_url = ""
+    fallback_point = _property_scope_fallback_point(country_code, region_code, normalized_query)
+    if fallback_point is not None:
+        lat, lon = fallback_point
+        lat_key = int(round(lat * 10000))
+        lon_key = int(round(lon * 10000))
+        image_url = _cached_preview_image_url(
+            cache_key={
+                "kind": "scope-pending",
+                "country": str(country_code or "").strip().upper(),
+                "region": str(region_code or "").strip().lower(),
+                "query": label,
+                "lat_key": lat_key,
+                "lon_key": lon_key,
+                "zoom": 12,
+                "overlay_mode": "pending_pin_v1",
+            },
+            center_lat=lat,
+            center_lon=lon,
+            zoom=12,
+            pin=(320.0, 184.0),
+            draw_overlay=False,
+            materialize="async",
+        )
     return {
-        "image_url": "",
+        "image_url": image_url,
         "alt": f"Search area preview for {label}",
         "summary": ", ".join(list(selected_labels or [])[:2]) if selected_labels else label,
         "count_label": "",
@@ -1699,6 +1782,8 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
         if image_url.startswith("/app/api/property/map-previews/") and preview_kind == "osm_district_overlay":
             return dict(boundary_preview)
     return _property_scope_map_pending_preview(
+        country_code=normalized_country,
+        region_code=normalized_region,
         normalized_query=normalized_query,
         market_label=market_label,
         selected_labels=selected_labels,

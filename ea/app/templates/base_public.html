@@ -144,11 +144,11 @@
       font-size: 14px;
       font-weight: 550;
     }
-    .nav a {
+    .nav :is(a, span) {
       padding: 8px 0;
       border-bottom: 2px solid transparent;
     }
-    .nav a.active {
+    .nav :is(a, span).active {
       color: var(--text);
       border-bottom-color: var(--accent);
     }
@@ -804,7 +804,11 @@
         {% for item in public_nav %}
         {% set is_sign_in_item = item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string) %}
         {% if not ((signing_in_progress or public_signed_in) and is_sign_in_item) %}
-        <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
+        {% if current_nav == item.key %}
+        <span class="active" aria-current="page">{{ item.label }}</span>
+        {% else %}
+        <a href="{{ item.href }}">{{ item.label }}</a>
+        {% endif %}
         {% endif %}
         {% endfor %}
       </nav>
@@ -828,11 +832,23 @@
       {% for item in public_nav %}
       {% set is_sign_in_item = item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string) %}
       {% if not ((signing_in_progress or public_signed_in) and is_sign_in_item) %}
-      <a href="{{ item.href }}" class="{% if current_nav == item.key %}active{% endif %}">{{ item.label }}</a>
+      {% if current_nav == item.key %}
+      <span class="active" aria-current="page">{{ item.label }}</span>
+      {% else %}
+      <a href="{{ item.href }}">{{ item.label }}</a>
+      {% endif %}
       {% endif %}
       {% endfor %}
-      <a href="/docs" class="{% if current_nav == 'docs' %}active{% endif %}">Docs</a>
-      <a href="/integrations" class="{% if current_nav == 'integrations' %}active{% endif %}">Integrations</a>
+      {% if current_nav == 'docs' %}
+      <span class="active" aria-current="page">Docs</span>
+      {% else %}
+      <a href="/docs">Docs</a>
+      {% endif %}
+      {% if current_nav == 'integrations' %}
+      <span class="active" aria-current="page">Integrations</span>
+      {% else %}
+      <a href="/integrations">Integrations</a>
+      {% endif %}
     </div>
   </header>
 

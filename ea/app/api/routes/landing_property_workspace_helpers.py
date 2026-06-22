@@ -115,6 +115,63 @@ def _property_candidate_is_rankable(candidate: dict[str, object]) -> bool:
     filter_reason = str(candidate.get("filter_reason") or "").strip().lower()
     if filter_reason in hard_filter_reasons:
         return False
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    has_location_signal = any(
+        str(value or "").strip()
+        for value in (
+            candidate.get("location"),
+            candidate.get("postal_name"),
+            candidate.get("district"),
+            candidate.get("street_address"),
+            candidate.get("exact_address"),
+            facts.get("location"),
+            facts.get("postal_name"),
+            facts.get("district"),
+            facts.get("street_address"),
+            facts.get("exact_address"),
+            facts.get("city"),
+            facts.get("address"),
+        )
+    ) or any(
+        value not in (None, "", 0, 0.0)
+        for value in (
+            candidate.get("map_lat"),
+            candidate.get("map_lng"),
+            facts.get("map_lat"),
+            facts.get("map_lng"),
+        )
+    )
+    has_price_signal = any(
+        value not in (None, "", 0, 0.0)
+        for value in (
+            candidate.get("price_eur"),
+            candidate.get("purchase_price_eur"),
+            candidate.get("buy_price_eur"),
+            facts.get("price_eur"),
+            facts.get("purchase_price_eur"),
+            facts.get("buy_price_eur"),
+        )
+    ) or any(
+        str(value or "").strip()
+        for value in (
+            candidate.get("price_display"),
+            candidate.get("purchase_price_display"),
+            candidate.get("buy_price_display"),
+            facts.get("price_display"),
+            facts.get("purchase_price_display"),
+            facts.get("buy_price_display"),
+        )
+    )
+    has_decision_signal = any(
+        str(value or "").strip()
+        for value in (
+            candidate.get("fit_summary"),
+            candidate.get("recommendation"),
+            candidate.get("review_url"),
+        )
+    ) or bool(list(candidate.get("match_reasons") or []))
+    if not has_location_signal and not has_price_signal and not has_decision_signal:
+        return False
     return True
 
 

@@ -466,7 +466,7 @@
       min-width: 0;
       overflow: hidden;
     }
-    .pqx-primary-nav a {
+    .pqx-primary-nav :is(a, span) {
       min-height: var(--pq-touch-target);
       display: inline-flex;
       align-items: center;
@@ -490,12 +490,12 @@
     html[data-pq-theme="dark"] .pqx-primary-nav a:focus-visible {
       background: rgba(255, 255, 255, 0.08);
     }
-    .pqx-primary-nav a.is-active {
+    .pqx-primary-nav :is(a, span).is-active {
       color: var(--pq-ink);
       background: rgba(255, 252, 245, 0.96);
       box-shadow: inset 0 0 0 1px rgba(189, 139, 47, 0.22);
     }
-    html[data-pq-theme="dark"] .pqx-primary-nav a.is-active {
+    html[data-pq-theme="dark"] .pqx-primary-nav :is(a, span).is-active {
       background: rgba(255, 255, 255, 0.07);
       box-shadow: inset 0 0 0 1px rgba(210, 161, 74, 0.28);
     }
@@ -6263,14 +6263,38 @@
         </span>
       </a>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
-        <a href="/app/search"{% if surface_mode == 'search' %} class="is-active"{% endif %}>Search</a>
-        {% if run_active or has_results or run_terminal_no_results %}
-        <a href="/app/properties"{% if surface_mode == 'properties' %} class="is-active"{% endif %}>Run</a>
+        {% if surface_mode == 'search' %}
+        <span class="is-active" aria-current="page">Search</span>
+        {% else %}
+        <a href="/app/search">Search</a>
         {% endif %}
-        <a href="/app/shortlist"{% if surface_mode == 'shortlist' %} class="is-active"{% endif %}>Shortlist</a>
-        <a href="/app/agents"{% if surface_mode == 'agents' %} class="is-active"{% endif %}>Automation</a>
-        <a href="/app/billing"{% if surface_mode == 'billing' %} class="is-active"{% endif %}>Billing</a>
-        <a href="/app/account"{% if surface_mode == 'account' %} class="is-active"{% endif %}>Account</a>
+        {% if run_active or has_results or run_terminal_no_results %}
+        {% if surface_mode == 'properties' %}
+        <span class="is-active" aria-current="page">Run</span>
+        {% else %}
+        <a href="/app/properties">Run</a>
+        {% endif %}
+        {% endif %}
+        {% if surface_mode == 'shortlist' %}
+        <span class="is-active" aria-current="page">Shortlist</span>
+        {% else %}
+        <a href="/app/shortlist">Shortlist</a>
+        {% endif %}
+        {% if surface_mode == 'agents' %}
+        <span class="is-active" aria-current="page">Automation</span>
+        {% else %}
+        <a href="/app/agents">Automation</a>
+        {% endif %}
+        {% if surface_mode == 'billing' %}
+        <span class="is-active" aria-current="page">Billing</span>
+        {% else %}
+        <a href="/app/billing">Billing</a>
+        {% endif %}
+        {% if surface_mode == 'account' %}
+        <span class="is-active" aria-current="page">Account</span>
+        {% else %}
+        <a href="/app/account">Account</a>
+        {% endif %}
       </nav>
       <div class="pqx-top-actions" data-pq-context-actions>
         {% if run_active or has_results or run_terminal_no_results %}
@@ -7188,7 +7212,7 @@
               {% if run_status == 'failed' %}
                 {{ empty_outcome.get('happened') or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
               {% else %}
-                {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
+                {{ empty_outcome.get('happened') or 'No matches yet.' }}
               {% endif %}
             </h1>
             <div class="pqx-note" data-pqx-run-summary>

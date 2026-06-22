@@ -310,6 +310,44 @@ def test_ranked_candidates_keep_soft_filter_reasons_but_exclude_hard_reasons() -
     assert ranked[0]["rank"] == 1
 
 
+def test_ranked_candidates_merge_top_and_research_rows_and_keep_stable_candidate_ref() -> None:
+    ranked = product_service._property_search_ranked_candidates_from_sources(
+        [
+            {
+                "source_label": "Willhaben",
+                "top_candidates": [
+                    {
+                        "source_ref": "property-scout:1900851485",
+                        "property_url": "https://example.test/listing/1900851485",
+                        "review_url": "https://propertyquarry.test/app/research/packet-1",
+                        "title": "Luxury Residence",
+                        "fit_score": 53,
+                        "tour_url": "https://propertyquarry.test/tours/luxury-residence",
+                        "tour_status": "created",
+                    }
+                ],
+                "research_candidates": [
+                    {
+                        "source_ref": "property-scout:1900851485",
+                        "property_url": "https://example.test/listing/1900851485",
+                        "review_url": "https://propertyquarry.test/app/research/packet-1",
+                        "title": "Luxury Residence",
+                        "fit_score": 53,
+                        "flythrough_url": "https://propertyquarry.test/tours/files/luxury-residence/video.mp4",
+                        "flythrough_status": "rendered",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert len(ranked) == 1
+    assert ranked[0]["source_ref"] == "property-scout:1900851485"
+    assert ranked[0]["tour_url"] == "https://propertyquarry.test/tours/luxury-residence"
+    assert ranked[0]["flythrough_url"] == "https://propertyquarry.test/tours/files/luxury-residence/video.mp4"
+    assert ranked[0]["candidate_ref"]
+
+
 def test_property_scout_notification_source_hides_search_scope_metadata() -> None:
     text = product_service._property_alert_review_telegram_text(
         title="Wohnung mieten in 1220 Wien | 60 m² | 2 Zimmer | EUR 1.090",
@@ -4806,6 +4844,117 @@ def test_property_search_alert_scoring_respects_stored_feedback_toggle(monkeypat
     assert dict(candidate["assessment"])["stored_feedback_preferences_used"] is False
 
 
+def test_property_search_keeps_demoted_soft_mismatch_candidates_in_remaining_shortlist_slots(monkeypatch) -> None:
+    principal_id = "exec-property-soft-mismatch-shortlist-slots"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Soft Mismatch Shortlist Office")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
+    strong_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/high-fit/"
+    demoted_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/soft-mismatch/"
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 3,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": [strong_url, demoted_url],
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:soft-mismatch-shortlist"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+
+    def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+        if property_url == strong_url:
+            return {
+                "listing_id": "strong-shortlist",
+                "title": "Familienwohnung nahe Park",
+                "summary": "78 m2, 3 Zimmer, Gesamtmiete EUR 1.650, Balkon.",
+                "property_facts_json": {
+                    "postal_name": "1020 Wien",
+                    "area_sqm": 78,
+                    "rooms": 3,
+                    "total_rent_eur": 1650,
+                    "has_balcony": True,
+                },
+            }
+        return {
+            "listing_id": "demoted-shortlist",
+            "title": "Helle Wohnung mit Lift und Balkon",
+            "summary": "71 m2, 2 Zimmer, Gesamtmiete EUR 1.540, Lift, Balkon.",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 71,
+                "rooms": 2,
+                "total_rent_eur": 1540,
+                "has_lift": True,
+                "has_balcony": True,
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+
+    def _fake_fit(**kwargs) -> dict[str, object]:
+        listing_id = str(kwargs.get("listing_id") or kwargs.get("object_id") or "")
+        score = 81.0 if listing_id == "strong-shortlist" else 12.0
+        return {
+            "fit_score": score,
+            "confidence": 0.76,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist" if score >= 65 else "review",
+            "match_reasons_json": ["Above the matching threshold."] if score >= 65 else ["Worth a look despite softer mismatches."],
+            "mismatch_reasons_json": [] if score >= 65 else ["Below the matching threshold."],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(product_service, "_property_alert_personal_fit_from_facts", _fake_fit)
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {"status": "opened", "editor_url": f"/app/research/{kwargs.get('source_ref') or 'candidate'}"},
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "min_match_score": 65,
+            "require_floorplan": False,
+        },
+        max_results_per_source=3,
+        force_refresh=True,
+    )
+
+    titles = [row["title"] for row in result["sources"][0]["top_candidates"]]
+    assert result["listing_total"] == 2
+    assert result["sources"][0]["filtered_low_fit_total"] == 1
+    assert titles == ["Familienwohnung nahe Park", "Helle Wohnung mit Lift und Balkon"]
+    assert result["sources"][0]["top_candidates"][1]["below_match_threshold"] is True
+
+
 def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypatch) -> None:
     principal_id = "exec-property-soft-filter-equivalence"
     client = build_property_client(principal_id=principal_id)
@@ -6952,7 +7101,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert observed["force_refresh"] is True
     assert observed["max_results_per_source"] == 2
     assert observed["property_search_preferences"]["preference_person_id"] == "elisabeth"
-    assert observed["property_search_preferences"]["min_match_score"] == 45.0
+    assert observed["property_search_preferences"]["min_match_score"] == 35.0
     assert observed["property_search_preferences"]["require_floorplan"] is True
 
 

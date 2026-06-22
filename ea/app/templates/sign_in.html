@@ -219,7 +219,7 @@
   <section class="access-panel">
     <div class="kicker">Sign in</div>
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-    <p class="lead">Use your current session, email link, or connected identity.</p>
+    <p class="lead">Use a saved session, email link, or connected identity.</p>
     <div class="cta-row">
       {% if public_signed_in %}
       <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open current session</a>
@@ -242,7 +242,7 @@
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
-          <p>Google account</p>
+          <p>Saved Google identity</p>
         </span>
         <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
       </div>
@@ -252,7 +252,7 @@
         <span class="auth-provider-icon" aria-hidden="true">f</span>
         <span>
           <strong>Facebook</strong>
-          <p>Facebook account</p>
+          <p>Saved Facebook identity</p>
         </span>
         <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
       </div>
@@ -262,7 +262,7 @@
         <span class="auth-provider-icon" aria-hidden="true">ID</span>
         <span>
           <strong>ID Austria</strong>
-          <p>Austrian identity</p>
+          <p>Verified Austrian identity</p>
         </span>
         <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
       </div>

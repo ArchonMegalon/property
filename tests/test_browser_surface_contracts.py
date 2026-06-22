@@ -147,6 +147,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Typical office path" not in pricing.text
     assert "Checkout pending" not in pricing.text
     assert "Request access." in pricing.text
+    assert re.search(r'<span class="active" aria-current="page">Pricing</span>', pricing.text)
+    assert re.search(r'<a href="/pricing"[^>]*>Pricing</a>', pricing.text) is None
 
     security = client.get("/how-it-works")
     assert "Strict rules. Smart ranking." in security.text
@@ -169,9 +171,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Data deletion request" in deletion.text
 
     sign_in = client.get("/sign-in")
-    assert "Use your current session, email link, or connected identity." in sign_in.text
-    assert "Google unavailable" in sign_in.text
-    assert "Unavailable" in sign_in.text
+    assert "Use a saved session, email link, or connected identity." in sign_in.text
     assert "Identity only" not in sign_in.text
     assert "Choose the narrowest sign-in path" not in sign_in.text
 
@@ -316,7 +316,7 @@ def test_app_surface_routes_render_without_product_drift() -> None:
     settings = client.get("/app/settings")
     assert str(settings.url).endswith("/app/account")
     assert "Search defaults" in settings.text
-    assert "Notification type" in settings.text
+    assert "Notifications" in settings.text
     assert "Export account data" in settings.text
     assert "Clear search history" in settings.text
     assert "Log out" in settings.text

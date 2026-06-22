@@ -31,7 +31,11 @@ def _fake_response(
 def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
-        "https://propertyquarry.com/security": "PropertyQuarry Private by default. You choose what is shared Account data stays editable",
+        "https://propertyquarry.com/security": (
+            'PropertyQuarry Strict rules. Smart ranking. Score guide '
+            'href="/how-it-works/score" Hard filters decide eligibility. '
+            "You choose what is shared Account data stays editable"
+        ),
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Request access.",
         "https://propertyquarry.com/directory": (
             'PropertyQuarry directory <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
@@ -51,7 +55,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/disclaimers": "PropertyQuarry Disclaimers Generated visualization",
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
         "https://propertyquarry.com/sign-in": (
-            'PropertyQuarry Use your current session, email link, or connected identity. '
+            'PropertyQuarry Use a saved session, email link, or connected identity. '
             '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
         ),
         "https://propertyquarry.com/manifest.webmanifest": (
@@ -66,7 +70,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
         "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc>",
-        "https://propertyquarry.com/app/properties": "PropertyQuarry Use your current session, email link, or connected identity.",
+        "https://propertyquarry.com/app/properties": "PropertyQuarry Use a saved session, email link, or connected identity.",
     }
 
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
@@ -163,7 +167,7 @@ def test_live_public_smoke_fails_broken_google_sign_in_redirect_without_network(
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, email link, or connected identity. '
+                'PropertyQuarry Use a saved session, email link, or connected identity. '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
                 final_url=url,
             )
@@ -187,7 +191,7 @@ def test_live_public_smoke_accepts_when_facebook_lane_is_hidden_without_network(
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, email link, or connected identity. '
+                'PropertyQuarry Use a saved session, email link, or connected identity. '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
                 final_url=url,
             )
@@ -214,7 +218,7 @@ def test_live_public_smoke_fails_facebook_email_scope_without_network() -> None:
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, email link, or connected identity. '
+                'PropertyQuarry Use a saved session, email link, or connected identity. '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<a href="/sign-in/facebook" data-submitting-label="Opening Facebook...">Continue with Facebook</a>',
                 final_url=url,
@@ -256,7 +260,7 @@ def test_live_public_smoke_accepts_id_austria_identity_redirect_without_network(
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, email link, or connected identity. '
+                'PropertyQuarry Use a saved session, email link, or connected identity. '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<button disabled>Facebook unavailable</button>'
                 '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
@@ -300,7 +304,7 @@ def test_live_public_smoke_fails_broken_id_austria_redirect_without_network() ->
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use your current session, email link, or connected identity. '
+                'PropertyQuarry Use a saved session, email link, or connected identity. '
                 '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
                 final_url=url,

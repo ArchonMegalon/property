@@ -266,6 +266,7 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
                 "source_label": source_label,
             }
         )
+        candidate_row.setdefault("candidate_ref", packet_ref)
         packet_url = f"/app/research/{packet_ref}"
         if run_id:
             packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
@@ -287,7 +288,20 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
                 if not isinstance(candidate, dict):
                     continue
                 _append_candidate(dict(candidate), source_label)
-    return [_property_merge_candidate_rows(rows) for rows in packet_candidates.values()]
+    merged_rows: list[dict[str, object]] = []
+    for packet_ref, rows in packet_candidates.items():
+        merged = _property_merge_candidate_rows(rows)
+        if not merged:
+            continue
+        merged.setdefault("candidate_ref", packet_ref)
+        packet_url = str(merged.get("packet_url") or "").strip()
+        if not packet_url:
+            packet_url = f"/app/research/{packet_ref}"
+            if run_id:
+                packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
+            merged["packet_url"] = packet_url
+        merged_rows.append(merged)
+    return merged_rows
 
 
 def _property_lookup_candidate(
