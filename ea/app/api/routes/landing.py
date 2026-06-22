@@ -3502,44 +3502,57 @@ def property_research_packet(
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
     hosted_tour_ready = bool(research_media.get("hosted_ready"))
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
+    flythrough_eta_raw = str(candidate.get("flythrough_eta_minutes") or "").strip()
+    try:
+        tour_progress_pct = int(float(str(candidate.get("tour_progress_pct") or "").strip())) if str(candidate.get("tour_progress_pct") or "").strip() else 0
+    except Exception:
+        tour_progress_pct = 0
+    try:
+        flythrough_progress_pct = int(float(str(candidate.get("flythrough_progress_pct") or "").strip())) if str(candidate.get("flythrough_progress_pct") or "").strip() else 0
+    except Exception:
+        flythrough_progress_pct = 0
+    if tour_progress_pct <= 0:
+        tour_progress_pct = 58 if tour_status in {"processing", "running", "in_progress", "started"} else (14 if tour_status in {"queued", "pending"} else (100 if tour_url else 0))
+    if flythrough_progress_pct <= 0:
+        flythrough_progress_pct = 64 if flythrough_status in {"processing", "running", "in_progress", "started"} else (18 if flythrough_status in {"queued", "pending"} else (100 if flythrough_url else 0))
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
     if hosted_tour_ready and tour_url:
         hero_actions.append({"href": tour_url, "label": "Open 3D tour", "external": False})
     elif tour_url and not hosted_tour_ready and property_url:
-        hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle"})
+        hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "tour", "label": f"3D tour queued{f' · ETA {eta_raw} min' if eta_raw else ''}", "property_url": property_url, "state": "pending"})
+        hero_actions.append({"kind": "tour", "label": "3D tour queued", "property_url": property_url, "state": "pending", "progress_pct": max(tour_progress_pct, 14), "eta_label": f"about {eta_raw or '10'} min", "status_detail": f"Queued{f' · about {eta_raw} min' if eta_raw else ''}."})
     elif tour_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "tour", "label": f"3D tour rendering{f' · ETA {eta_raw} min' if eta_raw else ''}", "property_url": property_url, "state": "rendering"})
+        hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": f"about {eta_raw or '5'} min", "status_detail": f"Rendering{f' · about {eta_raw} min' if eta_raw else ''}."})
     elif property_url:
-        hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle"})
+        hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open flythrough", "external": False})
     elif flythrough_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Flythrough queued", "property_url": property_url, "state": "pending"})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": f"about {flythrough_eta_raw or '10'} min", "status_detail": "Queued. This page updates automatically."})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Flythrough rendering", "property_url": property_url, "state": "rendering"})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": f"about {flythrough_eta_raw or '5'} min", "status_detail": "Rendering now. Opens here when ready."})
     elif property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Request walkthrough", "property_url": property_url, "state": "idle"})
+        hero_actions.append({"kind": "flythrough", "label": "Request walkthrough", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if str(candidate.get("packet_url") or review_url or "").strip():
         hero_actions.append({"href": str(candidate.get("packet_url") or review_url or "").strip(), "label": "Copy page link", "copy": True})
     visual_status_line = ""
     if flythrough_url:
         visual_status_line = "Flythrough is ready on this page."
     elif flythrough_status in {"queued", "pending"}:
-        visual_status_line = "Flythrough is queued and will appear here as soon as rendering starts."
+        visual_status_line = "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
-        visual_status_line = "Flythrough is rendering now and will appear here when it is ready."
+        visual_status_line = "Walkthrough rendering."
     elif hosted_tour_ready and tour_url:
-        visual_status_line = "3D tour is ready. You can inspect it now or request a flythrough next."
+        visual_status_line = "3D tour ready."
     elif tour_url and not hosted_tour_ready:
-        visual_status_line = "Hosted 3D assets are not ready yet. You can request a rebuild now."
+        visual_status_line = "Hosted viewer unavailable."
     elif tour_status in {"queued", "pending"}:
-        visual_status_line = f"3D tour is queued{f' with an ETA of about {eta_raw} minutes' if eta_raw else ''}."
+        visual_status_line = "3D tour queued."
     elif tour_status in {"processing", "running", "in_progress", "started"}:
-        visual_status_line = f"3D tour is rendering{f' with an ETA of about {eta_raw} minutes' if eta_raw else ''}."
+        visual_status_line = "3D tour rendering."
     overview_rows = [
         {"label": "Price", "value": price_summary or "Price on request"},
         {"label": "Area", "value": f"{area_summary} m²" if area_summary else "Not listed"},

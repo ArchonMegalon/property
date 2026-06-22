@@ -12994,7 +12994,10 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
     assert body["tour_status"] == "pending"
     assert body["flythrough_status"] == "queued"
     assert body["status_label"] == "Walkthrough queued"
-    assert "without blocking this page" in body["status_detail"]
+    assert body["status_detail"] == "Queued. This page updates automatically."
+    assert body["eta_label"] == "about 10 min"
+    assert body["progress_pct"] == 18
+    assert body["poll_after_seconds"] == 10
     assert body["run_id"] == "run-queued-001"
     assert body["candidate_ref"] == "candidate-queued-001"
     assert body["source_ref"] == "willhaben:queued-001"
@@ -13006,6 +13009,55 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
     )
     assert events.status_code == 200
     assert any(item["payload"]["status"] == "queued" for item in events.json()["items"])
+
+
+def test_property_visual_status_route_returns_current_visual_snapshot(monkeypatch) -> None:
+    principal_id = "property-visual-status-route"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+
+    def _fake_status(self, **kwargs):  # type: ignore[no-untyped-def]
+        assert kwargs["principal_id"] == principal_id
+        assert kwargs["run_id"] == "run-42"
+        assert kwargs["request_kind"] == "flythrough"
+        return {
+            "generated_at": "2026-06-22T14:00:00+00:00",
+            "status": "processing",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-42",
+            "title": "Demo 42",
+            "variant_key": "layout_first",
+            "source_ref": "willhaben:demo-42",
+            "external_id": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-42",
+            "request_kind": "flythrough",
+            "run_id": "run-42",
+            "candidate_ref": "candidate-42",
+            "tour_url": "",
+            "flythrough_url": "",
+            "tour_status": "pending",
+            "flythrough_status": "processing",
+            "blocked_reason": "",
+            "status_label": "Walkthrough rendering",
+            "status_detail": "Walkthrough is rendering now and will appear here when it is ready.",
+            "eta_label": "about 5 min",
+            "progress_pct": 64,
+            "poll_after_seconds": 10,
+            "tour_media_mode": "stored_visual_state",
+            "personal_fit_assessment": {},
+        }
+
+    monkeypatch.setattr(product_service.ProductService, "get_property_visual_request_status", _fake_status)
+
+    response = client.get(
+        "/app/api/signals/property/visual-status",
+        params={"run_id": "run-42", "request_kind": "flythrough", "candidate_ref": "candidate-42"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "processing"
+    assert body["status_label"] == "Walkthrough rendering"
+    assert body["eta_label"] == "about 5 min"
+    assert body["progress_pct"] == 64
+    assert body["poll_after_seconds"] == 10
 
 
 def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch) -> None:

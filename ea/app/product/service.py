@@ -2195,6 +2195,28 @@ def _property_tour_status_is_terminal(value: object) -> bool:
     return normalized in {"created", "existing", "ready", "blocked", "failed", "skipped", "not_applicable"}
 
 
+def _property_visual_progress_pct(*, request_kind: str, status: object, ready_url: object = "") -> int:
+    normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+    normalized_status = str(status or "").strip().lower()
+    if str(ready_url or "").strip():
+        return 100
+    if normalized_status in {"processing", "running", "in_progress", "started", "rendering"}:
+        return 64 if normalized_kind == "flythrough" else 58
+    if normalized_status in {"queued", "pending"}:
+        return 18 if normalized_kind == "flythrough" else 14
+    return 0
+
+
+def _property_visual_eta_label(*, request_kind: str, status: object, eta_minutes: object = "") -> str:
+    normalized_status = str(status or "").strip().lower()
+    raw_eta = str(eta_minutes or "").strip()
+    default_eta = "5" if normalized_status in {"processing", "running", "in_progress", "started", "rendering"} else "10"
+    eta_value = raw_eta or default_eta
+    if normalized_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+        return f"about {eta_value} min"
+    return ""
+
+
 def _normalize_property_flythrough_result(result: dict[str, object] | None) -> dict[str, object]:
     payload = dict(result or {})
     video_url = str(payload.get("video_url") or payload.get("flythrough_url") or "").strip()
@@ -29253,12 +29275,22 @@ class ProductService:
                                 candidate_row["vendor_tour_url"] = vendor_tour_url
                         if str(visual_state.get("tour_status") or "").strip():
                             candidate_row["tour_status"] = str(visual_state.get("tour_status") or "").strip()
+                        if str(visual_state.get("tour_eta_minutes") or "").strip():
+                            candidate_row["tour_eta_minutes"] = str(visual_state.get("tour_eta_minutes") or "").strip()
+                        if str(visual_state.get("tour_progress_pct") or "").strip():
+                            candidate_row["tour_progress_pct"] = str(visual_state.get("tour_progress_pct") or "").strip()
                         if str(visual_state.get("blocked_reason") or "").strip():
                             candidate_row["blocked_reason"] = str(visual_state.get("blocked_reason") or "").strip()
                         if str(visual_state.get("flythrough_url") or "").strip():
                             candidate_row["flythrough_url"] = str(visual_state.get("flythrough_url") or "").strip()
                         if str(visual_state.get("flythrough_status") or "").strip():
                             candidate_row["flythrough_status"] = str(visual_state.get("flythrough_status") or "").strip()
+                        if str(visual_state.get("flythrough_eta_minutes") or "").strip():
+                            candidate_row["flythrough_eta_minutes"] = str(visual_state.get("flythrough_eta_minutes") or "").strip()
+                        if str(visual_state.get("flythrough_progress_pct") or "").strip():
+                            candidate_row["flythrough_progress_pct"] = str(visual_state.get("flythrough_progress_pct") or "").strip()
+                        if str(visual_state.get("flythrough_reason") or "").strip():
+                            candidate_row["flythrough_reason"] = str(visual_state.get("flythrough_reason") or "").strip()
                         mutated = True
                     updated_candidates.append(candidate_row)
                 source[key] = updated_candidates
@@ -29329,16 +29361,22 @@ class ProductService:
                 human_task_id = ""
             status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
             status_detail = (
-                "Walkthrough request queued. The media lane will build it without blocking this page."
+                "Queued. This page updates automatically."
                 if normalized_kind == "flythrough"
-                else "3D tour request queued. The media lane will build it without blocking this page."
+                else "Queued. This page updates automatically."
             )
+            eta_label = _property_visual_eta_label(request_kind=normalized_kind, status="queued")
+            progress_pct = _property_visual_progress_pct(request_kind=normalized_kind, status="queued")
             visual_state = {
                 "tour_url": "",
                 "vendor_tour_url": "",
                 "tour_status": "pending",
+                "tour_eta_minutes": "10",
+                "tour_progress_pct": str(_property_visual_progress_pct(request_kind="tour", status="queued")),
                 "flythrough_url": "",
                 "flythrough_status": "queued" if normalized_kind == "flythrough" else "",
+                "flythrough_eta_minutes": "10" if normalized_kind == "flythrough" else "",
+                "flythrough_progress_pct": str(_property_visual_progress_pct(request_kind="flythrough", status="queued")) if normalized_kind == "flythrough" else "",
                 "blocked_reason": "",
             }
             self._persist_property_search_visual_state(
@@ -29376,6 +29414,9 @@ class ProductService:
                 "tour_status": "pending",
                 "status_label": status_label,
                 "status_detail": status_detail,
+                "eta_label": eta_label,
+                "progress_pct": progress_pct,
+                "poll_after_seconds": 10,
                 "tour_media_mode": "queued_user_request",
                 "personal_fit_assessment": {},
             }
@@ -29438,42 +29479,61 @@ class ProductService:
                     status_detail = "Flythrough is ready on this page."
                 elif flythrough_status in {"queued", "pending"}:
                     status_label = "Flythrough queued"
-                    status_detail = "Flythrough is queued after your request and will appear here when it is ready."
+                    status_detail = "Queued. Opens here when ready."
                 elif flythrough_status in {"processing", "running", "in_progress", "started"}:
                     status_label = "Flythrough rendering"
-                    status_detail = "Flythrough rendering started from your request and will appear here when it is ready."
+                    status_detail = "Rendering now. Opens here when ready."
                 else:
                     payload["flythrough_status"] = "pending"
                     status_label = "Flythrough queued"
-                    status_detail = "Flythrough request recorded. It will appear here after the 3D tour assets are ready."
+                    status_detail = "Queued. It starts after the 3D tour is ready."
             elif tour_status in {"blocked", "failed", "skipped"}:
                 payload["flythrough_status"] = "blocked"
                 status_label = "Flythrough blocked"
-                status_detail = "More source material is still needed before this flythrough can be built."
+                status_detail = "More source material is needed first."
             else:
                 payload["flythrough_status"] = "pending"
                 status_label = "Flythrough queued"
-                status_detail = "Flythrough request recorded. It will appear here after the 3D tour assets are ready."
+                status_detail = "Queued. It starts after the 3D tour is ready."
         else:
             payload["tour_status"] = tour_status or str(payload.get("tour_status") or "").strip().lower()
             if str(payload.get("tour_url") or "").strip():
                 status_label = "3D tour ready"
-                status_detail = "3D tour is ready. Open it here."
+                status_detail = "Ready on this page."
             elif payload["tour_status"] in {"queued", "pending"}:
                 status_label = "3D tour queued"
-                status_detail = "3D tour is queued and will appear here when it is ready."
+                status_detail = "Queued. Opens here when ready."
             elif payload["tour_status"] in {"processing", "running", "in_progress", "started"}:
                 status_label = "3D tour rendering"
-                status_detail = "3D tour is rendering now and will appear here when it is ready."
+                status_detail = "Rendering now. Opens here when ready."
             elif payload["tour_status"] in {"blocked", "failed", "skipped"}:
                 status_label = "3D tour blocked"
-                status_detail = "More source material is still needed before this 3D tour can be built."
+                status_detail = "More source material is needed first."
             else:
                 payload["tour_status"] = "pending"
                 status_label = "3D tour queued"
                 status_detail = "3D tour request recorded."
         payload["status_label"] = status_label
         payload["status_detail"] = status_detail
+        normalized_poll_status = str(
+            payload.get("flythrough_status") if normalized_kind == "flythrough" else payload.get("tour_status") or payload.get("status")
+        ).strip().lower()
+        eta_minutes = ""
+        if normalized_kind == "tour":
+            eta_minutes = str(payload.get("tour_eta_minutes") or "").strip()
+        elif normalized_kind == "flythrough":
+            eta_minutes = str(payload.get("flythrough_eta_minutes") or "").strip()
+        payload["eta_label"] = _property_visual_eta_label(
+            request_kind=normalized_kind,
+            status=normalized_poll_status,
+            eta_minutes=eta_minutes,
+        )
+        payload["progress_pct"] = _property_visual_progress_pct(
+            request_kind=normalized_kind,
+            status=normalized_poll_status,
+            ready_url=payload.get("flythrough_url") if normalized_kind == "flythrough" else payload.get("tour_url"),
+        )
+        payload["poll_after_seconds"] = 10 if _property_tour_status_is_pending(normalized_poll_status) else 0
         if normalized_kind == "flythrough":
             normalized_flythrough_status = str(payload.get("flythrough_status") or "").strip().lower()
             raw_flythrough_status = str(payload.get("flythrough_raw_status") or "").strip().lower()
@@ -29507,12 +29567,180 @@ class ProductService:
                 "tour_url": str(payload.get("tour_url") or "").strip(),
                 "vendor_tour_url": str(payload.get("vendor_tour_url") or "").strip(),
                 "tour_status": str(payload.get("tour_status") or payload.get("status") or "").strip().lower(),
+                "tour_eta_minutes": str(payload.get("tour_eta_minutes") or "").strip(),
+                "tour_progress_pct": str(
+                    _property_visual_progress_pct(
+                        request_kind="tour",
+                        status=str(payload.get("tour_status") or payload.get("status") or "").strip().lower(),
+                        ready_url=str(payload.get("tour_url") or "").strip(),
+                    )
+                ),
                 "flythrough_url": str(payload.get("flythrough_url") or "").strip(),
                 "flythrough_status": str(payload.get("flythrough_status") or "").strip().lower(),
+                "flythrough_eta_minutes": str(payload.get("flythrough_eta_minutes") or "").strip(),
+                "flythrough_progress_pct": str(
+                    _property_visual_progress_pct(
+                        request_kind="flythrough",
+                        status=str(payload.get("flythrough_status") or "").strip().lower(),
+                        ready_url=str(payload.get("flythrough_url") or "").strip(),
+                    )
+                ),
+                "flythrough_reason": str(payload.get("flythrough_reason") or "").strip(),
                 "blocked_reason": str(payload.get("blocked_reason") or "").strip(),
             },
         )
         return payload
+
+    def get_property_visual_request_status(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        request_kind: str = "tour",
+        candidate_ref: str = "",
+        source_ref: str = "",
+        property_url: str = "",
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_candidate_ref = str(candidate_ref or "").strip()
+        normalized_source_ref = str(source_ref or "").strip()
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_principal or not normalized_run_id:
+            raise ValueError("property_visual_status_run_missing")
+        snapshot = self._snapshot_property_search_run(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        if not isinstance(snapshot, dict):
+            raise ValueError("property_visual_status_run_missing")
+        summary = dict(snapshot.get("summary") or {})
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        matched_candidate: dict[str, object] | None = None
+        for source in sources:
+            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+            for key in ("top_candidates", "research_candidates"):
+                for candidate in list(source.get(key) or []):
+                    if not isinstance(candidate, dict):
+                        continue
+                    candidate_row = dict(candidate)
+                    candidate_row.setdefault("source_label", source_label)
+                    candidate_source_ref = str(candidate_row.get("source_ref") or "").strip()
+                    candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
+                    candidate_identity = hashlib.sha1(
+                        "|".join(
+                            (
+                                str(candidate_row.get("title") or "").strip(),
+                                candidate_property_url,
+                                str(candidate_row.get("review_url") or "").strip(),
+                                candidate_source_ref,
+                                source_label,
+                            )
+                        ).encode("utf-8")
+                    ).hexdigest()[:16]
+                    matches_candidate = False
+                    if normalized_source_ref:
+                        matches_candidate = candidate_source_ref == normalized_source_ref
+                        if matches_candidate and normalized_property_url and candidate_property_url:
+                            matches_candidate = candidate_property_url == normalized_property_url
+                    elif normalized_candidate_ref:
+                        matches_candidate = candidate_identity == normalized_candidate_ref
+                        if matches_candidate and normalized_property_url and candidate_property_url:
+                            matches_candidate = candidate_property_url == normalized_property_url
+                    elif normalized_property_url:
+                        matches_candidate = candidate_property_url == normalized_property_url
+                    if matches_candidate:
+                        matched_candidate = candidate_row
+                        break
+                if matched_candidate is not None:
+                    break
+            if matched_candidate is not None:
+                break
+        if matched_candidate is None:
+            raise ValueError("property_visual_status_candidate_missing")
+
+        tour_url = str(matched_candidate.get("tour_url") or "").strip()
+        flythrough_url = str(matched_candidate.get("flythrough_url") or "").strip()
+        tour_status = str(matched_candidate.get("tour_status") or "").strip().lower()
+        flythrough_status = str(matched_candidate.get("flythrough_status") or "").strip().lower()
+        blocked_reason = str(matched_candidate.get("blocked_reason") or "").strip()
+        title = str(matched_candidate.get("title") or "Selected property").strip() or "Selected property"
+        source_ref_value = str(matched_candidate.get("source_ref") or normalized_source_ref or normalized_property_url).strip()
+        status_value = flythrough_status if normalized_kind == "flythrough" else tour_status
+        ready_url = flythrough_url if normalized_kind == "flythrough" else tour_url
+        eta_minutes = (
+            str(matched_candidate.get("flythrough_eta_minutes") or "").strip()
+            if normalized_kind == "flythrough"
+            else str(matched_candidate.get("tour_eta_minutes") or "").strip()
+        )
+        reason = (
+            str(matched_candidate.get("flythrough_reason") or "").strip()
+            if normalized_kind == "flythrough"
+            else blocked_reason
+        )
+        if ready_url:
+            status_value = "ready"
+            status_label = "Open walkthrough" if normalized_kind == "flythrough" else "Open 3D tour"
+            status_detail = "Walkthrough is ready on this page." if normalized_kind == "flythrough" else "3D tour is ready. Open it here."
+        elif status_value in {"queued", "pending"}:
+            status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
+            status_detail = (
+                "Walkthrough request is queued and will appear here when it is ready."
+                if normalized_kind == "flythrough"
+                else "3D tour request is queued and will appear here when it is ready."
+            )
+        elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
+            status_label = "Walkthrough rendering" if normalized_kind == "flythrough" else "3D tour rendering"
+            status_detail = (
+                "Walkthrough is rendering now and will appear here when it is ready."
+                if normalized_kind == "flythrough"
+                else "3D tour is rendering now and will appear here when it is ready."
+            )
+        elif status_value in {"blocked", "failed", "skipped", "not_applicable"}:
+            status_label = "Walkthrough unavailable" if normalized_kind == "flythrough" else "3D tour unavailable"
+            status_detail = reason or (
+                "More source material is still needed before this walkthrough can be built."
+                if normalized_kind == "flythrough"
+                else "More source material is still needed before this 3D tour can be built."
+            )
+        else:
+            status_label = "Request walkthrough" if normalized_kind == "flythrough" else "Request 3D tour"
+            status_detail = "No media request is open for this home yet."
+            status_value = "idle"
+
+        return {
+            "generated_at": _now_iso(),
+            "status": status_value,
+            "property_url": str(matched_candidate.get("property_url") or normalized_property_url).strip(),
+            "title": title,
+            "variant_key": "layout_first",
+            "source_ref": source_ref_value,
+            "external_id": str(matched_candidate.get("property_url") or normalized_property_url).strip(),
+            "request_kind": normalized_kind,
+            "run_id": normalized_run_id,
+            "candidate_ref": normalized_candidate_ref,
+            "tour_url": tour_url,
+            "flythrough_url": flythrough_url,
+            "tour_status": tour_status,
+            "flythrough_status": flythrough_status,
+            "blocked_reason": blocked_reason,
+            "status_label": status_label,
+            "status_detail": status_detail,
+            "eta_label": _property_visual_eta_label(
+                request_kind=normalized_kind,
+                status=status_value,
+                eta_minutes=eta_minutes,
+            ),
+            "progress_pct": _property_visual_progress_pct(
+                request_kind=normalized_kind,
+                status=status_value,
+                ready_url=ready_url,
+            ),
+            "poll_after_seconds": 10 if _property_tour_status_is_pending(status_value) else 0,
+            "tour_media_mode": "stored_visual_state",
+            "personal_fit_assessment": {},
+        }
 
     def _maybe_advance_property_search_run_finalization(
         self,

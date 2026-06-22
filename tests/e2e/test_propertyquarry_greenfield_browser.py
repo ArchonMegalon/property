@@ -2219,6 +2219,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
     context = _new_context(browser, mobile=True, width=390, height=844)
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
 
     def _capture_visual_request(route) -> None:
         request = route.request
@@ -2239,6 +2240,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                     "flythrough_status": "pending",
                     "status_label": "Walkthrough queued",
                     "status_detail": "Walkthrough is queued after your request.",
+                    "eta_label": "about 10 min",
+                    "progress_pct": 18,
+                    "poll_after_seconds": 1,
                     "delivery_status": "skipped",
                     "blocked_reason": "",
                     "source_ref": visual_requests[-1].get("source_ref", ""),
@@ -2249,6 +2253,36 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         )
 
     page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-06-21T10:00:03+00:00",
+                    "status": "ready" if visual_status_polls >= 1 else "processing",
+                    "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/listing-url-only-loft",
+                    "title": "Listing URL only loft",
+                    "request_kind": "flythrough",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "https://propertyquarry.com/tours/listing-url-only-loft?pane=flythrough-pane",
+                    "flythrough_status": "ready",
+                    "status_label": "Open walkthrough",
+                    "status_detail": "Walkthrough is ready on this page.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "willhaben:listing-url-only-loft",
+                    "run_id": "run-42",
+                    "candidate_ref": "listing-url-only-loft",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
     screenshot_path = tmp_path / "property-research-detail-mobile.png"
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
@@ -2332,6 +2366,15 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/listing-url-only-loft")
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request")
+        expect(page.locator("[data-prd-visual-eta]")).to_contain_text("about 10 min")
+        rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
+        assert "18%" in rail_fill
+        page.wait_for_timeout(1300)
+        assert visual_status_polls >= 1
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("ready on this page")
+        updated_button = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
+        expect(updated_button).to_be_visible()
+        assert updated_button.get_attribute("data-pw-visual-href")
     finally:
         context.close()
 

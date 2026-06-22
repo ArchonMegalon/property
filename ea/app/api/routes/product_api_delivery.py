@@ -455,6 +455,34 @@ def create_willhaben_property_tour(
     return WillhabenPropertyTourOut(**payload)
 
 
+@router.get("/signals/property/visual-status", response_model=WillhabenPropertyTourOut)
+def get_property_visual_status(
+    run_id: str = Query(min_length=1),
+    request_kind: str = Query(default="tour"),
+    candidate_ref: str = Query(default=""),
+    source_ref: str = Query(default=""),
+    property_url: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WillhabenPropertyTourOut:
+    service = build_product_service(container)
+    try:
+        payload = service.get_property_visual_request_status(
+            principal_id=context.principal_id,
+            run_id=run_id,
+            request_kind=request_kind,
+            candidate_ref=candidate_ref,
+            source_ref=source_ref,
+            property_url=property_url,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if detail in {"property_visual_status_run_missing", "property_visual_status_candidate_missing"}:
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=400, detail=detail) from exc
+    return WillhabenPropertyTourOut(**payload)
+
+
 @router.post("/signals/pocket/upload-url", response_model=SignalIngestEndpointOut)
 def create_pocket_signal_upload_url(
     request: Request,

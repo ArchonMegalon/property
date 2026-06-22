@@ -1540,6 +1540,9 @@ class WillhabenPropertyTourOut(BaseModel):
     tour_status: str = ""
     status_label: str = ""
     status_detail: str = ""
+    eta_label: str = ""
+    progress_pct: int = 0
+    poll_after_seconds: int = 0
     tour_media_mode: str = ""
     personal_fit_assessment: dict[str, object] = Field(default_factory=dict)
 

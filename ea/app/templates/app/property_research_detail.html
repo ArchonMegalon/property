@@ -34,7 +34,7 @@
   .prd-headline {
     grid-template-columns: 1fr;
     align-items: start;
-    gap: 8px;
+    gap: 6px;
   }
   .prd-summary-stack,
   .prd-side-stack {
@@ -118,15 +118,15 @@
   .prd-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
   }
   .prd-media-actions {
     display: none;
   }
   .prd-actions .console-action,
   .prd-actions .pqx-button {
-    min-height: 32px;
-    padding-block: 6px;
+    min-height: 30px;
+    padding: 5px 10px;
   }
   @media (pointer: coarse) {
     .prd-actions .console-action,
@@ -164,16 +164,16 @@
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    min-height: clamp(176px, 24vh, 238px);
-    max-height: min(calc(100vh - 420px), 260px);
+    min-height: clamp(184px, 25vh, 244px);
+    max-height: min(calc(100vh - 410px), 272px);
     padding: 0;
     background: var(--panel-2);
     border: 1px solid var(--line);
     border-radius: 10px;
   }
   .prd-media-frame.prd-media-frame-live {
-    min-height: clamp(190px, 26vh, 252px);
-    max-height: min(calc(100vh - 400px), 272px);
+    min-height: clamp(198px, 27vh, 258px);
+    max-height: min(calc(100vh - 396px), 282px);
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -265,10 +265,63 @@
     overflow: hidden;
   }
   .prd-visual-status {
-    margin-top: 4px;
+    margin: 0;
     color: var(--text-soft);
-    font-size: 13px;
-    min-height: 18px;
+    font-size: 12px;
+    line-height: 1.3;
+    min-height: 16px;
+  }
+  .prd-visual-rail {
+    display: none;
+    gap: 5px;
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid var(--line);
+  }
+  .prd-visual-rail.is-active {
+    display: grid;
+  }
+  .prd-visual-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+  }
+  .prd-visual-meta strong {
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+  .prd-visual-eta {
+    color: var(--text-soft);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .prd-visual-progress {
+    --prd-fill: 0%;
+    position: relative;
+    overflow: hidden;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel-2) 82%, var(--line) 18%);
+  }
+  .prd-visual-progress::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: var(--prd-fill);
+    background: linear-gradient(90deg, rgba(168, 128, 36, 0.94), rgba(196, 160, 86, 0.9));
+    border-radius: inherit;
+  }
+  .prd-visual-progress.is-processing::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.36) 45%, transparent 100%);
+    transform: translateX(-100%);
+    animation: prd-progress-sheen 1.9s ease-in-out infinite;
+    pointer-events: none;
   }
   .prd-actions .console-action.is-processing {
     position: relative;
@@ -295,6 +348,13 @@
     .prd-actions .console-action.is-processing::before {
       animation: none;
     }
+    .prd-visual-progress.is-processing::after {
+      animation: none;
+    }
+  }
+  @keyframes prd-progress-sheen {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(140%); }
   }
   .prd-gallery {
     grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
@@ -1025,6 +1085,10 @@
       gap: 6px;
       margin-top: 5px;
     }
+    .prd-visual-rail {
+      margin-top: 6px;
+      padding-top: 6px;
+    }
     .prd-status-badge {
       min-height: 24px;
       padding: 0 8px;
@@ -1146,6 +1210,19 @@
       </div>
     </section>
     {% set mobile_visual_actions = research_actions|selectattr('kind')|list %}
+    {% set visual_status = namespace(active=None) %}
+    {% for action in mobile_visual_actions %}
+      {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] and visual_status.active is none %}
+        {% set visual_status.active = action %}
+      {% endif %}
+    {% endfor %}
+    {% if visual_status.active is none %}
+      {% for action in research_actions if action.get('kind') %}
+        {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] and visual_status.active is none %}
+          {% set visual_status.active = action %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     {% if mobile_visual_actions %}
     <div class="prd-actions prd-media-actions" aria-label="Media requests">
       {% for action in mobile_visual_actions %}
@@ -1158,6 +1235,10 @@
         data-source-ref="{{ research_source_ref or '' }}"
         data-run-id="{{ research_run_id or '' }}"
         data-candidate-ref="{{ research_candidate_ref or '' }}"
+        data-pw-visual-progress="{{ action.get('progress_pct') or 0 }}"
+        data-pw-visual-eta="{{ action.get('eta_label') or '' }}"
+        data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
+        data-pw-visual-poll-seconds="{% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
         aria-label="{{ action.get('label') or 'Request visual review' }}"
       >{{ action.get('label') }}</button>
       {% endfor %}
@@ -1181,7 +1262,7 @@
           <span class="prd-copy">{{ research_media.get('status_detail') or '' }}</span>
         </div>
         {% endif %}
-        <div class="prd-actions" style="margin-top:16px;">
+        <div class="prd-actions" style="margin-top:10px;">
           {% for action in research_actions %}
             {% if action.get('href') and action.get('copy') %}
             <button class="console-action" type="button" data-prd-copy-link="{{ action.get('href') }}">Copy share link</button>
@@ -1197,12 +1278,35 @@
               data-source-ref="{{ research_source_ref or '' }}"
               data-run-id="{{ research_run_id or '' }}"
               data-candidate-ref="{{ research_candidate_ref or '' }}"
+              data-pw-visual-progress="{{ action.get('progress_pct') or 0 }}"
+              data-pw-visual-eta="{{ action.get('eta_label') or '' }}"
+              data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
+              data-pw-visual-poll-seconds="{% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
               aria-label="{{ action.get('label') or 'Request visual review' }}"
             >{{ action.get('label') }}</button>
             {% endif %}
           {% endfor %}
         </div>
-        <p class="prd-visual-status" data-prd-visual-status>{{ research_visual_status_line or '' }}</p>
+        <div
+          class="prd-visual-rail{% if visual_status.active %} is-active{% endif %}"
+          data-prd-visual-rail
+          {% if visual_status.active %}
+          data-prd-visual-kind="{{ visual_status.active.get('kind') or '' }}"
+          data-prd-visual-state="{{ visual_status.active.get('state') or '' }}"
+          data-prd-visual-poll-seconds="10"
+          {% endif %}
+        >
+          <div class="prd-visual-meta">
+            <strong data-prd-visual-label>{{ (visual_status.active.get('label') if visual_status.active else '') or '' }}</strong>
+            <span class="prd-visual-eta" data-prd-visual-eta>{{ (visual_status.active.get('eta_label') if visual_status.active else '') or '' }}</span>
+          </div>
+          <div
+            class="prd-visual-progress{% if visual_status.active and visual_status.active.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %} is-processing{% endif %}"
+            data-prd-visual-progress
+            style="--prd-fill: {{ (visual_status.active.get('progress_pct') if visual_status.active else 0) or 0 }}%;"
+          ></div>
+          <p class="prd-visual-status" data-prd-visual-status>{{ (visual_status.active.get('status_detail') if visual_status.active else '') or research_visual_status_line or '' }}</p>
+        </div>
       </section>
 
       <aside class="prd-summary-stack">
@@ -1728,7 +1832,13 @@
 <script>
 (() => {
   const visualRequestStatusNode = document.querySelector('[data-prd-visual-status]');
+  const visualRail = document.querySelector('[data-prd-visual-rail]');
+  const visualRailLabelNode = document.querySelector('[data-prd-visual-label]');
+  const visualRailEtaNode = document.querySelector('[data-prd-visual-eta]');
+  const visualRailProgressNode = document.querySelector('[data-prd-visual-progress]');
   const visualRequestButtons = Array.from(document.querySelectorAll('[data-pw-visual-request]'));
+  const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'];
+  let visualPollTimer = 0;
   document.querySelectorAll('img[data-prd-hero-image]').forEach((image) => {
     const frame = image.closest('[data-object-media-stage]');
     let fallbackTried = false;
@@ -1755,14 +1865,30 @@
     const nextState = String(normalized.state || button.getAttribute('data-pw-visual-state') || 'idle').trim().toLowerCase() || 'idle';
     const href = String(normalized.href || '').trim();
     const label = String(normalized.label || button.textContent || '').trim();
+    const eta = String(normalized.eta || '').trim();
+    const detail = String(normalized.detail || '').trim();
+    const progressSource = normalized.progress !== undefined ? normalized.progress : (button.getAttribute('data-pw-visual-progress') || 0);
+    const pollSource = normalized.pollSeconds !== undefined ? normalized.pollSeconds : (button.getAttribute('data-pw-visual-poll-seconds') || 0);
+    const progress = Math.max(0, Math.min(100, Number(progressSource) || 0));
+    const pollSeconds = Math.max(0, Number(pollSource) || 0);
     button.setAttribute('data-pw-visual-state', nextState);
+    button.setAttribute('data-pw-visual-progress', String(progress));
+    button.setAttribute('data-pw-visual-eta', eta);
+    button.setAttribute('data-pw-visual-detail', detail);
+    button.setAttribute('data-pw-visual-poll-seconds', String(pollSeconds));
     button.textContent = label;
+    button.setAttribute('aria-label', label);
+    if (detail || eta) {
+      button.setAttribute('title', [detail, eta ? `ETA ${eta}` : ''].filter(Boolean).join(' · '));
+    } else {
+      button.removeAttribute('title');
+    }
     if (href) {
       button.setAttribute('data-pw-visual-href', href);
     } else {
       button.removeAttribute('data-pw-visual-href');
     }
-    const isWaiting = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextState);
+    const isWaiting = visualPendingStates.includes(nextState);
     button.disabled = isWaiting;
     button.classList.toggle('is-processing', isWaiting);
     if (isWaiting) {
@@ -1771,26 +1897,108 @@
       button.removeAttribute('aria-disabled');
     }
   };
+  const syncVisualRail = (requestKind, state) => {
+    if (!visualRail) return;
+    const normalized = state && typeof state === 'object' ? state : {};
+    const nextState = String(normalized.state || 'idle').trim().toLowerCase() || 'idle';
+    const label = String(normalized.label || '').trim();
+    const eta = String(normalized.eta || '').trim();
+    const detail = String(normalized.detail || '').trim();
+    const progress = Math.max(0, Math.min(100, Number(normalized.progress || 0) || 0));
+    const isActive = Boolean(label || detail || visualPendingStates.includes(nextState) || nextState === 'ready' || nextState === 'blocked' || nextState === 'failed');
+    visualRail.classList.toggle('is-active', isActive);
+    visualRail.setAttribute('data-prd-visual-kind', String(requestKind || '').trim().toLowerCase());
+    visualRail.setAttribute('data-prd-visual-state', nextState);
+    if (visualRailLabelNode) visualRailLabelNode.textContent = label;
+    if (visualRailEtaNode) visualRailEtaNode.textContent = eta;
+    if (visualRailProgressNode) {
+      visualRailProgressNode.style.setProperty('--prd-fill', `${progress}%`);
+      visualRailProgressNode.classList.toggle('is-processing', visualPendingStates.includes(nextState));
+    }
+    if (visualRequestStatusNode) visualRequestStatusNode.textContent = detail;
+  };
+  const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
+    const kind = String(requestKind || 'tour').trim().toLowerCase();
+    if (kind === 'flythrough') {
+      const state = String(payload?.flythrough_url ? 'ready' : payload?.flythrough_status || payload?.status || 'pending').trim().toLowerCase();
+      return {
+        state,
+        label: String(payload?.flythrough_url ? 'Open walkthrough' : payload?.status_label || fallbackLabel || 'Walkthrough queued').trim(),
+        href: String(payload?.flythrough_url || '').trim(),
+        detail: String(payload?.status_detail || '').trim(),
+        eta: String(payload?.eta_label || '').trim(),
+        progress: Number(payload?.progress_pct || 0) || 0,
+        pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+      };
+    }
+    const state = String(payload?.tour_url ? 'ready' : payload?.tour_status || payload?.status || 'pending').trim().toLowerCase();
+    return {
+      state,
+      label: String(payload?.tour_url ? 'Open 3D tour' : payload?.status_label || fallbackLabel || '3D tour queued').trim(),
+      href: String(payload?.tour_url || '').trim(),
+      detail: String(payload?.status_detail || '').trim(),
+      eta: String(payload?.eta_label || '').trim(),
+      progress: Number(payload?.progress_pct || 0) || 0,
+      pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+    };
+  };
+  const scheduleVisualStatusPoll = (requestKind, options = {}) => {
+    window.clearTimeout(visualPollTimer);
+    const kind = String(requestKind || '').trim().toLowerCase();
+    const runId = String(options.runId || '').trim();
+    if (!kind || !runId) return;
+    const candidateRef = String(options.candidateRef || '').trim();
+    const sourceRef = String(options.sourceRef || '').trim();
+    const propertyUrl = String(options.propertyUrl || '').trim();
+    const pollSeconds = Math.max(0, Number(options.pollSeconds || 0) || 0);
+    if (!pollSeconds) return;
+    visualPollTimer = window.setTimeout(async () => {
+      const query = new URLSearchParams({
+        run_id: runId,
+        request_kind: kind,
+      });
+      if (candidateRef) query.set('candidate_ref', candidateRef);
+      if (sourceRef) query.set('source_ref', sourceRef);
+      if (propertyUrl) query.set('property_url', propertyUrl);
+      try {
+        const response = await fetch(`/app/api/signals/property/visual-status?${query.toString()}`, {
+          method: 'GET',
+          credentials: 'same-origin',
+        });
+        if (!response.ok) throw new Error('visual_status_unavailable');
+        const payload = await response.json().catch(() => ({}));
+        syncVisualButtons(kind, payload);
+        const nextState = visualStateFromPayload(kind, payload);
+        if (visualPendingStates.includes(nextState.state)) {
+          scheduleVisualStatusPoll(kind, {
+            runId,
+            candidateRef,
+            sourceRef,
+            propertyUrl,
+            pollSeconds: nextState.pollSeconds || pollSeconds,
+          });
+        }
+      } catch (_error) {
+        scheduleVisualStatusPoll(kind, {
+          runId,
+          candidateRef,
+          sourceRef,
+          propertyUrl,
+          pollSeconds,
+        });
+      }
+    }, pollSeconds * 1000);
+  };
   const syncVisualButtons = (requestKind, payload) => {
     const kind = String(requestKind || '').trim().toLowerCase();
-    const statusText = String(payload?.status_detail || '').trim();
-    if (visualRequestStatusNode && statusText) {
-      visualRequestStatusNode.textContent = statusText;
-    }
+    const state = visualStateFromPayload(kind, payload);
+    syncVisualRail(kind, state);
     visualRequestButtons.forEach((button) => {
       if (String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase() !== kind) return;
-      const nextState = kind === 'flythrough'
-        ? {
-            state: String(payload?.flythrough_url ? 'ready' : payload?.flythrough_status || 'pending').trim().toLowerCase(),
-            label: String(payload?.flythrough_url ? 'Open walkthrough' : payload?.status_label || button.textContent || '').trim(),
-            href: String(payload?.flythrough_url || '').trim(),
-          }
-        : {
-            state: String(payload?.tour_url ? 'ready' : payload?.tour_status || payload?.status || 'pending').trim().toLowerCase(),
-            label: String(payload?.tour_url ? 'Open 3D tour' : payload?.status_label || button.textContent || '').trim(),
-            href: String(payload?.tour_url || '').trim(),
-          };
-      applyVisualButtonState(button, nextState);
+      applyVisualButtonState(button, {
+        ...state,
+        label: state.label || String(button.textContent || '').trim(),
+      });
     });
   };
   document.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
@@ -1806,11 +2014,11 @@
         window.location.href = readyHref;
         return;
       }
-      if (requestKind === 'tour' && ['pending', 'queued', 'rendering'].includes(currentState)) {
+      if (requestKind === 'tour' && visualPendingStates.includes(currentState)) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = '3D tour request is already in progress for this home.';
         return;
       }
-      if (requestKind === 'flythrough' && ['pending', 'queued', 'rendering'].includes(currentState)) {
+      if (requestKind === 'flythrough' && visualPendingStates.includes(currentState)) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Flythrough request is already in progress for this home.';
         return;
       }
@@ -1821,11 +2029,15 @@
       const original = button.textContent || (requestKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour');
       button.disabled = true;
       button.textContent = requestKind === 'flythrough' ? 'Requesting walkthrough...' : 'Requesting 3D tour...';
-      if (visualRequestStatusNode) {
-        visualRequestStatusNode.textContent = requestKind === 'flythrough'
-          ? 'Requesting a walkthrough from the available source material...'
-          : 'Requesting a 3D tour from the available source material...';
-      }
+      syncVisualRail(requestKind, {
+        state: 'queued',
+        label: requestKind === 'flythrough' ? 'Walkthrough queued' : '3D tour queued',
+        detail: requestKind === 'flythrough'
+          ? 'Queueing walkthrough...'
+          : 'Queueing 3D tour...',
+        eta: 'about 10 min',
+        progress: requestKind === 'flythrough' ? 18 : 14,
+      });
       let requestSucceeded = false;
       try {
         const response = await fetch('/app/api/signals/willhaben/property-tour', {
@@ -1846,18 +2058,42 @@
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(String(payload.detail || payload.error || 'Could not request the visual.'));
         syncVisualButtons(requestKind, payload);
+        const nextState = visualStateFromPayload(requestKind, payload, original);
+        scheduleVisualStatusPoll(requestKind, {
+          runId,
+          candidateRef,
+          sourceRef,
+          propertyUrl,
+          pollSeconds: nextState.pollSeconds,
+        });
         requestSucceeded = true;
       } catch (error) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
       } finally {
         const currentState = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
-        button.disabled = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(currentState);
+        button.disabled = visualPendingStates.includes(currentState);
         if (!requestSucceeded && !String(button.getAttribute('data-pw-visual-href') || '').trim()) {
           button.textContent = original;
         }
       }
     });
   });
+  const firstPendingVisualButton = visualRequestButtons.find((button) => {
+    const state = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
+    return visualPendingStates.includes(state);
+  });
+  if (firstPendingVisualButton) {
+    scheduleVisualStatusPoll(
+      String(firstPendingVisualButton.getAttribute('data-pw-visual-request') || '').trim().toLowerCase(),
+      {
+        runId: String(firstPendingVisualButton.getAttribute('data-run-id') || '').trim(),
+        candidateRef: String(firstPendingVisualButton.getAttribute('data-candidate-ref') || '').trim(),
+        sourceRef: String(firstPendingVisualButton.getAttribute('data-source-ref') || '').trim(),
+        propertyUrl: String(firstPendingVisualButton.getAttribute('data-property-url') || '').trim(),
+        pollSeconds: Number(firstPendingVisualButton.getAttribute('data-pw-visual-poll-seconds') || 0) || 10,
+      },
+    );
+  }
 
   document.querySelectorAll('[data-prd-copy-link]').forEach((button) => {
     button.addEventListener('click', async () => {
