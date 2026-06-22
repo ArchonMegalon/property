@@ -1201,34 +1201,34 @@ def build_property_empty_outcome_summary(
     elif suppression_rows:
         active_rule = str((suppression_rows[0] or {}).get("title") or "").strip()
     if status_value == "failed" and replacement_run_id:
-        happened = "A replacement search is checking the saved brief."
+        happened = "Search paused. A replacement run is checking the saved brief."
         stopped_context = "This page will move to the replacement run when it has a usable update."
     elif status_value == "failed":
         if source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if repair_task_open:
-                happened = "Repair is retrying the interrupted search."
+                happened = "Search paused. Repair is retrying it."
             elif repair_step_label or repair_status_label:
-                happened = "Repairing the interrupted run."
+                happened = "Search paused. Repair is working through the interruption."
             else:
-                happened = "The search stopped before a stable shortlist was ready."
+                happened = "Search paused before a stable shortlist was ready."
             if source_completed <= 0 and listing_total <= 0:
                 stopped_context = "Repair took over before any listing inspection completed."
             else:
                 stopped_context = f"The interrupted pass inspected {listing_label} before repair took over."
         else:
-            happened = str(run_message or "The search stopped before a stable shortlist was ready.").strip()
+            happened = str(run_message or "Search paused before a stable shortlist was ready.").strip()
             stopped_context = ""
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
-        happened = "No valid homes survived inside the selected area."
+        happened = "No shortlist yet inside the selected area."
         stopped_context = (
             f"{filtered_total} candidate{'s' if filtered_total != 1 else ''} were held back; "
             "most conflicted with the selected-area rule or were provider overview pages."
         )
     elif filtered_total > 0:
-        happened = f"The search finished, but {filtered_total} candidate{'s' if filtered_total != 1 else ''} stayed outside the shortlist."
+        happened = "No shortlist yet."
     else:
-        happened = "The search finished without a candidate clearing the current shortlist."
+        happened = "No shortlist yet."
     if status_value == "failed" and replacement_run_id:
         still_worked = "The brief was saved; the replacement run is now active."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
@@ -1242,7 +1242,7 @@ def build_property_empty_outcome_summary(
             else "The brief and selected providers were still saved."
         )
     if status_value == "failed":
-        next_move = "Wait for repair; this page updates quietly every 10s and will move to the usable run when one is ready."
+        next_move = "Wait for repair; this page refreshes quietly every 10s and will switch to the usable run when one is ready."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
     else:
@@ -1267,7 +1267,7 @@ def build_property_empty_outcome_summary(
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":
-        eta_feedback = "Repair has the run queued; this page updates quietly every 10s and will switch when a usable rerun is ready."
+        eta_feedback = "Repair has the run queued; this page refreshes quietly every 10s and will switch when a usable rerun is ready."
     else:
         eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
     return {

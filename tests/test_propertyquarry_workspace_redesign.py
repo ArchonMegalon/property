@@ -133,6 +133,7 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "Request walkthrough" in review
     assert "Open 3D tour" in review
     assert "Open listing" in review
+    assert "Open property" in review
 
 
 def test_property_research_detail_right_rail_stays_compact() -> None:
@@ -4697,7 +4698,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Lift and transit fit" in search.text
     assert "Lift and transit fit." in search.text
     assert "Preferred because: Includes a live 360 source" not in search.text
-    assert "Open property page" in search.text
+    assert "Open property" in search.text
     assert 'data-candidate-packet-url="/app/research/' in search.text
     assert 'data-candidate-listing-url="https://www.immobilienscout24.de/expose/altbau-u6"' in search.text
     assert "Filtered" in search.text
@@ -6713,18 +6714,18 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert '<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open' in body
     assert '<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open' not in body
     assert "pqx-results-filter-link" in body
-    assert "filtered" in body
-    assert "Relax one hard rule" in body
+    assert "outside brief" in body
+    assert "Widen the shortlist" in body
     assert "Adjust filters" not in body.split("data-pqx-filtered-open", 1)[1].split("</section>", 1)[0]
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "Relax one rule" in body
+    assert "Hard rules only. Soft preferences already stay in scoring." in body
     assert "estimated newly ranked homes after rerun" in body
     assert "data-pqx-filter-slider" in body
     assert "data-pqx-filter-field" in body
     assert "adjustments[fieldName]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
-    assert "No ranked homes are ready yet. Relax one hard rule and rerun." in body
+    assert "No ranked homes are ready yet. Open the filtered action and widen one hard rule." in body
     assert "Best homes first" not in body
 
 
@@ -7338,7 +7339,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert "Status" in response.text
     assert "Timing" not in response.text
     assert "Repairing interrupted run." in response.text
-    assert response.text.count("Why homes stayed out") == 1
+    assert response.text.count("What to widen") == 1
     assert "Provider-level details" not in response.text
     assert "Filtering diagnostics" not in response.text
     assert "Filtered by rules: Filtering diagnostics" not in response.text
@@ -7801,7 +7802,7 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
 
     assert len(rows) == 1
     assert len(cards) == 1
-    assert rows[0]["action_label"] == "Open property page"
+    assert rows[0]["action_label"] == "Open property"
     assert rows[0]["secondary_action_label"] == "Open listing"
     assert rows[0]["tertiary_action_label"] == "Open 360"
     assert rows[0]["quaternary_action_label"] == "Source"

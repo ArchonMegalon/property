@@ -519,7 +519,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         assert response is not None and response.ok
         expect(desktop_page.get_by_role("heading", name="Search once. Rank the right homes. Decide with evidence.")).to_be_visible()
         expect(desktop_page.get_by_text("Example shortlist")).to_be_visible()
-        expect(desktop_page.get_by_text("5 ranked · 22 filtered")).to_be_visible()
+        expect(desktop_page.get_by_text("5 ranked · 22 outside brief")).to_be_visible()
         expect(desktop_page.get_by_text("Hard filters stay hard")).to_be_visible()
         expect(desktop_page.get_by_text("Preferences score")).to_be_visible()
         _assert_no_horizontal_overflow(desktop_page)
@@ -1218,7 +1218,7 @@ def test_propertyquarry_results_filtered_link_opens_filtered_breakdown_when_no_r
         filtered_button = page.locator('[data-pqx-filtered-open]').first
         filtered_button.wait_for(timeout=5000)
         expect(filtered_button).to_contain_text(
-            re.compile(r"\d+\s+filtered|relax this brief|reopen the brief|relax one hard filter", re.I),
+            re.compile(r"\d+\s+outside brief|widen this brief|reopen the brief|relax one hard filter", re.I),
             timeout=5000,
         )
         filtered_button.click()
@@ -1227,7 +1227,7 @@ def test_propertyquarry_results_filtered_link_opens_filtered_breakdown_when_no_r
             () => {
               const dialog = document.querySelector('[data-pqx-filtered-dialog]');
               const details = [...document.querySelectorAll('details')]
-                .find((node) => ((node.textContent || '').toLowerCase().includes('why homes stayed out')));
+                .find((node) => ((node.textContent || '').toLowerCase().includes('what to widen')));
               return Boolean((dialog && dialog.open) || (details && details.open));
             }
             """,

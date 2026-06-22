@@ -219,14 +219,14 @@
       const runId = escapeHtml(String(data.run?.run_id || meta.run_id || ''));
       const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
       return [
-        candidate.packet_url ? `<a class="pqx-link-button primary" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="${candidateRef}">Open property page</a>` : '',
+        candidate.packet_url ? `<a class="pqx-link-button primary" href="${escapeHtml(candidate.packet_url)}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="${candidateRef}">Open property</a>` : '',
         `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${candidateRef}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="${candidateRef}">Share this home</button>`,
         `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
           visualPropertyUrl ? `<a class="pqx-link-button" href="${escapeHtml(visualPropertyUrl)}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="${candidateRef}">Open listing</a>` : '',
           !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${candidateRef}">Request 3D tour</button>` : '',
           !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${candidateRef}">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>`,
-        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Need a remote view? Request a 3D tour or walkthrough from the available source material.' : ''}</div></details>`,
+        ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Request remote visuals only when this home deserves deeper screening.' : ''}</div></details>`,
       ].filter(Boolean).join('');
     };
     const feedbackPersonId = String(meta.feedback_person_id || 'self').trim() || 'self';
@@ -1586,15 +1586,15 @@
         : (investmentSearch ? 'ranked opportunities' : 'ranked homes');
       const filteredLabel = !shortlistSurface && filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(filteredTotal)} candidates filtered by hard rules">${escapeHtml(filteredTotal)} filtered</a>`
+        `aria-label="${escapeHtml(filteredTotal)} candidates stayed outside the brief because of hard rules">${escapeHtml(filteredTotal)} outside brief</a>`
       ) : '';
       const scoreDemotedLabel = !shortlistSurface && scoreDemotedTotal > 0 ? (
-        `<a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(scoreDemotedTotal)} homes affected by soft preferences">${escapeHtml(scoreDemotedTotal)} score affected</a>`
+        `<span class="pqx-results-summary-link pqx-results-soft-link" ` +
+        `aria-label="${escapeHtml(scoreDemotedTotal)} homes stayed in scoring only">${escapeHtml(scoreDemotedTotal)} score-only</span>`
       ) : '';
       const filteredBreakdown = (!shortlistSurface && (filteredTotal > 0 || scoreDemotedTotal > 0)) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>Why homes stayed out</strong><span class="pqx-note">Hard rules and soft-score effects</span></summary>
+            <summary><strong>What to widen</strong><span class="pqx-note">Hard rules and score-only context</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -1614,7 +1614,7 @@
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
               ${shortlistSurface
                 ? '<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="/app/search">Start search</a></span></div>'
-                : '<div class="pqx-empty">No ranked homes are ready yet. Relax one hard rule and rerun.</div>'}
+                : '<div class="pqx-empty">No ranked homes are ready yet. Open the filtered action and widen one hard rule.</div>'}
             </div>
             ${filteredBreakdown}
           </section>

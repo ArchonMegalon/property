@@ -25,7 +25,7 @@
       {% set selected_tour = selected.get('tour', {}) %}
       {% set selected_flythrough = selected.get('flythrough', {}) %}
       <div class="pqx-context-actions" data-pw-actions>
-        {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open property page</a>{% endif %}
+        {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}" data-rybbit-event="property_open_page" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open property</a>{% endif %}
         {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
         {% if selected_tour.get('url') %}
         <a class="pqx-link-button" id="tour-preview" href="{{ selected_tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open 3D tour</a>
@@ -43,7 +43,7 @@
         {% endif %}
         <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Share this home</button>
       </div>
-      <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected_tour.get('url') %}Request a 3D tour or walkthrough when the listing deserves deeper screening.{% endif %}</div>
+      <div class="pqx-decision-status" data-pw-visual-request-status>{% if not selected_tour.get('url') %}Request remote visuals only when this home deserves deeper screening.{% endif %}</div>
       <div class="pqx-actions" style="margin-top:10px;">
         <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>
       </div>

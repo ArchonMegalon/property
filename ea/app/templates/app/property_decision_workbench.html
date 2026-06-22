@@ -50,9 +50,9 @@
           <div class="pqx-suppression-panel" data-pqx-filtered-breakdown data-pqx-suppression-summary>
   <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
     <span class="pqx-suppression-trigger-copy">
-      <strong>{% if ns.total %}{{ ns.total }} filtered{% else %}Relax this brief{% endif %}</strong>
+      <strong>{% if ns.total %}{{ ns.total }} outside brief{% else %}Widen this brief{% endif %}</strong>
       <span class="pqx-note">
-        Relax one hard rule and rerun
+        Change one hard rule, then rerun
       </span>
     </span>
   </button>
@@ -64,8 +64,8 @@
             <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
-                  <strong>Relax one hard rule</strong>
-                  <div class="pqx-note">Choose one small change, then rerun.</div>
+                  <strong>Widen the shortlist</strong>
+                  <div class="pqx-note">Hard rules only. Soft preferences already stay in scoring.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
               </div>
@@ -94,7 +94,7 @@
                       data-pqx-filter-max-value="{{ slider.get('max') or slider.get('value') or 0 }}"
                       data-pqx-filter-max="{{ row.get('affected_total') or 0 }}"
                     >
-                    <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes changes as the slider moves.</span>
+                    <span class="pqx-small" data-pqx-filter-estimate>Estimated newly ranked homes updates as the slider moves.</span>
                   </label>
                   {% endif %}
                   <div class="pqx-actions">
@@ -124,7 +124,7 @@
                 {% for row in suppression_rows %}
                 <div class="pqx-filtered-dialog-rule">
                   {% if row.get('affected_total') %}<span class="pqx-filtered-dialog-impact" aria-hidden="true">{{ row.get('affected_total') }}</span>{% endif %}
-                  <strong>{{ row.get('title') or 'Filtered matches' }}</strong>
+                  <strong>{{ row.get('title') or 'Homes outside the brief' }}</strong>
                   <span class="pqx-note">{{ row.get('detail') or 'Some candidates stayed outside the shortlist because of the current brief or missing evidence.' }}</span>
                   <div class="pqx-actions">
                     <a class="pqx-button primary" href="/app/search">{{ row.get('action_label') or 'Adjust search' }}</a>
@@ -157,8 +157,8 @@
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
   <div class="pqx-section-head">
     <div>
-      <h2>Loose ends that can still change the ranking</h2>
-      <div class="pqx-note">Open this only when you want to resolve missing floorplans, documents, or unanswered questions before deciding.</div>
+      <h2>Still worth checking</h2>
+      <div class="pqx-note">Open this only when missing documents or floorplans could change your decision.</div>
     </div>
     <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
   </div>
@@ -7186,20 +7186,14 @@
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
               {% if run_status == 'failed' %}
-                {% if run_reliability.get('repair_step_label') %}Repairing search.{% else %}Search stopped before ranking.{% endif %}
+                {{ empty_outcome.get('happened') or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
               {% else %}
-                {{ empty_outcome.get('happened') or 'No strong matches found yet.' }}
+                {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
               {% endif %}
             </h1>
             <div class="pqx-note" data-pqx-run-summary>
-              {{ empty_outcome.get('eta_feedback') or empty_outcome.get('happened') or ('Repair is checking the run.' if run_status == 'failed' else 'No strong matches cleared the current brief.') }}
+              {{ empty_outcome.get('eta_feedback') or empty_outcome.get('still_worked') or ('Repair is checking the run.' if run_status == 'failed' else 'No strong matches cleared the current brief.') }}
             </div>
-            {% if run_status == 'failed' and not run_failed_no_results and (run_reliability.get('customer_status_message') or run_reliability.get('repair_step_label')) %}
-            <div class="pqx-note">
-              {% if run_reliability.get('repair_step_label') %}<strong>{{ run_reliability.get('repair_step_label') }}</strong>{% endif %}
-              {% if run_reliability.get('customer_status_message') %}<span>{{ run_reliability.get('customer_status_message') }}</span>{% endif %}
-            </div>
-            {% endif %}
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
@@ -7219,7 +7213,7 @@
               {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
               {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
               <div class="pqx-pref-list">
-                <div class="pqx-pref-row"><div><strong>Update</strong><small>{{ empty_happened or ('The search stopped before a stable shortlist was ready.' if run_status == 'failed' else 'The search finished without a candidate clearing the shortlist.') }}{% if empty_eta_feedback and not run_failed_no_results %} {{ empty_eta_feedback }}{% endif %}</small></div></div>
+                <div class="pqx-pref-row"><div><strong>What changed</strong><small>{{ empty_still_worked or ('The brief was saved and is ready for the next pass.' if run_status != 'failed' else 'The saved brief stays intact while repair retries the interrupted run.') }}</small></div></div>
                 <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
               </div>
             </div>
@@ -7234,9 +7228,9 @@
           {% if not ranked_candidates %}
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
             <div>
-              <h2>Ways to get more matches</h2>
-              <div class="pqx-note" data-pqx-run-summary">{{ empty_outcome.get('next_move') or 'Relax one rule at a time so the next shortlist stays easy to compare.' }}</div>
-            </div>
+                <h2>How to widen the brief</h2>
+                <div class="pqx-note" data-pqx-run-summary">{{ empty_outcome.get('next_move') or 'Relax one rule at a time so the next shortlist stays easy to compare.' }}</div>
+              </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
               <span class="pqx-small pqx-progress-eta" data-pqx-progress-eta>
@@ -7281,11 +7275,11 @@
           {% elif not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
             <button class="pqx-suppression-item" type="button" data-pqx-filtered-open aria-label="Relax area">
-              <strong>{{ empty_outcome.get('active_rule') or 'Relax area' }}</strong>
-              <span class="pqx-note">{{ empty_outcome.get('next_move') or 'Widen one location rule first so the next pass stays easy to explain.' }}</span>
-              <span class="pqx-suppression-action">Relax rule</span>
-            </button>
-          </div>
+                <strong>{{ empty_outcome.get('active_rule') or 'Widen area' }}</strong>
+                <span class="pqx-note">{{ empty_outcome.get('next_move') or 'Widen one location rule first so the next pass stays easy to explain.' }}</span>
+                <span class="pqx-suppression-action">Open options</span>
+              </button>
+            </div>
           {% endif %}
           {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or [], run_summary.get('filtered_total') or run_summary.get('held_back_total') or None) }}
           </div>
@@ -7377,17 +7371,17 @@
             <div class="pqx-section-head">
               <div>
                 <h2>{% if run_status == 'failed' %}Best matches{% else %}No ranked homes yet{% endif %}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}The run failed before a stable shortlist was produced.{% else %}No homes cleared the current bar yet.{% endif %}</div>
+                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}Repair will keep retrying in the background.{% else %}Widen one hard rule first if you want more ranked homes.{% endif %}</div>
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>
-            <div class="pqx-note">{% if run_status == 'failed' %}Repair runs automatically. Remove one strict rule if the rerun still returns nothing.{% else %}Try one small relaxation first, then rerun only if the current brief is clearly too narrow.{% endif %}</div>
+            <div class="pqx-note">{% if run_status == 'failed' %}Keep the brief as-is unless repair still returns nothing.{% else %}Use the filtered action above to widen the brief in one controlled step.{% endif %}</div>
           </section>
           </div>
           {% endif %}
           {% if run.get('events') %}
           <details class="pqx-card">
-            <summary><strong>Search log</strong><span class="pqx-note">Open if something looks stuck.</span></summary>
+            <summary><strong>Run updates</strong><span class="pqx-note">Open only when you want the latest scan notes.</span></summary>
           <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
           <div class="pqx-event-list" data-pqx-run-events>
             {% for event in (run.get('events') or [])|reverse %}

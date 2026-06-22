@@ -10,14 +10,14 @@
       <div class="pqx-note pqx-results-summary-row">
         <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
         {% if not is_shortlist_surface and filtered_total %}
-        <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} filtered">
-          {{ filtered_total }} filtered
+        <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} candidates stayed outside the brief because of hard rules">
+          {{ filtered_total }} outside brief
         </a>
         {% endif %}
         {% if not is_shortlist_surface and score_demoted_total %}
-        <a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ score_demoted_total }} homes affected by soft preferences">
-          {{ score_demoted_total }} score affected
-        </a>
+        <span class="pqx-results-summary-link pqx-results-soft-link" aria-label="{{ score_demoted_total }} homes stayed in scoring only">
+          {{ score_demoted_total }} score-only
+        </span>
         {% endif %}
       </div>
     </div>
@@ -165,7 +165,7 @@
           {% set walkthrough = candidate.get('flythrough') or {} %}
           {% set walkthrough_label = walkthrough.get('label') or ('Open walkthrough' if walkthrough.get('url') else 'Request walkthrough') %}
           {% set walkthrough_eta = walkthrough.get('eta_label') or '' %}
-          {% set walkthrough_detail = walkthrough.get('detail') or ('Walkthrough ready' if walkthrough.get('url') else 'Request a walkthrough from the available source material.') %}
+          {% set walkthrough_detail = walkthrough.get('detail') or ('Walkthrough ready' if walkthrough.get('url') else 'Request a walkthrough when the listing deserves deeper screening.') %}
           {% set walkthrough_tooltip = walkthrough_detail ~ ((' · ETA ' ~ walkthrough_eta) if walkthrough_eta else '') %}
           {% set walkthrough_progress = walkthrough.get('progress_pct') or (100 if walkthrough.get('url') else 0) %}
           {% if walkthrough.get('url') %}
@@ -214,11 +214,11 @@
       </span>
       {% else %}
       <strong>No ranked homes are ready yet.</strong>
-      <span class="pqx-note">Relax one hard rule and rerun. Optional preferences only affect score.</span>
+      <span class="pqx-note">Open the filtered action and widen one hard rule. Optional preferences stay in score only.</span>
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/search">Adjust search</a>
         {% if filtered_total or score_demoted_total %}
-        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Relax one rule</button>
+        <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Widen the brief</button>
         {% endif %}
       </span>
       {% endif %}
@@ -227,7 +227,7 @@
   </div>
   {% if filtered_total and not is_shortlist_surface %}
   <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-    <summary><strong>Why homes stayed out</strong><span class="pqx-note">Hard rules and soft-score effects</span></summary>
+    <summary><strong>What to widen</strong><span class="pqx-note">Hard rules and score-only context</span></summary>
     <div class="pqx-source-list" data-pqx-source-breakdown>
       {% for source in run_sources[:8] %}
       <article class="pqx-source-card">
