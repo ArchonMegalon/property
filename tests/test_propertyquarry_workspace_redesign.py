@@ -1826,6 +1826,8 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
     assert "home_sign_in" not in response.text
     assert "Signing you in" not in response.text
     assert 'data-target-endpoint="/app/api/property/landing-handoff"' not in response.text
+    assert response.text.count("/static/property/home/example-shortlist-home-") == 3
+    assert "/static/property/home/example-shortlist-collage.png" not in response.text
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
