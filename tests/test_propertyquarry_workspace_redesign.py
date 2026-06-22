@@ -4917,6 +4917,33 @@ def test_property_billing_surface_shows_compact_payment_history() -> None:
     assert "PayFunnels" not in billing.text
 
 
+def test_property_billing_surface_keeps_paid_plan_active_when_checkout_is_disabled() -> None:
+    client = build_property_client(principal_id="exec-property-billing-active-plan")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Billing Active Plan Office")
+    response = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "property_search_enabled": True,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+                "plan_source": "teable_projection",
+            },
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+
+    billing = client.get("/app/billing", headers=headers)
+
+    assert billing.status_code == 200
+    assert "Included with the current plan" in billing.text
+    assert "Current access is already active." in billing.text
+    assert "Not active yet" not in billing.text
+
+
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     service_source = (repo_root / "ea/app/product/service.py").read_text(encoding="utf-8")
@@ -6140,6 +6167,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert 'data-property-mobile-action-dock' in template
     assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail]' in template
     assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock]' in template
+    assert '.pqx-surface-search [data-property-actions]:not([hidden])' in template
+    assert '.pqx-surface-search [data-property-actions] {' not in template
     assert 'scroll-snap-type: x proximity;' in template
     assert '-webkit-overflow-scrolling: touch;' in template
     assert 'env(safe-area-inset-bottom, 0px)' in template

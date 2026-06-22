@@ -2139,6 +2139,18 @@ def property_workspace_payload(
     current_result_cap = int(current_plan_spec.get("max_results_per_source") or commercial.get("max_results_per_source") or 0)
     current_match_cap = int(current_plan_spec.get("max_match_score") or commercial.get("max_match_score") or 0)
     commercial_state = dict(commercial.get("property_commercial") or {})
+    commercial_status = str(commercial_state.get("status") or "").strip().lower()
+    has_active_paid_plan = current_plan_key in {"plus", "agent"} and commercial_status in {"active", "trialing"}
+    payment_status_detail = (
+        "Available"
+        if bool(property_state.get("billing_checkout_enabled"))
+        else ("Included with the current plan" if has_active_paid_plan else "Checkout not active yet")
+    )
+    payment_status_tag = (
+        "Ready"
+        if bool(property_state.get("billing_checkout_enabled"))
+        else ("Active" if has_active_paid_plan else "Inactive")
+    )
     billing_rows = [
         row_item(
             "Current plan",
@@ -2152,8 +2164,8 @@ def property_workspace_payload(
         ),
         row_item(
             "Payment",
-            "Available" if bool(property_state.get("billing_checkout_enabled")) else "Unavailable",
-            "Ready" if bool(property_state.get("billing_checkout_enabled")) else "Inactive",
+            payment_status_detail,
+            payment_status_tag,
         ),
     ]
     pending_plan_key = str(commercial_state.get("pending_plan_key") or "").strip()
@@ -2721,10 +2733,18 @@ def property_workspace_payload(
                     "items": [
                         row_item(
                             "Status",
-                            "Available" if bool(property_state.get("billing_checkout_enabled")) else "Not active yet",
-                            "Status",
+                            payment_status_detail,
+                            payment_status_tag,
                         ),
-                        row_item("Change plan", "Upgrade only when a real search hits the current allowance.", "Decision"),
+                        row_item(
+                            "Change plan",
+                            (
+                                "Upgrade only when a real search hits the current allowance."
+                                if bool(property_state.get("billing_checkout_enabled"))
+                                else ("Current access is already active." if has_active_paid_plan else "Checkout appears here once billing is enabled for this workspace.")
+                            ),
+                            "Decision",
+                        ),
                     ],
                 },
             ],
