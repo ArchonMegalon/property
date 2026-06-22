@@ -64,13 +64,7 @@ def load_facebook_oauth_config() -> FacebookOAuthConfig:
         os.environ.get("EA_FACEBOOK_OAUTH_APP_SECRET") or os.environ.get("EA_FACEBOOK_OAUTH_CLIENT_SECRET") or ""
     ).strip()
     redirect_uri = str(os.environ.get("EA_FACEBOOK_OAUTH_REDIRECT_URI") or "").strip()
-    state_secret = str(
-        os.environ.get("EA_FACEBOOK_OAUTH_STATE_SECRET")
-        or os.environ.get("EA_GOOGLE_OAUTH_STATE_SECRET")
-        or os.environ.get("EA_PROVIDER_SECRET_KEY")
-        or os.environ.get("EA_SIGNING_SECRET")
-        or ""
-    ).strip()
+    state_secret = str(os.environ.get("EA_FACEBOOK_OAUTH_STATE_SECRET") or "").strip()
     graph_version = _normalize_graph_version(os.environ.get("EA_FACEBOOK_OAUTH_GRAPH_VERSION") or "v21.0")
     if not app_id:
         raise RuntimeError("facebook_oauth_app_id_missing")

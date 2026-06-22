@@ -476,6 +476,27 @@ def test_sign_in_page_only_shows_facebook_when_configured_and_enabled(monkeypatc
     assert 'href="/sign-in/facebook"' in response.text
 
 
+def test_sign_in_facebook_requires_dedicated_state_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_FACEBOOK_SIGN_IN", "1")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_ID", "test-facebook-app-id")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_APP_SECRET", "test-facebook-app-secret")
+    monkeypatch.setenv("EA_FACEBOOK_OAUTH_REDIRECT_URI", "https://propertyquarry.com/facebook/callback")
+    monkeypatch.delenv("EA_FACEBOOK_OAUTH_STATE_SECRET", raising=False)
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    monkeypatch.setenv("EA_SIGNING_SECRET", "test-signing-secret")
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in")
+    direct = client.get("/sign-in/facebook", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "Continue with Facebook" not in response.text
+    assert 'href="/sign-in/facebook"' not in response.text
+    assert direct.status_code == 303
+    assert "facebook_error=facebook_sign_in_disabled" in direct.headers["location"]
+
+
 def test_sign_in_google_get_starts_oauth_for_visible_link(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_google_sign_in(monkeypatch)
     client = _client(monkeypatch)

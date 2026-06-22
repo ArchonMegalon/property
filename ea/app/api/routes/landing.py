@@ -164,15 +164,8 @@ def _facebook_sign_in_enabled() -> bool:
             "EA_FACEBOOK_OAUTH_APP_ID",
             "EA_FACEBOOK_OAUTH_APP_SECRET",
             "EA_FACEBOOK_OAUTH_REDIRECT_URI",
+            "EA_FACEBOOK_OAUTH_STATE_SECRET",
         )
-    ) and bool(
-        str(
-            os.environ.get("EA_FACEBOOK_OAUTH_STATE_SECRET")
-            or os.environ.get("EA_GOOGLE_OAUTH_STATE_SECRET")
-            or os.environ.get("EA_PROVIDER_SECRET_KEY")
-            or os.environ.get("EA_SIGNING_SECRET")
-            or ""
-        ).strip()
     )
     if enabled_flag:
         return enabled_flag in {"1", "true", "yes", "on", "enabled"} and configured

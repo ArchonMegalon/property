@@ -1,0 +1,43 @@
+  (() => {
+    const root = document.querySelector('[data-property-decision-workbench]');
+    if (!root) return;
+    const themeStorageKey = 'propertyquarry.theme';
+    const themeToggleButton = root.querySelector('[data-pqx-theme-toggle]');
+    const currentTheme = () => String(document.documentElement.getAttribute('data-pq-theme') || 'light').trim() === 'dark' ? 'dark' : 'light';
+    const applyTheme = (theme) => {
+      const nextTheme = theme === 'dark' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-pq-theme', nextTheme);
+      try {
+        window.localStorage.setItem(themeStorageKey, nextTheme);
+      } catch (_error) {
+        // Ignore storage failures and still apply the in-memory theme.
+      }
+      if (themeToggleButton) {
+        const darkEnabled = nextTheme === 'dark';
+        themeToggleButton.textContent = darkEnabled ? 'Light mode' : 'Dark mode';
+        themeToggleButton.setAttribute('aria-pressed', darkEnabled ? 'true' : 'false');
+      }
+    };
+    themeToggleButton?.addEventListener('click', () => {
+      applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    });
+    applyTheme(currentTheme());
+
+    const setMode = (mode) => {
+      const panel = mode === 'brief' ? 'brief' : (mode === 'property' ? 'property' : 'results');
+      root.querySelectorAll('[data-pqx-mobile-panel]').forEach((node) => {
+        node.classList.toggle('active', node.getAttribute('data-pqx-mobile-panel') === panel);
+      });
+      root.querySelectorAll('[data-pw-mode]').forEach((button) => {
+        button.classList.toggle('active', button.getAttribute('data-pw-mode') === mode);
+      });
+    };
+    root.querySelectorAll('[data-pw-mode]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const href = button.getAttribute('href');
+        if (href) return;
+        event.preventDefault();
+        setMode(button.getAttribute('data-pw-mode') || 'results');
+      });
+    });
+  })();
