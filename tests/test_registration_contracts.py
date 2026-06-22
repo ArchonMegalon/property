@@ -210,7 +210,6 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert response.status_code == 200
     assert "Google unavailable" in response.text
     assert "Facebook unavailable" in response.text
-    assert "Not configured on this deployment" in response.text
     assert "Continue with Facebook" not in response.text
     assert 'href="/sign-in/google"' not in response.text
     assert 'href="/sign-in/facebook"' not in response.text
@@ -262,7 +261,7 @@ def test_sign_in_page_shows_provider_return_status(monkeypatch: pytest.MonkeyPat
 
     assert response.status_code == 200
     assert f"{provider} returned to PropertyQuarry." in response.text
-    assert "Open the current session if this identity is already linked" in response.text
+    assert "Open the current session or use the email link for this account." in response.text
     assert 'data-sign-in-provider-connected' in response.text
     assert 'href="/sign-in/current-session"' in response.text
     assert "data-focus-sign-in-email" in response.text
@@ -308,7 +307,6 @@ def test_sign_in_page_shows_disabled_id_austria_for_austrian_request_when_unconf
     assert response.status_code == 200
     assert "ID Austria" in response.text
     assert "ID Austria unavailable" in response.text
-    assert "Not configured on this deployment" in response.text
     assert 'data-auth-provider="id-austria" data-auth-provider-state="disabled"' in response.text
     assert 'href="/sign-in/id-austria"' not in response.text
 

@@ -516,7 +516,10 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = desktop_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
         expect(desktop_page.get_by_role("heading", name="Search once. Rank the right homes. Decide with evidence.")).to_be_visible()
-        expect(desktop_page.get_by_text("Vienna family search")).to_be_visible()
+        expect(desktop_page.get_by_text("Example shortlist")).to_be_visible()
+        expect(desktop_page.get_by_text("5 ranked · 22 filtered")).to_be_visible()
+        expect(desktop_page.get_by_text("Hard filters stay hard")).to_be_visible()
+        expect(desktop_page.get_by_text("Preferences score")).to_be_visible()
         _assert_no_horizontal_overflow(desktop_page)
         desktop_home = tmp_path / "propertyquarry-public-home-desktop.png"
         desktop_page.screenshot(path=str(desktop_home), full_page=True)
@@ -555,7 +558,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
         expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(desktop_page.get_by_text("Use your current session, secure email link, or connected identity.")).to_be_visible()
+        expect(desktop_page.get_by_text("Use your current session, email link, or connected identity.")).to_be_visible()
         expect(desktop_page.get_by_role("link", name="Open current session")).to_be_visible()
         google_link = desktop_page.get_by_role("link", name="Continue with Google")
         google_unavailable = desktop_page.get_by_role("button", name="Google unavailable")
@@ -595,7 +598,12 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
 
         response = mobile_page.goto(f"{base_url}/pricing", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(mobile_page.get_by_role("heading", name="Pricing")).to_be_visible()
+        expect(mobile_page.get_by_role("heading", name="Free")).to_be_visible()
+        expect(mobile_page.get_by_role("heading", name="Plus")).to_be_visible()
+        expect(mobile_page.get_by_role("heading", name="Agent")).to_be_visible()
+        expect(mobile_page.get_by_text("35/100")).to_be_visible()
+        expect(mobile_page.get_by_text("45/100")).to_be_visible()
+        expect(mobile_page.get_by_text("60/100")).to_be_visible()
         _assert_no_horizontal_overflow(mobile_page)
         mobile_pricing_shot = tmp_path / "propertyquarry-pricing-mobile.png"
         mobile_page.screenshot(path=str(mobile_pricing_shot), full_page=True)
