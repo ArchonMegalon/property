@@ -586,7 +586,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Active operators", str(diagnostics_operator.get("active_count") or 0), "Support"),
         _row("Configured providers", str(diagnostics_provider.get("provider_count") or 0), "Support"),
         _row("Routing lanes", str(diagnostics_provider.get("lane_count") or 0), "Support"),
-        _row("Provider risk", str(diagnostics_provider.get("risk_state") or "unknown"), "Support"),
+        _row("Source status", str(diagnostics_provider.get("risk_state") or "unknown"), "Support"),
         _row("Fallback lanes", str(diagnostics_provider.get("lanes_with_fallback") or 0), "Support"),
         _row("Queued delivery", str(diagnostics_queue.get("pending_delivery") or 0), "Support"),
         _row("Active product wave", str(diagnostics_product_control.get("active_wave") or "No active wave mirrored."), "Product"),
@@ -600,9 +600,9 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Launch readiness", str(diagnostics_product_control.get("launch_readiness") or "No launch note mirrored."), "Product"),
         _row("Route review due", str(diagnostics_route_stewardship.get("review_due") or "No route review due published."), "Route"),
         _row("Public guide freshness", str(diagnostics_public_guide.get("detail") or "No public-guide freshness mirrored."), "Guide"),
-        _row("Fix verification", str(diagnostics_support_verification.get("state") or "not_requested").replace("_", " "), "Support"),
-        _row("Channel receipt", str(diagnostics_support_verification.get("channel_receipt_state") or "not_requested").replace("_", " "), "Support"),
-        _row("Install receipt", str(diagnostics_support_verification.get("install_receipt_state") or "not_requested").replace("_", " "), "Support"),
+        _row("Follow-up", str(diagnostics_support_verification.get("state") or "not_requested").replace("_", " "), "Support"),
+        _row("Channel status", str(diagnostics_support_verification.get("channel_receipt_state") or "not_requested").replace("_", " "), "Support"),
+        _row("Install status", str(diagnostics_support_verification.get("install_receipt_state") or "not_requested").replace("_", " "), "Support"),
         _row("Memo items", str(diagnostics_usage.get("brief_items") or 0), "Usage"),
         _row("Queue items", str(diagnostics_usage.get("queue_items") or 0), "Usage"),
         _row("Commitments", str(diagnostics_usage.get("commitments") or 0), "Usage"),
@@ -879,7 +879,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             href="/app/settings/outcomes",
         ),
         _row(
-            "Fix verification next action",
+            "Follow-up next action",
             str(diagnostics_support_verification.get("recommended_action") or "No support verification action is recommended."),
             _humanize(str(diagnostics_support_verification.get("confirmation_state") or "not_requested")).title(),
             href="/app/settings/support",
@@ -921,9 +921,9 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 },
                 {
                     "eyebrow": "Assigned to me",
-                    "title": "What already belongs to this operator lane",
+                    "title": "What already belongs to this support lane",
                     "items": _handoff_rows(office_assigned_handoffs[:8], operator_id=office_operator_key, return_to="/admin/office")
-                    or [_row("No assigned handoffs", "Nothing is currently assigned to this operator lane.", "Clear")],
+                    or [_row("No assigned follow-ups", "Nothing is currently assigned to this support lane.", "Clear")],
                 },
                 {
                     "eyebrow": "Claimable handoffs",
@@ -938,7 +938,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 },
                 {
                     "eyebrow": "Recently completed",
-                    "title": "What just moved through the operator lane",
+                    "title": "What just moved through the support lane",
                     "items": (
                         _commitment_rows(office_snapshot_state.recently_closed_commitments[:6], return_to="/admin/office")
                         + _handoff_rows(office_snapshot_state.completed_handoffs[:6], actionable=False)
@@ -947,7 +947,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 },
                 {
                     "eyebrow": "Current load",
-                    "title": "What the operator lane is protecting",
+                    "title": "What the support lane is protecting",
                     "items": office_snapshot_rows,
                 },
                 {
@@ -966,7 +966,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 {
                     "eyebrow": "Task pressure",
                     "title": "Where humans are still required",
-                    "items": task_rows or [_row("No pending human tasks", "The operator lane is currently clear.", "Clear")],
+                    "items": task_rows or [_row("No pending support tasks", "The support lane is currently clear.", "Clear")],
                 },
             ],
         },
@@ -991,7 +991,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                     "title": "Deployment posture",
                     "items": [
                         _row("Runtime readiness", readiness_label, readiness_state.title()),
-                        _row("Provider risk", str(diagnostics_provider.get("risk_state") or "unknown"), "Support"),
+                        _row("Source status", str(diagnostics_provider.get("risk_state") or "unknown"), "Support"),
                         _row("Fallback lanes", str(diagnostics_provider.get("lanes_with_fallback") or 0), "Support"),
                         _row("Failover-ready lanes", str(diagnostics_provider.get("failover_ready_lanes") or 0), "Support"),
                     ],
@@ -1073,7 +1073,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             "cards": [
                 {"eyebrow": "Workspace", "title": "Workspace posture", "items": workspace_rows},
                 {"eyebrow": "Plan and access", "title": "Commercial boundary", "items": entitlement_rows + billing_rows},
-                {"eyebrow": "Support and recovery", "title": "What support can inspect quickly", "items": support_rows + analytics_rows},
+                {"eyebrow": "Support", "title": "What support can inspect quickly", "items": support_rows + analytics_rows},
                 {"eyebrow": "Risks to address", "title": "What needs attention before support is surprised", "items": warning_rows or [_row("No current warnings", "Commercial and support posture are aligned with the current workspace.", "Clear")]},
                 {"eyebrow": "Recent workspace events", "title": "What the office loop is actually doing", "items": recent_event_rows or [_row("No recent product events", "The product event stream is still empty.", "Empty")]},
             ],
@@ -1098,7 +1098,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             {"label": "Pending invites", "value": str(len(pending_invitations))},
             {"label": "Active links", "value": str(len(active_access_sessions))},
             {"label": "Gate health", "value": _humanize(str(diagnostics_journey_gate.get("state") or "missing")).title()},
-            {"label": "Fix verification", "value": _humanize(str(diagnostics_support_verification.get("state") or "not_requested")).title()},
+            {"label": "Follow-up", "value": _humanize(str(diagnostics_support_verification.get("state") or "not_requested")).title()},
         ]
     return {
         "stats": stats,

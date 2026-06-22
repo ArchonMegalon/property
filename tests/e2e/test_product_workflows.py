@@ -898,7 +898,7 @@ def test_people_correction_and_support_bundle_in_real_browser(page: Page, produc
     assert '"support_bundle_opened"' in page.content()
 
 
-def test_support_fix_verification_flow_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
+def test_propertyquarry_support_page_hides_fix_verification_flow_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
     client = product_browser_server["client"]
 
@@ -919,50 +919,14 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
 
     response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Fix verification" in page.content()
-
-    next_action_row = page.locator(".object-row", has_text="Next action")
-    with page.expect_response(lambda value: "/app/actions/support/fix-verification/request" in value.url and value.request.method == "POST") as request_response:
-        next_action_row.get_by_role("button", name="Request confirmation").click()
-    assert request_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/settings/support*")
-    page.wait_for_load_state("networkidle")
-    assert "Open delivery link" in page.content()
-    assert "Open access link" in page.content()
-    next_action_row = page.locator(".object-row", has_text="Next action")
-
-    with page.expect_response(lambda value: "/channel-loop/deliveries/" in value.url) as delivery_response:
-        next_action_row.get_by_role("link", name="Open delivery link").click()
-    assert delivery_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/channel-loop/memo")
-    page.wait_for_load_state("networkidle")
-    assert "Confirm the fix reached you" in page.content()
-
-    response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
-    assert response is not None and response.ok
-    assert "Recipient opened the support verification digest." in page.content()
-    next_action_row = page.locator(".object-row", has_text="Next action")
-
-    with page.expect_response(lambda value: "/workspace-access/" in value.url) as access_response:
-        next_action_row.get_by_role("link", name="Open access link").click()
-    assert access_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/today")
-    page.wait_for_load_state("networkidle")
-
-    response = page.goto(f"{base_url}/app/channel-loop/memo", wait_until="networkidle")
-    assert response is not None and response.ok
-    support_item_row = page.locator(".console-row", has_text="Confirm the fix reached you")
-    with page.expect_response(lambda value: "/app/channel-actions/" in value.url) as confirm_response:
-        support_item_row.get_by_role("link", name="Confirm", exact=True).click()
-    assert confirm_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/channel-loop/memo")
-    page.wait_for_load_state("networkidle")
-
-    response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
-    assert response is not None and response.ok
-    assert "Support verification is confirmed on the current channel." in page.content()
-    assert "Recipient opened the workspace link attached to the verification request." in page.content()
-    assert "Recipient explicitly confirmed the fix from the support verification link." in page.content()
+    content = page.content()
+    assert "Support" in content
+    assert "See what failed, what still works, and the next useful action." in content
+    assert "Open support" in content
+    assert "Fix verification" not in content
+    assert "Channel receipt" not in content
+    assert "Install receipt" not in content
+    assert "Support bundle" not in content
 
 
 def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
@@ -1118,7 +1082,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
     client = operator_browser_server["client"]
     closed = client.post(
         f"/app/api/queue/commitment:{seeded['commitment_id']}/resolve",
-        json={"action": "close", "reason": "Board packet sent from the operator lane."},
+        json={"action": "close", "reason": "Board packet sent from the support lane."},
     )
     assert closed.status_code == 200
     context = browser.new_context(
@@ -1136,7 +1100,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
         assert "What the office control surface is carrying right now" in page.content()
         assert "What can be claimed next" in page.content()
         assert "Prepare board follow-up handoff" in page.content()
-        assert "What just moved through the operator lane" in page.content()
+        assert "What just moved through the support lane" in page.content()
         assert "Send board materials" in page.content()
         assert "Reopen" in page.content()
 
@@ -1192,7 +1156,7 @@ def test_operator_queue_claim_and_complete_stays_in_operator_lane(browser: Brows
         assert complete_response.value.status == 303
         page.wait_for_url(f"{base_url}/admin/office")
         page.wait_for_load_state("networkidle")
-        assert "What just moved through the operator lane" in page.content()
+        assert "What just moved through the support lane" in page.content()
     finally:
         context.close()
 

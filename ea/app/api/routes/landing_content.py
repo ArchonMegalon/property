@@ -200,7 +200,7 @@ PUBLIC_TRUST_PAGES = {
                 "title": "User lifecycle controls",
                 "body": "Account export, deletion, shared-link revocation, session revocation, and retention controls are first-class product responsibilities.",
                 "items": (
-                    "Search history and generated artifacts should be removable without deleting the entire account.",
+                    "Search history and research output should be removable without deleting the entire account.",
                     "Public share links need expiry and revocation, not just hidden navigation.",
                     "Delivery channels need clear opt-in, opt-out, and quiet-hour controls.",
                 ),

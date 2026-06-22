@@ -668,33 +668,33 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Plan unit", str(plan.get("unit_of_sale") or "workspace"), "Plan", href="/app/settings/plan"),
         _row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing", href="/app/settings/plan"),
         _row("Support tier", str(billing.get("support_tier") or "standard"), "Support", href="/app/settings/support"),
-        _row("Renewal owner", str(billing.get("renewal_owner_role") or "principal").replace("_", " ").title(), "Billing", href="/app/settings/support"),
-        _row("Contract note", str(billing.get("contract_note") or "Contract posture not set."), "Contract", href="/app/settings/plan"),
+        _row("Renewal contact", str(billing.get("renewal_owner_role") or "principal").replace("_", " ").title(), "Billing", href="/app/settings/support"),
+        _row("Plan note", str(billing.get("contract_note") or "No plan note set."), "Plan", href="/app/settings/plan"),
         _row("Channels", ", ".join(selected_channels) if selected_channels else "Google-first path", "Channels", href="/app/settings/plan"),
-        _row("Operator seats", str(entitlements.get("operator_seats") or 0), "Entitlement", href="/app/settings/plan"),
+        _row("Team seats", str(entitlements.get("operator_seats") or 0), "Plan", href="/app/settings/plan"),
         _row("Seats used", str(operators.get("seats_used") or 0), "Entitlement", href="/app/settings/usage"),
         _row("Seats remaining", str(operators.get("seats_remaining") or 0), "Entitlement", href="/app/settings/usage"),
-        _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime", href="/app/settings/support"),
-        _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Product", href="/app/settings/support"),
-        _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " "), "Product", href="/app/settings/support"),
-        _row("Support fallout", str(support_fallout.get("detail") or "No support fallout mirrored."), "Support", href="/app/settings/support"),
-        _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Product", href="/app/settings/support"),
-        _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/support"),
-        _row("Provider risk", str(providers.get("risk_state") or "unknown").replace("_", " "), "Support", href="/app/settings/support"),
-        _row("Fallback lanes", str(providers.get("lanes_with_fallback") or 0), "Support", href="/app/settings/support"),
-        _row("Load score", str(queue_health.get("load_score") or 0), "Queue", href="/app/settings/usage"),
+        _row("Workspace status", str(readiness.get("state") or "unknown").replace("_", " "), "Account", href="/app/settings/support"),
+        _row("Product focus", str(product_control.get("active_wave") or "No active focus."), "Product", href="/app/settings/support"),
+        _row("Search setup", str(journey_gate.get("state") or "missing").replace("_", " "), "Product", href="/app/settings/support"),
+        _row("Support note", str(support_fallout.get("detail") or "No support note."), "Support", href="/app/settings/support"),
+        _row("Product status", str(product_control.get("launch_readiness") or "No product note."), "Product", href="/app/settings/support"),
+        _row("Guide freshness", str(public_guide_freshness.get("detail") or "No guide note."), "Guide", href="/app/settings/support"),
+        _row("Source status", str(providers.get("risk_state") or "unknown").replace("_", " "), "Sources", href="/app/settings/support"),
+        _row("Fallback sources", str(providers.get("lanes_with_fallback") or 0), "Sources", href="/app/settings/support"),
+        _row("Current load", str(queue_health.get("load_score") or 0), "Delivery", href="/app/settings/usage"),
         _row(
             "Messaging scope",
             "Included in this plan" if entitlements.get("messaging_channels_enabled") else "Upgrade required for Telegram and WhatsApp",
             "Entitlement",
             href="/app/settings/plan",
         ),
-        _row("Audit retention", str(entitlements.get("audit_retention") or "standard"), "Entitlement", href="/app/settings/support"),
+        _row("Data retention", str(entitlements.get("audit_retention") or "standard"), "Account", href="/app/settings/support"),
         _row("Enabled product loops", ", ".join(feature_flags) if feature_flags else "No feature flags enabled", "Entitlement", href="/app/settings/plan"),
-        _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
-        _row("Draft approvals granted", str(analytics_counts.get("draft_approved") or 0), "Analytics", href="/app/settings/usage"),
+        _row("Searches opened", str(analytics_counts.get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
+        _row("Reviews saved", str(analytics_counts.get("draft_approved") or 0), "Analytics", href="/app/settings/usage"),
         _row(
-            "Blocked delivery handoffs",
+            "Blocked messages",
             str(analytics.get("delivery_followup_blocked_count") or 0),
             "Analytics",
             href="/app/settings/outcomes",
@@ -820,9 +820,9 @@ def workspace_section_payload(
         if warning_messages
     ] + [
         _row(
-            "Provider risk",
+            "Source status",
             str(provider_posture.get("risk_state") or "unknown").replace("_", " ").title(),
-            "Provider",
+            "Sources",
             href="/app/settings/support",
         )
         for _ in [0]
@@ -1064,17 +1064,17 @@ def workspace_section_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Provider posture",
-                    "title": "Provider posture",
-                    "body": "The operator lane is only trustworthy when provider risk, fallback coverage, and workspace health stay visible.",
+                    "eyebrow": "Sources",
+                    "title": "Source status",
+                    "body": "A short source view keeps failures visible without exposing internal repair details.",
                     "items": [
-                        _row("Provider risk", str(provider_posture.get("risk_state") or "unknown").replace("_", " ").title(), "Provider"),
-                        _row("Ready providers", str(provider_posture.get("ready_count") or 0), "Provider"),
-                        _row("Degraded providers", str(provider_posture.get("degraded_count") or 0), "Provider"),
-                        _row("Failed providers", str(provider_posture.get("failed_count") or 0), "Provider"),
-                        _row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Provider"),
-                        _row("Failover-ready lanes", str(provider_posture.get("failover_ready_lanes") or 0), "Provider"),
-                        _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
+                        _row("Source status", str(provider_posture.get("risk_state") or "unknown").replace("_", " ").title(), "Sources"),
+                        _row("Ready sources", str(provider_posture.get("ready_count") or 0), "Sources"),
+                        _row("Sources retrying", str(provider_posture.get("degraded_count") or 0), "Sources"),
+                        _row("Sources failed", str(provider_posture.get("failed_count") or 0), "Sources"),
+                        _row("Fallback sources", str(provider_posture.get("lanes_with_fallback") or 0), "Sources"),
+                        _row("Backup sources", str(provider_posture.get("failover_ready_lanes") or 0), "Sources"),
+                        _row("Account status", str(readiness.get("state") or "unknown").replace("_", " "), "Account"),
                         *(
                             [
                                 _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/usage"),
@@ -1095,7 +1095,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Delivery and access",
                     "title": "Registration, invite, and digest delivery",
-                    "body": "The operator lane shows whether people can actually enter the workspace and receive the compact loop.",
+                    "body": "The support lane shows whether people can enter the workspace and receive the compact loop.",
                     "items": [
                         _row("Registration emails sent", str(analytics_delivery.get("registration_sent") or 0), "Email", href="/app/settings/usage"),
                         _row("Registration email failures", str(analytics_delivery.get("registration_failed") or 0), "Email", href="/app/settings/support"),
@@ -1134,18 +1134,18 @@ def workspace_section_payload(
                         )
                         for item in assignment_suggestions[:3]
                     ]
-                    or [_row("No claim suggestions", "The unclaimed operator lane is currently clear.", "Clear")],
+                    or [_row("No claim suggestions", "The unclaimed support lane is currently clear.", "Clear")],
                 },
                 {
                     "eyebrow": "Pre-clear",
                     "title": "Clear before principal",
-                    "body": "These queue items can be closed, resolved, or approved inside the operator lane before they become principal noise.",
+                    "body": "These items can be closed, resolved, or approved inside the support lane before they become account noise.",
                     "items": _queue_rows(clearable_queue_items[:8])
                     or [_row("Nothing to pre-clear", "The remaining queue currently depends on the principal.", "Clear")],
                 },
                 {
                     "eyebrow": "Assigned to me",
-                    "title": "What already belongs to this operator lane",
+                    "title": "What already belongs to this support lane",
                     "body": "Assigned work stays separate from the claimable backlog.",
                     "items": _handoff_rows(assigned_handoffs[:8], operator_id=operator_key, return_to="/admin/office"),
                 },
@@ -1167,11 +1167,11 @@ def workspace_section_payload(
                     "title": "Exception queue",
                     "body": "Failures, breaches, provider risk, and plan blockers belong in one exception lane instead of leaking into normal work.",
                     "items": exception_rows
-                    or [_row("No active exceptions", "The operator lane is clear of delivery, SLA, provider, and commercial exceptions.", "Clear")],
+                    or [_row("No active exceptions", "The support lane is clear of delivery, source, and commercial exceptions.", "Clear")],
                 },
                 {
                     "eyebrow": "Recently completed",
-                    "title": "What just moved through the operator lane",
+                    "title": "What just moved through the support lane",
                     "body": "Returned handoffs and recently closed commitments stay visible long enough to confirm the office loop actually closed.",
                     "items": (
                         _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/admin/office")
@@ -1187,7 +1187,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Affected stakeholders",
                     "title": "Who the office control surface is serving",
-                    "body": "The operator lane stays tied to the people and relationships it serves.",
+                    "body": "The support lane stays tied to the people and relationships it serves.",
                     "items": _people_rows(snapshot.people[:6]),
                 },
                 {

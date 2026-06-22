@@ -247,15 +247,15 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Unclaimed handoffs" in diagnostics.text
     assert "Retrying delivery" in diagnostics.text
     assert "Load score" in diagnostics.text
-    assert "Provider risk" in diagnostics.text
+    assert "Source status" in diagnostics.text
     assert "Fallback lanes" in diagnostics.text
     assert "Active product wave" in diagnostics.text
     assert "Journey gate health" in diagnostics.text
     assert "Launch readiness" in diagnostics.text
     assert "Support fallout" in diagnostics.text
     assert "Public guide freshness" in diagnostics.text
-    assert "Fix verification" in diagnostics.text
-    assert "Channel receipt" in diagnostics.text
+    assert "Follow-up" in diagnostics.text
+    assert "Channel status" in diagnostics.text
     assert "Blocked delivery handoffs" in diagnostics.text
     assert "Delivery handoffs closed" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text

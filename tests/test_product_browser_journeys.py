@@ -1107,16 +1107,18 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     support_page = client.get("/app/settings/support")
     assert support_page.status_code == 200
-    assert "Support and recovery" in support_page.text
+    assert "Support" in support_page.text
     assert "Operational reliability" in support_page.text
-    assert "Fix verification" in support_page.text
-    assert "Support closure grounding" in support_page.text
-    assert "Weekly pulse and journey-gate truth" in support_page.text
+    assert "Follow-up" in support_page.text
+    assert "Support summary" in support_page.text
+    assert "Current product status" in support_page.text
     assert "What the published release gate is saying" in support_page.text
     assert "Support fallout" in support_page.text
     assert "Public guide freshness" in support_page.text
-    assert "Open bundle" in support_page.text
-    assert "Download JSON" in support_page.text
+    assert "Open details" in support_page.text
+    assert "Download" in support_page.text
+    assert "Support and recovery" not in support_page.text
+    assert "Fix verification" not in support_page.text
 
     outcomes_page = client.get("/app/settings/outcomes")
     assert outcomes_page.status_code == 200
@@ -1152,14 +1154,15 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     support_page = client.get("/app/settings/support")
     assert support_page.status_code == 200
-    assert "Support bundle" in support_page.text
+    assert "Support" in support_page.text
     assert "Pending review and recent decisions" in support_page.text
     assert "Operational reliability" in support_page.text
     assert "Commercial escalation" in support_page.text
-    assert "Workspace health" in support_page.text
-    assert "Runtime posture" in support_page.text
-    assert "Provider risk" in support_page.text
-    assert "Load score" in support_page.text
+    assert "Source status" in support_page.text
+    assert "Delivery and fallback" in support_page.text
+    assert "Runtime posture" not in support_page.text
+    assert "Provider risk" not in support_page.text
+    assert "Health score" not in support_page.text
 
     channel_loop = client.get("/app/channel-loop")
     assert channel_loop.status_code == 200
@@ -1415,7 +1418,7 @@ def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     seeded = seed_product_state(client, principal_id=principal_id)
     closed = client.post(
         f"/app/api/queue/commitment:{seeded['commitment_id']}/resolve",
-        json={"action": "close", "reason": "Board packet sent from the operator lane."},
+        json={"action": "close", "reason": "Board packet sent from the support lane."},
     )
     assert closed.status_code == 200
 
@@ -1424,12 +1427,12 @@ def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     assert "Office" in office.text
     assert "What the office control surface is carrying right now" in office.text
     assert "What to clear next" in office.text
-    assert "What already belongs to this operator lane" in office.text
+    assert "What already belongs to this support lane" in office.text
     assert "What can be claimed next" in office.text
     assert "Access, delivery, and Google posture" in office.text
     assert "Prepare board follow-up handoff" in office.text
     assert "Google sync freshness" in office.text
-    assert "What just moved through the operator lane" in office.text
+    assert "What just moved through the support lane" in office.text
     assert "Send board materials" in office.text
     assert "Reopen" in office.text
 

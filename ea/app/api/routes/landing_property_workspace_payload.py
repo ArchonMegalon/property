@@ -2217,8 +2217,8 @@ def property_workspace_payload(
                 "action_label": "Open policy",
             },
             row_item(
-                "Invoice handoff",
-                "Payment verification stays in PropertyQuarry; invoice/VAT documents are handled by the accounting lane after receipt.",
+                "Invoices",
+                "Invoice and VAT document details appear here after the payment provider returns them.",
                 "Invoice",
             ),
         ]
@@ -2468,7 +2468,7 @@ def property_workspace_payload(
                 {
                     "eyebrow": "Delivery",
                     "title": "Delivery rules",
-                    "body": "Outbound channels must stay opt-in, receipted, and quiet-hour aware.",
+                    "body": "Outbound channels must stay opt-in, quiet-hour aware, and easy to stop.",
                     "items": delivery_governance_rows,
                 },
                 run_card,

@@ -812,9 +812,11 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
     assert page.status_code == 200
     assert "Usage and activation" in page.text
     assert "Search runs, ranked homes, filtered homes" in page.text
+    assert "property pages, and tours" in page.text
     assert "Property usage" in page.text
     assert "Ranked homes" in page.text
     assert "Sources used" in page.text
+    assert "Source status" in page.text
     assert "Source checks" not in page.text
     forbidden_copy = (
         "Current office loop",
@@ -826,9 +828,43 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
         "Draft approvals granted",
         "Commitment closed",
         "Memo open rate",
+        "generated artifacts",
+        "Provider risk",
+        "Repair and delivery posture",
     )
     for marker in forbidden_copy:
         assert marker not in page.text
+
+
+def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
+    client = build_property_client(principal_id="exec-property-support-trust-copy")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    support = client.get("/app/settings/support", headers={"host": "propertyquarry.com"})
+    trust = client.get("/app/settings/trust", headers={"host": "propertyquarry.com"})
+
+    assert support.status_code == 200
+    assert trust.status_code == 200
+    assert "See what failed, what still works, and the next useful action." in support.text
+    assert "Evidence, rules, source status, and recent activity" in trust.text
+    assert "Account and source status" in trust.text
+    assert "Source status" in trust.text
+    forbidden_copy = (
+        "Support and recovery",
+        "Support posture",
+        "Health score",
+        "Runtime posture",
+        "Runtime and provider posture",
+        "Readiness detail",
+        "Provider risk",
+        "provider posture",
+        "account-specific provider and repair diagnostics",
+        "What makes this trustworthy",
+        "clear readiness",
+    )
+    combined = f"{support.text}\n{trust.text}"
+    for marker in forbidden_copy:
+        assert marker not in combined
 
 
 def test_propertyquarry_plan_page_uses_property_plan_language() -> None:
@@ -4579,7 +4615,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Your plan" in billing.text
     assert "Billing history" in billing.text
     assert "Cancellation and refunds" in billing.text
-    assert "Invoice handoff" in billing.text
+    assert "Invoices" in billing.text
+    assert "Invoice and VAT document details appear here" in billing.text
+    assert "Invoice handoff" not in billing.text
+    assert "accounting lane" not in billing.text
     assert "Billing truth" not in billing.text
     assert "Commercial truth" not in billing.text
     assert "Plan and limits" not in billing.text
