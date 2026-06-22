@@ -116,7 +116,7 @@
   .pq-desk-head,
   .pq-board-head,
   .pq-row,
-  .pq-proof {
+  .pq-home-point {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -124,7 +124,7 @@
   }
   .pq-desk-head span,
   .pq-row span,
-  .pq-proof span {
+  .pq-home-point span {
     color: var(--text-soft);
   }
   .pq-board {
@@ -152,19 +152,19 @@
     font-weight: 800;
     white-space: nowrap;
   }
-  .pq-proof-strip {
+  .pq-home-strip {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
     padding-bottom: 18px;
   }
-  .pq-proof {
+  .pq-home-point {
     min-height: 78px;
     align-items: flex-start;
     border-top: 1px solid var(--line);
     padding-top: 14px;
   }
-  .pq-proof strong {
+  .pq-home-point strong {
     display: block;
     margin-bottom: 4px;
   }
@@ -188,7 +188,7 @@
   }
   @media (max-width: 980px) {
     .pq-hero,
-    .pq-proof-strip {
+    .pq-home-strip {
       grid-template-columns: 1fr;
     }
     .pq-hero {
@@ -281,7 +281,7 @@
         <article class="pq-row">
           <div>
             <strong>Clear floorplan, right district</strong>
-            <span>Balcony helps. Operating costs still need proof.</span>
+            <span>Balcony helps. Operating costs still need confirmation.</span>
           </div>
           <div class="pq-score">84</div>
         </article>
@@ -303,20 +303,20 @@
     </aside>
   </section>
 
-  <section class="pq-proof-strip" aria-label="What PropertyQuarry keeps clear">
-    <div class="pq-proof">
+  <section class="pq-home-strip" aria-label="What PropertyQuarry keeps clear">
+    <div class="pq-home-point">
       <div>
         <strong>Hard filters stay hard</strong>
         <span>Area, transaction mode, and must-haves can exclude.</span>
       </div>
     </div>
-    <div class="pq-proof">
+    <div class="pq-home-point">
       <div>
         <strong>Preferences score</strong>
         <span>Schools, errands, balcony, noise, and commute adjust order.</span>
       </div>
     </div>
-    <div class="pq-proof">
+    <div class="pq-home-point">
       <div>
         <strong>Research is attached</strong>
         <span>Costs, floorplans, tours, and missing facts stay with the home.</span>

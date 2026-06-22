@@ -648,6 +648,7 @@ def sitemap_xml(request: Request) -> Response:
     urls = (
         "/",
         "/pricing",
+        "/directory",
         "/security",
         "/privacy",
         "/terms",

@@ -17,6 +17,7 @@ DEFAULT_ROUTES = (
     "/",
     "/security",
     "/pricing",
+    "/directory",
     "/privacy",
     "/terms",
     "/support",
@@ -62,6 +63,7 @@ def _security_header_checks(*, path: str, final_url: str, headers: dict[str, obj
         "/",
         "/security",
         "/pricing",
+        "/directory",
         "/privacy",
         "/terms",
         "/support",
@@ -145,6 +147,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         "/",
         "/security",
         "/pricing",
+        "/directory",
         "/privacy",
         "/terms",
         "/support",
@@ -181,6 +184,13 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ("pricing_minimal_copy", "Pricing" in text and "Start free" in text),
                 ("pricing_old_noise_removed", "Choose the lane that matches the real search workload" not in text),
                 ("pricing_subtitle_removed", "Choose by sources, shortlist size, and research depth." not in text),
+            )
+        )
+    elif path == "/directory":
+        checks.extend(
+            (
+                ("directory_white_label", "PropertyQuarry directory" in text and "Brilliant Directories" not in visible_text),
+                ("directory_has_search", "Search directory" in text or "Reset" in text),
             )
         )
     elif path in {"/privacy", "/terms", "/support", "/imprint", "/cookies", "/subprocessors", "/refunds", "/disclaimers"}:
@@ -304,9 +314,11 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             (
                 "sitemap_core",
                 (f"<loc>{sitemap_origin}/</loc>" in text and f"<loc>{sitemap_origin}/pricing</loc>" in text)
+                and f"<loc>{sitemap_origin}/directory</loc>" in text
                 or (
                     "<loc>https://propertyquarry.com/</loc>" in text
                     and "<loc>https://propertyquarry.com/pricing</loc>" in text
+                    and "<loc>https://propertyquarry.com/directory</loc>" in text
                 ),
             )
         )

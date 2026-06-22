@@ -33,6 +33,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
         "https://propertyquarry.com/security": "PropertyQuarry Security, privacy, and visual quality are reviewed before public changes go live.",
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Request access.",
+        "https://propertyquarry.com/directory": "PropertyQuarry directory Search directory Reset.",
         "https://propertyquarry.com/privacy": "PropertyQuarry Privacy Public tours should use a narrow public manifest",
         "https://propertyquarry.com/terms": "PropertyQuarry Terms Generated or embedded tours help screening",
         "https://propertyquarry.com/support": "PropertyQuarry Support wrong-area matches",
@@ -58,7 +59,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         ),
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
-        "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc>",
+        "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc><loc>https://propertyquarry.com/directory</loc>",
         "https://propertyquarry.com/app/properties": "PropertyQuarry Use your current session, secure email link, or connected identity. Identity only",
     }
 
@@ -338,7 +339,7 @@ def test_live_public_smoke_accepts_localhost_sitemap_origin_without_network() ->
         base_url="http://localhost:18101",
         routes=("/sitemap.xml",),
         fetcher=lambda url, _timeout: _fake_response(
-            "<loc>http://localhost:18101/</loc><loc>http://localhost:18101/pricing</loc>",
+            "<loc>http://localhost:18101/</loc><loc>http://localhost:18101/pricing</loc><loc>http://localhost:18101/directory</loc>",
             final_url=url,
         ),
     )
