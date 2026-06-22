@@ -1909,6 +1909,7 @@ def landing(
     else:
         principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
+    example_shortlist_href = "/app/shortlist" if authenticated_principal else "/sign-in?signing_in=1"
     example_shortlist = [
         {
             "title": "Clear floorplan, right district",
@@ -1916,6 +1917,7 @@ def landing(
             "score": 84,
             "tour_label": "3D tour ready",
             "walkthrough_label": "Walkthrough ready",
+            "href": example_shortlist_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
         },
         {
@@ -1924,6 +1926,7 @@ def landing(
             "score": 78,
             "tour_label": "3D tour queued",
             "walkthrough_label": "Walkthrough queued",
+            "href": example_shortlist_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1040 Vienna, 1050 Vienna"),
         },
         {
@@ -1932,6 +1935,7 @@ def landing(
             "score": 72,
             "tour_label": "3D tour on request",
             "walkthrough_label": "Walkthrough on request",
+            "href": example_shortlist_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1180 Vienna, 1190 Vienna"),
         },
     ]

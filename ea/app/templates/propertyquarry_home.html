@@ -185,6 +185,17 @@
     display: grid;
     gap: 3px;
   }
+  .pq-row-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .pq-row-link:hover,
+  .pq-row-link:focus-visible {
+    color: var(--text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    outline: none;
+  }
   .pq-row strong {
     display: block;
     line-height: 1.25;
@@ -347,19 +358,22 @@
         </div>
         {% for row in example_shortlist %}
         {% set scope_preview = row.get('scope_preview') or {} %}
+        {% set row_href = row.get('href') or '/sign-in?signing_in=1' %}
         <article class="pq-row">
           <div class="pq-row-main">
             <div class="pq-row-thumb">
+              <a class="pq-row-link" href="{{ row_href }}" aria-label="Open {{ row.get('title') or 'example property' }}">
               {% if scope_preview.get('image_url') %}
               <img src="{{ scope_preview.get('image_url') }}" alt="{{ scope_preview.get('alt') or row.get('title') or 'Example shortlist area' }}" loading="lazy">
               {% endif %}
+              </a>
             </div>
             <div class="pq-row-copy">
-              <strong>{{ row.get('title') }}</strong>
-              <span>{{ row.get('detail') }}</span>
+              <strong><a class="pq-row-link" href="{{ row_href }}">{{ row.get('title') }}</a></strong>
+              <span><a class="pq-row-link" href="{{ row_href }}">{{ row.get('detail') }}</a></span>
               <div class="pq-row-actions" aria-label="Example media status">
-                <span class="pq-mini-tag">{{ row.get('tour_label') }}</span>
-                <span class="pq-mini-tag">{{ row.get('walkthrough_label') }}</span>
+                <a class="pq-mini-tag pq-row-link" href="{{ row_href }}">{{ row.get('tour_label') }}</a>
+                <a class="pq-mini-tag pq-row-link" href="{{ row_href }}">{{ row.get('walkthrough_label') }}</a>
               </div>
             </div>
           </div>
