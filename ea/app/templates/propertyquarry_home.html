@@ -3,18 +3,24 @@
 <style>
   .pq-home {
     display: grid;
-    gap: 10px;
+    gap: clamp(7px, 1.1vh, 10px);
+  }
+  body:has(.pq-home) main {
+    padding: clamp(10px, 1.8vh, 18px) 0 clamp(8px, 1.5vh, 14px);
+  }
+  body:has(.pq-home) footer {
+    display: none;
   }
   .pq-hero {
     min-height: auto;
     display: grid;
     grid-template-columns: minmax(0, 0.82fr) minmax(340px, 0.68fr);
-    gap: clamp(18px, 4vw, 46px);
+    gap: clamp(16px, 3.2vw, 38px);
     align-items: center;
   }
   .pq-hero-copy {
     display: grid;
-    gap: 14px;
+    gap: clamp(9px, 1.6vh, 14px);
     align-content: center;
     max-width: 680px;
   }
@@ -29,7 +35,7 @@
   .pq-hero h1 {
     max-width: 13ch;
     margin: 0;
-    font-size: clamp(2.35rem, 4.5vw, 4.45rem);
+    font-size: clamp(2.2rem, 4.05vw, 3.95rem);
     line-height: 0.98;
     letter-spacing: 0;
   }
@@ -94,9 +100,9 @@
     border-radius: 10px;
     background: color-mix(in srgb, var(--panel) 86%, transparent);
     box-shadow: var(--shadow);
-    padding: 12px;
+    padding: clamp(9px, 1.5vh, 12px);
     display: grid;
-    gap: 10px;
+    gap: clamp(7px, 1.2vh, 10px);
   }
   .pq-desk::before {
     content: "";
@@ -131,13 +137,13 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel);
-    padding: 10px;
+    padding: clamp(7px, 1.2vh, 10px);
     display: grid;
-    gap: 6px;
+    gap: clamp(4px, 0.9vh, 6px);
   }
   .pq-row {
     align-items: start;
-    padding: 8px 0;
+    padding: clamp(5px, 1vh, 8px) 0;
     border-top: 1px solid var(--line);
   }
   .pq-row:first-of-type {
@@ -159,10 +165,10 @@
     padding-bottom: 4px;
   }
   .pq-home-point {
-    min-height: 58px;
+    min-height: clamp(44px, 7vh, 58px);
     align-items: flex-start;
     border-top: 1px solid var(--line);
-    padding-top: 9px;
+    padding-top: clamp(6px, 1vh, 9px);
   }
   .pq-home-point strong {
     display: block;

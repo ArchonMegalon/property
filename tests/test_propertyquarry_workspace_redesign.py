@@ -9014,7 +9014,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert 'id="profile"' in account.text
     assert "Open pricing" in account.text
     assert "How it works" in account.text
-    assert "Score PDF" in account.text
+    assert "FlipLink score PDF" in account.text
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text

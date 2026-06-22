@@ -640,6 +640,217 @@ _LOCALIZED_PDF_EXAMPLE_COPY: dict[str, dict[str, tuple[str, ...] | str]] = {
 }
 
 
+_LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
+    "en": {
+        "calculation_detail_title": "Where each number comes from",
+        "calculation_detail_note": "The example uses the same scoring ladder as the search engine: hard rules gate first, then evidence and soft preferences move the visible rank.",
+        "weight_ladder_title": "How preference strength changes a delta",
+        "weight_ladder_note": "A stronger preference changes the size of the score move. It does not become a filter unless the user marks it as a must-have or explicit hard rule.",
+        "weight_ladder_rows": [
+            ("Neutral", "+0 / -0", "The signal is shown as context but normally does not move the score."),
+            ("Nice to have", "small move", "A matched nice-to-have usually adds a small lift; a missing one causes a small penalty."),
+            ("Strong wish", "larger move", "The same matched signal receives a larger boost, and the same missing signal costs more."),
+            ("Must have", "gate or cap", "If the fact contradicts the must-have, the listing is filtered or score-capped instead of merely lowered."),
+            ("Avoid", "negative move", "If the avoided condition is present, the score drops; only explicit hard avoid rules exclude."),
+        ],
+        "calculation_detail_rows": [
+            ("Start", "+50", "Neutral baseline after hard-gate eligibility.", "Every reviewable candidate starts from 50 so positive and negative evidence can both move it.", "Preference strength does not change the baseline."),
+            ("Hard gate passed", "+8", "Country, selected district, transaction type, home type, budget, rooms and area do not conflict.", "This is an eligibility confidence lift, not a soft preference.", "If a selected district, buy/rent mode, budget, rooms or hard type fails, the candidate is excluded instead of scored."),
+            ("Evidence quality", "+10", "Floorplan, operating costs and real 360/tour evidence are available in the example.", "More verified facts means the remote decision is safer, so confidence rises.", "Floorplan only would be closer to +4; floorplan plus costs closer to +7; full evidence earns the +10 example."),
+            ("Soft preferences", "+6", "Commute, daily-life and family preferences match at nice-to-have strength.", "Soft matches raise rank but never hide other homes by themselves.", "Neutral would be +0; nice-to-have gives about +6 here; strong wish would be about +12; a must-have contradiction would gate or cap."),
+            ("Location confidence", "+4", "The listing has candidate-level postal or district evidence, not only provider search-scope text.", "Specific location evidence allows the engine to compare selected districts and nearby amenities safely.", "Coarse evidence would be about +1; a contradicted postal code such as 1220 during a hard 1010 search excludes."),
+            ("Missing heating detail", "-8", "Heating is relevant but unknown in the reviewed source.", "Missing facts are not invented; important unknowns reduce confidence until verified.", "If heating detail were neutral it might be -2 or 0; as a strong wish it can be -8 to -12; as a hard must-have it can cap or exclude."),
+            ("One soft wish missing", "-3", "A non-critical desired feature is absent or unproven.", "A soft miss lowers rank only.", "Neutral would be 0; nice-to-have is about -3; strong wish about -6; must-have missing would gate or cap."),
+            ("Open verification risk", "-5", "There are still unresolved viewing or agent questions.", "The score keeps uncertainty visible instead of pretending the listing is complete.", "Minor risk would be about -2; unresolved important risk about -5; high risk can cap below the strong-fit band."),
+        ],
+    },
+    "de": {
+        "calculation_detail_title": "Wo jede Zahl herkommt",
+        "calculation_detail_note": "Das Beispiel nutzt dieselbe Logik wie die Suche: harte Regeln zuerst, danach bewegen Evidenz und weiche Praeferenzen den sichtbaren Rang.",
+        "weight_ladder_title": "Wie die Praeferenzstaerke ein Delta veraendert",
+        "weight_ladder_note": "Eine staerkere Praeferenz veraendert die Hoehe des Score-Schritts. Sie wird erst dann zum Filter, wenn sie als Must-have oder harte Regel markiert ist.",
+        "weight_ladder_rows": [
+            ("Neutral", "+0 / -0", "Das Signal bleibt Kontext und bewegt den Score normalerweise nicht."),
+            ("Nice to have", "kleiner Schritt", "Ein Treffer hebt leicht; ein fehlender Wunsch senkt leicht."),
+            ("Starker Wunsch", "groesserer Schritt", "Dasselbe passende Signal zaehlt staerker, und dasselbe fehlende Signal kostet mehr."),
+            ("Must-have", "Filter oder Deckel", "Widerspricht der Fakt dem Must-have, wird gefiltert oder gedeckelt statt nur gesenkt."),
+            ("Avoid", "negativer Schritt", "Ist das zu vermeidende Merkmal vorhanden, sinkt der Score; nur harte Avoid-Regeln schliessen aus."),
+        ],
+        "calculation_detail_rows": [
+            ("Start", "+50", "Neutraler Ausgangswert nach bestandener harter Vorauswahl.", "Jedes pruefbare Objekt startet bei 50, damit positive und negative Evidenz wirken koennen.", "Die Praeferenzstaerke veraendert den Startwert nicht."),
+            ("Harte Regeln bestanden", "+8", "Land, ausgewaehlter Bezirk, Miete/Kauf, Objekttyp, Budget, Zimmer und Flaeche widersprechen nicht.", "Das ist ein Eligibilitaets-Boost, keine weiche Praeferenz.", "Wenn Bezirk, Modus, Budget, Zimmer oder harter Typ scheitern, wird ausgeschlossen statt niedriger bewertet."),
+            ("Evidenzqualitaet", "+10", "Im Beispiel sind Grundriss, Betriebskosten und echte 360-/Tour-Evidenz vorhanden.", "Mehr belegte Fakten machen die Remote-Entscheidung sicherer, daher steigt das Vertrauen.", "Nur Grundriss waere eher +4; Grundriss plus Kosten eher +7; volle Evidenz ergibt hier +10."),
+            ("Weiche Praeferenzen", "+6", "Wege, Alltag und Familienkontext passen auf Nice-to-have-Staerke.", "Weiche Treffer heben den Rang, verstecken aber keine anderen Objekte.", "Neutral waere +0; Nice-to-have hier etwa +6; starker Wunsch etwa +12; Must-have-Widerspruch wuerde filtern oder deckeln."),
+            ("Lagevertrauen", "+4", "Die Lage stammt aus Objekt-Postleitzahl oder Bezirk, nicht nur aus dem Suchumfang des Providers.", "Konkrete Lagebelege erlauben sicheren Bezirks- und Umfeldvergleich.", "Grobe Evidenz waere etwa +1; eine widersprechende PLZ wie 1220 bei harter Suche 1010 schliesst aus."),
+            ("Heizung offen", "-8", "Heizung ist relevant, aber in der Quelle unbekannt.", "Fehlende Fakten werden nicht erfunden; wichtige Unbekannte senken Vertrauen bis zur Klaerung.", "Neutral waere eher -2 oder 0; als starker Wunsch -8 bis -12; als hartes Must-have Deckel oder Ausschluss."),
+            ("Ein Wunsch fehlt", "-3", "Ein nicht kritisches Wunschmerkmal fehlt oder ist nicht belegt.", "Ein weicher Fehltreffer senkt nur den Rang.", "Neutral waere 0; Nice-to-have etwa -3; starker Wunsch etwa -6; fehlendes Must-have wuerde filtern oder deckeln."),
+            ("Offenes Pruefrisiko", "-5", "Es bleiben offene Fragen fuer Besichtigung oder Anbieter.", "Der Score macht Unsicherheit sichtbar, statt Vollstaendigkeit vorzutaueschen.", "Kleines Risiko waere etwa -2; wichtiges offenes Risiko etwa -5; hohes Risiko kann unter die starke Passung deckeln."),
+        ],
+    },
+    "es": {
+        "calculation_detail_title": "De donde sale cada numero",
+        "calculation_detail_note": "El ejemplo usa la misma escalera que la busqueda: reglas duras primero, luego evidencia y preferencias flexibles mueven el rango visible.",
+        "weight_ladder_title": "Como cambia el delta segun la fuerza",
+        "weight_ladder_note": "Una preferencia mas fuerte cambia el tamano del movimiento. Solo filtra si el usuario la marca como must-have o regla dura.",
+        "weight_ladder_rows": [
+            ("Neutral", "+0 / -0", "El senal queda como contexto y normalmente no mueve el score."),
+            ("Nice to have", "movimiento pequeno", "Si coincide sube poco; si falta baja poco."),
+            ("Strong wish", "movimiento mayor", "El mismo senal pesa mas cuando coincide y cuesta mas cuando falta."),
+            ("Must-have", "filtro o techo", "Si contradice el must-have, se filtra o se limita el score."),
+            ("Avoid", "movimiento negativo", "Si aparece lo evitado, baja el score; solo una regla dura excluye."),
+        ],
+        "calculation_detail_rows": [
+            ("Inicio", "+50", "Base neutral tras pasar las reglas duras.", "Todo candidato revisable empieza en 50 para que evidencia positiva y negativa pueda moverlo.", "La fuerza de preferencia no cambia la base."),
+            ("Reglas duras superadas", "+8", "Pais, zona, modo, tipo, presupuesto, habitaciones y superficie no chocan.", "Es un aumento de elegibilidad, no una preferencia flexible.", "Si falla zona, modo, presupuesto, habitaciones o tipo duro, se excluye en vez de puntuar."),
+            ("Calidad de evidencia", "+10", "Plano, gastos y evidencia real 360/tour estan disponibles.", "Mas hechos verificados hacen mas segura la decision remota.", "Solo plano seria cerca de +4; plano mas gastos cerca de +7; evidencia completa da +10."),
+            ("Preferencias flexibles", "+6", "Trayectos, vida diaria y familia coinciden como nice-to-have.", "Los matches flexibles suben rango sin ocultar viviendas.", "Neutral +0; nice-to-have aqui +6; strong wish cerca de +12; must-have contrario filtra o limita."),
+            ("Confianza de ubicacion", "+4", "La ubicacion viene del candidato, no solo del alcance de busqueda del proveedor.", "Permite comparar zonas y servicios cercanos con seguridad.", "Evidencia gruesa seria +1; codigo postal contradictorio excluye si la zona es dura."),
+            ("Calefaccion pendiente", "-8", "La calefaccion importa pero esta desconocida.", "Los datos ausentes no se inventan; bajan confianza hasta verificarse.", "Neutral seria -2 o 0; strong wish -8 a -12; must-have duro puede limitar o excluir."),
+            ("Un deseo falta", "-3", "Una caracteristica deseada no critica falta o no esta probada.", "Un fallo flexible solo baja el rango.", "Neutral 0; nice-to-have -3; strong wish -6; must-have ausente filtra o limita."),
+            ("Riesgo abierto", "-5", "Quedan preguntas para visita o agente.", "El score muestra incertidumbre en vez de fingir completitud.", "Riesgo menor -2; riesgo importante -5; riesgo alto puede limitar bajo strong-fit."),
+        ],
+    },
+    "fr": {
+        "calculation_detail_title": "D'ou vient chaque nombre",
+        "calculation_detail_note": "L'exemple suit la meme logique que la recherche: regles strictes d'abord, puis preuves et preferences souples deplacent le rang visible.",
+        "weight_ladder_title": "Comment la force change le delta",
+        "weight_ladder_note": "Une preference plus forte change l'ampleur du mouvement. Elle ne filtre que si l'utilisateur la marque must-have ou regle stricte.",
+        "weight_ladder_rows": [
+            ("Neutre", "+0 / -0", "Le signal reste du contexte et ne deplace normalement pas le score."),
+            ("Nice to have", "petit mouvement", "Un match ajoute peu; une absence coute peu."),
+            ("Strong wish", "mouvement plus fort", "Le meme signal pese plus quand il matche et coute plus quand il manque."),
+            ("Must-have", "filtre ou plafond", "Une contradiction filtre ou plafonne au lieu de seulement baisser."),
+            ("Avoid", "mouvement negatif", "La condition evitee baisse le score; seule une regle stricte exclut."),
+        ],
+        "calculation_detail_rows": [
+            ("Depart", "+50", "Base neutre apres les regles strictes.", "Tout candidat revisable commence a 50 pour laisser agir preuves positives et negatives.", "La force de preference ne change pas la base."),
+            ("Regles strictes passees", "+8", "Pays, zone, mode, type, budget, pieces et surface ne contredisent pas la recherche.", "C'est un bonus d'eligibilite, pas une preference souple.", "Si zone, mode, budget, pieces ou type strict echoue, le bien est exclu."),
+            ("Qualite des preuves", "+10", "Plan, charges et vraie evidence 360/tour sont presents.", "Plus de faits verifies rend la decision a distance plus sure.", "Plan seul environ +4; plan plus charges environ +7; evidence complete +10."),
+            ("Preferences souples", "+6", "Trajets, quotidien et famille matchent en nice-to-have.", "Les matches souples montent le rang sans cacher d'autres biens.", "Neutre +0; nice-to-have ici +6; strong wish environ +12; must-have contraire filtre ou plafonne."),
+            ("Confiance localisation", "+4", "La localisation vient du candidat, pas seulement du perimetre fournisseur.", "Elle permet de comparer zones et services proches.", "Evidence grossiere environ +1; code postal contradictoire exclut si zone stricte."),
+            ("Chauffage inconnu", "-8", "Le chauffage est pertinent mais inconnu.", "Les faits manquants ne sont pas inventes; ils baissent la confiance.", "Neutre serait -2 ou 0; strong wish -8 a -12; must-have strict peut plafonner ou exclure."),
+            ("Un souhait manque", "-3", "Un souhait non critique manque ou n'est pas prouve.", "Un manque souple baisse seulement le rang.", "Neutre 0; nice-to-have -3; strong wish -6; must-have absent filtre ou plafonne."),
+            ("Risque a verifier", "-5", "Il reste des questions pour visite ou agent.", "Le score garde l'incertitude visible.", "Risque mineur -2; risque important -5; risque eleve peut plafonner sous strong-fit."),
+        ],
+    },
+    "it": {
+        "calculation_detail_title": "Da dove viene ogni numero",
+        "calculation_detail_note": "L'esempio usa la stessa scala della ricerca: prima regole dure, poi prove e preferenze morbide muovono il rango visibile.",
+        "weight_ladder_title": "Come la forza cambia il delta",
+        "weight_ladder_note": "Una preferenza piu forte cambia la dimensione del movimento. Filtra solo se marcata come must-have o regola dura.",
+        "weight_ladder_rows": [
+            ("Neutrale", "+0 / -0", "Il segnale resta contesto e normalmente non muove lo score."),
+            ("Nice to have", "movimento piccolo", "Un match alza poco; una mancanza costa poco."),
+            ("Strong wish", "movimento maggiore", "Lo stesso segnale pesa di piu quando combacia e costa di piu quando manca."),
+            ("Must-have", "filtro o tetto", "Una contraddizione filtra o limita invece di abbassare soltanto."),
+            ("Avoid", "movimento negativo", "La condizione evitata abbassa lo score; solo una regola dura esclude."),
+        ],
+        "calculation_detail_rows": [
+            ("Inizio", "+50", "Base neutra dopo le regole dure.", "Ogni candidato rivedibile parte da 50 per far agire prove positive e negative.", "La forza della preferenza non cambia la base."),
+            ("Regole dure superate", "+8", "Paese, area, modo, tipo, budget, stanze e superficie non confliggono.", "E un boost di idoneita, non una preferenza morbida.", "Se area, modo, budget, stanze o tipo duro falliscono, la casa viene esclusa."),
+            ("Qualita prove", "+10", "Sono presenti planimetria, costi e vera evidenza 360/tour.", "Piu fatti verificati rendono piu sicura la decisione remota.", "Solo planimetria circa +4; planimetria piu costi circa +7; evidenza completa +10."),
+            ("Preferenze morbide", "+6", "Spostamenti, vita quotidiana e famiglia combaciano come nice-to-have.", "I match morbidi alzano il rango senza nascondere case.", "Neutrale +0; nice-to-have qui +6; strong wish circa +12; must-have contrario filtra o limita."),
+            ("Fiducia posizione", "+4", "La posizione viene dal candidato, non solo dallo scope del provider.", "Permette di confrontare aree e servizi vicini.", "Evidenza grossolana circa +1; CAP contraddittorio esclude se area dura."),
+            ("Riscaldamento aperto", "-8", "Il riscaldamento e rilevante ma ignoto.", "I fatti mancanti non si inventano; abbassano fiducia.", "Neutrale sarebbe -2 o 0; strong wish -8 a -12; must-have duro puo limitare o escludere."),
+            ("Un desiderio manca", "-3", "Una caratteristica desiderata non critica manca o non e provata.", "Una mancanza morbida abbassa solo il rango.", "Neutrale 0; nice-to-have -3; strong wish -6; must-have assente filtra o limita."),
+            ("Rischio da verificare", "-5", "Restano domande per visita o agente.", "Lo score rende visibile l'incertezza.", "Rischio minore -2; importante -5; alto puo limitare sotto strong-fit."),
+        ],
+    },
+    "nl": {
+        "calculation_detail_title": "Waar elk getal vandaan komt",
+        "calculation_detail_note": "Het voorbeeld gebruikt dezelfde ladder als de zoekmachine: eerst harde regels, daarna verplaatsen evidence en zachte voorkeuren de zichtbare rang.",
+        "weight_ladder_title": "Hoe voorkeursterkte de delta verandert",
+        "weight_ladder_note": "Een sterkere voorkeur verandert de grootte van de scorestap. Ze filtert pas wanneer de gebruiker haar als must-have of harde regel markeert.",
+        "weight_ladder_rows": [
+            ("Neutraal", "+0 / -0", "Het signaal blijft context en beweegt de score normaal niet."),
+            ("Nice to have", "kleine stap", "Een match verhoogt licht; een gemis kost licht."),
+            ("Strong wish", "grotere stap", "Hetzelfde signaal telt sterker bij match en kost meer bij gemis."),
+            ("Must-have", "filter of plafond", "Een tegenspraak filtert of plafonneert in plaats van alleen te verlagen."),
+            ("Avoid", "negatieve stap", "De vermeden conditie verlaagt de score; alleen een harde regel sluit uit."),
+        ],
+        "calculation_detail_rows": [
+            ("Start", "+50", "Neutrale basis na de harde regels.", "Elke reviewbare kandidaat start op 50 zodat positieve en negatieve evidence kunnen werken.", "Voorkeursterkte verandert de basis niet."),
+            ("Harde regels gehaald", "+8", "Land, gebied, modus, type, budget, kamers en oppervlakte botsen niet.", "Dit is een geschiktheidsboost, geen zachte voorkeur.", "Als gebied, modus, budget, kamers of hard type faalt, wordt de woning uitgesloten."),
+            ("Bewijskwaliteit", "+10", "Plattegrond, kosten en echte 360/tour-evidence zijn aanwezig.", "Meer geverifieerde feiten maken de remote beslissing veiliger.", "Alleen plattegrond ongeveer +4; plattegrond plus kosten +7; volledige evidence +10."),
+            ("Zachte voorkeuren", "+6", "Routes, dagelijks leven en gezin matchen als nice-to-have.", "Zachte matches verhogen rang zonder woningen te verbergen.", "Neutraal +0; nice-to-have hier +6; strong wish ongeveer +12; must-have-tegenspraak filtert of plafonneert."),
+            ("Locatievertrouwen", "+4", "De locatie komt van kandidaatbewijs, niet alleen provider-scope.", "Daarmee kan de engine gebieden en nabijheid veilig vergelijken.", "Grove evidence ongeveer +1; tegengesproken postcode sluit uit bij hard gebied."),
+            ("Verwarming open", "-8", "Verwarming is relevant maar onbekend.", "Ontbrekende feiten worden niet verzonnen; ze verlagen vertrouwen.", "Neutraal zou -2 of 0 zijn; strong wish -8 tot -12; hard must-have kan plafonneren of uitsluiten."),
+            ("Een wens ontbreekt", "-3", "Een niet-kritische wens ontbreekt of is onbewezen.", "Een zachte misser verlaagt alleen rang.", "Neutraal 0; nice-to-have -3; strong wish -6; must-have ontbrekend filtert of plafonneert."),
+            ("Open verificatierisico", "-5", "Er blijven vragen voor bezichtiging of makelaar.", "De score houdt onzekerheid zichtbaar.", "Klein risico -2; belangrijk risico -5; hoog risico kan onder strong-fit plafonneren."),
+        ],
+    },
+    "pt": {
+        "calculation_detail_title": "De onde vem cada numero",
+        "calculation_detail_note": "O exemplo usa a mesma escala da pesquisa: regras duras primeiro, depois evidencia e preferencias suaves movem o ranking visivel.",
+        "weight_ladder_title": "Como a forca muda o delta",
+        "weight_ladder_note": "Uma preferencia mais forte muda o tamanho do movimento. So filtra se o utilizador marcar como must-have ou regra dura.",
+        "weight_ladder_rows": [
+            ("Neutro", "+0 / -0", "O sinal fica como contexto e normalmente nao move o score."),
+            ("Nice to have", "movimento pequeno", "Um match sobe pouco; uma falta custa pouco."),
+            ("Strong wish", "movimento maior", "O mesmo sinal pesa mais quando bate e custa mais quando falta."),
+            ("Must-have", "filtro ou teto", "Uma contradicao filtra ou limita em vez de apenas baixar."),
+            ("Avoid", "movimento negativo", "A condicao evitada baixa o score; so uma regra dura exclui."),
+        ],
+        "calculation_detail_rows": [
+            ("Inicio", "+50", "Base neutra depois das regras duras.", "Todo candidato revisavel parte de 50 para evidencia positiva e negativa moverem.", "A forca da preferencia nao muda a base."),
+            ("Regras duras cumpridas", "+8", "Pais, zona, modo, tipo, orcamento, quartos e area nao conflitam.", "E um boost de elegibilidade, nao uma preferencia suave.", "Se zona, modo, orcamento, quartos ou tipo duro falham, a casa e excluida."),
+            ("Qualidade da evidencia", "+10", "Planta, custos e evidencia real 360/tour estao presentes.", "Mais factos verificados tornam a decisao remota mais segura.", "So planta cerca de +4; planta mais custos +7; evidencia completa +10."),
+            ("Preferencias suaves", "+6", "Trajetos, vida diaria e familia combinam como nice-to-have.", "Matches suaves sobem ranking sem esconder casas.", "Neutro +0; nice-to-have aqui +6; strong wish cerca de +12; must-have contrario filtra ou limita."),
+            ("Confianca de localizacao", "+4", "A localizacao vem do candidato, nao apenas do scope do fornecedor.", "Permite comparar zonas e proximidade com seguranca.", "Evidencia grosseira cerca de +1; postal contraditorio exclui se a zona for dura."),
+            ("Aquecimento em aberto", "-8", "O aquecimento e relevante mas desconhecido.", "Factos em falta nao sao inventados; baixam confianca.", "Neutro seria -2 ou 0; strong wish -8 a -12; must-have duro pode limitar ou excluir."),
+            ("Um desejo falta", "-3", "Uma caracteristica desejada nao critica falta ou nao esta provada.", "Uma falta suave baixa apenas ranking.", "Neutro 0; nice-to-have -3; strong wish -6; must-have ausente filtra ou limita."),
+            ("Risco a verificar", "-5", "Restam perguntas para visita ou agente.", "O score mantem incerteza visivel.", "Risco menor -2; importante -5; alto pode limitar abaixo de strong-fit."),
+        ],
+    },
+    "pl": {
+        "calculation_detail_title": "Skad bierze sie kazda liczba",
+        "calculation_detail_note": "Przyklad uzywa tej samej drabiny co wyszukiwarka: najpierw twarde reguly, potem dowody i miekkie preferencje przesuwaja widoczny ranking.",
+        "weight_ladder_title": "Jak sila preferencji zmienia delte",
+        "weight_ladder_note": "Silniejsza preferencja zmienia wielkosc ruchu. Filtruje dopiero, gdy uzytkownik oznaczy ja jako must-have lub twarda regule.",
+        "weight_ladder_rows": [
+            ("Neutralnie", "+0 / -0", "Sygnal zostaje kontekstem i zwykle nie zmienia wyniku."),
+            ("Nice to have", "maly ruch", "Dopasowanie lekko podnosi; brak lekko kosztuje."),
+            ("Strong wish", "wiekszy ruch", "Ten sam sygnal wazy wiecej przy dopasowaniu i kosztuje wiecej przy braku."),
+            ("Must-have", "filtr lub pulap", "Sprzecznosc filtruje lub naklada pulap zamiast tylko obnizac."),
+            ("Avoid", "ruch ujemny", "Warunek unikany obniza wynik; tylko twarda regula wyklucza."),
+        ],
+        "calculation_detail_rows": [
+            ("Start", "+50", "Neutralna baza po twardych regulach.", "Kazdy oceniany kandydat startuje z 50, aby dowody dodatnie i ujemne mogly dzialac.", "Sila preferencji nie zmienia bazy."),
+            ("Twarde reguly spelnione", "+8", "Kraj, obszar, tryb, typ, budzet, pokoje i metraz nie koliduja.", "To boost kwalifikacji, nie miekka preferencja.", "Jesli obszar, tryb, budzet, pokoje lub twardy typ nie przejda, oferta jest wykluczona."),
+            ("Jakosc dowodow", "+10", "Plan, koszty i prawdziwe 360/tour sa dostepne.", "Wiecej zweryfikowanych faktow zwieksza bezpieczenstwo decyzji zdalnej.", "Sam plan okolo +4; plan plus koszty +7; pelne dowody +10."),
+            ("Miekkie preferencje", "+6", "Dojazdy, codziennosc i rodzina pasuja jako nice-to-have.", "Miekkie trafienia podnosza ranking bez ukrywania ofert.", "Neutralnie +0; nice-to-have tu +6; strong wish okolo +12; sprzeczny must-have filtruje lub naklada pulap."),
+            ("Zaufanie lokalizacji", "+4", "Lokalizacja pochodzi z kandydata, nie tylko ze scope dostawcy.", "Pozwala bezpiecznie porownac obszary i bliskosc.", "Grube dowody okolo +1; sprzeczny kod pocztowy wyklucza przy twardym obszarze."),
+            ("Ogrzewanie otwarte", "-8", "Ogrzewanie jest wazne, ale nieznane.", "Brakujace fakty nie sa wymyslane; obnizaja zaufanie.", "Neutralnie byloby -2 lub 0; strong wish -8 do -12; hard must-have moze dac pulap lub wykluczenie."),
+            ("Brakuje jednego zyczenia", "-3", "Nie-krytyczna cecha po prostu nie jest potwierdzona.", "Miekki brak obniza tylko ranking.", "Neutralnie 0; nice-to-have -3; strong wish -6; brak must-have filtruje lub daje pulap."),
+            ("Otwarte ryzyko", "-5", "Zostaja pytania na ogladanie lub do agenta.", "Wynik pokazuje niepewnosc.", "Male ryzyko -2; wazne -5; wysokie moze ograniczyc ponizej strong-fit."),
+        ],
+    },
+    "sv": {
+        "calculation_detail_title": "Varje siffra i berakningen",
+        "calculation_detail_note": "Exemplet anvander samma stege som sokningen: harda regler forst, sedan flyttar evidens och mjuka preferenser synlig ranking.",
+        "weight_ladder_title": "Hur preferensstyrka andrar deltat",
+        "weight_ladder_note": "En starkare preferens andrar storleken pa score-rorelsen. Den filtrerar bara nar anvandaren markerar den som must-have eller hard regel.",
+        "weight_ladder_rows": [
+            ("Neutral", "+0 / -0", "Signalen ar kontext och flyttar normalt inte score."),
+            ("Nice to have", "liten rorelse", "En match hojer lite; en saknad kostar lite."),
+            ("Strong wish", "storre rorelse", "Samma signal vager mer vid match och kostar mer nar den saknas."),
+            ("Must-have", "filter eller tak", "En motsagelse filtrerar eller satter tak istallet for bara sankning."),
+            ("Avoid", "negativ rorelse", "Det undvikta villkoret sanker score; bara hard regel exkluderar."),
+        ],
+        "calculation_detail_rows": [
+            ("Start", "+50", "Neutral bas efter harda regler.", "Varje granskningsbar kandidat startar pa 50 sa positiv och negativ evidens kan verka.", "Preferensstyrka andrar inte basen."),
+            ("Harda regler passerade", "+8", "Land, omrade, lage, typ, budget, rum och yta krockar inte.", "Detta ar en behorighetsboost, inte mjuk preferens.", "Om omrade, lage, budget, rum eller hard typ faller, exkluderas bostaden."),
+            ("Evidenskvalitet", "+10", "Planritning, kostnader och riktig 360/tour-evidens finns.", "Fler verifierade fakta gor fjarrbeslutet tryggare.", "Endast plan cirka +4; plan plus kostnader +7; full evidens +10."),
+            ("Mjuka preferenser", "+6", "Pendling, vardag och familj matchar som nice-to-have.", "Mjuka matchningar hojer ranking utan att gomma bostader.", "Neutral +0; nice-to-have har +6; strong wish cirka +12; must-have-motsagelse filtrerar eller satter tak."),
+            ("Platsfortroende", "+4", "Platsen kommer fran kandidatens evidens, inte bara leverantorens sokomrade.", "Det gor omrades- och narhetsjamforelse saker.", "Grov evidens cirka +1; motsagd postkod exkluderar vid hardt omrade."),
+            ("Varme okand", "-8", "Varme ar relevant men okand.", "Saknade fakta hittas inte pa; de sanker fortroende.", "Neutral vore -2 eller 0; strong wish -8 till -12; hard must-have kan satta tak eller exkludera."),
+            ("Ett onskemal saknas", "-3", "En icke-kritisk onskad egenskap saknas eller ar obevisad.", "En mjuk miss sanker bara ranking.", "Neutral 0; nice-to-have -3; strong wish -6; saknat must-have filtrerar eller satter tak."),
+            ("Oppen verifieringsrisk", "-5", "Fragor aterstar for visning eller maklare.", "Score haller osakerhet synlig.", "Liten risk -2; viktig risk -5; hog risk kan satta tak under strong-fit."),
+        ],
+    },
+}
+
+
 def supported_property_score_methodology_languages() -> tuple[str, ...]:
     return tuple(sorted({str(country.default_language or "en").strip().lower() for country in COUNTRIES if str(country.default_language or "").strip()}))
 
@@ -657,6 +868,8 @@ def _localized(language_code: object = "", *, country_code: object = "") -> dict
         base.update(_LOCALIZED_CALCULATION_COPY[code])
     if code in _LOCALIZED_PDF_EXAMPLE_COPY:
         base.update(_LOCALIZED_PDF_EXAMPLE_COPY[code])
+    if code in _LOCALIZED_WEIGHT_EXPLAINER_COPY:
+        base.update(_LOCALIZED_WEIGHT_EXPLAINER_COPY[code])
     base["language_code"] = code
     base["language_label"] = _LANGUAGE_NAMES.get(code, code.upper())
     return base
@@ -733,6 +946,24 @@ def build_property_score_methodology(
         "calculation_rows": [
             {"label": str(label), "delta": str(delta), "why": str(why)}
             for label, delta, why in list(copy.get("calculation_rows") or [])
+        ],
+        "calculation_detail_title": str(copy.get("calculation_detail_title") or "Where each number comes from"),
+        "calculation_detail_note": str(copy.get("calculation_detail_note") or ""),
+        "calculation_detail_rows": [
+            {
+                "label": str(label),
+                "delta": str(delta),
+                "source": str(source),
+                "rule": str(rule),
+                "alternatives": str(alternatives),
+            }
+            for label, delta, source, rule, alternatives in list(copy.get("calculation_detail_rows") or [])
+        ],
+        "weight_ladder_title": str(copy.get("weight_ladder_title") or "How preference strength changes a delta"),
+        "weight_ladder_note": str(copy.get("weight_ladder_note") or ""),
+        "weight_ladder_rows": [
+            {"level": str(level), "effect": str(effect), "rule": str(rule)}
+            for level, effect, rule in list(copy.get("weight_ladder_rows") or [])
         ],
         "candidate_application": {
             "fit_score": fit_score,

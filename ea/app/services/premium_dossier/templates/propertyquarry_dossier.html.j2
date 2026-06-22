@@ -138,6 +138,47 @@
           </div>
           {% endfor %}
         </div>
+        <div class="score-grid score-grid-wide">
+          <div class="panel">
+            <h3>{{ score.calculation_title or "Example calculation" }}</h3>
+            <div class="score-calc-list">
+              {% for row in score.calculation_rows %}
+              <div class="score-calc-row">
+                <strong>{{ row.delta }}</strong>
+                <span>{{ row.label }}{% if row.why %} · {{ row.why }}{% endif %}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="panel">
+            <h3>{{ score.weight_ladder_title or "Preference weights" }}</h3>
+            {% if score.weight_ladder_note %}<p>{{ score.weight_ladder_note }}</p>{% endif %}
+            <div class="score-ladder">
+              {% for row in score.weight_ladder_rows[:5] %}
+              <div class="score-ladder-row">
+                <strong>{{ row.level }}</strong>
+                <span>{{ row.effect }} · {{ row.rule }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% if score.calculation_detail_rows %}
+        <div class="panel score-detail-panel">
+          <h3>{{ score.calculation_detail_title or "Where each number comes from" }}</h3>
+          {% if score.calculation_detail_note %}<p>{{ score.calculation_detail_note }}</p>{% endif %}
+          <div class="score-detail-list">
+            {% for row in score.calculation_detail_rows %}
+            <div class="score-detail-row">
+              <strong>{{ row.delta }} · {{ row.label }}</strong>
+              <span>{{ row.source }}</span>
+              <span>{{ row.rule }}</span>
+              <span>{{ row.alternatives }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
         <div class="score-grid">
           <div class="panel">
             <h3>{{ score.positive_label or "Signals lifting the score" }}</h3>

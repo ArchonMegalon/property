@@ -509,7 +509,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
     tmp_path: Path,
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
-    desktop = _new_public_context(browser, mobile=False, width=1440, height=1050)
+    desktop = _new_public_context(browser, mobile=False, width=1440, height=820)
     mobile = _new_public_context(browser, mobile=True)
     try:
         desktop_page = desktop.new_page()
@@ -521,6 +521,15 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(desktop_page.get_by_text("Hard filters stay hard")).to_be_visible()
         expect(desktop_page.get_by_text("Preferences score")).to_be_visible()
         _assert_no_horizontal_overflow(desktop_page)
+        desktop_home_metrics = desktop_page.evaluate(
+            """() => ({
+                innerHeight: window.innerHeight,
+                scrollHeight: document.scrollingElement ? document.scrollingElement.scrollHeight : 0,
+                footerVisible: !!(document.querySelector('footer') && getComputedStyle(document.querySelector('footer')).display !== 'none'),
+            })"""
+        )
+        assert desktop_home_metrics["scrollHeight"] <= desktop_home_metrics["innerHeight"] + 1, desktop_home_metrics
+        assert desktop_home_metrics["footerVisible"] is False
         desktop_home = tmp_path / "propertyquarry-public-home-desktop.png"
         desktop_page.screenshot(path=str(desktop_home), full_page=True)
         assert desktop_home.exists()

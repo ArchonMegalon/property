@@ -749,7 +749,11 @@ def download_property_score_methodology_pdf(
         str(pdf_path),
         media_type="application/pdf",
         filename=f"propertyquarry-score-methodology-{resolved_language}.pdf",
-        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+            "X-PropertyQuarry-Renderer": "fliplink",
+        },
     )
 
 

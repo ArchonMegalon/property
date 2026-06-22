@@ -20758,7 +20758,8 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     delivery_body = delivery.json()
     assert delivery_body["delivery_url"].startswith("/channel-loop/deliveries/")
     assert delivery_body["open_url"] == "/app/channel-loop/memo"
-    assert "Morning memo digest" in delivery_body["plain_text"]
+    assert "Today digest" in delivery_body["plain_text"]
+    assert "ranked property brief" in delivery_body["plain_text"]
     assert "secure-delivery button" in delivery_body["plain_text"]
     assert "Open digest:" not in delivery_body["plain_text"]
 

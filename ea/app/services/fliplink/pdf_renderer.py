@@ -1685,6 +1685,83 @@ def _visual_pdf(
         pages.append({"ops": ops, "images": []})
         page_number += 1
 
+        detail_rows = [
+            dict(row)
+            for row in list(score_methodology.get("calculation_detail_rows") or [])[:8]
+            if isinstance(row, dict)
+        ]
+        weight_rows = [
+            dict(row)
+            for row in list(score_methodology.get("weight_ladder_rows") or [])[:5]
+            if isinstance(row, dict)
+        ]
+        if detail_rows or weight_rows:
+            ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+            detail_title = str(score_methodology.get("calculation_detail_title") or "Where each number comes from").strip()
+            detail_note = str(score_methodology.get("calculation_detail_note") or "").strip()
+            _draw_text(ops, detail_title, x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+            note_y = 760
+            if detail_note:
+                note_y = _draw_wrapped(ops, detail_note, x=MARGIN_X, y=note_y, width_chars=88, size=9.4, leading=11.2)
+            ladder_title = str(score_methodology.get("weight_ladder_title") or "Preference weights").strip()
+            ladder_note = str(score_methodology.get("weight_ladder_note") or "").strip()
+            _draw_rect(ops, MARGIN_X, 574, CARD_WIDTH, 134, fill=(1.0, 0.995, 0.97))
+            _draw_rect(ops, MARGIN_X, 574, 7, 134, fill=(0.74, 0.55, 0.18))
+            _draw_text(ops, ladder_title, x=MARGIN_X + 18, y=688, size=12.2, font="F2", fill=(0.15, 0.38, 0.30))
+            ladder_y = 670
+            if ladder_note:
+                ladder_y = _draw_wrapped(ops, ladder_note, x=MARGIN_X + 18, y=ladder_y, width_chars=84, size=8.4, leading=9.6)
+                ladder_y -= 2
+            for row in weight_rows:
+                level = str(row.get("level") or "").strip()
+                effect = str(row.get("effect") or "").strip()
+                rule = str(row.get("rule") or "").strip()
+                if not (level or effect or rule):
+                    continue
+                prefix = f"{level} - {effect}: " if level or effect else ""
+                ladder_y = _draw_wrapped(
+                    ops,
+                    prefix + rule,
+                    x=MARGIN_X + 18,
+                    y=ladder_y,
+                    width_chars=84,
+                    size=8.0,
+                    leading=9.1,
+                )
+                ladder_y -= 1
+                if ladder_y < 586:
+                    break
+            _draw_text(
+                ops,
+                str(score_methodology.get("calculation_title") or "Example calculation"),
+                x=MARGIN_X,
+                y=536,
+                size=12.8,
+                font="F2",
+                fill=(0.15, 0.38, 0.30),
+            )
+            column_width = (CARD_WIDTH - 14) / 2.0
+            for index, row in enumerate(detail_rows):
+                column = 0 if index < 4 else 1
+                row_index = index if index < 4 else index - 4
+                x = MARGIN_X + column * (column_width + 14)
+                top_y = 512 - row_index * 107
+                _draw_rect(ops, x, top_y - 86, column_width, 94, fill=(0.96, 0.98, 0.96))
+                delta = str(row.get("delta") or "").strip()
+                label = str(row.get("label") or "").strip()
+                _draw_text(ops, f"{delta} {label}".strip(), x=x + 10, y=top_y - 8, size=9.2, font="F2", fill=(0.12, 0.14, 0.13))
+                row_y = top_y - 24
+                for key in ("source", "rule", "alternatives"):
+                    text = str(row.get(key) or "").strip()
+                    if not text:
+                        continue
+                    row_y = _draw_wrapped(ops, text, x=x + 10, y=row_y, width_chars=41, size=7.4, leading=8.2)
+                    row_y -= 1
+                    if row_y < top_y - 80:
+                        break
+            pages.append({"ops": ops, "images": []})
+            page_number += 1
+
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     _draw_text(ops, "Eckdaten und Kennzahlen", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
     fact_cards = [
