@@ -12516,6 +12516,100 @@ def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
     assert manifest["scenes"][0]["mime_type"] == "application/pdf"
 
 
+def test_generic_property_tour_creates_hosted_photo_gallery_when_crezlo_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "tours"))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    property_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/photo-gallery-fallback-001"
+    photo_url = "https://cdn.example.com/photo-gallery-fallback-001/photo-1.jpg"
+
+    packet = {
+        "property_url": property_url,
+        "listing_id": "photo-gallery-fallback-001",
+        "title": "Photo gallery fallback apartment",
+        "summary": "Image-only listing that should still create a hosted tour.",
+        "listing_uuid": "photo-gallery-fallback-uuid-001",
+        "media_urls_json": [photo_url],
+        "floorplan_urls_json": [],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "photo_only",
+                "theme_name": "clean_light",
+                "tour_style": "guided_listing_walkthrough",
+                "audience": "tenant_screening",
+            }
+        ],
+        "property_facts_json": {
+            "area_sqm": 74.0,
+            "media_count": 1,
+            "provider_channel": "willhaben",
+            "address_lines": ["1220 Vienna"],
+        },
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "title": "Photo gallery fallback apartment",
+            "summary": "Image-only listing that should still create a hosted tour.",
+            "listing_id": "photo-gallery-fallback-001",
+            "media_urls_json": [photo_url],
+            "floorplan_urls_json": [],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "",
+            "property_facts_json": {
+                "area_sqm": 74.0,
+                "media_count": 1,
+                "provider_channel": "willhaben",
+                "address_lines": ["1220 Vienna"],
+            },
+        },
+    )
+
+    def _fake_download(url: str, target: Path) -> str:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"fake-gallery-photo")
+        return "image/jpeg"
+
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        raise RuntimeError("crezlo_api_http_error:500:{\"error\":\"upstream unavailable\"}")
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": property_url,
+            "binding_id": "browseract-binding-gallery-1",
+            "source_ref": "property-scout:photo-gallery-fallback-001",
+            "auto_deliver": False,
+        },
+    )
+
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["tour_media_mode"] == "flat_images"
+    assert body["tour_url"].startswith("https://propertyquarry.com/tours/")
+    slug = body["tour_url"].rstrip("/").split("/")[-1]
+    manifest = json.loads(((tmp_path / "tours" / slug) / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["creation_mode"] == "hosted_photo_gallery_tour"
+    assert manifest["scene_strategy"] == "photo_gallery_hosted"
+    assert manifest["scenes"][0]["mime_type"] == "image/jpeg"
+    assert manifest["scenes"][0]["asset_relpath"] == "photo-01.jpg"
+
+
 def test_hosted_property_tour_writer_keeps_raw_public_manifest_narrow(monkeypatch, tmp_path: Path) -> None:
     from app.product.property_tour_hosting import _write_hosted_property_tour_payload
 
@@ -12651,6 +12745,54 @@ def test_hosted_floorplan_tour_revalidates_asset_suffix_after_content_type(monke
         "floorplan-03.pdf",
         "floorplan-04.pdf",
         "floorplan-05.pdf",
+    ]
+
+
+def test_hosted_photo_gallery_tour_revalidates_asset_suffix_after_content_type(monkeypatch, tmp_path: Path) -> None:
+    from app.product.property_tour_hosting import _write_hosted_photo_gallery_property_tour_bundle
+
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    downloaded: list[str] = []
+
+    def _fake_download(url: str, target: Path) -> str:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(f"downloaded:{url}".encode("utf-8"))
+        downloaded.append(target.name)
+        if url.endswith(".html") or url.endswith(".json"):
+            return "application/octet-stream"
+        if "text-html" in url:
+            return "text/html"
+        return "image/jpeg"
+
+    monkeypatch.setattr("app.product.property_tour_hosting._download_public_tour_asset_with_type", _fake_download)
+
+    payload = _write_hosted_photo_gallery_property_tour_bundle(
+        principal_id="cf-email:tibor@example.com",
+        title="Gallery suffix revalidation",
+        listing_id="gallery-suffix-revalidation",
+        property_url="https://example.test/listing/gallery-suffix-revalidation",
+        variant_key="gallery",
+        media_urls=[
+            "https://example.test/photo.html",
+            "https://example.test/photo.json",
+            "https://example.test/photo-text-html.jpg?kind=text-html",
+            "https://example.test/photo-real.jpg",
+        ],
+        property_facts_json={"rooms": 2},
+        source_host="example.test",
+    )
+
+    bundle_dir = tmp_path / str(payload["slug"])
+    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert [scene["asset_relpath"] for scene in public_manifest["scenes"]] == ["photo-04.jpg"]
+    assert (bundle_dir / "photo-04.jpg").read_bytes() == b"downloaded:https://example.test/photo-real.jpg"
+    for rejected in ("photo-01.jpg", "photo-02.jpg", "photo-03.jpg"):
+        assert not (bundle_dir / rejected).exists()
+    assert downloaded == [
+        "photo-01.jpg",
+        "photo-02.jpg",
+        "photo-03.jpg",
+        "photo-04.jpg",
     ]
 
 
@@ -22267,6 +22409,51 @@ def test_flythrough_gate_rejects_unverified_duration() -> None:
     assert reason == "flythrough_duration_unverified"
     assert actual_seconds == pytest.approx(0.0)
     assert required_seconds >= 70.0
+
+
+def test_existing_hosted_walkthrough_is_reused_even_when_not_magicfit(monkeypatch) -> None:
+    service = product_service.build_product_service(build_product_client(principal_id="cf-email:tibor@example.com").app.state.container)
+
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
+            "provider_key": "local_slideshow",
+            "duration_seconds": 120.0,
+            "coverage_proof": "boundary_verified_frame_continuation",
+            "covered_route_labels": ["entry", "hall", "kitchen", "bathroom", "toilet", "bedroom", "balcony"],
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_property_flythrough_into_hosted_tour",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("existing hosted video should be reused")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_magicfit_flythrough_duration_gate",
+        lambda *args, **kwargs: (True, "", 120.0, 70.0),
+    )
+
+    result = service._maybe_render_property_scout_flythrough(
+        principal_id="cf-email:tibor@example.com",
+        actor="test",
+        title="2 Zimmer Wohnung mit Küche, Bad, WC, Vorraum und Balkon",
+        property_url="https://example.test/listing/1",
+        source_ref="property-scout:1",
+        tour_result={"tour_url": "https://propertyquarry.com/tours/demo"},
+        property_facts={
+            "room_count": 2,
+            "description": "Küche, Badezimmer, separates WC, Vorraum und Balkon sind vorhanden.",
+        },
+        fit_score=100.0,
+        allow_below_threshold=True,
+    )
+
+    assert result["status"] == "existing"
+    assert result["provider_key"] == "local_slideshow"
+    assert result["video_url"] == "https://propertyquarry.com/tours/files/demo/tour.mp4"
 
 
 def test_pdf_appendix_exit_gate_rejects_missing_hero_poster(tmp_path: Path) -> None:

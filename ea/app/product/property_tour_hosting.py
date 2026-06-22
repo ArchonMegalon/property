@@ -549,6 +549,124 @@ def _write_hosted_floorplan_property_tour_bundle(
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise
 
+def _write_hosted_photo_gallery_property_tour_bundle(
+    *,
+    principal_id: str,
+    title: str,
+    listing_id: str,
+    property_url: str,
+    variant_key: str,
+    media_urls: list[str] | tuple[str, ...],
+    property_facts_json: dict[str, object],
+    source_host: str,
+    source_ref: str = "",
+    external_id: str = "",
+    recipient_email: str = "",
+) -> dict[str, object]:
+    normalized_urls = [
+        _safe_live_property_tour_url(value)
+        for value in list(media_urls or [])
+        if _safe_live_property_tour_url(value)
+    ]
+    if not normalized_urls:
+        raise RuntimeError("gallery_assets_missing")
+    base_url = _hosted_property_tour_public_base_url()
+    public_dir = _public_tour_dir()
+    slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    existing_payload = _existing_hosted_property_tour_payload(slug)
+    if existing_payload:
+        return existing_payload
+    bundle_dir = public_dir / slug
+    staging_dir = public_dir / f".{slug}.tmp-{uuid4().hex}"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    scenes: list[dict[str, object]] = []
+    try:
+        for ordinal, asset_url in enumerate(normalized_urls[:12], start=1):
+            try:
+                suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type="")
+                if suffix.lower() not in _PROPERTY_SCOUT_IMAGE_EXTENSIONS:
+                    suffix = ".jpg"
+                relpath = f"photo-{ordinal:02d}{suffix}"
+                content_type = _download_public_tour_asset_with_type(asset_url, staging_dir / relpath)
+                suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type=content_type)
+                if suffix.lower() not in _PROPERTY_SCOUT_IMAGE_EXTENSIONS:
+                    (staging_dir / relpath).unlink(missing_ok=True)
+                    continue
+                if suffix and not relpath.endswith(suffix):
+                    corrected_relpath = f"photo-{ordinal:02d}{suffix}"
+                    (staging_dir / relpath).rename(staging_dir / corrected_relpath)
+                    relpath = corrected_relpath
+                scenes.append(
+                    {
+                        "ordinal": ordinal,
+                        "name": f"Photo {ordinal}",
+                        "role": "photo",
+                        "privacy_class": "public",
+                        "asset_relpath": relpath,
+                        "source_url": asset_url,
+                        "property_url": property_url,
+                        "mime_type": content_type or mimetypes.guess_type(relpath)[0] or "application/octet-stream",
+                    }
+                )
+            except Exception:
+                continue
+        if not scenes:
+            raise RuntimeError("gallery_assets_unavailable")
+        facts = dict(property_facts_json or {})
+        existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
+        existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
+        facts.update(
+            {
+                "tour_media_mode": "flat_images",
+                "media_count": max(int(facts.get("media_count") or 0), len(normalized_urls), len(scenes)),
+                "gallery_image_count": len(scenes),
+                "media_urls_json": normalized_urls,
+                "address_lines": existing_address_lines or ([source_host] if source_host else []),
+                "teaser_attributes": existing_teasers or ["Hosted photo tour", f"{len(scenes)} listing photo(s)"],
+            }
+        )
+        display_title = compact_text(title, fallback="Property Photo Tour", limit=180)
+        payload = {
+            "slug": slug,
+            "hosted_url": f"{base_url}/{slug}",
+            "public_url": f"{base_url}/{slug}",
+            "principal_id": str(principal_id or "").strip(),
+            "listing_url": property_url,
+            "property_url": property_url,
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "recipient_email": str(recipient_email or "").strip().lower(),
+            "title": f"{display_title} - photo tour",
+            "display_title": display_title,
+            "tour_title": f"{display_title} - photo tour",
+            "tour_id": None,
+            "variant_key": variant_key,
+            "variant_label": "gallery",
+            "scene_strategy": "photo_gallery_hosted",
+            "scene_count": len(scenes),
+            "facts": facts,
+            "brief": {
+                "theme_name": "clean_light",
+                "tour_style": "hosted_photo_gallery",
+                "audience": "property_screening",
+                "creative_brief": "Render listing photos directly inside the PropertyQuarry hosted tour page.",
+                "call_to_action": "Review the listing photos.",
+            },
+            "editor_url": "",
+            "crezlo_public_url": "",
+            "scenes": scenes,
+            "generated_at": _now_iso(),
+            "creation_mode": "hosted_photo_gallery_tour",
+        }
+        if bundle_dir.exists():
+            shutil.rmtree(bundle_dir)
+        staging_dir.rename(bundle_dir)
+        _write_hosted_property_tour_payload(bundle_dir, payload)
+        return payload
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
 def _write_hosted_feelestate_pure_360_property_tour_bundle(
     *,
     principal_id: str,

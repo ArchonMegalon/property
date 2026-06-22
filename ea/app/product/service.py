@@ -144,6 +144,7 @@ from app.product.property_tour_hosting import (
     _workspace_access_public_base_url,
     _write_hosted_feelestate_pure_360_property_tour_bundle,
     _write_hosted_floorplan_property_tour_bundle,
+    _write_hosted_photo_gallery_property_tour_bundle,
 )
 from app.product.property_search_storage import (
     _compact_pruned_property_search_run_record,
@@ -25906,6 +25907,59 @@ class ProductService:
                 return payload
             except Exception:
                 pass
+        if source_media_urls:
+            try:
+                structured_output = _write_hosted_photo_gallery_property_tour_bundle(
+                    principal_id=principal_id,
+                    title=title,
+                    listing_id=listing_id,
+                    property_url=normalized_url,
+                    variant_key=resolved_variant_key,
+                    media_urls=source_media_urls,
+                    property_facts_json=property_facts_json,
+                    source_host=source_host,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    recipient_email=resolved_recipient_email,
+                )
+                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                payload = {
+                    "generated_at": generated_at,
+                    "status": "created",
+                    "property_url": normalized_url,
+                    "title": title,
+                    "listing_id": listing_id,
+                    "variant_key": resolved_variant_key,
+                    "artifact_id": "",
+                    "execution_session_id": "",
+                    "connector_binding_id": "",
+                    "tour_url": tour_url,
+                    "vendor_tour_url": vendor_tour_url,
+                    "editor_url": "",
+                    "delivery_email": resolved_recipient_email,
+                    "delivery_status": "skipped" if not auto_deliver else "",
+                    "blocked_reason": "",
+                    "human_task_id": "",
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "tour_media_mode": "flat_images",
+                    "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                    "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                    "creation_mode": "hosted_photo_gallery_tour",
+                }
+                try:
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="willhaben_property_tour_created",
+                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                        source_id=resolved_source_ref,
+                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
+                    )
+                except Exception:
+                    pass
+                return payload
+            except Exception:
+                pass
         if not resolved_binding_id:
             followup_task_id = ""
             if not suppress_human_followup:
@@ -26152,6 +26206,67 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "floorplan_assets_unavailable"
+            if source_media_urls and blocked_reason in {
+                "crezlo_property_tour_not_configured",
+                "browseract_connector_unconfigured",
+                "listing_media_missing",
+                "property_tour_execution_failed",
+                "pure_360_assets_unavailable",
+                "floorplan_assets_unavailable",
+            }:
+                try:
+                    structured_output = _write_hosted_photo_gallery_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        media_urls=source_media_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": resolved_binding_id,
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "flat_images",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "hosted_photo_gallery_tour",
+                        "upstream_blocked_reason": blocked_reason,
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="willhaben_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    blocked_reason = "gallery_assets_unavailable"
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -26808,6 +26923,59 @@ class ProductService:
                     return payload
                 except Exception:
                     pass
+            if source_media_urls:
+                try:
+                    structured_output = _write_hosted_photo_gallery_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        media_urls=source_media_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": "",
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "flat_images",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "hosted_photo_gallery_tour",
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    pass
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -27012,6 +27180,67 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "floorplan_assets_unavailable"
+            if source_media_urls and blocked_reason in {
+                "crezlo_property_tour_not_configured",
+                "browseract_connector_unconfigured",
+                "listing_media_missing",
+                "property_tour_execution_failed",
+                "pure_360_assets_unavailable",
+                "floorplan_assets_unavailable",
+            }:
+                try:
+                    structured_output = _write_hosted_photo_gallery_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        media_urls=source_media_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": resolved_binding_id,
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "flat_images",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "hosted_photo_gallery_tour",
+                        "upstream_blocked_reason": blocked_reason,
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    blocked_reason = "gallery_assets_unavailable"
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -37703,7 +37932,7 @@ class ProductService:
             return {"status": "skipped", "reason": "tour_url_missing", "video_url": ""}
         facts = dict(property_facts or {}) if isinstance(property_facts, dict) else {}
         existing_delivery = _hosted_property_tour_video_delivery(renderable_tour_url)
-        if str(existing_delivery.get("video_url") or "").strip() and str(existing_delivery.get("provider_key") or "").strip().lower() == "magicfit":
+        if str(existing_delivery.get("video_url") or "").strip():
             duration_ok, duration_reason, actual_seconds, required_seconds = _magicfit_flythrough_duration_gate(
                 dict(existing_delivery),
                 title=title,
@@ -37712,7 +37941,7 @@ class ProductService:
             if duration_ok:
                 return {
                     "status": "existing",
-                    "provider_key": "magicfit",
+                    "provider_key": str(existing_delivery.get("provider_key") or "").strip().lower() or "hosted",
                     "tour_url": renderable_tour_url,
                     "video_url": str(existing_delivery.get("video_url") or "").strip(),
                     "duration_seconds": actual_seconds,
