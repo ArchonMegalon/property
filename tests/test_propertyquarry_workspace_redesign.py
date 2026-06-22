@@ -4876,7 +4876,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Useful links" not in packet.text
     assert "Open listing" in packet.text
     assert "Would you pursue this home?" not in packet.text
-    assert "Save your decision" in packet.text
+    assert "Decision" in packet.text
     assert "Viewing requested" in packet.text
     assert "Request missing documents" in packet.text
     assert "Offer candidate" in packet.text
@@ -6798,19 +6798,19 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert '<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open' in body
     assert '<button class="pqx-results-summary-link pqx-results-filter-link" type="button" data-pqx-filtered-open' not in body
     assert "pqx-results-filter-link" in body
-    assert "outside brief" in body
+    assert "filtered" in body
     assert "Widen the shortlist" in body
     assert "Adjust filters" not in body.split("data-pqx-filtered-open", 1)[1].split("</section>", 1)[0]
     assert "const filteredDialogHasActions = () => Boolean(filteredDialog?.querySelector('.pqx-filtered-dialog-rule'));" in body
     assert "const openFilteredDialog = () => {" in body
-    assert "Hard rules only. Soft preferences stay in scoring." in body
+    assert "Hard filters" in body
     assert "Hard rules and score-only context" not in body
     assert "estimated newly ranked homes after rerun" in body
     assert "data-pqx-filter-slider" in body
     assert "data-pqx-filter-field" in body
     assert "adjustments[fieldName]" in body
     assert "document.addEventListener('click', handleFilteredOpenClick);" in body
-    assert "No ranked homes are ready yet. Open the filtered action and widen one hard rule." in body
+    assert "No ranked homes are ready yet. Relax one hard rule to rank more homes." in body
     assert "Best homes first" not in body
 
 

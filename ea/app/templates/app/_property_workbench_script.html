@@ -1655,15 +1655,15 @@
         : (investmentSearch ? 'ranked opportunities' : 'ranked homes');
       const filteredLabel = !shortlistSurface && filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
-        `aria-label="${escapeHtml(filteredTotal)} candidates stayed outside the brief because of hard rules">${escapeHtml(filteredTotal)} outside brief</a>`
+        `aria-label="${escapeHtml(filteredTotal)} candidates stayed outside the brief because of hard rules">${escapeHtml(filteredTotal)} filtered</a>`
       ) : '';
       const scoreDemotedLabel = !shortlistSurface && scoreDemotedTotal > 0 ? (
         `<span class="pqx-results-summary-link pqx-results-soft-link" ` +
-        `aria-label="${escapeHtml(scoreDemotedTotal)} homes stayed in scoring only">${escapeHtml(scoreDemotedTotal)} score-only</span>`
+        `aria-label="${escapeHtml(scoreDemotedTotal)} homes stayed in scoring only">${escapeHtml(scoreDemotedTotal)} soft only</span>`
       ) : '';
       const filteredBreakdown = (!shortlistSurface && (filteredTotal > 0 || scoreDemotedTotal > 0)) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-            <summary><strong>What to widen</strong><span class="pqx-note">Hard rules only</span></summary>
+            <summary><strong>What to widen</strong><span class="pqx-note">Hard filters</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
           </details>
       ` : '';
@@ -1683,7 +1683,7 @@
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
               ${shortlistSurface
                 ? '<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="/app/search">Start search</a></span></div>'
-                : '<div class="pqx-empty">No ranked homes are ready yet. Open the filtered action and widen one hard rule.</div>'}
+                : '<div class="pqx-empty">No ranked homes are ready yet. Relax one hard rule to rank more homes.</div>'}
             </div>
             ${filteredBreakdown}
           </section>

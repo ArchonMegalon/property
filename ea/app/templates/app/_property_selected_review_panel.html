@@ -66,38 +66,37 @@
       <div class="pqx-section-head"><h2>Current read</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
       <div class="pqx-reading-board">
         <article class="pqx-reading-card">
-          <span class="pqx-small">Current read</span>
-          <strong>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('headline') or selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This opportunity stayed in the current investment pass.' }}{% else %}{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed in the current shortlist after the latest fit pass.' }}{% endif %}</strong>
+          <span class="pqx-small">{% if brief.get('search_goal') == 'investment' %}Why this ranks{% else %}Why it fits{% endif %}</span>
+          <strong data-pw-ooda-summary>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('headline') or selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This opportunity stayed in the current investment pass.' }}{% else %}{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed in the current shortlist after the latest fit pass.' }}{% endif %}</strong>
         </article>
-        <article class="pqx-reading-card">
+        <article class="pqx-reading-card" data-pw-risk>
           <span class="pqx-small">Main watch-out</span>
           <strong>{{ selected.get('risk', {}).get('summary') or 'No primary blocker captured yet.' }}</strong>
+        </article>
+        <article class="pqx-reading-card">
+          <span class="pqx-small">{% if brief.get('search_goal') == 'investment' %}Return{% else %}Money{% endif %}</span>
+          <strong data-pw-investment>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('net_yield_display') or selected.get('investment', {}).get('cap_rate_display') or selected.get('investment', {}).get('gross_yield_display') or selected.get('investment', {}).get('market_delta_display') or selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Underwriting is still building from the current listing evidence.' }}{% else %}{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}{% endif %}</strong>
         </article>
         <article class="pqx-reading-card">
           <span class="pqx-small">Next answer</span>
           <strong>{% if selected.get('review_page_neuronwriter', {}).get('questions') %}{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[0] }}{% elif brief.get('search_goal') == 'investment' %}Confirm rent, tax, and operating cost evidence before acting on the underwriting read.{% else %}Open the property page, confirm the layout, and check the next agent-facing question.{% endif %}</strong>
         </article>
-      </div>
-      <div class="pqx-event-list">
-        <div class="pqx-event-card"><strong>{% if brief.get('search_goal') == 'investment' %}Why this ranks{% else %}Why it fits{% endif %}</strong><span class="pqx-note" data-pw-ooda-summary>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('headline') or selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This opportunity stayed on the shortlist after the current investment pass.' }}{% else %}{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed on the shortlist after the current fit pass.' }}{% endif %}</span></div>
-        <div class="pqx-event-card" data-pw-risk><strong>Risk</strong><span class="pqx-note">{{ selected.get('risk', {}).get('summary') or 'No risk summary captured yet.' }}</span></div>
-        <div class="pqx-event-card"><strong>{% if brief.get('search_goal') == 'investment' %}Return{% else %}Money{% endif %}</strong><span class="pqx-note" data-pw-investment>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('net_yield_display') or selected.get('investment', {}).get('cap_rate_display') or selected.get('investment', {}).get('gross_yield_display') or selected.get('investment', {}).get('market_delta_display') or selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Underwriting is still building from the current listing evidence.' }}{% else %}{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}{% endif %}</span></div>
         {% if brief.get('search_goal') == 'investment' %}
-        <div class="pqx-event-card">
+        <article class="pqx-reading-card">
           <strong>Institutional read <button type="button" class="pqx-tooltip" title="This institutional score combines return, value, demand, liquidity, risk control, execution effort, and evidence confidence. Open the property page for the full underlying notes." aria-label="This institutional score combines return, value, demand, liquidity, risk control, execution effort, and evidence confidence. Open the property page for the full underlying notes." aria-expanded="false" data-tooltip-trigger>?</button></strong>
           <span class="pqx-note" data-pw-underwriting-summary>{{ selected.get('investment', {}).get('score_display') or selected.get('investment', {}).get('underwriting_summary') or selected.get('investment', {}).get('confidence_label') or 'Scoring will appear once rent, cost, and market evidence are firm enough.' }}{% if selected.get('investment', {}).get('confidence_label') and not selected.get('investment', {}).get('score_display') %}{% elif selected.get('investment', {}).get('confidence_label') %} · {{ selected.get('investment', {}).get('confidence_label') }}{% endif %}{% if selected.get('investment', {}).get('underwriting_summary') and selected.get('investment', {}).get('score_display') %} · {{ selected.get('investment', {}).get('underwriting_summary') }}{% endif %}</span>
-        </div>
-        <div class="pqx-event-card">
-          <strong>External model</strong>
-          <span class="pqx-note" data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Using listing and shortlist evidence until external rent, cost, and financing reads arrive.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</span>
-        </div>
-        <div class="pqx-event-card">
+        </article>
+        <article class="pqx-reading-card">
+          <span class="pqx-small">External model</span>
+          <strong data-pw-feed-status>{{ selected.get('investment', {}).get('feed_status_label') or 'Using listing and shortlist evidence until external rent, cost, and financing reads arrive.' }}{% if selected.get('investment', {}).get('feed_status_detail') %} · {{ selected.get('investment', {}).get('feed_status_detail') }}{% endif %}{% if selected.get('investment', {}).get('dscr_display') %} · {{ selected.get('investment', {}).get('dscr_display') }}{% endif %}</strong>
+        </article>
+        <article class="pqx-reading-card">
           <strong>Evidence confidence</strong>
           <span class="pqx-note">{{ selected.get('investment', {}).get('confidence_label') or 'Partial evidence until the external model finishes.' }}</span>
-        </div>
+        </article>
         {% endif %}
         {% if selected.get('review_page_neuronwriter', {}).get('questions') %}
-        <div class="pqx-event-card"><strong>Ask next</strong><span class="pqx-note">{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[:2]|join(' · ') }}</span></div>
+        <article class="pqx-reading-card"><span class="pqx-small">Ask next</span><strong>{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[:2]|join(' · ') }}</strong></article>
         {% endif %}
       </div>
       {% if brief.get('search_goal') == 'investment' and selected.get('investment', {}).get('dimensions') %}
@@ -112,7 +111,7 @@
       {% endif %}
     </section>
     <section class="pqx-card pqx-decision-wizard">
-      <div class="pqx-section-head"><h2>Save your decision</h2><span class="pqx-pill">Decision</span></div>
+      <div class="pqx-section-head"><h2>Decision</h2><span class="pqx-pill">Decision</span></div>
       <div class="pqx-decision-row" aria-label="Property decision reaction">
         <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
         <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="maybe">Maybe</button>
@@ -145,7 +144,7 @@
       </details>
     </section>
     <details class="pqx-card">
-      <summary><strong>Optional context</strong><span class="pqx-note">Open only when you need deeper evidence or history.</span></summary>
+      <summary><strong>Optional context</strong></summary>
       {% if selected.get('object_rows') %}
       <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
         <div class="pqx-section-head"><h2>Property details</h2></div>

@@ -12,12 +12,12 @@
         <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
         {% if not is_shortlist_surface and filtered_total %}
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} candidates stayed outside the brief because of hard rules">
-          {{ filtered_total }} outside brief
+          {{ filtered_total }} filtered
         </a>
         {% endif %}
         {% if not is_shortlist_surface and score_demoted_total %}
         <span class="pqx-results-summary-link pqx-results-soft-link" aria-label="{{ score_demoted_total }} homes stayed in scoring only">
-          {{ score_demoted_total }} score-only
+          {{ score_demoted_total }} soft only
         </span>
         {% endif %}
       </div>
@@ -29,7 +29,7 @@
       <div>
         <span class="pqx-score-bts-kicker">BTS</span>
         <strong>{{ score_methodology.get('title') or 'Behind the score' }}</strong>
-        <span>{{ score_methodology.get('subtitle') or 'How the engine reads each home.' }}</span>
+        <span>{{ score_methodology.get('subtitle') or 'How each home is scored.' }}</span>
       </div>
       <div class="pqx-score-bands" aria-label="Score bands">
         {% for band in (score_methodology.get('score_bands') or [])[:4] %}
@@ -37,7 +37,6 @@
         {% endfor %}
       </div>
     </div>
-    <p>{{ score_methodology.get('summary') }}</p>
     <div class="pqx-score-bts-actions">
       <a class="pqx-link-button" href="/how-it-works/score?language={{ score_methodology.get('language_code') or 'en' }}&country={{ score_methodology.get('country_code') or brief.get('country_code') or 'AT' }}">
         Open score guide
@@ -46,11 +45,6 @@
     <div class="pqx-score-bts-grid">
       {% for step in (score_methodology.get('steps') or [])[:3] %}
       <div><strong>{{ step.get('title') }}</strong><span>{{ step.get('detail') }}</span></div>
-      {% endfor %}
-    </div>
-    <div class="pqx-score-examples">
-      {% for example in (score_methodology.get('examples') or [])[:4] %}
-      <span><b>{{ example.get('title') }}</b>{{ example.get('detail') }}</span>
       {% endfor %}
     </div>
   </section>
@@ -215,7 +209,7 @@
       </span>
       {% else %}
       <strong>No ranked homes are ready yet.</strong>
-      <span class="pqx-note">Open the filtered action and widen one hard rule. Optional preferences stay in score only.</span>
+      <span class="pqx-note">Relax one hard rule to rank more homes.</span>
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/search">Adjust search</a>
         {% if filtered_total or score_demoted_total %}
@@ -228,7 +222,7 @@
   </div>
   {% if filtered_total and not is_shortlist_surface %}
   <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
-    <summary><strong>What to widen</strong><span class="pqx-note">Hard rules only</span></summary>
+    <summary><strong>What to widen</strong><span class="pqx-note">Hard filters</span></summary>
     <div class="pqx-source-list" data-pqx-source-breakdown>
       {% for source in run_sources[:8] %}
       <article class="pqx-source-card">
