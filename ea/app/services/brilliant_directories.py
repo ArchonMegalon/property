@@ -434,11 +434,12 @@ def build_directory_profile_projection_from_configured_provider(
     raw_profile: dict[str, object],
     *,
     allowed_url_hosts: tuple[str, ...],
+    include_summary: bool = False,
 ) -> BrilliantDirectoriesDirectoryProfile:
     return build_directory_profile_projection(
         raw_profile,
         strict_private_keys=False,
-        include_summary=False,
+        include_summary=include_summary,
         allowed_url_hosts=allowed_url_hosts,
     )
 
@@ -622,6 +623,21 @@ def build_brilliant_directories_member_search_request(
     )
 
 
+def build_brilliant_directories_member_profile_request(
+    config: BrilliantDirectoriesConfig,
+    *,
+    profile_id: str,
+) -> BrilliantDirectoriesApiRequest:
+    normalized_profile_id = _string(profile_id, max_length=96)
+    if not normalized_profile_id or not all(char.isalnum() or char in {"-", "_", ".", ":"} for char in normalized_profile_id):
+        raise BrilliantDirectoriesApiError(400, "brilliant_directories_profile_id_invalid")
+    return build_brilliant_directories_api_request(
+        config,
+        "GET",
+        _brilliant_directories_api_v2_path(config, f"user/get/{normalized_profile_id}"),
+    )
+
+
 def fetch_brilliant_directories_member_projection_packet(
     config: BrilliantDirectoriesConfig,
     *,
@@ -656,6 +672,27 @@ def fetch_brilliant_directories_member_projection_packet(
     )
 
 
+def fetch_brilliant_directories_member_profile_projection_packet(
+    config: BrilliantDirectoriesConfig,
+    *,
+    profile_id: str,
+    purpose: str,
+    timeout_seconds: float = 30.0,
+    opener: object | None = None,
+) -> BrilliantDirectoriesProjectionPacket:
+    request = build_brilliant_directories_member_profile_request(config, profile_id=profile_id)
+    response_payload = execute_brilliant_directories_api_request(
+        request,
+        timeout_seconds=timeout_seconds,
+        opener=opener,
+    )
+    return build_brilliant_directories_projection_packet_from_profile_response(
+        response_payload,
+        purpose=purpose,
+        allowed_url_hosts=config.allowed_hosts,
+    )
+
+
 def build_brilliant_directories_projection_packet_from_search_response(
     response_payload: dict[str, object],
     *,
@@ -673,6 +710,27 @@ def build_brilliant_directories_projection_packet_from_search_response(
         if isinstance(row, dict)
     )
     return build_brilliant_directories_projection_packet(profiles, purpose=purpose)
+
+
+def build_brilliant_directories_projection_packet_from_profile_response(
+    response_payload: dict[str, object],
+    *,
+    purpose: str,
+    allowed_url_hosts: tuple[str, ...] = (),
+) -> BrilliantDirectoriesProjectionPacket:
+    row = response_payload.get("message")
+    if row is None:
+        row = response_payload.get("data")
+    if isinstance(row, list):
+        row = row[0] if row and isinstance(row[0], dict) else None
+    if not isinstance(row, dict):
+        raise BrilliantDirectoriesApiError(502, "brilliant_directories_profile_response_row_missing")
+    profile = build_directory_profile_projection_from_configured_provider(
+        row,
+        allowed_url_hosts=allowed_url_hosts,
+        include_summary=True,
+    )
+    return build_brilliant_directories_projection_packet((profile,), purpose=purpose, projection_mode="public_directory_profile_detail")
 
 
 def build_brilliant_directories_verification_receipt() -> dict[str, object]:
@@ -701,6 +759,7 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
             "redirects_blocked": True,
             "form_encoded_request_contract": True,
             "public_member_search_projection_contract": True,
+            "public_member_profile_projection_contract": True,
             "public_profile_projection_contract": True,
             "public_profile_url_host_allowlist": True,
             "private_property_truth_blocked": True,

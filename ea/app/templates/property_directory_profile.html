@@ -41,18 +41,56 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+  .pq-directory-profile-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .pq-directory-profile-tags span {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--text-soft);
+    padding: 3px 8px;
+    font-size: 13px;
+  }
   html[data-pq-theme="dark"] .pq-directory-profile-panel {
     background: var(--panel);
     border-color: var(--line);
     color: var(--text);
+  }
+  html[data-pq-theme="dark"] .pq-directory-profile-tags span {
+    background: var(--panel);
+    border-color: var(--line);
+    color: var(--text-soft);
   }
 </style>
 
 <main class="pq-directory-profile">
   <section class="pq-directory-profile-panel">
     <p class="pq-directory-profile-kicker">Directory profile</p>
+    {% if directory_profile %}
+    <h1>{{ directory_profile.display_name }}</h1>
+    <p>
+      {% if directory_profile.category %}{{ directory_profile.category }}{% else %}Public directory profile{% endif %}
+      {% if directory_profile.city %} · {{ directory_profile.city }}{% endif %}
+      {% if directory_profile.region and directory_profile.region != directory_profile.city %} · {{ directory_profile.region }}{% endif %}
+      {% if directory_profile.country_code %} · {{ directory_profile.country_code }}{% endif %}
+    </p>
+    {% if directory_profile.summary %}
+    <p>{{ directory_profile.summary }}</p>
+    {% endif %}
+    {% if directory_profile.tags %}
+    <div class="pq-directory-profile-tags" aria-label="Profile tags">
+      {% for tag in directory_profile.tags %}
+      <span>{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% else %}
     <h1>Profile details stay on PropertyQuarry.</h1>
-    <p>Verified public profile details will appear here after directory onboarding is open. Until then, PropertyQuarry keeps directory navigation on this domain instead of sending users to another branded site.</p>
+    <p>{% if directory_profile_status == 'unavailable' %}This profile is temporarily unavailable. Directory navigation still stays on PropertyQuarry while public details are refreshed.{% else %}Verified public profile details will appear here after directory onboarding is open. Until then, PropertyQuarry keeps directory navigation on this domain instead of sending users to another branded site.{% endif %}</p>
+    {% endif %}
     <div class="pq-directory-profile-actions">
       <a class="btn primary" href="/directory">Back to directory</a>
       <a class="btn ghost" href="/support">Contact support</a>

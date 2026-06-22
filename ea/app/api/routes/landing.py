@@ -169,6 +169,14 @@ def _brilliant_directories_public_profile_rows(profiles: list[object]) -> list[d
     return [row for row in rows if row.get("profile_id") and row.get("display_name")]
 
 
+def _brilliant_directories_public_profile_row(profiles: list[object], *, profile_id: str) -> dict[str, object]:
+    normalized_profile_id = str(profile_id or "").strip()
+    for row in _brilliant_directories_public_profile_rows(profiles):
+        if str(row.get("profile_id") or "").strip() == normalized_profile_id:
+            return row
+    return {}
+
+
 def _normalize_public_directory_profile_id(profile_id: str) -> str:
     normalized = str(profile_id or "").strip()
     if not normalized or len(normalized) > 96 or not re.fullmatch(r"[A-Za-z0-9._:-]+", normalized):
@@ -2010,6 +2018,26 @@ def property_directory_profile_page(
 ) -> HTMLResponse:
     normalized_profile_id = _normalize_public_directory_profile_id(profile_id)
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    directory_profile_status = "disabled"
+    directory_profile_error = ""
+    directory_profile: dict[str, object] = {}
+    try:
+        config = brilliant_directories_service.load_brilliant_directories_config()
+        if config.configured:
+            packet = brilliant_directories_service.fetch_brilliant_directories_member_profile_projection_packet(
+                config,
+                profile_id=normalized_profile_id,
+                purpose="PropertyQuarry public directory profile",
+            )
+            packet_payload = packet.as_dict()
+            directory_profile = _brilliant_directories_public_profile_row(
+                list(packet_payload.get("profiles") or []),
+                profile_id=normalized_profile_id,
+            )
+            directory_profile_status = "ready" if directory_profile else "unavailable"
+    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
+        directory_profile_status = "unavailable"
+        directory_profile_error = str(exc)
     return _render_public_template(
         request,
         "property_directory_profile.html",
@@ -2022,6 +2050,9 @@ def property_directory_profile_page(
             access_identity=access_identity,
             extra={
                 "directory_profile_id": normalized_profile_id,
+                "directory_profile": directory_profile,
+                "directory_profile_status": directory_profile_status,
+                "directory_profile_error": directory_profile_error,
                 "meta_description": "PropertyQuarry directory profile details stay on PropertyQuarry with only reviewed public information shown.",
                 "canonical_path": f"/directory/profile/{urllib.parse.quote(normalized_profile_id, safe='')}",
             },

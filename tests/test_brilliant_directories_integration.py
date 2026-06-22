@@ -11,12 +11,15 @@ import pytest
 from app.services.brilliant_directories import (
     BrilliantDirectoriesApiError,
     build_brilliant_directories_api_request,
+    build_brilliant_directories_member_profile_request,
     build_brilliant_directories_member_search_request,
+    build_brilliant_directories_projection_packet_from_profile_response,
     build_brilliant_directories_projection_packet_from_search_response,
     build_brilliant_directories_projection_packet,
     build_brilliant_directories_verification_receipt,
     build_directory_profile_projection,
     execute_brilliant_directories_api_request,
+    fetch_brilliant_directories_member_profile_projection_packet,
     fetch_brilliant_directories_member_projection_packet,
     load_brilliant_directories_config,
 )
@@ -195,6 +198,56 @@ def test_brilliant_directories_member_search_request_does_not_duplicate_api_v2(
 
     assert request.url == "https://directory.example/api/v2/user/search"
     assert "/api/v2/api/v2/" not in request.url
+
+
+def test_brilliant_directories_member_profile_request_uses_official_get_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+
+    request = build_brilliant_directories_member_profile_request(
+        load_brilliant_directories_config(),
+        profile_id="24",
+    )
+
+    assert request.method == "GET"
+    assert request.url == "https://directory.example/api/v2/user/get/24"
+    assert request.body is None
+
+    with pytest.raises(BrilliantDirectoriesApiError) as invalid_profile:
+        build_brilliant_directories_member_profile_request(load_brilliant_directories_config(), profile_id="../24")
+    assert str(invalid_profile.value) == "brilliant_directories_profile_id_invalid"
+
+
+def test_brilliant_directories_member_profile_fetch_projects_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    opener = _FakeBrilliantDirectoriesOpener(
+        _FakeBrilliantDirectoriesResponse(
+            b'{"message":{"user_id":"24","company":"Vienna Relocation Advisors","profession":"Relocation"}}'
+        )
+    )
+
+    packet = fetch_brilliant_directories_member_profile_projection_packet(
+        load_brilliant_directories_config(),
+        profile_id="24",
+        purpose="Public profile detail",
+        opener=opener,
+    )
+
+    assert opener.requests[0].get_full_url() == "https://directory.example/api/v2/user/get/24"
+    assert packet.as_dict()["profiles"][0]["display_name"] == "Vienna Relocation Advisors"
 
 
 def test_brilliant_directories_executor_reads_json_without_leaking_secret(
@@ -406,6 +459,45 @@ def test_brilliant_directories_search_response_strips_unsafe_relative_profile_ur
     assert "public_url" not in profiles[1]
 
 
+def test_brilliant_directories_profile_response_projects_public_detail_only() -> None:
+    packet = build_brilliant_directories_projection_packet_from_profile_response(
+        {
+            "status": "success",
+            "message": {
+                "user_id": "24",
+                "company": "Vienna Relocation Advisors",
+                "profession": "Relocation",
+                "description": "Helps international renters prepare a Vienna search.",
+                "specialties": "relocation,renters",
+                "email": "private@example.test",
+                "phone_number": "+43 1 555",
+                "address1": "Secret Street 1",
+                "lat": "48.2",
+                "lon": "16.3",
+                "filename": "austria/vienna/vienna-relocation-advisors",
+                "city": "Vienna",
+                "state_ln": "Vienna",
+                "country_code": "AT",
+            },
+        },
+        purpose="Public profile detail",
+        allowed_url_hosts=("directory.example",),
+    )
+
+    payload = packet.as_dict()
+    serialized = json.dumps(payload, sort_keys=True)
+    profile = payload["profiles"][0]
+    assert payload["projection_mode"] == "public_directory_profile_detail"
+    assert profile["profile_id"] == "24"
+    assert profile["display_name"] == "Vienna Relocation Advisors"
+    assert profile["summary"] == "Helps international renters prepare a Vienna search."
+    assert "relocation" in profile["tags"]
+    assert "private@example.test" not in serialized
+    assert "+43 1 555" not in serialized
+    assert "Secret Street" not in serialized
+    assert "48.2" not in serialized
+
+
 def test_brilliant_directories_live_style_search_projection_uses_public_fields_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -577,7 +669,25 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
 
     def fake_execute(request: object, *, timeout_seconds: float = 30.0, opener: object | None = None) -> dict[str, object]:
         del timeout_seconds, opener
-        assert getattr(request, "url", "") == "https://directory.example/api/v2/user/search"
+        request_url = str(getattr(request, "url", "") or "")
+        if request_url == "https://directory.example/api/v2/user/get/24":
+            return {
+                "message": {
+                    "user_id": "24",
+                    "company": "Vienna Relocation Advisors",
+                    "profession": "Relocation",
+                    "description": "Helps international renters prepare a Vienna search.",
+                    "specialties": "relocation,renters",
+                    "email": "private@example.test",
+                    "phone_number": "+43 1 555",
+                    "address1": "Secret Street 1",
+                    "filename": "austria/vienna/vienna-relocation-advisors",
+                    "city": "Vienna",
+                    "state_ln": "Vienna",
+                    "country_code": "AT",
+                }
+            }
+        assert request_url == "https://directory.example/api/v2/user/search"
         return {
             "message": [
                 {
@@ -615,7 +725,13 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
 
     profile_response = client.get("/directory/profile/24", headers={"host": "propertyquarry.com"})
     assert profile_response.status_code == 200
-    assert "Profile details stay on PropertyQuarry." in profile_response.text
+    assert "Vienna Relocation Advisors" in profile_response.text
+    assert "Helps international renters prepare a Vienna search." in profile_response.text
+    assert "Relocation" in profile_response.text
+    assert "private@example.test" not in profile_response.text
+    assert "+43 1 555" not in profile_response.text
+    assert "Secret Street" not in profile_response.text
+    assert "directory.example" not in profile_response.text
     assert "Brilliant Directories" not in profile_response.text
 
 
