@@ -956,6 +956,20 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         ".pqx-worker-lane",
         ".pqx-source-progress",
         ".pqx-empty",
+        ".pq-pack-shell",
+        ".pq-pack-topbar",
+        ".pq-pack-button",
+        ".pq-pack-panel",
+        ".pq-pack-stat",
+        ".pq-pack-summary-card",
+        ".pq-pack-card",
+        ".pq-pack-decision-card",
+        ".pq-pack-input",
+        ".pq-pack-check",
+        ".pq-pack-pill",
+        ".pq-pack-feedback",
+        ".pq-pack-review-actions textarea",
+        ".pq-pack-empty",
     ]
 
     public_context = _new_public_context(browser, mobile=False, width=1366, height=960)
@@ -1004,6 +1018,15 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
             ("/app/alerts", "propertyquarry-alerts-dark-surfaces.png"),
             ("/app/agents", "propertyquarry-agents-dark-surfaces.png"),
             ("/app/shortlist?run_id=run-42", "propertyquarry-shortlist-management-dark-surfaces.png"),
+            ("/app/settings/plan", "propertyquarry-settings-plan-dark-surfaces.png"),
+            ("/app/settings/usage", "propertyquarry-settings-usage-dark-surfaces.png"),
+            ("/app/settings/support", "propertyquarry-settings-support-dark-surfaces.png"),
+            ("/app/settings/trust", "propertyquarry-settings-trust-dark-surfaces.png"),
+            ("/app/settings/google", "propertyquarry-settings-google-dark-surfaces.png"),
+            ("/app/settings/access", "propertyquarry-settings-access-dark-surfaces.png"),
+            ("/app/settings/invitations", "propertyquarry-settings-invitations-dark-surfaces.png"),
+            ("/app/settings/outcomes", "propertyquarry-settings-outcomes-dark-surfaces.png"),
+            ("/app/properties/packets", "propertyquarry-packets-dark-surfaces.png"),
         ):
             response = page.goto(f"{base_url}{route}", wait_until="networkidle")
             assert response is not None and response.ok
