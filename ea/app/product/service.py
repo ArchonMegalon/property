@@ -2188,7 +2188,7 @@ def _safe_provider_live_360_url(value: object) -> str:
 
 def _property_tour_status_is_pending(value: object) -> bool:
     normalized = str(value or "").strip().lower()
-    return normalized in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}
+    return normalized in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
 
 
 def _property_tour_status_is_terminal(value: object) -> bool:
@@ -29782,13 +29782,14 @@ class ProductService:
         source_ref: str,
         run_id: str,
         candidate_ref: str,
-    ) -> None:
+        wait_seconds: float = 0.0,
+    ) -> bool:
         normalized_principal = str(principal_id or "").strip()
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
         if not normalized_principal or not normalized_property_url:
-            return
+            return False
         try:
             existing_followup = self._existing_property_tour_followup(
                 principal_id=normalized_principal,
@@ -29816,15 +29817,29 @@ class ProductService:
                     allow_floorplan_only=True,
                 )
             except Exception:
-                return
-        try:
-            self.process_property_tour_followup_tasks(
-                principal_id=normalized_principal,
-                actor="property_visual_status_repair",
-                limit=2,
-            )
-        except Exception:
-            pass
+                return False
+        completed = threading.Event()
+
+        def _run_followup_repair() -> None:
+            try:
+                self.process_property_tour_followup_tasks(
+                    principal_id=normalized_principal,
+                    actor="property_visual_status_repair",
+                    limit=2,
+                )
+            except Exception:
+                pass
+            finally:
+                completed.set()
+
+        threading.Thread(
+            target=_run_followup_repair,
+            name=f"property-visual-repair:{normalized_request_kind}",
+            daemon=True,
+        ).start()
+        if wait_seconds > 0:
+            completed.wait(timeout=max(float(wait_seconds), 0.0))
+        return completed.is_set()
 
     def _ensure_property_tour_followup_operator(self, *, principal_id: str) -> str:
         operator_id = "property-visual-codex"
@@ -30541,6 +30556,7 @@ class ProductService:
             if normalized_kind == "flythrough"
             else blocked_reason
         )
+        repair_queued = False
         if (
             not _repair_attempted
             and not ready_url
@@ -30550,7 +30566,7 @@ class ProductService:
                 status_updated_at=request_status_updated_at,
             )
         ):
-            self._repair_stalled_property_visual_request(
+            repaired_now = self._repair_stalled_property_visual_request(
                 principal_id=normalized_principal,
                 property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
                 title=title,
@@ -30558,16 +30574,19 @@ class ProductService:
                 source_ref=source_ref_value,
                 run_id=normalized_run_id,
                 candidate_ref=normalized_candidate_ref,
+                wait_seconds=0.2,
             )
-            return self.get_property_visual_request_status(
-                principal_id=normalized_principal,
-                run_id=normalized_run_id,
-                request_kind=normalized_kind,
-                candidate_ref=normalized_candidate_ref,
-                source_ref=normalized_source_ref,
-                property_url=normalized_property_url,
-                _repair_attempted=True,
-            )
+            if repaired_now:
+                return self.get_property_visual_request_status(
+                    principal_id=normalized_principal,
+                    run_id=normalized_run_id,
+                    request_kind=normalized_kind,
+                    candidate_ref=normalized_candidate_ref,
+                    source_ref=normalized_source_ref,
+                    property_url=normalized_property_url,
+                    _repair_attempted=True,
+                )
+            repair_queued = True
         if ready_url:
             status_value = "ready"
             status_label = "Open walkthrough" if normalized_kind == "flythrough" else "Open 3D tour"
@@ -30617,6 +30636,25 @@ class ProductService:
                 status_detail = "Still queued. Taking longer than usual."
             elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
                 status_detail = "Still rendering. Taking longer than usual."
+        if repair_queued and not ready_url:
+            if status_value in {"queued", "pending"}:
+                status_value = "repairing"
+                status_label = "Walkthrough repair queued" if normalized_kind == "flythrough" else "3D tour repair queued"
+                status_detail = (
+                    "The request stalled, so PropertyQuarry started a repair run."
+                    if normalized_kind == "flythrough"
+                    else "The request stalled, so PropertyQuarry started a repair run."
+                )
+            elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
+                status_value = "repairing"
+                status_label = "Walkthrough repair running" if normalized_kind == "flythrough" else "3D tour repair running"
+                status_detail = (
+                    "The request stalled, so PropertyQuarry restarted the background render."
+                    if normalized_kind == "flythrough"
+                    else "The request stalled, so PropertyQuarry restarted the background render."
+                )
+            eta_label = "refreshing"
+            progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
 
         return {
             "generated_at": _now_iso(),
@@ -30631,8 +30669,8 @@ class ProductService:
             "candidate_ref": normalized_candidate_ref,
             "tour_url": tour_url,
             "flythrough_url": flythrough_url,
-            "tour_status": tour_status,
-            "flythrough_status": flythrough_status,
+            "tour_status": status_value if normalized_kind == "tour" else tour_status,
+            "flythrough_status": status_value if normalized_kind == "flythrough" else flythrough_status,
             "blocked_reason": blocked_reason,
             "status_label": status_label,
             "status_detail": status_detail,

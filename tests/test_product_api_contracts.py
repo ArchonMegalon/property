@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import urllib.parse
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -13308,6 +13309,72 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
     assert response["poll_after_seconds"] == 0
 
 
+def test_property_visual_status_queues_background_repair_when_stale_repair_is_slow(monkeypatch) -> None:
+    principal_id = "property-visual-status-stale-background"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    candidate: dict[str, object] = {
+        "title": "Slow stale visual candidate",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/stale-visual-slow-42",
+        "source_ref": "willhaben:stale-visual-slow-42",
+        "flythrough_status": "rendering",
+        "flythrough_requested_at": "2026-06-22T10:00:00+00:00",
+        "flythrough_status_updated_at": "2026-06-22T10:00:00+00:00",
+        "flythrough_eta_minutes": "10",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-status-stale-background"
+        return {
+            "run_id": run_id,
+            "updated_at": "2026-06-22T10:00:00+00:00",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "top_candidates": [dict(candidate)],
+                    }
+                ]
+            },
+        }
+
+    repaired: dict[str, object] = {}
+
+    def _fake_process(self, *, principal_id: str, actor: str, limit: int = 10):  # type: ignore[no-untyped-def]
+        repaired.update({"principal_id": principal_id, "actor": actor, "limit": limit})
+        time.sleep(0.35)
+        candidate["flythrough_status"] = "created"
+        candidate["flythrough_url"] = "https://propertyquarry.com/tours/stale-visual-slow-42?pane=flythrough-pane&autoplay=1"
+        candidate["flythrough_status_updated_at"] = "2026-06-22T10:09:00+00:00"
+        return {"attempted_total": 1, "resolved_total": 1}
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+    monkeypatch.setattr(ProductService, "process_property_tour_followup_tasks", _fake_process)
+    monkeypatch.setattr(ProductService, "_existing_property_tour_followup", lambda self, **kwargs: object())
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="flythrough",
+        source_ref="willhaben:stale-visual-slow-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/stale-visual-slow-42",
+    )
+
+    assert repaired == {
+        "principal_id": principal_id,
+        "actor": "property_visual_status_repair",
+        "limit": 2,
+    }
+    assert response["status"] == "repairing"
+    assert response["flythrough_status"] == "repairing"
+    assert response["status_label"] == "Walkthrough repair running"
+    assert response["poll_after_seconds"] == 10
+    assert response["progress_pct"] >= 72
+
+
 def test_property_tour_followup_processing_preserves_original_requested_timestamp(monkeypatch) -> None:
     principal_id = "property-visual-followup-preserve-start"
     client = build_product_client(principal_id=principal_id)
@@ -13455,9 +13522,14 @@ def test_property_visual_status_keeps_polling_while_rendering(monkeypatch) -> No
                     }
                 ]
             },
-        }
+    }
 
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+    monkeypatch.setattr(
+        product_service,
+        "_utcnow",
+        lambda: datetime(2026, 6, 22, 10, 5, tzinfo=timezone.utc),
+    )
 
     response = service.get_property_visual_request_status(
         principal_id=principal_id,

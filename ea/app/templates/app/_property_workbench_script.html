@@ -679,7 +679,7 @@
           }
           const requestedReadyUrl = requestKind === 'flythrough' ? nextFlythroughUrl : nextTourUrl;
           const requestedStatus = requestKind === 'flythrough' ? nextFlythroughStatus : nextTourStatus;
-          const requestIsWaiting = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(requestedStatus);
+          const requestIsWaiting = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(requestedStatus);
           button.setAttribute('data-pw-visual-state', requestedReadyUrl ? 'ready' : requestedStatus);
           if (requestedReadyUrl) {
             button.setAttribute('data-pw-visual-ready-url', requestedReadyUrl);
@@ -1658,7 +1658,7 @@
             ? 'Open walkthrough'
             : (flythrough.label || (['queued', 'pending'].includes(flythroughStatus)
               ? 'Walkthrough queued'
-              : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(flythroughStatus)
+              : (['processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(flythroughStatus)
                 ? 'Walkthrough processing'
                 : '')))
         ).trim();

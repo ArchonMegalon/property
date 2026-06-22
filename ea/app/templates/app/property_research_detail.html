@@ -1893,7 +1893,7 @@
   const visualRailEtaNode = document.querySelector('[data-prd-visual-eta]');
   const visualRailProgressNode = document.querySelector('[data-prd-visual-progress]');
   const visualRequestButtons = Array.from(document.querySelectorAll('[data-pw-visual-request]'));
-  const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'];
+  const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
   let visualPollTimer = 0;
   document.querySelectorAll('img[data-prd-hero-image]').forEach((image) => {
     const frame = image.closest('[data-object-media-stage]');
@@ -1976,7 +1976,7 @@
   const visualStateFromPayload = (requestKind, payload, fallbackLabel = '') => {
     const kind = String(requestKind || 'tour').trim().toLowerCase();
     if (kind === 'flythrough') {
-      const state = String(payload?.flythrough_url ? 'ready' : payload?.flythrough_status || payload?.status || 'pending').trim().toLowerCase();
+      const state = String(payload?.flythrough_url ? 'ready' : payload?.status || payload?.flythrough_status || 'pending').trim().toLowerCase();
       return {
         state,
         label: String(payload?.flythrough_url ? 'Open walkthrough' : payload?.status_label || fallbackLabel || 'Walkthrough queued').trim(),
@@ -1987,7 +1987,7 @@
         pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
       };
     }
-    const state = String(payload?.tour_url ? 'ready' : payload?.tour_status || payload?.status || 'pending').trim().toLowerCase();
+    const state = String(payload?.tour_url ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
     return {
       state,
       label: String(payload?.tour_url ? 'Open 3D tour' : payload?.status_label || fallbackLabel || '3D tour queued').trim(),
