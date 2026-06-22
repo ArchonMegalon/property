@@ -179,6 +179,7 @@
     font-size: 0.9rem;
     line-height: 1.32;
   }
+  html[data-pq-theme="dark"] .pq-hero-copy,
   html[data-pq-theme="dark"] .pq-desk,
   html[data-pq-theme="dark"] .pq-board,
   html[data-pq-theme="dark"] .pq-loop span,
@@ -187,6 +188,13 @@
     background: var(--panel);
     border-color: var(--line);
     color: var(--text);
+  }
+  html[data-pq-theme="dark"] .pq-hero-copy {
+    background: transparent;
+  }
+  html[data-pq-theme="dark"] .pq-hero-copy .pq-lead,
+  html[data-pq-theme="dark"] .pq-hero-copy .pq-kicker {
+    color: var(--text-soft);
   }
   html[data-pq-theme="dark"] .pq-desk::before {
     background:
