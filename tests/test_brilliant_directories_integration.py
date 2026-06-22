@@ -804,6 +804,11 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
 
     profile_response = client.get("/directory/profile/24", headers={"host": "propertyquarry.com"})
     assert profile_response.status_code == 200
+    assert "<title>Vienna Relocation Advisors | PropertyQuarry Directory</title>" in profile_response.text
+    assert (
+        '<meta name="description" content="Helps international renters prepare a Vienna search.">'
+        in profile_response.text
+    )
     assert "Vienna Relocation Advisors" in profile_response.text
     assert "Helps international renters prepare a Vienna search." in profile_response.text
     assert "Relocation" in profile_response.text

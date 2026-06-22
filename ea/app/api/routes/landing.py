@@ -2037,13 +2037,34 @@ def property_directory_profile_page(
     except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
         directory_profile_status = "unavailable"
         directory_profile_error = str(exc)
+    profile_title = "PropertyQuarry Directory Profile"
+    profile_meta_description = (
+        "PropertyQuarry directory profile details stay on PropertyQuarry with only reviewed public information shown."
+    )
+    if directory_profile:
+        display_name = str(directory_profile.get("display_name") or "").strip()
+        category = str(directory_profile.get("category") or "").strip()
+        city = str(directory_profile.get("city") or "").strip()
+        country_code = str(directory_profile.get("country_code") or "").strip()
+        summary = str(directory_profile.get("summary") or "").strip()
+        if display_name:
+            profile_title = f"{display_name} | PropertyQuarry Directory"
+        if summary:
+            profile_meta_description = summary[:500]
+        else:
+            location_bits = [bit for bit in (city, country_code) if bit]
+            profile_meta_description = (
+                f"{display_name} is listed in the PropertyQuarry directory"
+                f"{' for ' + category if category else ''}"
+                f"{' in ' + ', '.join(location_bits) if location_bits else ''}."
+            )
     return _render_public_template(
         request,
         "property_directory_profile.html",
         **_public_context(
             request=request,
             current_nav="directory",
-            page_title="PropertyQuarry Directory Profile",
+            page_title=profile_title,
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -2052,7 +2073,7 @@ def property_directory_profile_page(
                 "directory_profile": directory_profile,
                 "directory_profile_status": directory_profile_status,
                 "directory_profile_error": directory_profile_error,
-                "meta_description": "PropertyQuarry directory profile details stay on PropertyQuarry with only reviewed public information shown.",
+                "meta_description": profile_meta_description,
                 "canonical_path": f"/directory/profile/{urllib.parse.quote(normalized_profile_id, safe='')}",
             },
         ),
