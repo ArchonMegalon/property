@@ -3,7 +3,7 @@
 <style>
   .access-grid {
     display: grid;
-    grid-template-columns: minmax(0, 560px);
+    grid-template-columns: minmax(0, 540px);
     justify-content: center;
   }
   .access-panel,
@@ -50,7 +50,7 @@
     display: grid;
     gap: 0;
     margin-top: 10px;
-    padding: 4px;
+    padding: 3px;
     border: 1px solid var(--line);
     border-radius: 10px;
     background: color-mix(in srgb, var(--panel-2) 78%, transparent);
@@ -59,9 +59,9 @@
     display: grid;
     grid-template-columns: 28px minmax(0, 1fr) max-content;
     align-items: center;
-    gap: 9px;
+    gap: 8px;
     min-width: 0;
-    padding: 6px 7px;
+    padding: 6px;
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
@@ -105,6 +105,15 @@
     padding: 0 12px;
     border-color: var(--line);
     background: color-mix(in srgb, var(--panel) 86%, var(--bg) 14%);
+  }
+  .access-panel .btn {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--panel) 88%, var(--bg) 12%);
+    color: var(--text);
+  }
+  .access-panel .btn.primary {
+    border-color: color-mix(in srgb, var(--accent) 44%, var(--line) 56%);
+    background: color-mix(in srgb, var(--accent-soft) 28%, var(--panel) 72%);
   }
   .auth-provider-status {
     min-height: 18px;
@@ -153,6 +162,13 @@
     background: var(--panel-3);
     border-color: var(--line);
     color: var(--text-soft);
+  }
+  html[data-pq-theme="dark"] .access-panel .btn {
+    background: color-mix(in srgb, var(--panel-2) 82%, var(--bg) 18%);
+    color: var(--text);
+  }
+  html[data-pq-theme="dark"] .access-panel .btn.primary {
+    background: color-mix(in srgb, var(--accent-soft) 22%, var(--panel) 78%);
   }
   .auth-provider-card.is-submitting .auth-provider-icon {
     animation: auth-provider-pulse 0.9s ease-in-out infinite alternate;
@@ -221,7 +237,7 @@
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
-          <p>{% if sign_in_google_enabled %}Connected identity{% else %}Unavailable{% endif %}</p>
+          <p>{% if sign_in_google_enabled %}Ready{% else %}Unavailable{% endif %}</p>
         </span>
         {% if sign_in_google_enabled %}
         <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
@@ -233,7 +249,7 @@
         <span class="auth-provider-icon" aria-hidden="true">f</span>
         <span>
           <strong>Facebook</strong>
-          <p>{% if sign_in_facebook_enabled %}Connected identity{% else %}Unavailable{% endif %}</p>
+          <p>{% if sign_in_facebook_enabled %}Ready{% else %}Unavailable{% endif %}</p>
         </span>
         {% if sign_in_facebook_enabled %}
         <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
@@ -248,11 +264,11 @@
           <strong>ID Austria</strong>
           <p>
             {% if sign_in_id_austria_enabled %}
-            Austrian identity
+            Ready
             {% elif not sign_in_id_austria_configured %}
             Unavailable
             {% else %}
-            Available in Austria
+            Austria only
             {% endif %}
           </p>
         </span>
@@ -273,6 +289,12 @@
         <a class="btn primary" href="/sign-in/current-session">Open current session</a>
         <button class="btn" type="button" data-focus-sign-in-email>Use email link</button>
       </div>
+    </div>
+    {% endif %}
+    {% if request.query_params.get("current_session") == "missing" %}
+    <div class="access-feedback">
+      <strong>No active PropertyQuarry session was found.</strong>
+      <p class="copy">Use the secure email link or a connected identity to sign in.</p>
     </div>
     {% endif %}
     {% if sign_in_google_error %}

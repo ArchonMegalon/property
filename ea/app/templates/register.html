@@ -18,7 +18,7 @@
   .register-note {
     border: 1px solid var(--line);
     border-radius: 16px;
-    background: rgba(255,255,255,0.03);
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
     box-shadow: var(--shadow);
   }
   .register-hero,
@@ -45,7 +45,7 @@
     color: var(--text-dim);
     font-size: 12px;
     text-align: center;
-    background: rgba(255,255,255,0.02);
+    background: color-mix(in srgb, var(--panel-2) 76%, transparent);
   }
   .register-pill.active,
   .register-pill.done {
@@ -90,7 +90,7 @@
     width: 100%;
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.04);
+    background: color-mix(in srgb, var(--panel-2) 84%, transparent);
     color: var(--text);
     padding: 11px 12px;
     font: inherit;
@@ -99,12 +99,7 @@
     border: 1px solid var(--line);
     border-radius: 14px;
     padding: 16px;
-    background: rgba(255, 253, 248, 0.78);
-  }
-  html[data-pq-theme="dark"] .register-choice {
-    background: var(--panel);
-    color: var(--text);
-    border-color: var(--line);
+    background: color-mix(in srgb, var(--panel-2) 82%, transparent);
   }
   .register-choice strong {
     display: block;
@@ -117,11 +112,11 @@
     padding: 12px 14px;
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.02);
+    background: color-mix(in srgb, var(--panel-2) 74%, transparent);
   }
   .register-milestone.done {
     border-color: rgba(39, 107, 83, 0.24);
-    background: rgba(39, 107, 83, 0.08);
+    background: color-mix(in srgb, rgba(39, 107, 83, 0.18) 55%, var(--panel) 45%);
   }
   .register-status,
   .register-error,
@@ -135,7 +130,7 @@
   .register-verify-note {
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.03);
+    background: color-mix(in srgb, var(--panel-2) 78%, transparent);
     padding: 12px 14px;
     color: var(--text-soft);
     font-size: 13px;
@@ -158,6 +153,21 @@
   }
   .register-hidden {
     display: none;
+  }
+  .register-wizard .btn {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--panel) 88%, var(--bg) 12%);
+    color: var(--text);
+  }
+  .register-wizard .btn.primary {
+    border-color: color-mix(in srgb, var(--accent) 44%, var(--line) 56%);
+    background: color-mix(in srgb, var(--accent-soft) 28%, var(--panel) 72%);
+  }
+  html[data-pq-theme="dark"] .register-wizard .btn {
+    background: color-mix(in srgb, var(--panel-2) 82%, var(--bg) 18%);
+  }
+  html[data-pq-theme="dark"] .register-wizard .btn.primary {
+    background: color-mix(in srgb, var(--accent-soft) 22%, var(--panel) 78%);
   }
   @media (max-width: 1080px) {
     .register-shell,
