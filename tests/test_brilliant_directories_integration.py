@@ -562,7 +562,10 @@ def test_brilliant_directories_runtime_route_reports_disabled_without_network(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["provider"] == "brilliant_directories"
+    serialized = json.dumps(payload, sort_keys=True)
+    assert payload["contract_name"] == "propertyquarry.directory_projection.v1"
+    assert "provider" not in payload
+    assert "brilliant_directories" not in serialized
     assert payload["status"] == "disabled"
     assert payload["profile_count"] == 0
     assert payload["profiles"] == []
@@ -640,10 +643,14 @@ def test_brilliant_directories_runtime_route_fetches_public_member_projection(
     payload = response.json()
     serialized = json.dumps(payload, sort_keys=True)
     assert payload["status"] == "ready"
-    assert payload["contract_name"] == "propertyquarry.brilliant_directories_projection.v1"
+    assert payload["contract_name"] == "propertyquarry.directory_projection.v1"
     assert payload["profile_count"] == 1
     assert payload["profiles"][0]["display_name"] == "Vienna Relocation Advisors"
-    assert payload["profiles"][0]["public_url"] == "austria/vienna/vienna-relocation-advisors"
+    assert "provider" not in payload
+    assert "brilliant_directories" not in serialized
+    assert "brilliant directories" not in serialized.lower()
+    assert "brilliantdirectories" not in serialized.lower()
+    assert "directory.example" not in serialized
     assert "private@example.test" not in serialized
     assert "+43 1 555" not in serialized
     assert "Secret Street" not in serialized
@@ -658,6 +665,9 @@ def test_brilliant_directories_runtime_route_fetches_public_member_projection(
     assert b"country_code=AT" in (sent.body or b"")
     assert b"limit=8" in (sent.body or b"")
     assert b"bd-secret-token" not in (sent.body or b"")
+
+    route_source = Path("ea/app/api/routes/product_api.py").read_text(encoding="utf-8")
+    assert '@router.get("/property/directories/brilliant-directories/members", include_in_schema=False)' in route_source
 
 
 def test_property_directory_members_route_returns_white_label_projection(

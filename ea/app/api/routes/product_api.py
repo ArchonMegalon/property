@@ -1668,7 +1668,7 @@ def get_property_map_preview_file(
     )
 
 
-@router.get("/property/directories/brilliant-directories/members")
+@router.get("/property/directories/brilliant-directories/members", include_in_schema=False)
 def get_property_brilliant_directories_members(
     keyword: str = Query(default="", max_length=140),
     category: str = Query(default="", max_length=96),
@@ -1685,7 +1685,7 @@ def get_property_brilliant_directories_members(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     if not config.configured:
         return {
-            "provider": brilliant_directories_service.BRILLIANT_DIRECTORIES_PROVIDER_KEY,
+            "contract_name": "propertyquarry.directory_projection.v1",
             "status": "disabled",
             "profile_count": 0,
             "profiles": [],
@@ -1706,8 +1706,15 @@ def get_property_brilliant_directories_members(
     except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     payload = packet.as_dict()
-    payload["status"] = "ready"
-    return payload
+    return {
+        "contract_name": "propertyquarry.directory_projection.v1",
+        "status": "ready",
+        "projection_mode": "public_directory_profile",
+        "profile_count": payload.get("profile_count", 0),
+        "profiles": payload.get("profiles", []),
+        "publication_allowed": payload.get("publication_allowed", False),
+        "direct_property_truth_mutation_allowed": payload.get("direct_property_truth_mutation_allowed", False),
+    }
 
 
 @router.get("/property/directories/members")
