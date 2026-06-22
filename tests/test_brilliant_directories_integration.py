@@ -555,6 +555,7 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert "Find the people around a property decision." in response.text
     assert "Directory connection pending" in response.text
     assert "Search directory" in response.text
+    assert "Brilliant Directories" not in response.text
     assert "brilliantdirectories.com" not in response.text.lower()
 
 

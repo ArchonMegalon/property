@@ -205,7 +205,7 @@
     <strong>{% if directory_status == 'disabled' %}Directory connection pending{% else %}No public profiles matched{% endif %}</strong>
     <p class="pq-directory-summary">
       {% if directory_status == 'disabled' %}
-      Configure the Brilliant Directories public site URL, allowed host, and API key to populate this white-label directory.
+      Add the public directory credentials to populate this PropertyQuarry-hosted directory.
       {% elif directory_error %}
       The provider returned {{ directory_error }}. Try a broader search or retry later.
       {% else %}

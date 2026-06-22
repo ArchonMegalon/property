@@ -1999,7 +1999,7 @@ def property_directory_page(
                 "directory_profiles": directory_profiles,
                 "directory_query": directory_query,
                 "directory_public_site_url": brilliant_directories_service.brilliant_directories_public_site_url(),
-                "meta_description": "PropertyQuarry directory for public partner, advisor, relocation, and local-service profiles connected through the governed Brilliant Directories lane.",
+                "meta_description": "PropertyQuarry directory for public partner, advisor, relocation, and local-service profiles connected through the governed directory lane.",
                 "canonical_path": "/directory",
             },
         ),
