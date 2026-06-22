@@ -3482,11 +3482,11 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
 def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 0.95fr) minmax(340px, 0.78fr);" in body
+    assert "grid-template-columns: minmax(0, 1.04fr) minmax(296px, 0.68fr);" in body
     assert "grid-template-columns: 1fr;" in body
-    assert "min-height: clamp(184px, 25vh, 244px);" in body
-    assert "max-height: min(calc(100vh - 410px), 272px);" in body
-    assert "min-height: clamp(198px, 27vh, 258px);" in body
+    assert "min-height: clamp(164px, 21vh, 208px);" in body
+    assert "max-height: min(calc(100vh - 430px), 220px);" in body
+    assert "min-height: clamp(176px, 23vh, 228px);" in body
     assert "grid-template-columns: 72px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert "prd-hero-gallery" in body
@@ -6557,10 +6557,12 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert ".pqx-workflow-step:hover," in body
 
 
-def test_property_shortlist_surface_is_single_column_and_results_first() -> None:
+def test_property_shortlist_surface_keeps_results_first_and_restores_desktop_review() -> None:
     body = _read_workbench_bundle()
 
     assert "pqx-result-panel active" in body
+    assert "pqx-desktop-review-panel" in body
+    assert '{% include "app/_property_selected_review_panel.html" %}' in body
     assert "pqx-results-filter-link" in body
     assert "Open property" in body
     assert "Open listing" in body

@@ -4609,14 +4609,18 @@
       text-underline-offset: 3px;
     }
     .pqx-results {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.82fr);
       gap: 14px;
+      align-items: start;
     }
     .pqx-results > .pqx-result-panel {
       order: -1;
     }
     .pqx-mobile-property-panel {
       display: none;
+    }
+    .pqx-desktop-review-panel {
+      display: grid;
     }
     .pqx-review {
       position: sticky;
@@ -5592,6 +5596,9 @@
       .pqx-review {
         position: static;
       }
+      .pqx-desktop-review-panel {
+        display: grid;
+      }
       .pqx-theater-frame {
         min-height: 330px;
       }
@@ -5800,6 +5807,9 @@
       .pqx-mobile-property-panel {
         display: grid;
         position: static;
+      }
+      .pqx-desktop-review-panel {
+        display: none;
       }
       .pqx-review.pqx-mobile-property-panel {
         display: grid;
@@ -7378,6 +7388,9 @@
       <section class="pqx-stage pqx-results">
         {% include "app/_property_results_list.html" %}
         {% if has_results %}
+        <section class="pqx-review pqx-desktop-review-panel" aria-label="Selected property">
+          {% include "app/_property_selected_review_panel.html" %}
+        </section>
         {% set selected_facts = selected.get('property_facts') or {} %}
         {% set selected_preview = selected.get('preview_image_url') or (selected.get('orientation_preview') or {}).get('image_url') or (selected.get('orientation_preview') or {}).get('thumb_image_url') or '' %}
         <section class="pqx-review pqx-mobile-property-panel" data-pqx-mobile-panel="property" aria-label="Selected property">

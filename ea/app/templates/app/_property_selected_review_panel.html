@@ -1,14 +1,10 @@
 <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
   {% set selected_orientation_preview = selected.get('orientation_preview') or {} %}
   {% set selected_preview_url = selected_orientation_preview.get('image_url') or selected.get('preview_image_url') or '' %}
-  <div class="pqx-theater{% if not selected.get('tour', {}).get('embed_url') %} no-media{% endif %}" data-pq-theater>
-    <div class="pqx-theater-frame" data-pw-tour{% if not selected.get('tour', {}).get('embed_url') %} hidden{% endif %}>
-      {% if selected.get('tour', {}).get('embed_url') %}
-      <iframe src="{{ selected.get('tour', {}).get('embed_url') }}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>
-      {% endif %}
-    </div>
+  <div class="pqx-theater no-media" data-pq-theater>
+    <div class="pqx-theater-frame is-unavailable" data-pw-tour hidden></div>
     <div class="pqx-dossier">
-      <div class="pqx-dossier-cover" data-pw-cover{% if selected.get('tour', {}).get('embed_url') or not selected_preview_url %} hidden{% endif %}>
+      <div class="pqx-dossier-cover" data-pw-cover{% if not selected_preview_url %} hidden{% endif %}>
         {% if selected_preview_url %}
         <img src="{{ selected_preview_url }}" alt="{{ selected.get('title') or 'Property preview' }}" loading="lazy" decoding="async" fetchpriority="low" data-pw-cover-image>
         {% endif %}
