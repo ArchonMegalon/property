@@ -106,8 +106,10 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
     assert payload["calculation_detail_title"] == "Wo jede Zahl herkommt"
     assert any(row["label"] == "Harte Regeln bestanden" and row["delta"] == "+8" for row in payload["calculation_detail_rows"])
     assert any("starker Wunsch etwa +12" in row["alternatives"] for row in payload["calculation_detail_rows"])
-    assert any("Wuenschenswert etwa -3" in row["alternatives"] for row in payload["calculation_detail_rows"])
+    assert any("Wünschenswert etwa -3" in row["alternatives"] for row in payload["calculation_detail_rows"])
     assert any(row["level"] == "Starker Wunsch" for row in payload["weight_ladder_rows"])
+    assert "persönliche Passung" in payload["subtitle"]
+    assert "präferenz" in payload["weight_ladder_title"].lower()
 
 
 def test_score_methodology_survives_redaction_and_renders_in_premium_html() -> None:
@@ -154,7 +156,7 @@ def test_score_methodology_survives_redaction_and_renders_in_premium_html() -> N
     assert "Wo jede Zahl herkommt" in html
     assert "Harte Regeln bestanden" in html
     assert "starker Wunsch etwa +12" in html
-    assert "Wie die Praeferenzstaerke ein Delta veraendert" in html
+    assert "Wie die Präferenzstärke ein Delta verändert" in html
     assert "Falscher Bezirk" in html
     assert "Echte 360-Tour vorhanden." in html
 

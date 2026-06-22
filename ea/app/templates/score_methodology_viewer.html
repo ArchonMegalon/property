@@ -1,88 +1,33 @@
 {% extends "base_public.html" %}
 {% block content %}
 <style>
+  body:has(.pqx-score-viewer-shell) .topbar,
+  body:has(.pqx-score-viewer-shell) footer {
+    display: none;
+  }
+  body:has(.pqx-score-viewer-shell) main {
+    padding: 0;
+  }
   .pqx-score-viewer-shell {
-    max-width: 1280px;
-    margin: 0 auto;
-    display: grid;
-    gap: 8px;
-  }
-  .pqx-score-viewer-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 2px 0 0;
-  }
-  .pqx-score-viewer-kicker {
-    color: var(--text-soft);
-    font-size: 0.68rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-  .pqx-score-viewer-title {
-    min-width: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-  .pqx-score-viewer-header h1 {
-    margin: 0;
-    font-size: clamp(1.08rem, 1.5vw, 1.34rem);
-    line-height: 1.08;
+    width: 100%;
     max-width: none;
-  }
-  .pqx-score-viewer-summary {
-    color: var(--text-soft);
-    font-size: 0.82rem;
-    white-space: nowrap;
+    margin: 0;
+    display: grid;
   }
   .pqx-score-viewer-frame {
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    overflow: hidden;
-    background: var(--panel);
-    min-height: calc(100vh - 154px);
+    width: 100%;
+    min-height: 100vh;
   }
   .pqx-score-viewer-frame iframe {
     width: 100%;
-    min-height: calc(100vh - 154px);
+    min-height: 100vh;
     border: 0;
     display: block;
     background: var(--panel);
   }
-  @media (max-width: 980px) {
-    .pqx-score-viewer-header {
-      display: grid;
-      align-items: start;
-      justify-content: stretch;
-      gap: 6px;
-    }
-    .pqx-score-viewer-title {
-      display: grid;
-      gap: 4px;
-    }
-    .pqx-score-viewer-summary {
-      white-space: normal;
-    }
-    .pqx-score-viewer-frame,
-    .pqx-score-viewer-frame iframe {
-      min-height: calc(100vh - 180px);
-    }
-  }
 </style>
 
 <main class="pqx-score-viewer-shell">
-  <section class="pqx-score-viewer-header">
-    <div class="pqx-score-viewer-title">
-      <span class="pqx-score-viewer-kicker">Behind the score</span>
-      <h1>{{ score_methodology.get('pdf_title') or 'How the score works' }}</h1>
-    </div>
-    <div class="pqx-score-viewer-summary" aria-label="Score methodology summary">
-      {{ score_methodology.get('language_label') or 'English' }} · {{ score_methodology.get('country_code') or 'AT' }} · {{ score_methodology.get('candidate_application', {}).get('fit_score') or 62 }}/100
-    </div>
-  </section>
-
   <section class="pqx-score-viewer-frame" aria-label="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}">
     <iframe src="{{ pdf_url }}" title="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}" loading="eager"></iframe>
   </section>

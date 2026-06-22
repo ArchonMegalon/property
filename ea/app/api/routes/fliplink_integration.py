@@ -79,7 +79,7 @@ def _score_methodology_pdf_response(
     )
     resolved_language = str(methodology.get("language_code") or "en").strip().lower() or "en"
     artifact_root = Path(str(container.settings.storage.artifacts_dir)).resolve()
-    rendered = render_property_packet_pdf(
+    rendered = render_property_packet_pdf_legacy(
         artifact_root=artifact_root,
         publication_id=f"score-methodology-{resolved_language}",
         principal_id="propertyquarry-score-methodology",
@@ -101,7 +101,7 @@ def _score_methodology_pdf_response(
             "Cache-Control": "private, max-age=3600",
             "Content-Disposition": f'inline; filename="propertyquarry-score-methodology-{resolved_language}.pdf"',
             "X-Content-Type-Options": "nosniff",
-            "X-PropertyQuarry-Renderer": "fliplink",
+            "X-PropertyQuarry-Renderer": "fliplink-legacy-score",
         },
     )
 
