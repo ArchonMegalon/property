@@ -20,21 +20,21 @@
     width: min(1140px, calc(100vw - 24px));
     margin: 0 auto;
     padding-bottom: 8px;
-    gap: 6px;
+    gap: 4px;
   }
   .prd-hero {
     grid-template-columns: minmax(0, 1.08fr) minmax(272px, 0.62fr);
     align-items: start;
-    gap: 6px;
+    gap: 4px;
   }
   .prd-media-stack {
     align-content: start;
-    gap: 6px;
+    gap: 4px;
   }
   .prd-body {
     grid-template-columns: minmax(0, 1fr) minmax(228px, 272px);
     align-items: start;
-    gap: 6px;
+    gap: 4px;
   }
   .prd-headline {
     grid-template-columns: 1fr;
@@ -46,8 +46,8 @@
     align-content: start;
   }
   .prd-summary-stack {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
   .prd-summary-stack > :first-child {
     grid-column: 1 / -1;
@@ -61,7 +61,7 @@
     border-radius: 8px;
     background: var(--panel);
     box-shadow: none;
-    padding: 6px;
+    padding: 5px;
     box-sizing: border-box;
     min-width: 0;
   }
@@ -560,8 +560,8 @@
   }
   .prd-summary-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 5px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
   }
   .prd-hero-gallery {
     align-self: start;
@@ -576,21 +576,21 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel-2);
-    padding: 7px;
+    padding: 6px;
   }
   .prd-summary-box span {
     display: block;
     color: var(--text-dim);
-    font-size: 10px;
-    margin-bottom: 5px;
+    font-size: 9px;
+    margin-bottom: 4px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
   .prd-summary-box strong {
     display: block;
     color: var(--text);
-    font-size: 0.9rem;
-    line-height: 1.18;
+    font-size: 0.84rem;
+    line-height: 1.14;
   }
   .prd-summary-box p {
     margin: 5px 0 0;
@@ -599,7 +599,7 @@
   }
   .prd-key-points {
     display: grid;
-    gap: 6px;
+    gap: 5px;
   }
   .prd-key-point {
     border-left: 3px solid rgba(189, 139, 47, 0.55);
@@ -828,6 +828,7 @@
   .prd-side-stack {
     position: sticky;
     top: 16px;
+    gap: 6px;
   }
   .prd-minor-stack {
     display: grid;
@@ -1000,7 +1001,7 @@
   @media (max-width: 760px) {
     .prd-shell {
       width: calc(100vw - 14px);
-      gap: 8px;
+      gap: 6px;
     }
     .prd-hero,
     .prd-summary-stack,
@@ -1662,7 +1663,7 @@
         <div class="prd-kicker">Next move</div>
         <h2>What to do next</h2>
         <div class="prd-key-points">
-          {% for row in research_decision_rows[:4] %}
+          {% for row in research_decision_rows[:3] %}
           <div class="prd-key-point">
             <strong>{{ row.get('title') }}</strong>
             <span>{{ row.get('detail') }}</span>
@@ -1688,14 +1689,14 @@
       <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
       <div class="prd-kicker">Record the outcome</div>
       <h2>Save your decision</h2>
-      <p class="object-copy">Pick the answer that matches your real-world next step so later shortlists and follow-ups stay aligned.</p>
+      <p class="object-copy">Pick the real next step so later shortlists stay aligned.</p>
       <div class="object-feedback-row" aria-label="Property feedback reaction">
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">No</button>
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
       </div>
-      <p class="object-copy"><strong>Decision state</strong> Move the property forward when the next action matters more than another shortlist vote.</p>
+      <p class="object-copy"><strong>Decision state</strong> Use this when the next action matters more than another shortlist vote.</p>
       <div class="object-actions">
         <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
         <button class="console-action" type="button" data-object-decision-state="documents_requested">Request missing documents</button>
@@ -1712,24 +1713,30 @@
         <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}" aria-label="{{ row.get('label') or 'Feedback reason' }}">{{ row.get('label') }}</button>
         {% endfor %}
       </div>
+      {% set research_agent_questions = (research_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
+      {% if research_agent_questions %}
       <div class="object-copy"><strong>Next question to send</strong></div>
       <div class="object-list">
-        {% for row in (research_feedback.get('suggestions') or {}).get('agent_questions') or [] %}
+        {% for row in research_agent_questions[:2] %}
         <div class="object-row">
           <div><strong>Question {{ loop.index }}</strong><small>{{ row.get('question') }}</small></div>
           <div class="object-tag">{{ row.get('status') or 'suggested' }}</div>
         </div>
         {% endfor %}
       </div>
+      {% endif %}
+      {% set research_followup_rows = research_feedback.get('followup_rows') or [] %}
+      {% if research_followup_rows %}
       <div class="object-copy"><strong>Tracked follow-up</strong></div>
       <div class="object-list" data-object-followups>
-        {% for row in research_feedback.get('followup_rows') or [] %}
+        {% for row in research_followup_rows[:3] %}
         <div class="object-row">
           <div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div>
           <div class="object-tag">{{ row.get('tag') }}</div>
         </div>
         {% endfor %}
       </div>
+      {% endif %}
       <p class="object-copy" data-object-followup-status></p>
       <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
       <div class="object-actions">
@@ -1737,7 +1744,7 @@
         <a class="console-action" href="{{ research_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
       </div>
       <p class="object-copy" data-object-feedback-status></p>
-      <details class="prd-collapse" style="margin-top:12px;">
+      <details class="prd-collapse" style="margin-top:8px;">
         <summary>
           <span>
             <span class="prd-kicker">Extra tools</span>
