@@ -1985,6 +1985,11 @@ def property_directory_page(
     except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
         directory_status = "unavailable"
         directory_error = str(exc)
+    directory_robots_directive = (
+        "index, follow, max-image-preview:large"
+        if directory_status == "ready" and directory_profiles
+        else "noindex, follow, noarchive, nosnippet"
+    )
 
     return _render_public_template(
         request,
@@ -2002,6 +2007,7 @@ def property_directory_page(
                 "directory_profiles": directory_profiles,
                 "directory_query": directory_query,
                 "meta_description": "PropertyQuarry directory for public partner, advisor, relocation, and local-service profiles connected through the governed directory lane.",
+                "robots_directive": directory_robots_directive,
                 "canonical_path": "/directory",
             },
         ),

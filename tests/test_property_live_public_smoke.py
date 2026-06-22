@@ -33,7 +33,10 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
         "https://propertyquarry.com/security": "PropertyQuarry Security, privacy, and visual quality are reviewed before public changes go live.",
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Request access.",
-        "https://propertyquarry.com/directory": "PropertyQuarry directory Search directory Reset.",
+        "https://propertyquarry.com/directory": (
+            'PropertyQuarry directory <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
+            "Directory opening soon Search directory Reset."
+        ),
         "https://propertyquarry.com/directory/profile/sample": (
             'PropertyQuarry <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
             "Profile details stay on PropertyQuarry Back to directory Contact support."

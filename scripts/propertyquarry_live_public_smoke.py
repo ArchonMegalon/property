@@ -204,6 +204,12 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     and "provider stores" not in lowered_visible,
                 ),
                 ("directory_has_search", "Search directory" in text or "Reset" in text),
+                (
+                    "directory_empty_noindex",
+                    "Directory opening soon" not in text
+                    and "No public profiles matched" not in text
+                    or 'name="robots" content="noindex, follow, noarchive, nosnippet"' in text,
+                ),
             )
         )
     elif path.startswith("/directory/profile/"):

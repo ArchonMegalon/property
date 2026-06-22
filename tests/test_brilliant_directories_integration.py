@@ -723,6 +723,8 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     response = client.get("/directory", headers={"host": "propertyquarry.com"})
 
     assert response.status_code == 200
+    assert '<meta name="robots" content="noindex, follow, noarchive, nosnippet">' in response.text
+    assert response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
     assert "PropertyQuarry Directory" in response.text
     assert "Find the people around a property decision." in response.text
     assert "Directory opening soon" in response.text
@@ -798,6 +800,8 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
 
     assert response.status_code == 200
     serialized = response.text
+    assert '<meta name="robots" content="index, follow, max-image-preview:large">' in serialized
+    assert response.headers.get("X-Robots-Tag") == "index, follow, max-image-preview:large"
     assert "Vienna Relocation Advisors" in serialized
     assert "/directory/profile/24" in serialized
     assert "https://directory.example/austria/vienna/vienna-relocation-advisors" not in serialized
@@ -824,6 +828,31 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
     assert "Secret Street" not in profile_response.text
     assert "directory.example" not in profile_response.text
     assert "Brilliant Directories" not in profile_response.text
+
+
+def test_brilliant_directories_public_directory_page_noindexes_empty_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+
+    def fake_execute(request: object, *, timeout_seconds: float = 30.0, opener: object | None = None) -> dict[str, object]:
+        del request, timeout_seconds, opener
+        return {"message": []}
+
+    monkeypatch.setattr(brilliant_directories_service, "execute_brilliant_directories_api_request", fake_execute)
+    client = build_property_client(principal_id="pq-brilliant-directories-public-empty")
+
+    response = client.get("/directory?keyword=missing", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "No public profiles matched" in response.text
+    assert '<meta name="robots" content="noindex, follow, noarchive, nosnippet">' in response.text
+    assert response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
 
 
 def test_brilliant_directories_pricing_stays_propertyquarry_white_label(
