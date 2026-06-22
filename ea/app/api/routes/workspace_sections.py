@@ -1193,7 +1193,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Commercial pressure",
                     "title": "What the plan boundary is blocking",
-                    "body": "Operator work gets noisy when seat limits, messaging scope, or support posture are out of sync with the office loop.",
+                    "body": "Work gets noisy when seat limits, messaging scope, or support status are out of sync with the account.",
                     "items": [
                         _row("Recommended plan", str(commercial.get("recommended_plan_label") or "Current plan"), "Plan", href="/app/settings/plan"),
                         _row(
@@ -1214,13 +1214,13 @@ def workspace_section_payload(
         },
         "settings": {
             "title": "Rules",
-            "summary": "Keep the memo loop, capture rules, and proof of value visible without dragging the operator center into the principal workspace.",
+            "summary": "Keep rules, delivery, and account progress visible without dragging internal support work into the main workspace.",
             "console_form": {
                 "action": "/app/actions/settings/morning-memo",
                 "method": "post",
                 "eyebrow": "Workspace rules",
                 "title": "Update workspace and morning memo rules",
-                "copy": "Keep the office profile and the memo schedule editable after onboarding so the live loop can stay aligned with the real workspace.",
+                "copy": "Keep the account profile and delivery schedule editable after onboarding so the workspace stays aligned with the real search.",
                 "submit_label": "Save workspace rules",
                 "fields": [
                     {
@@ -1451,7 +1451,7 @@ def workspace_section_payload(
                             href="/app/settings/outcomes",
                         ),
                         _row("Summary", str(office_loop_proof.get("summary") or "No progress summary yet."), "Status", href="/app/settings/outcomes"),
-                        _row("Memo open rate", str(outcomes.get("memo_open_rate") or analytics.get("memo_open_rate") or 0), "Memo", href="/app/settings/outcomes"),
+                        _row("Search open rate", str(outcomes.get("memo_open_rate") or analytics.get("memo_open_rate") or 0), "Search", href="/app/settings/outcomes"),
                         _row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or analytics.get("approval_coverage_rate") or 0), "Approvals", href="/app/settings/outcomes"),
                         _row("Approval send rate", str(outcomes.get("approval_action_rate") or analytics.get("approval_action_rate") or 0), "Approvals", href="/app/settings/outcomes"),
                         _row(
@@ -1463,7 +1463,7 @@ def workspace_section_payload(
                                 if analytics.get("delivery_followup_resolution_rate") is not None
                                 else "n/a"
                             ),
-                            "Operators",
+                            "Delivery",
                             href="/app/settings/outcomes",
                         ),
                         _row(
@@ -1475,10 +1475,10 @@ def workspace_section_payload(
                                 if analytics.get("delivery_followup_blocked_rate") is not None
                                 else "n/a"
                             ),
-                            "Operators",
+                            "Delivery",
                             href="/app/settings/outcomes",
                         ),
-                        _row("Commitment close rate", str(outcomes.get("commitment_close_rate") or analytics.get("commitment_close_rate") or 0), "Commitments", href="/app/settings/outcomes"),
+                        _row("Decision close rate", str(outcomes.get("commitment_close_rate") or analytics.get("commitment_close_rate") or 0), "Decisions", href="/app/settings/outcomes"),
                         *[
                             _row(
                                 str(item.get("label") or "Check"),

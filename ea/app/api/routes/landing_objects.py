@@ -200,7 +200,7 @@ def commitment_detail(
         object_sections=[
             {
                 "eyebrow": "Evidence",
-                "title": "Supporting proof",
+                "title": "Supporting evidence",
                 "items": _evidence_detail_rows(commitment.proof_refs),
             },
             {

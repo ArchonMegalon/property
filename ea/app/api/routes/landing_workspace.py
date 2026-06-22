@@ -1114,8 +1114,8 @@ def settings_outcomes_detail(
             page_title="PropertyQuarry outcomes",
             current_nav="settings",
             console_title="Outcomes",
-            console_summary="Outcomes track whether searches produced usable ranked homes, whether repair work stayed bounded, and what follow-up artifacts are ready.",
-            object_kind="Outcome posture",
+            console_summary="Outcomes track whether searches produced usable ranked homes, whether repair work stayed bounded, and what follow-up is ready.",
+            object_kind="Outcomes",
             object_title=f"{property_usage['ranked_total']} ranked homes",
             object_summary=(
                 f"{property_usage['completed_total']} completed searches · "
@@ -1134,7 +1134,7 @@ def settings_outcomes_detail(
                 _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                 _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
                 _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                _object_detail_row("Provider failures", str(property_usage["failed_source_total"]), "Repair"),
+                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
                 _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
                 _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Account"),
             ],
@@ -1161,7 +1161,7 @@ def settings_outcomes_detail(
                 },
                 {
                     "eyebrow": "Follow-up",
-                    "title": "Artifacts ready for decisions",
+                    "title": "Property pages and tours ready",
                     "items": [
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
                         _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
