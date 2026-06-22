@@ -200,6 +200,39 @@ def property_workspace_payload(
         for candidate in list(property_meta.get("shortlist_candidates") or [])
         if isinstance(candidate, dict)
     ]
+    def _shortlist_identity(candidate: dict[str, object]) -> str:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        for value in (
+            candidate.get("property_ref"),
+            candidate.get("property_url"),
+            candidate.get("source_url"),
+            candidate.get("review_url"),
+            facts.get("listing_url"),
+            candidate.get("source_ref"),
+            candidate.get("listing_id"),
+            candidate.get("candidate_ref"),
+        ):
+            normalized = str(value or "").strip()
+            if normalized:
+                return normalized
+        title = str(candidate.get("title") or "").strip()
+        return title.casefold() if title else ""
+
+    def _dedupe_shortlist_candidates(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        deduped: list[dict[str, object]] = []
+        seen: set[str] = set()
+        anonymous_index = 0
+        for row in rows:
+            candidate = dict(row)
+            identity = _shortlist_identity(candidate)
+            if not identity:
+                anonymous_index += 1
+                identity = f"row:{anonymous_index}"
+            if identity in seen:
+                continue
+            seen.add(identity)
+            deduped.append(candidate)
+        return deduped
     if normalized_section in {"properties", "search", "shortlist", "agents", "account", "settings", "billing"}:
         trimmed_meta = dict(property_meta)
         if normalized_section in {"properties", "search", "shortlist", "account", "settings", "billing"}:
@@ -268,13 +301,15 @@ def property_workspace_payload(
     run_payload_for_surface = {**run_payload, "summary": run_summary_for_surface} if management_surface else run_payload
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
+    ranked_candidates = [
+        {**dict(candidate), "_active_run_ranked": True}
+        for candidate in list(raw_run_summary.get("ranked_candidates") or [])
+        if isinstance(candidate, dict)
+        and _property_candidate_is_rankable(candidate)
+    ]
+    if normalized_section == "shortlist" and ranked_candidates:
+        shortlist_candidates = _dedupe_shortlist_candidates([*ranked_candidates, *shortlist_candidates])
     if not shortlist_candidates:
-        ranked_candidates = [
-            dict(candidate)
-            for candidate in list(raw_run_summary.get("ranked_candidates") or [])
-            if isinstance(candidate, dict)
-            and _property_candidate_is_rankable(candidate)
-        ]
         if ranked_candidates:
             shortlist_candidates = ranked_candidates
         else:
@@ -1607,6 +1642,12 @@ def property_workspace_payload(
         listing_mode: str,
         selected_locations: list[str],
     ) -> bool:
+        active_run_ranked = bool(candidate.get("_active_run_ranked"))
+        requested_postal_codes = {
+            code
+            for value in selected_locations
+            for code in _property_postal_codes_from_text(value, require_locality=False)
+        }
         source_family = str(candidate.get("source_family") or facts.get("source_family") or "").strip().lower()
         has_price_signal = bool(_candidate_price_signal(facts, listing_mode=listing_mode, title=candidate.get("title")))
         has_area_signal = bool(
@@ -1618,12 +1659,26 @@ def property_workspace_payload(
             return False
         if _candidate_is_generic_listing_page(candidate, facts):
             return False
-        if not _candidate_has_concrete_location_signal(candidate, facts):
-            return False
-        if not _candidate_matches_selected_postal_scope(candidate, facts, selected_locations=selected_locations):
-            return False
-        if not has_price_signal:
-            return False
+        if active_run_ranked and requested_postal_codes:
+            listing_text = " ".join(
+                part
+                for part in (
+                    str(candidate.get("title") or "").strip(),
+                    str(candidate.get("summary") or "").strip(),
+                    str(candidate.get("property_url") or "").strip(),
+                )
+                if part
+            )
+            listing_postal_codes = set(_property_postal_codes_from_text(listing_text, require_locality=True))
+            if listing_postal_codes and not (listing_postal_codes & requested_postal_codes):
+                return False
+        if not active_run_ranked:
+            if not _candidate_has_concrete_location_signal(candidate, facts):
+                return False
+            if not _candidate_matches_selected_postal_scope(candidate, facts, selected_locations=selected_locations):
+                return False
+            if not has_price_signal:
+                return False
         if source_family == "developer_projects" and not has_price_signal and not has_area_signal:
             return False
         has_core_signal = bool(

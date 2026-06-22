@@ -15,6 +15,97 @@ _LANGUAGE_NAMES = {
     "sv": "Svenska",
 }
 
+_PREFERENCE_TERM_REPLACEMENTS: dict[str, dict[str, str]] = {
+    "de": {
+        "Neutral": "Neutral",
+        "Nice-to-have": "Wuenschenswert",
+        "Strong wish": "Starker Wunsch",
+        "Must-have": "Must-have",
+        "Avoid": "Vermeiden",
+        "nice-to-have": "wuenschenswert",
+        "strong wish": "starker Wunsch",
+        "must-have": "Must-have",
+        "avoid": "vermeiden",
+    },
+    "es": {
+        "Neutral": "Neutral",
+        "Nice-to-have": "Deseable",
+        "Strong wish": "Deseo fuerte",
+        "Must-have": "Imprescindible",
+        "Avoid": "Evitar",
+        "nice-to-have": "deseable",
+        "strong wish": "deseo fuerte",
+        "must-have": "imprescindible",
+        "avoid": "evitar",
+    },
+    "fr": {
+        "Neutral": "Neutre",
+        "Nice-to-have": "Souhaitable",
+        "Strong wish": "Souhait fort",
+        "Must-have": "Indispensable",
+        "Avoid": "Eviter",
+        "nice-to-have": "souhaitable",
+        "strong wish": "souhait fort",
+        "must-have": "indispensable",
+        "avoid": "eviter",
+    },
+    "it": {
+        "Neutral": "Neutrale",
+        "Nice-to-have": "Gradito",
+        "Strong wish": "Desiderio forte",
+        "Must-have": "Indispensabile",
+        "Avoid": "Da evitare",
+        "nice-to-have": "gradito",
+        "strong wish": "desiderio forte",
+        "must-have": "indispensabile",
+        "avoid": "da evitare",
+    },
+    "nl": {
+        "Neutral": "Neutraal",
+        "Nice-to-have": "Graag",
+        "Strong wish": "Sterke wens",
+        "Must-have": "Vereist",
+        "Avoid": "Vermijden",
+        "nice-to-have": "graag",
+        "strong wish": "sterke wens",
+        "must-have": "vereist",
+        "avoid": "vermijden",
+    },
+    "pt": {
+        "Neutral": "Neutro",
+        "Nice-to-have": "Bom ter",
+        "Strong wish": "Desejo forte",
+        "Must-have": "Essencial",
+        "Avoid": "Evitar",
+        "nice-to-have": "bom ter",
+        "strong wish": "desejo forte",
+        "must-have": "essencial",
+        "avoid": "evitar",
+    },
+    "pl": {
+        "Neutral": "Neutralnie",
+        "Nice-to-have": "Milo miec",
+        "Strong wish": "Silne zyczenie",
+        "Must-have": "Konieczne",
+        "Avoid": "Unikaj",
+        "nice-to-have": "milo miec",
+        "strong wish": "silne zyczenie",
+        "must-have": "konieczne",
+        "avoid": "unikaj",
+    },
+    "sv": {
+        "Neutral": "Neutral",
+        "Nice-to-have": "Garna",
+        "Strong wish": "Starkt onskemal",
+        "Must-have": "Krav",
+        "Avoid": "Undvik",
+        "nice-to-have": "garna",
+        "strong wish": "starkt onskemal",
+        "must-have": "krav",
+        "avoid": "undvik",
+    },
+}
+
 
 _LOCALIZED_COPY: dict[str, dict[str, object]] = {
     "en": {
@@ -855,8 +946,59 @@ def supported_property_score_methodology_languages() -> tuple[str, ...]:
     return tuple(sorted({str(country.default_language or "en").strip().lower() for country in COUNTRIES if str(country.default_language or "").strip()}))
 
 
-def _localized(language_code: object = "", *, country_code: object = "") -> dict[str, object]:
-    code = normalize_language_code(language_code, country_code=str(country_code or "AT")).lower()
+def resolve_property_score_methodology_language(
+    *,
+    language_code: object = "",
+    country_code: object = "",
+    accept_language: object = "",
+    fallback_language_code: object = "",
+) -> str:
+    normalized_country = str(country_code or "AT").strip().upper() or "AT"
+    supported = set(supported_property_score_methodology_languages())
+    explicit_raw = str(language_code or "").strip()
+    if explicit_raw:
+        explicit = normalize_language_code(explicit_raw, country_code=normalized_country).lower()
+        if explicit in supported:
+            return explicit
+    header = str(accept_language or "").strip()
+    if header:
+        for raw_part in header.split(","):
+            token = raw_part.split(";", 1)[0].strip()
+            if not token:
+                continue
+            normalized = normalize_language_code(token, country_code=normalized_country).lower()
+            if normalized in supported:
+                return normalized
+    fallback_raw = str(fallback_language_code or "").strip()
+    if fallback_raw:
+        fallback_language = normalize_language_code(fallback_raw, country_code=normalized_country).lower()
+        if fallback_language in supported:
+            return fallback_language
+    fallback = default_language_for_country(normalized_country).lower()
+    if fallback in supported:
+        return fallback
+    return "en"
+
+
+def _localize_preference_terms(value: object, replacements: dict[str, str]) -> object:
+    if isinstance(value, str):
+        localized = value
+        for old, new in replacements.items():
+            localized = localized.replace(old, new)
+        return localized
+    if isinstance(value, list):
+        return [_localize_preference_terms(item, replacements) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_localize_preference_terms(item, replacements) for item in value)
+    return value
+
+
+def _localized(language_code: object = "", *, country_code: object = "", accept_language: object = "") -> dict[str, object]:
+    code = resolve_property_score_methodology_language(
+        language_code=language_code,
+        country_code=country_code,
+        accept_language=accept_language,
+    )
     if code not in supported_property_score_methodology_languages():
         code = default_language_for_country(country_code).lower()
     base = dict(_LOCALIZED_COPY["en"])
@@ -870,6 +1012,10 @@ def _localized(language_code: object = "", *, country_code: object = "") -> dict
         base.update(_LOCALIZED_PDF_EXAMPLE_COPY[code])
     if code in _LOCALIZED_WEIGHT_EXPLAINER_COPY:
         base.update(_LOCALIZED_WEIGHT_EXPLAINER_COPY[code])
+    replacements = _PREFERENCE_TERM_REPLACEMENTS.get(code)
+    if replacements:
+        for key, value in list(base.items()):
+            base[key] = _localize_preference_terms(value, replacements)
     base["language_code"] = code
     base["language_label"] = _LANGUAGE_NAMES.get(code, code.upper())
     return base
@@ -895,9 +1041,10 @@ def build_property_score_methodology(
     *,
     language_code: object = "",
     country_code: object = "",
+    accept_language: object = "",
     candidate: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    copy = _localized(language_code, country_code=country_code)
+    copy = _localized(language_code, country_code=country_code, accept_language=accept_language)
     candidate_payload = dict(candidate or {})
     try:
         fit_score = max(0, min(100, int(float(candidate_payload.get("fit_score") or 0))))
@@ -978,8 +1125,9 @@ def build_property_score_methodology_pdf_source(
     *,
     language_code: object = "",
     country_code: object = "",
+    accept_language: object = "",
 ) -> dict[str, object]:
-    copy = _localized(language_code, country_code=country_code)
+    copy = _localized(language_code, country_code=country_code, accept_language=accept_language)
     candidate = {
         "fit_score": 62,
         "match_reasons": list(copy.get("match_reasons") or ()),
@@ -988,6 +1136,7 @@ def build_property_score_methodology_pdf_source(
     methodology = build_property_score_methodology(
         language_code=language_code,
         country_code=country_code,
+        accept_language=accept_language,
         candidate=candidate,
     )
     return {

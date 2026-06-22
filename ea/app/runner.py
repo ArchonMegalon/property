@@ -1053,6 +1053,8 @@ def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> 
     repair_resolved_total = 0
     repair_deferred_total = 0
     repair_errors = 0
+    visual_followup_resolved_total = 0
+    visual_followup_failed_total = 0
     for principal_id in _scheduler_property_scout_principal_ids(container):
         try:
             repair_summary = service.process_property_provider_repair_tasks(
@@ -1065,6 +1067,17 @@ def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> 
         except Exception:
             repair_errors += 1
             log.exception("scheduler property provider repair processing failed principal=%s", principal_id)
+        try:
+            visual_summary = service.process_property_tour_followup_tasks(
+                principal_id=principal_id,
+                actor="scheduler",
+                limit=20,
+            )
+            visual_followup_resolved_total += int(visual_summary.get("resolved_total") or 0)
+            visual_followup_failed_total += int(visual_summary.get("failed_total") or 0)
+        except Exception:
+            visual_followup_failed_total += 1
+            log.exception("scheduler property tour followup processing failed principal=%s", principal_id)
     return {
         "ran": True,
         "attempted": int(summary.get("attempted") or 0),
@@ -1073,6 +1086,8 @@ def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> 
         "pending": int(summary.get("pending") or 0),
         "repair_resolved_total": repair_resolved_total,
         "repair_deferred_total": repair_deferred_total,
+        "visual_followup_resolved_total": visual_followup_resolved_total,
+        "visual_followup_failed_total": visual_followup_failed_total,
         "errors": repair_errors,
     }
 

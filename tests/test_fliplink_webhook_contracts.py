@@ -239,7 +239,7 @@ def test_score_methodology_pdf_endpoint_uses_requested_language(monkeypatch, tmp
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("application/pdf")
     assert response.headers["x-propertyquarry-renderer"] == "fliplink"
-    assert "propertyquarry-score-methodology-de.pdf" in response.headers.get("content-disposition", "")
+    assert 'inline; filename="propertyquarry-score-methodology-de.pdf"' == response.headers.get("content-disposition", "")
     assert response.content.startswith(b"%PDF-1.4")
     pdf_text = response.content.decode("latin-1", errors="ignore")
     assert "Wie der PropertyQuarry-Score berechnet" in pdf_text
@@ -248,7 +248,7 @@ def test_score_methodology_pdf_endpoint_uses_requested_language(monkeypatch, tmp
     assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in pdf_text
     assert "Wo jede Zahl herkommt" in pdf_text
     assert "starker Wunsch etwa +12" in pdf_text
-    assert "Nice-to-have etwa -3" in pdf_text
+    assert "Wuenschenswert etwa -3" in pdf_text
     assert "Engine steps" not in pdf_text
     assert "Examples" not in pdf_text
 
@@ -265,8 +265,8 @@ def test_score_methodology_pdf_endpoint_supports_every_country_provider_language
         assert response.headers["content-type"].startswith("application/pdf")
         assert response.headers["x-propertyquarry-renderer"] == "fliplink"
         assert (
-            f"propertyquarry-score-methodology-{language_code}.pdf"
-            in response.headers.get("content-disposition", "")
+            f'inline; filename="propertyquarry-score-methodology-{language_code}.pdf"'
+            == response.headers.get("content-disposition", "")
         )
         assert response.content.startswith(b"%PDF-1.4")
         pdf_text = response.content.decode("latin-1", errors="ignore")

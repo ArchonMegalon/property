@@ -151,7 +151,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     security = client.get("/how-it-works")
     assert "Strict rules. Smart ranking." in security.text
     assert "Score guide" in security.text
-    assert "/app/api/properties/score-methodology/pdf?language=en" in security.text
+    assert "/how-it-works/score" in security.text
     assert "Hard filters decide eligibility. Optional preferences tune the score." in security.text
     assert "Private by default." not in security.text
     assert "Automatic digests" not in security.text

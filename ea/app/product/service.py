@@ -2195,24 +2195,95 @@ def _property_tour_status_is_terminal(value: object) -> bool:
     return normalized in {"created", "existing", "ready", "blocked", "failed", "skipped", "not_applicable"}
 
 
-def _property_visual_progress_pct(*, request_kind: str, status: object, ready_url: object = "") -> int:
+def _property_parse_iso_datetime(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+        parsed = datetime.fromisoformat(normalized)
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _property_visual_elapsed_minutes(*, requested_at: object = "", status_updated_at: object = "") -> int:
+    started = _property_parse_iso_datetime(requested_at) or _property_parse_iso_datetime(status_updated_at)
+    if started is None:
+        return 0
+    elapsed = datetime.now(timezone.utc) - started
+    return max(int(elapsed.total_seconds() // 60), 0)
+
+
+def _property_visual_initial_eta_minutes(*, status: object, eta_minutes: object = "") -> int:
+    normalized_status = str(status or "").strip().lower()
+    raw_eta = str(eta_minutes or "").strip()
+    try:
+        if raw_eta:
+            return max(int(float(raw_eta)), 1)
+    except Exception:
+        pass
+    return 5 if normalized_status in {"processing", "running", "in_progress", "started", "rendering"} else 10
+
+
+def _property_visual_progress_pct(
+    *,
+    request_kind: str,
+    status: object,
+    ready_url: object = "",
+    eta_minutes: object = "",
+    requested_at: object = "",
+    status_updated_at: object = "",
+) -> int:
     normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
     normalized_status = str(status or "").strip().lower()
     if str(ready_url or "").strip():
         return 100
+    elapsed_minutes = _property_visual_elapsed_minutes(
+        requested_at=requested_at,
+        status_updated_at=status_updated_at,
+    )
+    eta_budget = _property_visual_initial_eta_minutes(status=normalized_status, eta_minutes=eta_minutes)
     if normalized_status in {"processing", "running", "in_progress", "started", "rendering"}:
-        return 64 if normalized_kind == "flythrough" else 58
+        base = 64 if normalized_kind == "flythrough" else 58
+        if elapsed_minutes >= eta_budget * 3:
+            return 88 if normalized_kind == "flythrough" else 84
+        if elapsed_minutes >= eta_budget * 2:
+            return 80 if normalized_kind == "flythrough" else 76
+        if elapsed_minutes >= eta_budget:
+            return 72 if normalized_kind == "flythrough" else 68
+        return base
     if normalized_status in {"queued", "pending"}:
-        return 18 if normalized_kind == "flythrough" else 14
+        base = 18 if normalized_kind == "flythrough" else 14
+        if elapsed_minutes >= eta_budget * 3:
+            return 52 if normalized_kind == "flythrough" else 46
+        if elapsed_minutes >= eta_budget * 2:
+            return 40 if normalized_kind == "flythrough" else 34
+        if elapsed_minutes >= eta_budget:
+            return 28 if normalized_kind == "flythrough" else 22
+        return base
     return 0
 
 
-def _property_visual_eta_label(*, request_kind: str, status: object, eta_minutes: object = "") -> str:
+def _property_visual_eta_label(
+    *,
+    request_kind: str,
+    status: object,
+    eta_minutes: object = "",
+    requested_at: object = "",
+    status_updated_at: object = "",
+) -> str:
     normalized_status = str(status or "").strip().lower()
-    raw_eta = str(eta_minutes or "").strip()
-    default_eta = "5" if normalized_status in {"processing", "running", "in_progress", "started", "rendering"} else "10"
-    eta_value = raw_eta or default_eta
     if normalized_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+        eta_value = _property_visual_initial_eta_minutes(status=normalized_status, eta_minutes=eta_minutes)
+        elapsed_minutes = _property_visual_elapsed_minutes(
+            requested_at=requested_at,
+            status_updated_at=status_updated_at,
+        )
+        if elapsed_minutes >= eta_value:
+            return f"delayed · {elapsed_minutes} min so far"
         return f"about {eta_value} min"
     return ""
 
@@ -24343,9 +24414,11 @@ class ProductService:
         principal_id: str,
         property_url: str,
         variant_key: str,
+        request_kind: str = "tour",
     ) -> HumanTask | None:
         normalized_url = str(property_url or "").strip()
         normalized_variant = str(variant_key or "").strip().lower()
+        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
         if not normalized_url:
             return None
         for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
@@ -24355,6 +24428,9 @@ class ProductService:
             if str(input_json.get("property_url") or "").strip() != normalized_url:
                 continue
             if str(input_json.get("variant_key") or "").strip().lower() != normalized_variant:
+                continue
+            existing_request_kind = str(input_json.get("request_kind") or "tour").strip().lower() or "tour"
+            if existing_request_kind != normalized_request_kind:
                 continue
             return row
         return None
@@ -24371,27 +24447,34 @@ class ProductService:
         source_ref: str,
         external_id: str,
         connector_binding_id: str,
+        request_kind: str = "tour",
+        run_id: str = "",
+        candidate_ref: str = "",
+        allow_floorplan_only: bool = False,
     ) -> HumanTask:
+        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
         existing = self._existing_property_tour_followup(
             principal_id=principal_id,
             property_url=property_url,
             variant_key=variant_key,
+            request_kind=normalized_request_kind,
         )
         if existing is not None:
             return existing
         is_user_visual_request = str(blocked_reason or "").strip() == "user_requested_visual_generation"
+        request_label = "walkthrough" if normalized_request_kind == "flythrough" else "3D tour"
         review_goal = (
             f"Build requested property visual for {title or property_url}"
             if is_user_visual_request
             else f"Finish apartment-tour automation for {title or property_url}"
         )
         task_brief = (
-            f"Build requested 3D or walkthrough visual for {title or property_url}"
+            f"Build requested {request_label} for {title or property_url}"
             if is_user_visual_request
             else f"Finish apartment tour delivery for {title or property_url}"
         )
         why_human = (
-            "A user explicitly requested a 3D tour or walkthrough. Queue the media lane and attach the finished asset when ready."
+            f"A user explicitly requested a {request_label}. Queue the media lane and attach the finished asset when ready."
             if is_user_visual_request
             else f"Automatic apartment-tour handling stopped at {blocked_reason}. Finish the tour or delivery path."
         )
@@ -24417,6 +24500,10 @@ class ProductService:
                 "connector_binding_id": str(connector_binding_id or "").strip(),
                 "source_ref": str(source_ref or "").strip(),
                 "external_id": str(external_id or "").strip(),
+                "request_kind": normalized_request_kind,
+                "run_id": str(run_id or "").strip(),
+                "candidate_ref": str(candidate_ref or "").strip(),
+                "allow_floorplan_only": bool(allow_floorplan_only),
             },
             desired_output_json={
                 "status": "completed",
@@ -24434,6 +24521,10 @@ class ProductService:
             "source_ref": str(source_ref or "").strip(),
             "external_id": str(external_id or "").strip(),
             "connector_binding_id": str(connector_binding_id or "").strip(),
+            "request_kind": normalized_request_kind,
+            "run_id": str(run_id or "").strip(),
+            "candidate_ref": str(candidate_ref or "").strip(),
+            "allow_floorplan_only": bool(allow_floorplan_only),
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -27079,24 +27170,40 @@ class ProductService:
                 raise RuntimeError("handoff_not_assignable")
             current = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id) or current
         input_json = dict(current.input_json or {})
-        result = self.create_willhaben_property_tour(
+        request_kind = str(input_json.get("request_kind") or "tour").strip().lower() or "tour"
+        if request_kind not in {"tour", "flythrough"}:
+            request_kind = "tour"
+        result = self.request_property_visual_asset(
             principal_id=principal_id,
             property_url=str(input_json.get("property_url") or "").strip(),
+            request_kind=request_kind,
             recipient_email=str(input_json.get("recipient_email") or "").strip(),
             variant_key=str(input_json.get("variant_key") or "layout_first").strip(),
             binding_id=str(input_json.get("connector_binding_id") or "").strip(),
             source_ref=str(input_json.get("source_ref") or "").strip(),
             external_id=str(input_json.get("external_id") or "").strip(),
+            run_id=str(input_json.get("run_id") or "").strip(),
+            candidate_ref=str(input_json.get("candidate_ref") or "").strip(),
             auto_deliver=True,
+            allow_floorplan_only=bool(input_json.get("allow_floorplan_only")),
             actor=actor,
+            queue_async_request=False,
+            suppress_human_followup=True,
         )
-        if str(result.get("status") or "").strip() == "sent":
+        resolution = str(result.get("status") or "").strip().lower() or "completed"
+        if resolution == "created":
+            requested_status = str(result.get("flythrough_status") if request_kind == "flythrough" else result.get("tour_status") or "").strip().lower()
+            if requested_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+                resolution = requested_status
+            elif (str(result.get("flythrough_url") or "").strip() if request_kind == "flythrough" else str(result.get("tour_url") or "").strip()):
+                resolution = "ready"
+        if resolution in {"sent", "ready", "queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
             completed = self.complete_handoff(
                 principal_id=principal_id,
                 handoff_ref=handoff_ref,
                 operator_id=operator_id,
                 actor=actor,
-                resolution="sent",
+                resolution=resolution,
             )
             if completed is not None:
                 return completed
@@ -29277,9 +29384,13 @@ class ProductService:
                             candidate_row["tour_status"] = str(visual_state.get("tour_status") or "").strip()
                         if str(visual_state.get("tour_eta_minutes") or "").strip():
                             candidate_row["tour_eta_minutes"] = str(visual_state.get("tour_eta_minutes") or "").strip()
+                        if str(visual_state.get("tour_requested_at") or "").strip():
+                            candidate_row["tour_requested_at"] = str(visual_state.get("tour_requested_at") or "").strip()
+                        if str(visual_state.get("tour_status_updated_at") or "").strip():
+                            candidate_row["tour_status_updated_at"] = str(visual_state.get("tour_status_updated_at") or "").strip()
                         if str(visual_state.get("tour_progress_pct") or "").strip():
                             candidate_row["tour_progress_pct"] = str(visual_state.get("tour_progress_pct") or "").strip()
-                        if str(visual_state.get("blocked_reason") or "").strip():
+                        if "blocked_reason" in visual_state:
                             candidate_row["blocked_reason"] = str(visual_state.get("blocked_reason") or "").strip()
                         if str(visual_state.get("flythrough_url") or "").strip():
                             candidate_row["flythrough_url"] = str(visual_state.get("flythrough_url") or "").strip()
@@ -29287,9 +29398,13 @@ class ProductService:
                             candidate_row["flythrough_status"] = str(visual_state.get("flythrough_status") or "").strip()
                         if str(visual_state.get("flythrough_eta_minutes") or "").strip():
                             candidate_row["flythrough_eta_minutes"] = str(visual_state.get("flythrough_eta_minutes") or "").strip()
+                        if str(visual_state.get("flythrough_requested_at") or "").strip():
+                            candidate_row["flythrough_requested_at"] = str(visual_state.get("flythrough_requested_at") or "").strip()
+                        if str(visual_state.get("flythrough_status_updated_at") or "").strip():
+                            candidate_row["flythrough_status_updated_at"] = str(visual_state.get("flythrough_status_updated_at") or "").strip()
                         if str(visual_state.get("flythrough_progress_pct") or "").strip():
                             candidate_row["flythrough_progress_pct"] = str(visual_state.get("flythrough_progress_pct") or "").strip()
-                        if str(visual_state.get("flythrough_reason") or "").strip():
+                        if "flythrough_reason" in visual_state:
                             candidate_row["flythrough_reason"] = str(visual_state.get("flythrough_reason") or "").strip()
                         mutated = True
                     updated_candidates.append(candidate_row)
@@ -29308,6 +29423,337 @@ class ProductService:
         except Exception:
             pass
 
+    def _start_property_tour_followup_worker(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 4,
+    ) -> None:
+        try:
+            threading.Thread(
+                target=self.process_property_tour_followup_tasks,
+                kwargs={
+                    "principal_id": principal_id,
+                    "actor": actor,
+                    "limit": limit,
+                },
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
+
+    def _property_visual_request_is_stale(
+        self,
+        *,
+        status: str,
+        requested_at: str = "",
+        status_updated_at: str = "",
+    ) -> bool:
+        normalized_status = str(status or "").strip().lower()
+        if normalized_status not in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+            return False
+        reference_dt = _parse_utcish(status_updated_at) or _parse_utcish(requested_at)
+        if reference_dt is None:
+            return False
+        age_seconds = max(int((_utcnow() - reference_dt).total_seconds()), 0)
+        if normalized_status in {"queued", "pending"}:
+            return age_seconds >= 120
+        return age_seconds >= 420
+
+    def _repair_stalled_property_visual_request(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        title: str,
+        request_kind: str,
+        source_ref: str,
+        run_id: str,
+        candidate_ref: str,
+    ) -> None:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_source_ref = str(source_ref or normalized_property_url).strip()
+        if not normalized_principal or not normalized_property_url:
+            return
+        try:
+            existing_followup = self._existing_property_tour_followup(
+                principal_id=normalized_principal,
+                property_url=normalized_property_url,
+                variant_key="layout_first",
+                request_kind=normalized_request_kind,
+            )
+        except Exception:
+            existing_followup = None
+        if existing_followup is None:
+            try:
+                self._open_property_tour_followup(
+                    principal_id=normalized_principal,
+                    property_url=normalized_property_url,
+                    title=str(title or "Selected property").strip() or "Selected property",
+                    variant_key="layout_first",
+                    blocked_reason="user_requested_visual_generation",
+                    recipient_email="",
+                    source_ref=normalized_source_ref,
+                    external_id=normalized_property_url,
+                    connector_binding_id="",
+                    request_kind=normalized_request_kind,
+                    run_id=str(run_id or "").strip(),
+                    candidate_ref=str(candidate_ref or "").strip(),
+                    allow_floorplan_only=True,
+                )
+            except Exception:
+                return
+        try:
+            self.process_property_tour_followup_tasks(
+                principal_id=normalized_principal,
+                actor="property_visual_status_repair",
+                limit=2,
+            )
+        except Exception:
+            pass
+
+    def _ensure_property_tour_followup_operator(self, *, principal_id: str) -> str:
+        operator_id = "property-visual-codex"
+        try:
+            self._container.orchestrator.upsert_operator_profile(
+                principal_id=principal_id,
+                operator_id=operator_id,
+                display_name="PropertyQuarry Visual Codex",
+                roles=("operator", "automation"),
+                trust_tier="trusted",
+                status="active",
+                notes="Owns automatic PropertyQuarry 3D tour and walkthrough follow-up tasks.",
+            )
+        except Exception:
+            pass
+        return operator_id
+
+    def _assign_property_tour_followup_task(
+        self,
+        *,
+        principal_id: str,
+        task: HumanTask,
+        actor: str,
+        operator_id: str,
+    ) -> HumanTask:
+        if str(task.assigned_operator_id or "").strip():
+            return task
+        try:
+            assigned = self._container.orchestrator.assign_human_task(
+                task.human_task_id,
+                principal_id=principal_id,
+                operator_id=operator_id,
+                assignment_source="automation",
+                assigned_by_actor_id=str(actor or operator_id).strip() or operator_id,
+            )
+            if assigned is not None:
+                return assigned
+        except Exception:
+            pass
+        return task
+
+    def process_property_tour_followup_tasks(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 10,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return {
+                "generated_at": _now_iso(),
+                "attempted_total": 0,
+                "resolved_total": 0,
+                "blocked_total": 0,
+                "failed_total": 0,
+                "resolved": [],
+            }
+        resolved: list[dict[str, object]] = []
+        blocked_total = 0
+        failed_total = 0
+        attempted_total = 0
+        followup_operator_id = self._ensure_property_tour_followup_operator(principal_id=normalized_principal)
+        for task in self._container.orchestrator.list_human_tasks(
+            principal_id=normalized_principal,
+            status="pending",
+            limit=max(1, int(limit or 10)) * 5,
+        ):
+            if attempted_total >= max(1, int(limit or 10)):
+                break
+            if str(task.task_type or "").strip() != "property_tour_followup":
+                continue
+            task = self._assign_property_tour_followup_task(
+                principal_id=normalized_principal,
+                task=task,
+                actor=actor,
+                operator_id=followup_operator_id,
+            )
+            attempted_total += 1
+            task_input = dict(task.input_json or {})
+            property_url = urllib.parse.urldefrag(str(task_input.get("property_url") or "").strip())[0]
+            request_kind = str(task_input.get("request_kind") or "tour").strip().lower() or "tour"
+            if request_kind not in {"tour", "flythrough"}:
+                request_kind = "tour"
+            source_ref = str(task_input.get("source_ref") or property_url).strip()
+            external_id = str(task_input.get("external_id") or property_url).strip()
+            run_id = str(task_input.get("run_id") or "").strip()
+            candidate_ref = str(task_input.get("candidate_ref") or "").strip()
+            connector_binding_id = str(task_input.get("connector_binding_id") or "").strip()
+            variant_key = str(task_input.get("variant_key") or "layout_first").strip() or "layout_first"
+            recipient_email = str(task_input.get("recipient_email") or "").strip().lower()
+            blocked_reason = str(task_input.get("blocked_reason") or "").strip()
+            allow_floorplan_only = bool(task_input.get("allow_floorplan_only"))
+            if not property_url:
+                self.complete_handoff(
+                    principal_id=normalized_principal,
+                    handoff_ref=f"human_task:{task.human_task_id}",
+                    operator_id="",
+                    actor=actor,
+                    resolution="invalid",
+                )
+                failed_total += 1
+                continue
+            started_at = _now_iso()
+            processing_state = {
+                "blocked_reason": "",
+            }
+            if request_kind == "flythrough":
+                processing_state.update(
+                    {
+                        "flythrough_status": "processing",
+                        "flythrough_eta_minutes": "10",
+                        "flythrough_requested_at": started_at,
+                        "flythrough_status_updated_at": started_at,
+                        "flythrough_progress_pct": str(
+                            _property_visual_progress_pct(
+                                request_kind="flythrough",
+                                status="processing",
+                                eta_minutes="10",
+                                requested_at=started_at,
+                                status_updated_at=started_at,
+                            )
+                        ),
+                    }
+                )
+            else:
+                processing_state.update(
+                    {
+                        "tour_status": "processing",
+                        "tour_eta_minutes": "10",
+                        "tour_requested_at": started_at,
+                        "tour_status_updated_at": started_at,
+                        "tour_progress_pct": str(
+                            _property_visual_progress_pct(
+                                request_kind="tour",
+                                status="processing",
+                                eta_minutes="10",
+                                requested_at=started_at,
+                                status_updated_at=started_at,
+                            )
+                        ),
+                    }
+                )
+            self._persist_property_search_visual_state(
+                principal_id=normalized_principal,
+                run_id=run_id,
+                candidate_ref=candidate_ref,
+                source_ref=source_ref,
+                property_url=property_url,
+                visual_state=processing_state,
+            )
+            try:
+                result = self.request_property_visual_asset(
+                    principal_id=normalized_principal,
+                    property_url=property_url,
+                    request_kind=request_kind,
+                    recipient_email=recipient_email,
+                    variant_key=variant_key,
+                    binding_id=connector_binding_id,
+                    source_ref=source_ref,
+                    external_id=external_id,
+                    run_id=run_id,
+                    candidate_ref=candidate_ref,
+                    auto_deliver=False,
+                    allow_floorplan_only=allow_floorplan_only,
+                    actor=actor,
+                    queue_async_request=False,
+                    suppress_human_followup=True,
+                )
+            except Exception as exc:
+                failed_total += 1
+                self._record_product_event(
+                    principal_id=normalized_principal,
+                    event_type="property_tour_followup_auto_failed",
+                    payload={
+                        "human_task_id": f"human_task:{task.human_task_id}",
+                        "property_url": property_url,
+                        "request_kind": request_kind,
+                        "source_ref": source_ref,
+                        "error": compact_text(str(exc or "property tour followup auto failed"), fallback="property tour followup auto failed", limit=240),
+                    },
+                    source_id=source_ref or property_url,
+                    dedupe_key=f"{normalized_principal}|{task.human_task_id}|property-tour-followup-auto-failed",
+                )
+                continue
+            resolution = str(result.get("status") or "").strip().lower() or "completed"
+            if resolution == "created":
+                requested_status = str(result.get("flythrough_status") if request_kind == "flythrough" else result.get("tour_status") or "").strip().lower()
+                if requested_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+                    resolution = requested_status
+                elif (str(result.get("flythrough_url") or "").strip() if request_kind == "flythrough" else str(result.get("tour_url") or "").strip()):
+                    resolution = "ready"
+            if resolution in {"blocked", "failed", "skipped", "not_applicable"}:
+                blocked_total += 1
+            completed = self.complete_handoff(
+                principal_id=normalized_principal,
+                handoff_ref=f"human_task:{task.human_task_id}",
+                operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
+                actor=actor,
+                resolution=resolution,
+            )
+            self._record_product_event(
+                principal_id=normalized_principal,
+                event_type="property_tour_followup_auto_resolved",
+                payload={
+                    "human_task_id": f"human_task:{task.human_task_id}",
+                    "property_url": property_url,
+                    "request_kind": request_kind,
+                    "source_ref": source_ref,
+                    "resolution": resolution,
+                    "status_label": str(result.get("status_label") or "").strip(),
+                    "tour_url": str(result.get("tour_url") or "").strip(),
+                    "flythrough_url": str(result.get("flythrough_url") or "").strip(),
+                },
+                source_id=source_ref or property_url,
+                dedupe_key=f"{normalized_principal}|{task.human_task_id}|property-tour-followup-auto-resolved|{resolution}",
+            )
+            resolved.append(
+                {
+                    "human_task_id": f"human_task:{task.human_task_id}",
+                    "handoff_ref": f"human_task:{task.human_task_id}",
+                    "property_url": property_url,
+                    "request_kind": request_kind,
+                    "resolution": resolution,
+                    "status": str(result.get("status") or "").strip().lower() or resolution,
+                    "status_label": str(result.get("status_label") or "").strip(),
+                    "tour_url": str(result.get("tour_url") or "").strip(),
+                    "flythrough_url": str(result.get("flythrough_url") or "").strip(),
+                    "returned": completed is not None,
+                }
+            )
+        return {
+            "generated_at": _now_iso(),
+            "attempted_total": attempted_total,
+            "resolved_total": len(resolved),
+            "blocked_total": blocked_total,
+            "failed_total": failed_total,
+            "resolved": resolved[:20],
+        }
+
     def request_property_visual_asset(
         self,
         *,
@@ -29324,6 +29770,8 @@ class ProductService:
         auto_deliver: bool = False,
         allow_floorplan_only: bool = False,
         actor: str = "",
+        queue_async_request: bool = True,
+        suppress_human_followup: bool = False,
     ) -> dict[str, object]:
         normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
@@ -29337,11 +29785,18 @@ class ProductService:
                 candidate_ref,
             )
         )
+        effective_allow_floorplan_only = bool(allow_floorplan_only)
+        effective_enforce_360_media = True
+        if has_workbench_context and not auto_deliver:
+            effective_allow_floorplan_only = True
+            effective_enforce_360_media = False
         if (
             has_workbench_context
+            and queue_async_request
             and not auto_deliver
             and str(os.getenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS") or "").strip().lower() not in {"1", "true", "yes", "on"}
         ):
+            request_opened_at = _now_iso()
             title = "Selected property"
             human_task_id = ""
             try:
@@ -29355,6 +29810,10 @@ class ProductService:
                     source_ref=normalized_source_ref,
                     external_id=external_id or normalized_property_url,
                     connector_binding_id=str(binding_id or "").strip(),
+                    request_kind=normalized_kind,
+                    run_id=str(run_id or "").strip(),
+                    candidate_ref=str(candidate_ref or "").strip(),
+                    allow_floorplan_only=effective_allow_floorplan_only,
                 )
                 human_task_id = f"human_task:{followup.human_task_id}"
             except Exception:
@@ -29372,10 +29831,14 @@ class ProductService:
                 "vendor_tour_url": "",
                 "tour_status": "pending",
                 "tour_eta_minutes": "10",
+                "tour_requested_at": request_opened_at,
+                "tour_status_updated_at": request_opened_at,
                 "tour_progress_pct": str(_property_visual_progress_pct(request_kind="tour", status="queued")),
                 "flythrough_url": "",
                 "flythrough_status": "queued" if normalized_kind == "flythrough" else "",
                 "flythrough_eta_minutes": "10" if normalized_kind == "flythrough" else "",
+                "flythrough_requested_at": request_opened_at if normalized_kind == "flythrough" else "",
+                "flythrough_status_updated_at": request_opened_at if normalized_kind == "flythrough" else "",
                 "flythrough_progress_pct": str(_property_visual_progress_pct(request_kind="flythrough", status="queued")) if normalized_kind == "flythrough" else "",
                 "blocked_reason": "",
             }
@@ -29427,6 +29890,11 @@ class ProductService:
                 source_id=normalized_source_ref,
                 dedupe_key=f"{principal_id}|{normalized_source_ref}|{variant_key}|{normalized_kind}|visual-request-queued",
             )
+            self._start_property_tour_followup_worker(
+                principal_id=principal_id,
+                actor=str(actor or "property_visual_request").strip() or "property_visual_request",
+                limit=2,
+            )
             return payload
         base_result = self.create_willhaben_property_tour(
             principal_id=principal_id,
@@ -29437,8 +29905,10 @@ class ProductService:
             source_ref=normalized_source_ref,
             external_id=external_id,
             auto_deliver=auto_deliver,
-            allow_floorplan_only=allow_floorplan_only,
+            allow_floorplan_only=effective_allow_floorplan_only,
             actor=actor,
+            enforce_360_media=effective_enforce_360_media,
+            suppress_human_followup=suppress_human_followup,
         )
         payload = dict(base_result or {})
         payload["request_kind"] = normalized_kind
@@ -29515,6 +29985,7 @@ class ProductService:
                 status_detail = "3D tour request recorded."
         payload["status_label"] = status_label
         payload["status_detail"] = status_detail
+        status_timestamp = _now_iso()
         normalized_poll_status = str(
             payload.get("flythrough_status") if normalized_kind == "flythrough" else payload.get("tour_status") or payload.get("status")
         ).strip().lower()
@@ -29527,11 +29998,16 @@ class ProductService:
             request_kind=normalized_kind,
             status=normalized_poll_status,
             eta_minutes=eta_minutes,
+            requested_at=payload.get("flythrough_requested_at") if normalized_kind == "flythrough" else payload.get("tour_requested_at"),
+            status_updated_at=payload.get("flythrough_status_updated_at") if normalized_kind == "flythrough" else payload.get("tour_status_updated_at"),
         )
         payload["progress_pct"] = _property_visual_progress_pct(
             request_kind=normalized_kind,
             status=normalized_poll_status,
             ready_url=payload.get("flythrough_url") if normalized_kind == "flythrough" else payload.get("tour_url"),
+            eta_minutes=eta_minutes,
+            requested_at=payload.get("flythrough_requested_at") if normalized_kind == "flythrough" else payload.get("tour_requested_at"),
+            status_updated_at=payload.get("flythrough_status_updated_at") if normalized_kind == "flythrough" else payload.get("tour_status_updated_at"),
         )
         payload["poll_after_seconds"] = 10 if _property_tour_status_is_pending(normalized_poll_status) else 0
         if normalized_kind == "flythrough":
@@ -29568,21 +30044,35 @@ class ProductService:
                 "vendor_tour_url": str(payload.get("vendor_tour_url") or "").strip(),
                 "tour_status": str(payload.get("tour_status") or payload.get("status") or "").strip().lower(),
                 "tour_eta_minutes": str(payload.get("tour_eta_minutes") or "").strip(),
+                "tour_requested_at": str(payload.get("tour_requested_at") or "").strip() or (
+                    status_timestamp if str(payload.get("tour_status") or payload.get("status") or "").strip().lower() in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"} else ""
+                ),
+                "tour_status_updated_at": status_timestamp if str(payload.get("tour_status") or payload.get("status") or "").strip() else "",
                 "tour_progress_pct": str(
                     _property_visual_progress_pct(
                         request_kind="tour",
                         status=str(payload.get("tour_status") or payload.get("status") or "").strip().lower(),
                         ready_url=str(payload.get("tour_url") or "").strip(),
+                        eta_minutes=str(payload.get("tour_eta_minutes") or "").strip(),
+                        requested_at=str(payload.get("tour_requested_at") or "").strip() or status_timestamp,
+                        status_updated_at=status_timestamp,
                     )
                 ),
                 "flythrough_url": str(payload.get("flythrough_url") or "").strip(),
                 "flythrough_status": str(payload.get("flythrough_status") or "").strip().lower(),
                 "flythrough_eta_minutes": str(payload.get("flythrough_eta_minutes") or "").strip(),
+                "flythrough_requested_at": str(payload.get("flythrough_requested_at") or "").strip() or (
+                    status_timestamp if str(payload.get("flythrough_status") or "").strip().lower() in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"} else ""
+                ),
+                "flythrough_status_updated_at": status_timestamp if str(payload.get("flythrough_status") or "").strip() else "",
                 "flythrough_progress_pct": str(
                     _property_visual_progress_pct(
                         request_kind="flythrough",
                         status=str(payload.get("flythrough_status") or "").strip().lower(),
                         ready_url=str(payload.get("flythrough_url") or "").strip(),
+                        eta_minutes=str(payload.get("flythrough_eta_minutes") or "").strip(),
+                        requested_at=str(payload.get("flythrough_requested_at") or "").strip() or status_timestamp,
+                        status_updated_at=status_timestamp,
                     )
                 ),
                 "flythrough_reason": str(payload.get("flythrough_reason") or "").strip(),
@@ -29600,6 +30090,7 @@ class ProductService:
         candidate_ref: str = "",
         source_ref: str = "",
         property_url: str = "",
+        _repair_attempted: bool = False,
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         normalized_run_id = str(run_id or "").strip()
@@ -29674,11 +30165,48 @@ class ProductService:
             if normalized_kind == "flythrough"
             else str(matched_candidate.get("tour_eta_minutes") or "").strip()
         )
+        request_requested_at = (
+            str(matched_candidate.get("flythrough_requested_at") or "").strip()
+            if normalized_kind == "flythrough"
+            else str(matched_candidate.get("tour_requested_at") or "").strip()
+        ) or str(snapshot.get("updated_at") or snapshot.get("generated_at") or "").strip()
+        request_status_updated_at = (
+            str(matched_candidate.get("flythrough_status_updated_at") or "").strip()
+            if normalized_kind == "flythrough"
+            else str(matched_candidate.get("tour_status_updated_at") or "").strip()
+        ) or str(snapshot.get("updated_at") or snapshot.get("generated_at") or "").strip()
         reason = (
             str(matched_candidate.get("flythrough_reason") or "").strip()
             if normalized_kind == "flythrough"
             else blocked_reason
         )
+        if (
+            not _repair_attempted
+            and not ready_url
+            and self._property_visual_request_is_stale(
+                status=status_value,
+                requested_at=request_requested_at,
+                status_updated_at=request_status_updated_at,
+            )
+        ):
+            self._repair_stalled_property_visual_request(
+                principal_id=normalized_principal,
+                property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
+                title=title,
+                request_kind=normalized_kind,
+                source_ref=source_ref_value,
+                run_id=normalized_run_id,
+                candidate_ref=normalized_candidate_ref,
+            )
+            return self.get_property_visual_request_status(
+                principal_id=normalized_principal,
+                run_id=normalized_run_id,
+                request_kind=normalized_kind,
+                candidate_ref=normalized_candidate_ref,
+                source_ref=normalized_source_ref,
+                property_url=normalized_property_url,
+                _repair_attempted=True,
+            )
         if ready_url:
             status_value = "ready"
             status_label = "Open walkthrough" if normalized_kind == "flythrough" else "Open 3D tour"
@@ -29708,6 +30236,26 @@ class ProductService:
             status_label = "Request walkthrough" if normalized_kind == "flythrough" else "Request 3D tour"
             status_detail = "No media request is open for this home yet."
             status_value = "idle"
+        eta_label = _property_visual_eta_label(
+            request_kind=normalized_kind,
+            status=status_value,
+            eta_minutes=eta_minutes,
+            requested_at=request_requested_at,
+            status_updated_at=request_status_updated_at,
+        )
+        progress_pct = _property_visual_progress_pct(
+            request_kind=normalized_kind,
+            status=status_value,
+            ready_url=ready_url,
+            eta_minutes=eta_minutes,
+            requested_at=request_requested_at,
+            status_updated_at=request_status_updated_at,
+        )
+        if eta_label.startswith("delayed"):
+            if status_value in {"queued", "pending"}:
+                status_detail = "Still queued. Taking longer than usual."
+            elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
+                status_detail = "Still rendering. Taking longer than usual."
 
         return {
             "generated_at": _now_iso(),
@@ -29727,16 +30275,8 @@ class ProductService:
             "blocked_reason": blocked_reason,
             "status_label": status_label,
             "status_detail": status_detail,
-            "eta_label": _property_visual_eta_label(
-                request_kind=normalized_kind,
-                status=status_value,
-                eta_minutes=eta_minutes,
-            ),
-            "progress_pct": _property_visual_progress_pct(
-                request_kind=normalized_kind,
-                status=status_value,
-                ready_url=ready_url,
-            ),
+            "eta_label": eta_label,
+            "progress_pct": progress_pct,
             "poll_after_seconds": 10 if _property_tour_status_is_pending(status_value) else 0,
             "tour_media_mode": "stored_visual_state",
             "personal_fit_assessment": {},

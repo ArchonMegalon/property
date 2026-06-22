@@ -13060,6 +13060,179 @@ def test_property_visual_status_route_returns_current_visual_snapshot(monkeypatc
     assert body["poll_after_seconds"] == 10
 
 
+def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> None:
+    principal_id = "property-visual-status-stale-retry"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    candidate: dict[str, object] = {
+        "title": "Stale visual candidate",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/stale-visual-42",
+        "source_ref": "willhaben:stale-visual-42",
+        "tour_status": "pending",
+        "tour_requested_at": "2026-06-22T10:00:00+00:00",
+        "tour_status_updated_at": "2026-06-22T10:00:00+00:00",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-status-stale-retry"
+        return {
+            "run_id": run_id,
+            "updated_at": "2026-06-22T10:00:00+00:00",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "top_candidates": [dict(candidate)],
+                    }
+                ]
+            },
+        }
+
+    repaired: dict[str, object] = {}
+
+    def _fake_process(self, *, principal_id: str, actor: str, limit: int = 10):  # type: ignore[no-untyped-def]
+        repaired.update({"principal_id": principal_id, "actor": actor, "limit": limit})
+        candidate["tour_status"] = "created"
+        candidate["tour_url"] = "https://propertyquarry.com/tours/stale-visual-42"
+        candidate["tour_status_updated_at"] = "2026-06-22T10:09:00+00:00"
+        return {"attempted_total": 1, "resolved_total": 1}
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+    monkeypatch.setattr(ProductService, "process_property_tour_followup_tasks", _fake_process)
+    monkeypatch.setattr(ProductService, "_existing_property_tour_followup", lambda self, **kwargs: object())
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="willhaben:stale-visual-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/stale-visual-42",
+    )
+
+    assert repaired == {
+        "principal_id": principal_id,
+        "actor": "property_visual_status_repair",
+        "limit": 2,
+    }
+    assert response["status"] == "ready"
+    assert response["status_label"] == "Open 3D tour"
+    assert response["tour_url"] == "https://propertyquarry.com/tours/stale-visual-42"
+    assert response["poll_after_seconds"] == 0
+
+
+def test_property_tour_followup_dedupes_by_request_kind(monkeypatch) -> None:
+    principal_id = "property-tour-followup-request-kind"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    tour_task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-kind-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-kind-1",
+        external_id="demo-kind-1",
+        connector_binding_id="",
+        request_kind="tour",
+        run_id="run-kind-1",
+        candidate_ref="candidate-kind-1",
+        allow_floorplan_only=True,
+    )
+    flythrough_task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-kind-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-kind-1",
+        external_id="demo-kind-1",
+        connector_binding_id="",
+        request_kind="flythrough",
+        run_id="run-kind-1",
+        candidate_ref="candidate-kind-1",
+        allow_floorplan_only=True,
+    )
+
+    assert tour_task.human_task_id != flythrough_task.human_task_id
+
+
+def test_property_tour_followup_tasks_auto_process_user_visual_requests(monkeypatch) -> None:
+    principal_id = "property-tour-followup-auto-process"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+    observed: dict[str, object] = {}
+
+    def _fake_request_property_visual_asset(self, **kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        return {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": str(kwargs.get("request_kind") or "tour"),
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "",
+            "tour_status": "pending",
+            "flythrough_url": "https://propertyquarry.com/tours/demo-property?pane=flythrough-pane",
+            "flythrough_status": "ready",
+            "status_label": "Open walkthrough",
+        }
+
+    monkeypatch.setattr(ProductService, "request_property_visual_asset", _fake_request_property_visual_asset)
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-process-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-process-1",
+        external_id="demo-process-1",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-process-1",
+        candidate_ref="candidate-process-1",
+        allow_floorplan_only=True,
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["failed_total"] == 0
+    assert observed["request_kind"] == "flythrough"
+    assert observed["queue_async_request"] is False
+    assert observed["suppress_human_followup"] is True
+    assert observed["allow_floorplan_only"] is True
+    assert observed["binding_id"] == "binding-1"
+    assert observed["run_id"] == "run-process-1"
+    assert observed["candidate_ref"] == "candidate-process-1"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "ready"
+
+
 def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt

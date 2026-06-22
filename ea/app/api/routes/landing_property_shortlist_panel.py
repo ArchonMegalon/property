@@ -94,130 +94,139 @@ def build_property_shortlist_panel(
     if not wants_run_views:
         return property_shortlist_rows, property_shortlist_cards
 
-    for source in list(property_summary.get("sources") or []):
-        if not isinstance(source, dict):
-            continue
-        source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-        for candidate in list(source.get("top_candidates") or [])[:5]:
-            if not isinstance(candidate, dict):
+    ranked_candidates = [
+        dict(candidate)
+        for candidate in list(property_summary.get("ranked_candidates") or [])
+        if isinstance(candidate, dict)
+    ]
+    if not ranked_candidates:
+        for source in list(property_summary.get("sources") or []):
+            if not isinstance(source, dict):
                 continue
-            title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
-            detail_parts = [
-                clean_candidate_copy(candidate.get("fit_summary") or ""),
-                source_label,
-            ]
-            match_reasons = [
-                clean_candidate_copy(item)
-                for item in list(candidate.get("match_reasons") or [])
-                if clean_candidate_copy(item)
-            ]
-            mismatch_reasons = [
-                clean_candidate_copy(item)
-                for item in list(candidate.get("mismatch_reasons") or [])
-                if clean_candidate_copy(item)
-            ]
-            priority_reason = candidate_priority_reason(match_reasons, mismatch_reasons, clean_candidate_copy(candidate.get("fit_summary") or ""))
-            compare_reason = str(candidate.get("compare_reason") or "").strip()
-            if compare_reason:
-                detail_parts.append(compare_reason)
-            if priority_reason:
-                detail_parts.append(priority_reason)
-            row: dict[str, str] = {
-                "title": title,
-                "detail": " | ".join(part for part in detail_parts if part) or source_label,
-                "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
-            }
-            review_url = str(candidate.get("review_url") or "").strip()
-            tour_url = str(candidate.get("tour_url") or "").strip()
-            property_url = str(candidate.get("property_url") or "").strip()
-            packet_ref = property_candidate_ref(
-                {
-                    "title": title,
-                    "property_url": property_url,
-                    "review_url": review_url,
-                    "tour_url": tour_url,
-                    "source_label": source_label,
-                }
-            )
-            packet_url = f"/app/research/{packet_ref}"
-            if active_run_id:
-                packet_url = f"{packet_url}?run_id={active_run_id}"
-            if review_url:
-                row["action_href"] = packet_url
-                row["action_method"] = "get"
-                row["action_label"] = "Open property page"
-                row["secondary_action_href"] = review_url
-                row["secondary_action_method"] = "get"
-                row["secondary_action_label"] = "Open listing"
-            else:
-                row["action_href"] = packet_url
-                row["action_method"] = "get"
-                row["action_label"] = "Open property page"
-            if tour_url:
-                if row.get("secondary_action_href"):
-                    row["tertiary_action_href"] = tour_url
-                    row["tertiary_action_method"] = "get"
-                    row["tertiary_action_label"] = "Open 360"
-                elif row.get("action_href"):
-                    row["secondary_action_href"] = tour_url
-                    row["secondary_action_method"] = "get"
-                    row["secondary_action_label"] = "Open 360"
-                else:
-                    row["action_href"] = tour_url
-                    row["action_method"] = "get"
-                    row["action_label"] = "Open 360"
-            if property_url:
-                if row.get("tertiary_action_href"):
-                    row["quaternary_action_href"] = property_url
-                    row["quaternary_action_method"] = "get"
-                    row["quaternary_action_label"] = "Source"
-                elif row.get("secondary_action_href"):
-                    row["tertiary_action_href"] = property_url
-                    row["tertiary_action_method"] = "get"
-                    row["tertiary_action_label"] = "Source"
-                elif row.get("action_href"):
-                    row["secondary_action_href"] = property_url
-                    row["secondary_action_method"] = "get"
-                    row["secondary_action_label"] = "Source"
-                else:
-                    row["action_href"] = property_url
-                    row["action_method"] = "get"
-                    row["action_label"] = "Source"
-            property_shortlist_rows.append(row)
-            property_shortlist_cards.append(
-                {
-                    "title": title,
-                    "source_label": source_label,
-                    "detail": row["detail"],
-                    "tag": row["tag"],
-                    "fit_summary": str(candidate.get("fit_summary") or "").strip(),
-                    "recommendation": str(candidate.get("recommendation") or "").strip(),
-                    "property_url": property_url,
-                    "packet_url": packet_url,
-                    "review_url": review_url,
-                    "tour_url": tour_url,
-                    "tour_status": str(candidate.get("tour_status") or "").strip(),
-                    "tour_eta_minutes": candidate.get("tour_eta_minutes") or "",
-                    "blocked_reason": str(candidate.get("blocked_reason") or "").strip(),
-                    "match_reasons": match_reasons,
-                    "mismatch_reasons": mismatch_reasons,
-                    "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
-                    "research_highlights": _candidate_research_highlights(candidate),
-                    "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
-                    "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
-                    "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
-                    "feedback_rows": [
-                        dict(row)
-                        for row in list(candidate.get("feedback_rows") or [])
-                        if isinstance(row, dict)
-                    ],
-                }
-            )
-    property_shortlist_rows.sort(
-        key=lambda item: (
-            "shortlist" not in str(item.get("tag") or "").lower(),
-            "view if compelling" not in str(item.get("tag") or "").lower(),
-            str(item.get("title") or ""),
+            source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+            for candidate in list(source.get("top_candidates") or []):
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_row = dict(candidate)
+                candidate_row.setdefault("source_label", source_label)
+                ranked_candidates.append(candidate_row)
+
+    ranked_candidates.sort(
+        key=lambda candidate: (
+            int(candidate.get("rank") or 9999),
+            -float(candidate.get("ranking_score") or candidate.get("fit_score") or 0.0),
         )
     )
-    return property_shortlist_rows[:8], property_shortlist_cards[:6]
+
+    for candidate in ranked_candidates:
+        source_label = str(candidate.get("source_label") or candidate.get("source_url") or "Source").strip()
+        title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
+        detail_parts = [clean_candidate_copy(candidate.get("fit_summary") or "")]
+        match_reasons = [
+            clean_candidate_copy(item)
+            for item in list(candidate.get("match_reasons") or [])
+            if clean_candidate_copy(item)
+        ]
+        mismatch_reasons = [
+            clean_candidate_copy(item)
+            for item in list(candidate.get("mismatch_reasons") or [])
+            if clean_candidate_copy(item)
+        ]
+        priority_reason = candidate_priority_reason(match_reasons, mismatch_reasons, clean_candidate_copy(candidate.get("fit_summary") or ""))
+        compare_reason = str(candidate.get("compare_reason") or "").strip()
+        if compare_reason:
+            detail_parts.append(compare_reason)
+        if priority_reason:
+            detail_parts.append(priority_reason)
+        row: dict[str, str] = {
+            "title": title,
+            "detail": " | ".join(part for part in detail_parts if part) or source_label,
+            "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
+        }
+        review_url = str(candidate.get("review_url") or "").strip()
+        tour_url = str(candidate.get("tour_url") or "").strip()
+        property_url = str(candidate.get("property_url") or "").strip()
+        packet_ref = property_candidate_ref(
+            {
+                "title": title,
+                "property_url": property_url,
+                "review_url": review_url,
+                "tour_url": tour_url,
+                "source_label": source_label,
+            }
+        )
+        packet_url = f"/app/research/{packet_ref}"
+        if active_run_id:
+            packet_url = f"{packet_url}?run_id={active_run_id}"
+        if review_url:
+            row["action_href"] = packet_url
+            row["action_method"] = "get"
+            row["action_label"] = "Open property page"
+            row["secondary_action_href"] = review_url
+            row["secondary_action_method"] = "get"
+            row["secondary_action_label"] = "Open listing"
+        else:
+            row["action_href"] = packet_url
+            row["action_method"] = "get"
+            row["action_label"] = "Open property page"
+        if tour_url:
+            if row.get("secondary_action_href"):
+                row["tertiary_action_href"] = tour_url
+                row["tertiary_action_method"] = "get"
+                row["tertiary_action_label"] = "Open 360"
+            elif row.get("action_href"):
+                row["secondary_action_href"] = tour_url
+                row["secondary_action_method"] = "get"
+                row["secondary_action_label"] = "Open 360"
+            else:
+                row["action_href"] = tour_url
+                row["action_method"] = "get"
+                row["action_label"] = "Open 360"
+        if property_url:
+            if row.get("tertiary_action_href"):
+                row["quaternary_action_href"] = property_url
+                row["quaternary_action_method"] = "get"
+                row["quaternary_action_label"] = "Source"
+            elif row.get("secondary_action_href"):
+                row["tertiary_action_href"] = property_url
+                row["tertiary_action_method"] = "get"
+                row["tertiary_action_label"] = "Source"
+            elif row.get("action_href"):
+                row["secondary_action_href"] = property_url
+                row["secondary_action_method"] = "get"
+                row["secondary_action_label"] = "Source"
+            else:
+                row["action_href"] = property_url
+                row["action_method"] = "get"
+                row["action_label"] = "Source"
+        property_shortlist_rows.append(row)
+        property_shortlist_cards.append(
+            {
+                "title": title,
+                "source_label": source_label,
+                "detail": row["detail"],
+                "tag": row["tag"],
+                "fit_summary": str(candidate.get("fit_summary") or "").strip(),
+                "recommendation": str(candidate.get("recommendation") or "").strip(),
+                "property_url": property_url,
+                "packet_url": packet_url,
+                "review_url": review_url,
+                "tour_url": tour_url,
+                "tour_status": str(candidate.get("tour_status") or "").strip(),
+                "tour_eta_minutes": candidate.get("tour_eta_minutes") or "",
+                "blocked_reason": str(candidate.get("blocked_reason") or "").strip(),
+                "match_reasons": match_reasons,
+                "mismatch_reasons": mismatch_reasons,
+                "lifestyle_highlights": _candidate_lifestyle_highlights(candidate),
+                "research_highlights": _candidate_research_highlights(candidate),
+                "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
+                "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
+                "feedback_summary": dict(candidate.get("feedback_summary") or {}) if isinstance(candidate.get("feedback_summary"), dict) else {},
+                "feedback_rows": [
+                    dict(row)
+                    for row in list(candidate.get("feedback_rows") or [])
+                    if isinstance(row, dict)
+                ],
+            }
+        )
+    return property_shortlist_rows[:8], property_shortlist_cards[:50]

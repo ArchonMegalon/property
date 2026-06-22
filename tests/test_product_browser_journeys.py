@@ -267,7 +267,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
 
     shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=property_headers)
     assert shortlist.status_code == 200
-    assert "Review the properties that deserve attention now." in shortlist.text
+    assert "shortlisted homes" in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Open property page" in shortlist.text
     assert "Open listing" in shortlist.text

@@ -1,22 +1,20 @@
 <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
   {% set run_summary = run.get('summary') or {} %}
+  {% set is_shortlist_surface = surface_mode == 'shortlist' %}
   {% set run_sources = run_summary.get('sources') or [] %}
   {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
   {% set score_demoted_total = run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0 %}
+  {% set results_label = 'shortlisted opportunities' if is_shortlist_surface and brief.get('search_goal') == 'investment' else ('shortlisted homes' if is_shortlist_surface else ('ranked opportunities' if brief.get('search_goal') == 'investment' else 'ranked homes')) %}
   <div class="pqx-result-panel-head">
     <div class="pqx-results-headline">
       <div class="pqx-note pqx-results-summary-row">
-        {% if brief.get('search_goal') == 'investment' %}
-        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked opportunities</a>
-        {% else %}
-        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> ranked homes</a>
-        {% endif %}
-        {% if filtered_total %}
+        <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
+        {% if not is_shortlist_surface and filtered_total %}
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} filtered">
           {{ filtered_total }} filtered
         </a>
         {% endif %}
-        {% if score_demoted_total %}
+        {% if not is_shortlist_surface and score_demoted_total %}
         <a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ score_demoted_total }} homes affected by soft preferences">
           {{ score_demoted_total }} score affected
         </a>
@@ -24,7 +22,7 @@
       </div>
     </div>
   </div>
-  {% if score_methodology %}
+  {% if score_methodology and not is_shortlist_surface %}
   <section class="pqx-score-bts" aria-label="{{ score_methodology.get('title') or 'Behind the score' }}">
     <div class="pqx-score-bts-head">
       <div>
@@ -40,8 +38,8 @@
     </div>
     <p>{{ score_methodology.get('summary') }}</p>
     <div class="pqx-score-bts-actions">
-      <a class="pqx-link-button" href="/app/api/properties/score-methodology/pdf?language={{ score_methodology.get('language_code') or 'en' }}&country={{ score_methodology.get('country_code') or brief.get('country_code') or 'AT' }}" target="_blank" rel="noreferrer">
-        Open FlipLink score PDF
+      <a class="pqx-link-button" href="/how-it-works/score?language={{ score_methodology.get('language_code') or 'en' }}&country={{ score_methodology.get('country_code') or brief.get('country_code') or 'AT' }}">
+        Open score guide
       </a>
     </div>
     <div class="pqx-score-bts-grid">
@@ -207,12 +205,10 @@
     {% endfor %}
     {% if not results %}
     <div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state>
-      {% if surface_mode == 'shortlist' %}
-      <strong>No saved shortlist yet.</strong>
-      <span class="pqx-note">Shortlisted homes stay here across searches until you remove them.</span>
+      {% if is_shortlist_surface %}
+      <strong>No shortlist yet.</strong>
       <span class="pqx-actions">
         <a class="pqx-button primary" href="/app/search">Start search</a>
-        <a class="pqx-button subtle" href="/app/agents">Open saved searches</a>
       </span>
       {% else %}
       <strong>No ranked homes are ready yet.</strong>
@@ -227,7 +223,7 @@
     </div>
     {% endif %}
   </div>
-  {% if filtered_total %}
+  {% if filtered_total and not is_shortlist_surface %}
   <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
     <summary><strong>Why homes stayed out</strong><span class="pqx-note">Hard rules and soft-score effects</span></summary>
     <div class="pqx-source-list" data-pqx-source-breakdown>

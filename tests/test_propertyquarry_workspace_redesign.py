@@ -99,10 +99,11 @@ def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_token
             assert token not in body, f"{token!r} leaked into {template_path.relative_to(repo_root)}"
 
 
-def test_property_results_empty_state_uses_saved_search_language() -> None:
+def test_property_results_empty_state_keeps_shortlist_minimal() -> None:
     body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
 
-    assert "Open saved searches" in body
+    assert "No shortlist yet." in body
+    assert "Shortlisted homes stay here across searches until you remove them." not in body
     assert "Open automation" not in body
 
 
@@ -552,8 +553,9 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
     assert "button.setAttribute('data-pw-visual-state', requestedReadyUrl ? 'ready' : requestedStatus)" in body
     assert "Open walkthrough" in research_detail
     assert "Open flythrough" not in research_detail
-    assert "['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextState)" in research_detail
-    assert "button.disabled = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'].includes(currentState)" in research_detail
+    assert "const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering'];" in research_detail
+    assert "const isWaiting = visualPendingStates.includes(nextState);" in research_detail
+    assert "button.disabled = isWaiting;" in research_detail
 
 
 def test_propertyquarry_register_surface_uses_property_search_language() -> None:
@@ -1107,11 +1109,105 @@ def test_propertyquarry_shortlist_without_runs_renders_actionable_empty_state() 
     response = client.get("/app/shortlist", headers={"host": "propertyquarry.com"})
 
     assert response.status_code == 200
-    assert "No saved shortlist yet." in response.text
-    assert "Shortlisted homes stay here across searches until you remove them." in response.text
+    assert "No shortlist yet." in response.text
     assert 'href="/app/search"' in response.text
-    assert 'href="/app/agents"' in response.text
     assert 'data-pqx-results-empty-state' in response.text
+
+
+def test_propertyquarry_shortlist_prefers_live_run_results_over_stale_shortlist_meta(monkeypatch) -> None:
+    principal_id = "pq-shortlist-live-results"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Shortlist Live Run Office")
+
+    ranked_candidates = [
+        {
+            "candidate_ref": "cand-1",
+            "title": "First Vienna flat",
+            "property_url": "https://example.test/flat-1",
+            "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+            "fit_score": 82,
+            "property_facts": {
+                "postal_name": "1010 Wien",
+                "rent_display": "EUR 1,200",
+                "total_rent_eur": 1200,
+                "area_sqm": 72,
+                "rooms": 3,
+            },
+        },
+        {
+            "candidate_ref": "cand-2",
+            "title": "Second Vienna flat",
+            "property_url": "https://example.test/flat-2",
+            "source_label": "DER STANDARD Immobilien | Austria | Rent | 1010 Vienna",
+            "fit_score": 80,
+            "property_facts": {
+                "postal_name": "1010 Wien",
+                "rent_display": "EUR 1,260",
+                "total_rent_eur": 1260,
+                "area_sqm": 70,
+                "rooms": 3,
+            },
+        },
+        {
+            "candidate_ref": "cand-3",
+            "title": "Third Vienna flat",
+            "property_url": "https://example.test/flat-3",
+            "source_label": "Raiffeisen WohnBau | Austria | Rent | 1010 Vienna",
+            "fit_score": 78,
+            "property_facts": {
+                "postal_name": "1010 Wien",
+                "rent_display": "EUR 1,310",
+                "total_rent_eur": 1310,
+                "area_sqm": 68,
+                "rooms": 2,
+            },
+        },
+    ]
+
+    def _fake_runs(self, *, principal_id: str, limit: int = 8):
+        return [
+            {
+                "run_id": "run-live-shortlist",
+                "status": "completed",
+                "progress": 100,
+                "principal_id": principal_id,
+                "summary": {"ranked_candidates": ranked_candidates, "sources": []},
+            }
+        ]
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "progress": 100,
+            "principal_id": principal_id,
+            "summary": {"ranked_candidates": ranked_candidates, "sources": []},
+        }
+
+    def _stale_shortlist_panel(**kwargs):
+        return (
+            [],
+            [
+                {
+                    "title": "First Vienna flat",
+                    "packet_url": "/app/research/cand-1?run_id=run-live-shortlist",
+                    "review_url": "https://example.test/flat-1",
+                    "property_url": "https://example.test/flat-1",
+                }
+            ],
+        )
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "list_property_saved_shortlist_candidates", lambda self, *, principal_id: [])
+    monkeypatch.setattr(landing_view_models, "build_property_shortlist_panel", _stale_shortlist_panel)
+
+    response = client.get("/app/shortlist", params={"run_id": "run-live-shortlist"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "First Vienna flat" in response.text
+    assert "Second Vienna flat" in response.text
+    assert "Third Vienna flat" in response.text
 
 
 def test_property_suppression_rows_synthesizes_generic_breakdown_from_aggregate_filtered_total() -> None:
@@ -3363,7 +3459,8 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "Open question helper" in body
     assert "data-prd-map-overlay" in body
     assert "Questions worth asking next" in body
-    assert "Requesting a 3D tour from the available source material" in body
+    assert "3D tour queued" in body
+    assert "Walkthrough queued" in body
     assert ".prd-actions .console-action.is-processing::before" in body
     assert "prd-media-image-failed" in body
     assert "img[data-prd-hero-image]" in body
@@ -3375,9 +3472,9 @@ def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     body = template_path.read_text(encoding="utf-8")
     assert "grid-template-columns: minmax(0, 0.95fr) minmax(340px, 0.78fr);" in body
     assert "grid-template-columns: 1fr;" in body
-    assert "min-height: clamp(176px, 24vh, 238px);" in body
-    assert "max-height: min(calc(100vh - 420px), 260px);" in body
-    assert "min-height: clamp(190px, 26vh, 252px);" in body
+    assert "min-height: clamp(184px, 25vh, 244px);" in body
+    assert "max-height: min(calc(100vh - 410px), 272px);" in body
+    assert "min-height: clamp(198px, 27vh, 258px);" in body
     assert "grid-template-columns: 72px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert "prd-hero-gallery" in body
@@ -6505,6 +6602,16 @@ def test_property_finished_search_results_prioritize_main_list_and_filtered_disc
     assert "Best homes first" not in body
 
 
+def test_property_shortlist_results_stay_minimal_in_template_and_rehydration_bundle() -> None:
+    body = _read_workbench_bundle()
+
+    assert "score_methodology and not is_shortlist_surface" in body
+    assert "filtered_total and not is_shortlist_surface" in body
+    assert "const shortlistSurface = initialSurface === 'shortlist';" in body
+    assert "!shortlistSurface && filteredTotal > 0" in body
+    assert "No shortlist yet." in body
+
+
 def test_property_live_run_has_no_manual_refresh_controls() -> None:
     body = _read_workbench_bundle()
     running_panel = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_running_panel.html").read_text(encoding="utf-8")
@@ -7449,6 +7556,76 @@ def test_propertyquarry_shortlist_excludes_saved_candidates_outside_active_run_a
     assert shortlist.status_code == 200
     assert "Vienna inner-district flat" in shortlist.text
     assert "Schardenberg rental" not in shortlist.text
+
+
+def test_propertyquarry_shortlist_keeps_live_ranked_candidates_without_second_gate_drop(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-live-ranked")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+                "selected_districts": ["1010 Vienna"],
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-1",
+                        "title": "Praterstrasse fit",
+                        "property_url": "https://example.test/prater",
+                        "fit_score": 68,
+                        "match_reasons": ["Transit and daily life fit well."],
+                        "property_facts": {
+                            "postal_name": "1020 Wien",
+                            "rooms": 2,
+                        },
+                    },
+                    {
+                        "candidate_ref": "cand-2",
+                        "title": "Another ranked survivor",
+                        "property_url": "https://example.test/second",
+                        "fit_score": 63,
+                        "match_reasons": ["Soft preferences lowered the score but did not filter it."],
+                        "property_facts": {
+                            "postal_name": "1030 Wien",
+                            "rooms": 3,
+                        },
+                    },
+                ],
+                "sources": [],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-live-42"}, headers={"host": "propertyquarry.com"})
+
+    assert shortlist.status_code == 200
+    assert "Praterstrasse fit" in shortlist.text
+    assert "Another ranked survivor" in shortlist.text
+
+
+def test_property_selected_review_panel_stays_compact_without_old_decision_noise() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_selected_review_panel.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Use this as the short decision read before you contact the agent, request documents, or move on." not in body
+    assert "Pick the answer that matches your real-world next step. Add only the reasons that matter." not in body
+    assert "<strong>This will</strong>" not in body
+    assert "<summary><strong>Next step</strong></summary>" in body
 
 
 def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
@@ -9014,7 +9191,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert 'id="profile"' in account.text
     assert "Open pricing" in account.text
     assert "How it works" in account.text
-    assert "FlipLink score PDF" in account.text
+    assert "Open guide" in account.text
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text

@@ -31,7 +31,6 @@
       </div>
       <details class="pqx-decision-advanced" style="margin-top:12px;">
         <summary><strong>More actions</strong></summary>
-        <div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div>
         <div class="pqx-actions" style="margin-top:14px;">
           {% set selected_visual_property_url = selected.get('property_url') or selected.get('source_url') or selected.get('listing_url') %}
           {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}" target="_blank" rel="noreferrer" data-rybbit-event="property_open_listing" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Open listing</a>{% endif %}
@@ -48,22 +47,18 @@
   <div class="pqx-evidence">
     <section class="pqx-card">
       <div class="pqx-section-head"><h2>Current read</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
-      <div class="pqx-note">Use this as the short decision read before you contact the agent, request documents, or move on.</div>
       <div class="pqx-reading-board">
         <article class="pqx-reading-card">
           <span class="pqx-small">Current read</span>
           <strong>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('headline') or selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This opportunity stayed in the current investment pass.' }}{% else %}{{ selected.get('ooda', {}).get('summary') or selected.get('fit_summary') or 'This home stayed in the current shortlist after the latest fit pass.' }}{% endif %}</strong>
-          <small>The lead judgment should tell you whether deeper review is warranted now.</small>
         </article>
         <article class="pqx-reading-card">
           <span class="pqx-small">Main watch-out</span>
           <strong>{{ selected.get('risk', {}).get('summary') or 'No primary blocker captured yet.' }}</strong>
-          <small>Use this to decide whether to verify, pause, or drop the candidate.</small>
         </article>
         <article class="pqx-reading-card">
           <span class="pqx-small">Next answer</span>
           <strong>{% if selected.get('review_page_neuronwriter', {}).get('questions') %}{{ (selected.get('review_page_neuronwriter', {}).get('questions') or [])[0] }}{% elif brief.get('search_goal') == 'investment' %}Confirm rent, tax, and operating cost evidence before acting on the underwriting read.{% else %}Open the property page, confirm the layout, and check the next agent-facing question.{% endif %}</strong>
-          <small>Keep the next real-world step clearer than another round of browsing.</small>
         </article>
       </div>
       <div class="pqx-event-list">
@@ -101,8 +96,6 @@
     </section>
     <section class="pqx-card pqx-decision-wizard">
       <div class="pqx-section-head"><h2>Save your decision</h2><span class="pqx-pill">Decision</span></div>
-      <div class="pqx-note"><strong>Record the outcome</strong></div>
-      <div class="pqx-decision-copy">Pick the answer that matches your real-world next step. Add only the reasons that matter.</div>
       <div class="pqx-decision-row" aria-label="Property decision reaction">
         <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
         <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="maybe">Maybe</button>
@@ -111,15 +104,11 @@
       </div>
       <div class="pqx-decision-status" data-pw-feedback-status>Pick Yes, Maybe, No, or Hide.</div>
       <div class="pqx-decision-detail" data-pw-decision-detail hidden>
-        <div class="pqx-decision-copy"><strong>What drove that?</strong> Pick the strongest reasons first. If the answer is No, these reduce similar matches next time.</div>
+        <div class="pqx-decision-copy"><strong>What drove that?</strong></div>
         <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
-        <div class="pqx-decision-copy"><strong>Next question to send</strong></div>
+        <div class="pqx-decision-copy"><strong>Next question</strong></div>
         <div class="pqx-event-list" data-pw-feedback-questions>
           <div class="pqx-note">Loading the next suggested questions.</div>
-        </div>
-        <div class="pqx-decision-copy"><strong>This will</strong></div>
-        <div class="pqx-event-list" data-pw-feedback-consequences>
-          <div class="pqx-note">Update your future ranking and keep the next action visible.</div>
         </div>
         <textarea class="pqx-decision-note" rows="3" placeholder="What worked, failed, or still feels unclear?" data-pw-feedback-note></textarea>
         <div class="pqx-actions">
@@ -128,8 +117,7 @@
         </div>
       </div>
       <details class="pqx-decision-advanced">
-        <summary><strong>Next real-world step</strong><span class="pqx-note">Use this once the next move is clearer than another vote.</span></summary>
-        <div class="pqx-decision-copy"><strong>Decision state</strong> Move the property forward when the next real-world action is clearer than another like/dislike vote.</div>
+        <summary><strong>Next step</strong></summary>
         <div class="pqx-actions">
           <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
           <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>

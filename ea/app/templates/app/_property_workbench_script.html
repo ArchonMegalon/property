@@ -34,6 +34,10 @@
       (window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     );
     const browserNotificationButton = root.querySelector('[data-pqx-browser-alerts]');
+    const browserNotificationsEnabled = () => (
+      window.localStorage.getItem(notificationStorageKey) === '1' &&
+      String(window.Notification?.permission || 'default') === 'granted'
+    );
     const updateBrowserNotificationButton = () => {
       if (!browserNotificationButton) return;
       if (!browserNotificationsSupported()) {
@@ -42,18 +46,26 @@
       }
       browserNotificationButton.hidden = false;
       const permission = String(window.Notification?.permission || 'default');
-      const enabled = window.localStorage.getItem(notificationStorageKey) === '1' && permission === 'granted';
-      browserNotificationButton.textContent = enabled ? 'Browser alerts on' : (permission === 'denied' ? 'Browser alerts blocked' : 'Enable browser alerts');
+      const enabled = browserNotificationsEnabled();
+      browserNotificationButton.textContent = enabled ? 'Browser alerts on' : (permission === 'denied' ? 'Browser alerts blocked' : 'Browser alerts off');
       browserNotificationButton.disabled = permission === 'denied';
+      browserNotificationButton.setAttribute('aria-pressed', enabled ? 'true' : 'false');
     };
     const requestBrowserNotifications = async () => {
       if (!browserNotificationsSupported()) return;
-      let permission = String(window.Notification.permission || 'default');
-      if (permission === 'default') {
-        permission = await window.Notification.requestPermission();
+      if (browserNotificationsEnabled()) {
+        window.localStorage.removeItem(notificationStorageKey);
+        updateBrowserNotificationButton();
+        return;
       }
+      let permission = String(window.Notification.permission || 'default');
       if (permission === 'granted') {
         window.localStorage.setItem(notificationStorageKey, '1');
+      } else if (permission === 'default') {
+        permission = await window.Notification.requestPermission();
+        if (permission === 'granted') {
+          window.localStorage.setItem(notificationStorageKey, '1');
+        }
       }
       updateBrowserNotificationButton();
     };
@@ -1534,7 +1546,8 @@
       });
     };
     const renderRankedCandidates = (candidates, runPayload = null) => {
-      const rows = Array.isArray(candidates) ? candidates.slice(0, 20) : [];
+      const rows = Array.isArray(candidates) ? candidates.slice(0, 50) : [];
+      const shortlistSurface = initialSurface === 'shortlist';
       const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
       const summary = runPayload?.summary && typeof runPayload.summary === 'object' ? runPayload.summary : {};
       const componentFilteredTotal = Number(summary.filtered_area_total || 0)
@@ -1564,16 +1577,18 @@
         || componentFilteredTotal
         || 0
       );
-      const summaryLabel = investmentSearch ? 'ranked opportunities' : 'ranked homes';
-      const filteredLabel = filteredTotal > 0 ? (
+      const summaryLabel = shortlistSurface
+        ? (investmentSearch ? 'shortlisted opportunities' : 'shortlisted homes')
+        : (investmentSearch ? 'ranked opportunities' : 'ranked homes');
+      const filteredLabel = !shortlistSurface && filteredTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
         `aria-label="${escapeHtml(filteredTotal)} candidates filtered by hard rules">${escapeHtml(filteredTotal)} filtered</a>`
       ) : '';
-      const scoreDemotedLabel = scoreDemotedTotal > 0 ? (
+      const scoreDemotedLabel = !shortlistSurface && scoreDemotedTotal > 0 ? (
         `<a class="pqx-results-summary-link pqx-results-soft-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open ` +
         `aria-label="${escapeHtml(scoreDemotedTotal)} homes affected by soft preferences">${escapeHtml(scoreDemotedTotal)} score affected</a>`
       ) : '';
-      const filteredBreakdown = (filteredTotal > 0 || scoreDemotedTotal > 0) ? `
+      const filteredBreakdown = (!shortlistSurface && (filteredTotal > 0 || scoreDemotedTotal > 0)) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>
             <summary><strong>Why homes stayed out</strong><span class="pqx-note">Hard rules and soft-score effects</span></summary>
             <div class="pqx-source-list" data-pqx-source-breakdown>${renderSourceBreakdown(runPayload?.summary?.sources || [])}</div>
@@ -1592,7 +1607,9 @@
               </div>
             </div>
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
-              <div class="pqx-empty">No ranked homes are ready yet. Relax one hard rule and rerun.</div>
+              ${shortlistSurface
+                ? '<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="/app/search">Start search</a></span></div>'
+                : '<div class="pqx-empty">No ranked homes are ready yet. Relax one hard rule and rerun.</div>'}
             </div>
             ${filteredBreakdown}
           </section>
@@ -1655,6 +1672,7 @@
           flythroughUrl ? `<a class="pqx-result-open" href="${escapeHtml(flythroughUrl)}">Open walkthrough</a>` : '',
           propertyUrl && !tourUrl && !flythroughLabel ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Request walkthrough</button>` : '',
           packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
+          shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         return `
           <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" role="button" tabindex="0" aria-selected="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-candidate-listing-url="${escapeHtml(propertyUrl)}" data-workbench-row>
@@ -1687,6 +1705,7 @@
               <div class="pqx-note pqx-results-summary-row">
                 <a class="pqx-results-summary-link" href="#results-list"><b>${rows.length}</b> ${summaryLabel}</a>
                 ${filteredLabel}
+                ${scoreDemotedLabel}
               </div>
             </div>
           </div>

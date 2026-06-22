@@ -106,7 +106,7 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
     assert payload["calculation_detail_title"] == "Wo jede Zahl herkommt"
     assert any(row["label"] == "Harte Regeln bestanden" and row["delta"] == "+8" for row in payload["calculation_detail_rows"])
     assert any("starker Wunsch etwa +12" in row["alternatives"] for row in payload["calculation_detail_rows"])
-    assert any("Nice-to-have etwa -3" in row["alternatives"] for row in payload["calculation_detail_rows"])
+    assert any("Wuenschenswert etwa -3" in row["alternatives"] for row in payload["calculation_detail_rows"])
     assert any(row["level"] == "Starker Wunsch" for row in payload["weight_ladder_rows"])
 
 
@@ -162,9 +162,9 @@ def test_score_methodology_survives_redaction_and_renders_in_premium_html() -> N
 def test_results_bts_exposes_score_pdf_action() -> None:
     template = (ROOT / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
 
-    assert "/app/api/properties/score-methodology/pdf" in template
+    assert "/how-it-works/score" in template
     assert "&country=" in template
-    assert "Open FlipLink score PDF" in template
+    assert "Open score guide" in template
 
 
 def test_selected_property_score_cards_keep_score_pdf_out_of_property_cards() -> None:
@@ -173,6 +173,6 @@ def test_selected_property_score_cards_keep_score_pdf_out_of_property_cards() ->
     results_bts = (ROOT / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
 
     assert "/app/api/properties/score-methodology/pdf" not in desktop
-    assert desktop.count("Open FlipLink score PDF") == 0
-    assert mobile.count("Open FlipLink score PDF") == 0
-    assert results_bts.count("Open FlipLink score PDF") == 1
+    assert desktop.count("Open score guide") == 0
+    assert mobile.count("Open score guide") == 0
+    assert results_bts.count("Open score guide") == 1

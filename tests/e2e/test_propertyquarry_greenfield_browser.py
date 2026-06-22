@@ -902,7 +902,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         page.locator("[data-workbench-row]:visible").first.wait_for(timeout=5000)
         assert page.locator("[data-workbench-row]").first.is_visible()
         assert page.locator("[data-workbench-row][data-candidate-packet-url]").first.is_visible()
-        assert page.locator("body", has_text=re.compile(r"ranked homes", re.I)).is_visible()
+        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
         assert page.locator("body", has_text="360 ready").is_visible()
@@ -1134,6 +1134,41 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         app_context.close()
 
 
+def test_propertyquarry_score_viewer_renders_compact_public_iframe(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_public_context(browser, mobile=False, width=1366, height=960)
+    context.add_init_script("window.localStorage.setItem('propertyquarry.theme', 'dark');")
+    try:
+        page = context.new_page()
+        response = page.goto(f"{base_url}/how-it-works/score?language=de&country=AT", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+        page.locator(".pqx-score-viewer-shell").wait_for(state="visible")
+        expect(page.locator(".pqx-score-viewer-frame iframe")).to_have_attribute(
+            "src",
+            re.compile(r"/v1/integrations/fliplink/documents/score-methodology\.pdf\?language=de&country=AT"),
+        )
+        _assert_no_horizontal_overflow(page)
+        _assert_dark_mode_surfaces_stay_readable(
+            page,
+            [
+                ".pqx-score-viewer-shell",
+                ".pqx-score-viewer-card",
+                ".pqx-score-viewer-meta span",
+                ".pqx-score-viewer-frame",
+            ],
+        )
+        screenshot_path = tmp_path / "propertyquarry-score-viewer-dark.png"
+        page.screenshot(path=str(screenshot_path), full_page=False, animations="disabled", caret="hide")
+        assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
+    finally:
+        context.close()
+
+
 def test_propertyquarry_greenfield_workspace_is_mobile_usable(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -1171,14 +1206,21 @@ def test_propertyquarry_results_filtered_link_opens_filtered_breakdown_when_no_r
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="networkidle")
         assert response is not None and response.ok
+        page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         filtered_button = page.locator('[data-pqx-filtered-open]').first
         filtered_button.wait_for(timeout=5000)
-        expect(filtered_button).to_contain_text(re.compile(r"\d+\s+filtered|relax this brief", re.I), timeout=5000)
+        expect(filtered_button).to_contain_text(
+            re.compile(r"\d+\s+filtered|relax this brief|reopen the brief|relax one hard filter", re.I),
+            timeout=5000,
+        )
         filtered_button.click()
         page.wait_for_function(
             """
@@ -1566,6 +1608,52 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_browser_alert_button_toggles_enabled_state(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+          try { Object.defineProperty(window, 'isSecureContext', { get: () => true, configurable: true }); } catch (_err) {}
+          window.localStorage.setItem('propertyquarry.browserNotifications.enabled', '1');
+          window.localStorage.setItem('pq-test-notification-permission-requests', '0');
+          class FakeNotification {
+            static permission = 'granted';
+            static requestPermission = async () => {
+              const current = Number(window.localStorage.getItem('pq-test-notification-permission-requests') || '0');
+              window.localStorage.setItem('pq-test-notification-permission-requests', String(current + 1));
+              return 'granted';
+            };
+            constructor() {
+              this.close = () => {};
+            }
+          }
+          try { Object.defineProperty(window, 'Notification', { value: FakeNotification, configurable: true }); }
+          catch (_err) { window.Notification = FakeNotification; }
+        })();
+        """
+    )
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        browser_alerts = page.get_by_role("button", name="Browser alerts on")
+        expect(browser_alerts).to_be_visible()
+        browser_alerts.click()
+        expect(page.get_by_role("button", name="Browser alerts off")).to_be_visible()
+        assert page.evaluate("window.localStorage.getItem('propertyquarry.browserNotifications.enabled')") is None
+        assert page.evaluate("window.localStorage.getItem('pq-test-notification-permission-requests')") == "0"
+        page.get_by_role("button", name="Browser alerts off").click()
+        expect(page.get_by_role("button", name="Browser alerts on")).to_be_visible()
+        assert page.evaluate("window.localStorage.getItem('propertyquarry.browserNotifications.enabled')") == "1"
+        assert page.evaluate("window.localStorage.getItem('pq-test-notification-permission-requests')") == "0"
     finally:
         context.close()
 
@@ -2112,7 +2200,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text=re.compile(r"ranked homes", re.I)).is_visible()
+        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
@@ -3850,7 +3938,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text=re.compile(r"ranked homes", re.I)).is_visible()
+        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert candidate_ref

@@ -100,8 +100,16 @@ from app.product.property_surface_state import (
     build_property_run_health_snapshot,
     normalize_property_search_run_snapshot,
 )
+from app.product.property_score_methodology import (
+    build_property_score_methodology,
+    resolve_property_score_methodology_language,
+)
 from app.product.projections.common import compact_text
-from app.product.service import build_product_service
+from app.product.service import (
+    _property_visual_eta_label,
+    _property_visual_progress_pct,
+    build_product_service,
+)
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
 from app.services.property_billing import payfunnels_configured, property_commercial_snapshot
@@ -2253,6 +2261,50 @@ def how_it_works_page(
     return _how_it_works_page(request, container=container, access_identity=access_identity)
 
 
+@router.get("/how-it-works/score", response_class=HTMLResponse)
+def how_it_works_score_page(
+    request: Request,
+    language: str = Query(default="", max_length=16),
+    country: str = Query(default="", max_length=8),
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    workspace = dict(status.get("workspace") or {}) if isinstance(status.get("workspace"), dict) else {}
+    country_code = str(country or workspace.get("country_code") or workspace.get("region") or "AT").strip() or "AT"
+    language_code = resolve_property_score_methodology_language(
+        language_code=language or "",
+        country_code=country_code,
+        accept_language=request.headers.get("accept-language") or "",
+        fallback_language_code=workspace.get("language") or "",
+    )
+    score_methodology = build_property_score_methodology(
+        language_code=language_code,
+        country_code=country_code,
+        accept_language=request.headers.get("accept-language") or "",
+    )
+    return _render_public_template(
+        request,
+        "score_methodology_viewer.html",
+        **_public_context(
+            request=request,
+            current_nav="how-it-works",
+            page_title="PropertyQuarry Score Methodology",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "score_methodology": score_methodology,
+                "pdf_url": (
+                    f"/v1/integrations/fliplink/documents/score-methodology.pdf?language={urllib.parse.quote(language_code)}"
+                    f"&country={urllib.parse.quote(country_code)}"
+                ),
+                "meta_description": "See the exact PropertyQuarry score calculation with hard rules, score deltas, evidence confidence, and preference weights.",
+            },
+        ),
+    )
+
+
 @router.get("/security", response_class=HTMLResponse)
 def security_page(
     request: Request,
@@ -3503,6 +3555,10 @@ def property_research_packet(
     hosted_tour_ready = bool(research_media.get("hosted_ready"))
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
     flythrough_eta_raw = str(candidate.get("flythrough_eta_minutes") or "").strip()
+    tour_requested_at = str(candidate.get("tour_requested_at") or "").strip()
+    flythrough_requested_at = str(candidate.get("flythrough_requested_at") or "").strip()
+    tour_status_updated_at = str(candidate.get("tour_status_updated_at") or "").strip()
+    flythrough_status_updated_at = str(candidate.get("flythrough_status_updated_at") or "").strip()
     try:
         tour_progress_pct = int(float(str(candidate.get("tour_progress_pct") or "").strip())) if str(candidate.get("tour_progress_pct") or "").strip() else 0
     except Exception:
@@ -3511,10 +3567,38 @@ def property_research_packet(
         flythrough_progress_pct = int(float(str(candidate.get("flythrough_progress_pct") or "").strip())) if str(candidate.get("flythrough_progress_pct") or "").strip() else 0
     except Exception:
         flythrough_progress_pct = 0
+    tour_eta_label = _property_visual_eta_label(
+        request_kind="tour",
+        status=tour_status,
+        eta_minutes=eta_raw,
+        requested_at=tour_requested_at,
+        status_updated_at=tour_status_updated_at,
+    )
+    flythrough_eta_label = _property_visual_eta_label(
+        request_kind="flythrough",
+        status=flythrough_status,
+        eta_minutes=flythrough_eta_raw,
+        requested_at=flythrough_requested_at,
+        status_updated_at=flythrough_status_updated_at,
+    )
     if tour_progress_pct <= 0:
-        tour_progress_pct = 58 if tour_status in {"processing", "running", "in_progress", "started"} else (14 if tour_status in {"queued", "pending"} else (100 if tour_url else 0))
+        tour_progress_pct = _property_visual_progress_pct(
+            request_kind="tour",
+            status=tour_status,
+            ready_url=tour_url,
+            eta_minutes=eta_raw,
+            requested_at=tour_requested_at,
+            status_updated_at=tour_status_updated_at,
+        )
     if flythrough_progress_pct <= 0:
-        flythrough_progress_pct = 64 if flythrough_status in {"processing", "running", "in_progress", "started"} else (18 if flythrough_status in {"queued", "pending"} else (100 if flythrough_url else 0))
+        flythrough_progress_pct = _property_visual_progress_pct(
+            request_kind="flythrough",
+            status=flythrough_status,
+            ready_url=flythrough_url,
+            eta_minutes=flythrough_eta_raw,
+            requested_at=flythrough_requested_at,
+            status_updated_at=flythrough_status_updated_at,
+        )
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
@@ -3523,17 +3607,17 @@ def property_research_packet(
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "tour", "label": "3D tour queued", "property_url": property_url, "state": "pending", "progress_pct": max(tour_progress_pct, 14), "eta_label": f"about {eta_raw or '10'} min", "status_detail": f"Queued{f' · about {eta_raw} min' if eta_raw else ''}."})
+        hero_actions.append({"kind": "tour", "label": "3D tour queued", "property_url": property_url, "state": "pending", "progress_pct": max(tour_progress_pct, 14), "eta_label": tour_eta_label, "status_detail": "Still queued. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Queued{f' · about {eta_raw} min' if eta_raw else ''}."})
     elif tour_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": f"about {eta_raw or '5'} min", "status_detail": f"Rendering{f' · about {eta_raw} min' if eta_raw else ''}."})
+        hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": tour_eta_label, "status_detail": "Still rendering. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Rendering{f' · about {eta_raw} min' if eta_raw else ''}."})
     elif property_url:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open flythrough", "external": False})
     elif flythrough_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": f"about {flythrough_eta_raw or '10'} min", "status_detail": "Queued. This page updates automatically."})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": "Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically."})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": f"about {flythrough_eta_raw or '5'} min", "status_detail": "Rendering now. Opens here when ready."})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": "Still rendering. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Rendering now. Opens here when ready."})
     elif property_url:
         hero_actions.append({"kind": "flythrough", "label": "Request walkthrough", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if str(candidate.get("packet_url") or review_url or "").strip():
