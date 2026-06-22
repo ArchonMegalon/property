@@ -26,6 +26,7 @@ from app.product.service import (
     _hosted_property_tour_manifest,
     _hosted_property_tour_provider_export_keys,
     _property_money_amount_label,
+    _property_visual_eta_label,
 )
 from app.services.property_market_catalog import supported_currency_codes
 
@@ -611,12 +612,21 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     review_url = str(candidate.get("review_url") or "").strip()
     status = str(candidate.get("tour_status") or "").strip().lower()
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
+    requested_at = str(candidate.get("tour_requested_at") or "").strip()
+    status_updated_at = str(candidate.get("tour_status_updated_at") or "").strip()
     eta_minutes = 0
     if eta_raw:
         try:
             eta_minutes = int(float(eta_raw))
         except Exception:
             eta_minutes = 0
+    eta_label = _property_visual_eta_label(
+        request_kind="tour",
+        status=status,
+        eta_minutes=eta_raw,
+        requested_at=requested_at,
+        status_updated_at=status_updated_at,
+    )
     hosted_tour_ready = _property_hosted_tour_ready(tour_url)
     embed_href = _property_tour_control_link(tour_url) if hosted_tour_ready else ""
     if hosted_tour_ready:
@@ -630,10 +640,18 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         status_detail = "The source 360 is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
     elif status in {"queued", "pending"}:
         status_label = "360 queued"
-        status_detail = f"Tour generation is queued. ETA about {eta_minutes or 10} min."
-    elif status in {"processing", "running", "in_progress", "started"}:
+        status_detail = (
+            "Tour generation is still queued. Taking longer than usual."
+            if eta_label.startswith("delayed")
+            else f"Tour generation is queued. ETA {eta_label or f'about {eta_minutes or 10} min'}."
+        )
+    elif status in {"processing", "running", "in_progress", "started", "rendering"}:
         status_label = "360 rendering"
-        status_detail = f"Tour generation is running. ETA about {eta_minutes or 5} min."
+        status_detail = (
+            "Tour generation is still rendering. Taking longer than usual."
+            if eta_label.startswith("delayed")
+            else f"Tour generation is running. ETA {eta_label or f'about {eta_minutes or 5} min'}."
+        )
     elif status in {"blocked", "failed", "skipped", "not_applicable"}:
         status_label = "360 unavailable"
         status_detail = _property_tour_source_gap_detail(candidate)

@@ -3649,18 +3649,18 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
 def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1.04fr) minmax(296px, 0.68fr);" in body
+    assert "grid-template-columns: minmax(0, 1.08fr) minmax(272px, 0.62fr);" in body
     assert "grid-template-columns: 1fr;" in body
-    assert "min-height: clamp(164px, 21vh, 208px);" in body
-    assert "max-height: min(calc(100vh - 430px), 220px);" in body
-    assert "min-height: clamp(176px, 23vh, 228px);" in body
+    assert "min-height: clamp(164px, 21vh, 210px);" in body
+    assert "max-height: min(calc(100vh - 432px), 214px);" in body
+    assert "min-height: clamp(150px, 19vh, 192px);" in body
     assert "grid-template-columns: 72px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert "prd-hero-gallery" in body
     assert ".prd-hero-gallery .prd-gallery-label" in body
     assert "-webkit-line-clamp: 2;" in body
     assert "min-height: min(56vh, 520px);" not in body
-    assert body.index("data-object-media-stage") < body.index("At a glance")
+    assert body.index("data-object-media-stage") < body.index("Current read")
 
 
 def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeypatch) -> None:
@@ -3688,6 +3688,50 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["has_live_viewer"] is True
     assert ready_payload["hosted_ready"] is True
     assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control"
+
+
+def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(monkeypatch) -> None:
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {})
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ())
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_visual_eta_label",
+        lambda **kwargs: "delayed · 18 min so far",
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_status": "queued",
+            "tour_eta_minutes": "10",
+            "tour_requested_at": "2026-06-22T10:00:00+00:00",
+            "tour_status_updated_at": "2026-06-22T10:34:00+00:00",
+        }
+    )
+
+    assert payload["status_label"] == "360 queued"
+    assert payload["status_detail"] == "Tour generation is still queued. Taking longer than usual."
+
+
+def test_property_research_media_uses_live_eta_copy_while_render_is_fresh(monkeypatch) -> None:
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {})
+    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ())
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_visual_eta_label",
+        lambda **kwargs: "about 10 min",
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_status": "rendering",
+            "tour_eta_minutes": "10",
+            "tour_requested_at": "2026-06-22T10:00:00+00:00",
+            "tour_status_updated_at": "2026-06-22T10:34:00+00:00",
+        }
+    )
+
+    assert payload["status_label"] == "360 rendering"
+    assert payload["status_detail"] == "Tour generation is running. ETA about 10 min."
 
 
 def test_base_public_template_exposes_public_seo_contract() -> None:
