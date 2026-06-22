@@ -138,11 +138,29 @@
         {% endif %}
         <span class="pqx-result-actions">
           {% set visual_property_url = candidate.get('property_url') or candidate.get('source_url') or candidate.get('listing_url') %}
+          {% set tour = candidate.get('tour', {}) %}
           {% if candidate.get('map_url') %}
           <a class="pqx-result-open" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>
           {% endif %}
           {% if candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') %}
           <a class="pqx-result-open" href="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>
+          {% endif %}
+          {% if tour.get('url') %}
+          <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}">Open 3D tour</a>
+          {% elif tour.get('status') in ['queued', 'processing'] %}
+          <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ tour.get('progress_pct') or 0 }}%;" title="{{ (tour.get('detail') or tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') }}" aria-label="{{ (tour.get('detail') or tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ tour.get('eta_label')) if tour.get('eta_label') else '') }}">{{ tour.get('label') or '3D tour in progress' }}</button>
+          {% elif visual_property_url %}
+          <button
+            class="pqx-result-open pqx-result-open-button"
+            type="button"
+            data-pw-visual-request="tour"
+            data-property-url="{{ visual_property_url }}"
+            data-source-ref="{{ candidate.get('source_ref') or '' }}"
+            data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
+            data-run-id="{{ run.get('run_id') or '' }}"
+            data-rybbit-event="property_request_tour"
+            data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}"
+          >Request 3D tour</button>
           {% endif %}
           {% if loop.first and brief.get('plan_key') == 'agent' %}
           {% set walkthrough = candidate.get('flythrough') or {} %}

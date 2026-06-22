@@ -7617,6 +7617,7 @@ def test_propertyquarry_shortlist_keeps_live_ranked_candidates_without_second_ga
     assert shortlist.status_code == 200
     assert "Praterstrasse fit" in shortlist.text
     assert "Another ranked survivor" in shortlist.text
+    assert "Request 3D tour" in shortlist.text
 
 
 def test_property_selected_review_panel_stays_compact_without_old_decision_noise() -> None:

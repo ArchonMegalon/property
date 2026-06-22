@@ -1672,6 +1672,8 @@ def property_workspace_payload(
             listing_postal_codes = set(_property_postal_codes_from_text(listing_text, require_locality=True))
             if listing_postal_codes and not (listing_postal_codes & requested_postal_codes):
                 return False
+        if active_run_ranked:
+            return True
         if not active_run_ranked:
             if not _candidate_has_concrete_location_signal(candidate, facts):
                 return False
