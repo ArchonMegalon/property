@@ -781,9 +781,7 @@ def test_signal_ingest_property_alert_sends_telegram_dossier_document(monkeypatc
     assert observed["document_principal_id"] == principal_id
     assert observed["document_ref"] == str(dossier_path)
     assert "PropertyQuarry dossier" in str(observed["document_caption"])
-    notification_neuronwriter = dict(result.get("notification_neuronwriter") or {})
-    assert notification_neuronwriter["status"] == "blocked"
-    assert notification_neuronwriter["mode"] == "private_packet_guard"
+    assert "notification_neuronwriter" not in result
     assert result["heyy_delivery_status"] in {"suppressed", "failed", "sent"}
 
 
@@ -2772,8 +2770,7 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
     )
 
     assert result["status"] == "sent"
-    assert dict(result["notification_neuronwriter"])["mode"] == "private_packet_guard"
-    assert dict(result["notification_neuronwriter"])["status"] == "blocked"
+    assert "notification_neuronwriter" not in result
     assert observed["review_url"] == "https://propertyquarry.com/v1/integrations/fliplink/documents/property-packets/test-token"
     assert observed["property_url"] == "https://www.immobilienscout24.at/expose/telegram-test-property-dossier"
     assert observed["provider_label"] == "DER STANDARD Immobilien"
@@ -2785,10 +2782,7 @@ def test_property_scout_hit_email_prefers_public_dossier_link(monkeypatch) -> No
         limit=3,
     )
     assert sent_events
-    notification_neuronwriter = dict(dict(sent_events[0].get("payload") or {}).get("notification_neuronwriter") or {})
-    assert notification_neuronwriter["status"] == "blocked"
-    assert notification_neuronwriter["mode"] == "private_packet_guard"
-    assert "1010 Vienna" not in json.dumps(notification_neuronwriter)
+    assert "notification_neuronwriter" not in dict(sent_events[0].get("payload") or {})
 
 
 def test_poppy_provider_operator_routes_verify_and_list(monkeypatch) -> None:

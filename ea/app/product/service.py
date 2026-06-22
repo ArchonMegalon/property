@@ -37751,12 +37751,6 @@ class ProductService:
             if render_dossier
             else {"status": "skipped", "reason": "user_request_required"}
         )
-        notification_neuronwriter = _property_review_page_neuronwriter_payload(
-            title=title,
-            summary=summary,
-            counterparty=display_counterparty,
-            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
-        )
         feedback_raw_signal = {
             "title": str(title or "").strip(),
             "summary": str(summary or "").strip(),
@@ -37765,7 +37759,6 @@ class ProductService:
             "fit_score": float(fit_score or 0.0),
             "account_email": str(account_email or "").strip(),
             "tour_url": tour_url,
-            "notification_neuronwriter": dict(notification_neuronwriter),
         }
         if candidate_properties:
             feedback_raw_signal["candidate_property"] = dict(candidate_properties[0] or {})
@@ -37847,7 +37840,6 @@ class ProductService:
                 "blocked_reason": blocked_reason,
                 "actor": str(actor or "").strip() or "property_scout",
                 "error": compact_text(str(exc or ""), fallback="telegram_delivery_failed", limit=160),
-                "notification_neuronwriter": dict(notification_neuronwriter),
             }
             self._record_product_event(
                 principal_id=principal_id,
@@ -37866,7 +37858,6 @@ class ProductService:
             "actor": str(actor or "").strip() or "property_scout",
             "telegram_chat_ref": str(telegram_receipt.chat_id or "").strip(),
             "telegram_message_ids": list(telegram_receipt.message_ids),
-            "notification_neuronwriter": dict(notification_neuronwriter),
         }
         if str(dossier_render.get("status") or "").strip() == "rendered":
             try:
@@ -37930,7 +37921,7 @@ class ProductService:
             property_title=title,
             fit_score=float(fit_score or 0.0),
             reason=str(dict(assessment or {}).get("recommendation") or "").strip() if isinstance(assessment, dict) else "",
-            missing_fact=str(dict(notification_neuronwriter).get("question") or "").strip(),
+            missing_fact=str(dict(assessment or {}).get("question") or "").strip() if isinstance(assessment, dict) else "",
             source_id=source_ref,
             property_url=property_url,
             property_summary=summary,
@@ -37963,7 +37954,6 @@ class ProductService:
             "status": "sent",
             "tour_url": tour_url,
             "telegram_message_ids": list(telegram_receipt.message_ids),
-            "notification_neuronwriter": dict(notification_neuronwriter),
             "heyy_delivery_status": str(heyy_result.get("status") or "").strip(),
             "heyy_message_id": str(heyy_result.get("message_id") or "").strip(),
         }
@@ -38701,12 +38691,6 @@ class ProductService:
             if render_dossier
             else {"status": "skipped", "reason": "user_request_required"}
         )
-        notification_neuronwriter = _property_review_page_neuronwriter_payload(
-            title=title,
-            summary=summary,
-            counterparty=display_counterparty,
-            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
-        )
         review_href = str(dossier_render.get("public_pdf_url") or review_url or "").strip()
         try:
             receipt = send_property_match_email(
@@ -38769,7 +38753,6 @@ class ProductService:
                         "actor": str(actor or "").strip() or "property_scout",
                         "recipient_email": recipient_email,
                         "error": normalized_error,
-                        "notification_neuronwriter": dict(notification_neuronwriter),
                     }
                     self._record_product_event(
                         principal_id=principal_id,
@@ -38788,7 +38771,6 @@ class ProductService:
                     "actor": str(actor or "").strip() or "property_scout",
                     "recipient_email": recipient_email,
                     "error": compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160),
-                    "notification_neuronwriter": dict(notification_neuronwriter),
                 }
                 self._record_product_event(
                     principal_id=principal_id,
@@ -38809,7 +38791,6 @@ class ProductService:
             "message_id": message_id,
             "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
             "dossier_public_pdf_url": str(dossier_render.get("public_pdf_url") or "").strip(),
-            "notification_neuronwriter": dict(notification_neuronwriter),
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -38822,7 +38803,6 @@ class ProductService:
             "status": "sent",
             "recipient_email": recipient_email,
             "message_id": message_id,
-            "notification_neuronwriter": dict(notification_neuronwriter),
         }
 
     def property_alert_policy(self, *, principal_id: str) -> dict[str, object]:
