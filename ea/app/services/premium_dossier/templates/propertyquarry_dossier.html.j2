@@ -116,7 +116,7 @@
     {% set score_application = score.candidate_application or {} %}
     <section class="page">
       <div class="page-inner">
-        <div class="section-kicker">Behind the score</div>
+        <div class="section-kicker">{{ score.title or "Behind the score" }}</div>
         <div class="score-hero">
           <div>
             <h2>{{ score.pdf_title or score.title }}</h2>
@@ -199,7 +199,7 @@
         </div>
         <div class="score-grid score-grid-wide">
           <div class="panel">
-            <h3>Engine steps</h3>
+            <h3>{{ score.steps_label or "Engine steps" }}</h3>
             <ol>
               {% for step in score.steps[:6] %}
               <li><strong>{{ step.title }}</strong>{% if step.detail %} · {{ step.detail }}{% endif %}</li>
@@ -207,7 +207,7 @@
             </ol>
           </div>
           <div class="panel">
-            <h3>Examples</h3>
+            <h3>{{ score.examples_label or "Examples" }}</h3>
             <ul>
               {% for example in score.examples[:5] %}
               <li><strong>{{ example.title }}</strong>{% if example.detail %} · {{ example.detail }}{% endif %}</li>

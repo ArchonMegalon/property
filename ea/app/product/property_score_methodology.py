@@ -61,7 +61,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
             ("Missing heating detail", "-8", "Heating is still unknown, so confidence drops until verified."),
             ("One soft wish missing", "-3", "A missing nice-to-have lowers rank but does not filter the home."),
             ("Open verification risk", "-5", "Remaining unknowns are kept as viewing questions."),
-            ("Final score", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Final score", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. The rows below explain every delta and show how neutral, nice-to-have, strong wish, must-have, and avoid settings change the movement."),
         ],
     },
     "de": {
@@ -108,7 +108,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
             ("Heizung offen", "-8", "Die Heizungsinformation fehlt, daher sinkt das Vertrauen bis zur Klaerung."),
             ("Ein Wunsch fehlt", "-3", "Ein fehlender Wunsch senkt nur den Rang und filtert das Objekt nicht aus."),
             ("Offenes Pruefrisiko", "-5", "Restliche Unklarheiten bleiben als Fragen fuer Besichtigung oder Makler sichtbar."),
-            ("Endwert", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Endwert", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Die Zeilen darunter erklaeren jedes Delta und zeigen, wie Neutral, Nice-to-have, starker Wunsch, Must-have und Avoid die Bewegung veraendern."),
         ],
     },
 }
@@ -363,7 +363,7 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Calefaccion pendiente", "-8", "La calefaccion sigue sin confirmar, asi que baja la confianza."),
             ("Un deseo falta", "-3", "Un deseo ausente baja el rango, pero no filtra la vivienda."),
             ("Riesgo abierto", "-5", "Las incognitas restantes quedan como preguntas de visita."),
-            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Las filas siguientes explican cada delta y como Neutral, Nice-to-have, Strong wish, Must-have y Avoid cambian el movimiento."),
         ],
     },
     "fr": {
@@ -379,7 +379,7 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Chauffage inconnu", "-8", "Le chauffage reste a confirmer, donc la confiance baisse."),
             ("Un souhait manque", "-3", "Un souhait manquant baisse le rang, mais ne filtre pas le bien."),
             ("Risque a verifier", "-5", "Les inconnues restantes deviennent des questions de visite."),
-            ("Resultat", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Resultat", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Les lignes suivantes expliquent chaque delta et comment Neutral, Nice-to-have, Strong wish, Must-have et Avoid changent le mouvement."),
         ],
     },
     "it": {
@@ -395,7 +395,7 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Riscaldamento aperto", "-8", "Il riscaldamento e ancora da confermare, quindi la fiducia scende."),
             ("Un desiderio manca", "-3", "Un desiderio mancante abbassa il rango, ma non filtra la casa."),
             ("Rischio da verificare", "-5", "Le incognite restanti diventano domande per la visita."),
-            ("Risultato", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Risultato", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Le righe seguenti spiegano ogni delta e come Neutral, Nice-to-have, Strong wish, Must-have e Avoid cambiano il movimento."),
         ],
     },
     "nl": {
@@ -411,7 +411,7 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Verwarming open", "-8", "De verwarming is nog onbekend, dus vertrouwen daalt tot verificatie."),
             ("Een wens ontbreekt", "-3", "Een ontbrekende wens verlaagt de rang, maar filtert de woning niet."),
             ("Open verificatierisico", "-5", "Resterende onbekenden blijven als kijkvragen staan."),
-            ("Eindscore", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Eindscore", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. De rijen hieronder leggen elke delta uit en hoe Neutral, Nice-to-have, Strong wish, Must-have en Avoid de beweging veranderen."),
         ],
     },
     "pt": {
@@ -427,7 +427,7 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Aquecimento em aberto", "-8", "O aquecimento ainda precisa de confirmacao, entao a confianca baixa."),
             ("Um desejo falta", "-3", "Um desejo em falta baixa o ranking, mas nao filtra a casa."),
             ("Risco a verificar", "-5", "As restantes incertezas ficam como perguntas de visita."),
-            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. As linhas abaixo explicam cada delta e como Neutral, Nice-to-have, Strong wish, Must-have e Avoid mudam o movimento."),
         ],
     },
     "pl": {
@@ -443,7 +443,7 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Ogrzewanie otwarte", "-8", "Ogrzewanie nadal wymaga potwierdzenia, wiec zaufanie spada."),
             ("Brakuje jednego zyczenia", "-3", "Brak zyczenia obniza ranking, ale nie filtruje oferty."),
             ("Otwarte ryzyko", "-5", "Pozostale niewiadome zostaja pytaniami na ogladanie."),
-            ("Wynik koncowy", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Wynik koncowy", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Wiersze ponizej wyjasniaja kazda delte i jak Neutral, Nice-to-have, Strong wish, Must-have oraz Avoid zmieniaja ruch."),
         ],
     },
     "sv": {
@@ -459,7 +459,7 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Varme okand", "-8", "Varmeinformation saknas fortfarande, sa fortroendet sjunker."),
             ("Ett onskemal saknas", "-3", "Ett saknat onskemal sanker rang men filtrerar inte bort bostaden."),
             ("Oppen verifieringsrisk", "-5", "Kvarvarande okanda blir fragor vid visning."),
-            ("Slutpoang", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62."),
+            ("Slutpoang", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Raderna nedan forklarar varje delta och hur Neutral, Nice-to-have, Strong wish, Must-have och Avoid andrar rorelsen."),
         ],
     },
 }
