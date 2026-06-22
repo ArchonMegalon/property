@@ -320,11 +320,11 @@ PUBLIC_TRUST_PAGES = {
         "nav": "support",
         "title": "Support",
         "kicker": "Help",
-        "summary": "Use Support for failed runs, wrong-area matches, missing facts, billing questions, deletion requests, and provider repair issues.",
+        "summary": "Use Support for failed runs, wrong-area matches, missing facts, billing questions, deletion requests, and search repair.",
         "band": (
             {
                 "title": "Run problems",
-                "body": "Include the run ID, affected provider, candidate title, and what looked wrong: area, listing mode, price, media, packet, or repair status.",
+                "body": "Include the run ID, source label, candidate title, and what looked wrong: area, listing mode, price, media, packet, or repair status.",
             },
             {
                 "title": "Data requests",
@@ -347,7 +347,7 @@ PUBLIC_TRUST_PAGES = {
                 "title": "Sensitive reports",
                 "body": "Report exposed private data, unsafe public tour assets, or account access issues as security-sensitive support items.",
                 "items": (
-                    "Do not paste credentials or full private documents into a public channel.",
+                    "Do not paste passwords, access tokens, or full private documents into a public channel.",
                     "Ask for public share-link revocation if a link was sent to the wrong person.",
                     "Include a correlation ID from an error response when available.",
                 ),
@@ -399,11 +399,11 @@ PUBLIC_TRUST_PAGES = {
         "nav": "subprocessors",
         "title": "Subprocessors",
         "kicker": "Vendors",
-        "summary": "PropertyQuarry integrations should be governed by purpose, data class, region, retention, credentials, quota, and kill-switch state.",
+        "summary": "PropertyQuarry integrations should be governed by purpose, data class, region, retention, usage limits, and off-switch state.",
         "band": (
             {
                 "title": "Purpose-limited",
-                "body": "A rendering worker does not need payment credentials, and a public API process does not need every provider login.",
+                "body": "A rendering service does not need payment data, and public pages should receive only public-safe content.",
             },
             {
                 "title": "Replaceable",
@@ -414,7 +414,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Registry",
                 "title": "Vendor control plane",
-                "body": "Each integration should record enabled state, data classes allowed, exact-location permissions, credentials, retention, quota, health, and fallback.",
+                "body": "Each integration should record enabled state, allowed data classes, exact-location permissions, retention, quota, health, and fallback.",
                 "items": (
                     "Identity and authentication providers",
                     "Email, WhatsApp, and Telegram delivery providers",

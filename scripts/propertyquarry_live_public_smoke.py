@@ -220,6 +220,12 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ("trust_page_title", expected[0] in text),
                 ("trust_page_substance", expected[1] in text),
                 ("trust_page_no_placeholder", "Before public paid launch" not in text and "Replace placeholder" not in text),
+                (
+                    "trust_page_no_operator_secret_copy",
+                    "credentials" not in visible_text.lower()
+                    and "provider login" not in visible_text.lower()
+                    and "api key" not in visible_text.lower(),
+                ),
             )
         )
     elif path == "/sign-in":

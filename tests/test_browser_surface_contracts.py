@@ -122,8 +122,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     directory = client.get("/directory")
     assert directory.status_code == 200
     assert "Find the people around a property decision." in directory.text
-    assert "Directory connection pending" in directory.text
+    assert "Directory opening soon" in directory.text
     assert "Search directory" in directory.text
+    assert "Brilliant Directories" not in directory.text
+    assert "credentials" not in directory.text
+    assert "provider returned" not in directory.text.lower()
 
     pricing = client.get("/pricing")
     assert "<h1>Pricing</h1>" in pricing.text
