@@ -1,155 +1,102 @@
 {% extends "base_public.html" %}
 {% block content %}
 <style>
-  .trust-hero,
-  .trust-card,
-  .workspace-posture,
-  .trust-answer,
-  .trust-fact {
-    padding: 18px;
-  }
-  .trust-grid,
-  .trust-answer-grid,
-  .workspace-grid,
-  .trust-fact-grid {
+  .trust-shell {
     display: grid;
-    gap: 14px;
+    gap: 16px;
+    max-width: 980px;
+    margin: 0 auto;
   }
-  .trust-grid,
-  .trust-answer-grid,
-  .trust-fact-grid {
+  .trust-hero {
+    padding: clamp(22px, 5vw, 52px) 0 8px;
+    display: grid;
+    gap: 12px;
+  }
+  .trust-hero h1 {
+    max-width: 12ch;
+    margin: 0;
+    font-size: clamp(2.25rem, 5vw, 4.5rem);
+    line-height: 0.98;
+    letter-spacing: 0;
+  }
+  .trust-hero p {
+    max-width: 44rem;
+    color: var(--text-soft);
+    font-size: 1.05rem;
+    line-height: 1.55;
+  }
+  .trust-grid {
+    display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
   }
-  .workspace-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .trust-card,
-  .workspace-posture,
-  .trust-answer,
-  .trust-fact {
+  .trust-card {
+    min-height: 138px;
+    padding: 16px;
     border: 1px solid var(--line);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.02);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    display: grid;
+    align-content: start;
+    gap: 8px;
   }
-  .trust-card strong,
-  .workspace-posture strong,
-  .trust-answer strong,
-  .trust-fact strong {
-    display: block;
-    margin-bottom: 6px;
+  .trust-card strong {
+    font-size: 1rem;
+  }
+  .trust-card p {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.93rem;
+    line-height: 1.48;
+  }
+  .trust-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 4px;
+  }
+  html[data-pq-theme="dark"] .trust-card {
+    background: var(--panel);
+    border-color: var(--line);
     color: var(--text);
   }
-  @media (max-width: 1080px) {
-    .trust-grid,
-    .trust-answer-grid,
-    .workspace-grid,
-    .trust-fact-grid {
+  @media (max-width: 860px) {
+    .trust-grid {
       grid-template-columns: 1fr;
+    }
+    .trust-card {
+      min-height: 0;
     }
   }
 </style>
 
-<section class="section panel trust-hero">
-  <div class="kicker">Security</div>
-  <h1>See what PropertyQuarry can do before you let it act.</h1>
-  <p class="lead">Research stays visible, permissions stay explicit, and every recommendation stays attached to the property. The goal is dependable buying research, not hidden automation.</p>
-</section>
+<main class="trust-shell">
+  <section class="trust-hero">
+    <div class="kicker">Security</div>
+    <h1>Private by default.</h1>
+    <p>PropertyQuarry keeps property research tied to your account, shows generated tours only when you ask for them, and keeps shared pages separate from your private search.</p>
+  </section>
 
-<section class="section trust-answer-grid">
-  <section class="trust-answer">
-    <strong>Can PropertyQuarry send or change things without me?</strong>
-    Research, ranking, and recommendations can be enabled early. Sensitive actions and outbound delivery can stay reviewable so the user remains in control.
+  <section class="trust-grid" aria-label="PropertyQuarry security basics">
+    <article class="trust-card">
+      <strong>You choose what is shared</strong>
+      <p>Searches, shortlist decisions, comments, and private property pages stay signed in unless you create a share link.</p>
+    </article>
+    <article class="trust-card">
+      <strong>Actions stay explicit</strong>
+      <p>Outbound messages, public links, generated tours, and account changes are separate actions you can review.</p>
+    </article>
+    <article class="trust-card">
+      <strong>Account data stays editable</strong>
+      <p>Use Account for notification channels, saved preferences, public links, exports, and deletion requests.</p>
+    </article>
   </section>
-  <section class="trust-answer">
-    <strong>Does it imply broader access than it really has?</strong>
-    No. Each channel has a visible support contract so the product does not promise read, write, import, or sync behavior it cannot actually deliver.
-  </section>
-  <section class="trust-answer">
-    <strong>Does useful context disappear after each session?</strong>
-    No. The account can keep preferences, comments, property facts, and recurring fit signals so the search improves over time instead of starting from zero every day.
-  </section>
-</section>
 
-<section class="section trust-fact-grid">
-  <section class="trust-fact">
-    <strong>Reviewable actions</strong>
-    Sensitive actions stay explicit and reversible, with human review where it matters.
-  </section>
-  <section class="trust-fact">
-    <strong>Explicit channel behavior</strong>
-    Connection pages explain what is live, what is guided, and what still stays manual.
-  </section>
-  <section class="trust-fact">
-    <strong>Durable account memory</strong>
-    Context stays attached to the right account instead of floating around in isolated prompts.
-  </section>
-</section>
-
-<section class="section trust-fact-grid">
-  <section class="trust-fact">
-    <strong>Continuous visual QA</strong>
-    Responsive public pages are watched so broken layouts are caught before they become customer confusion.
-  </section>
-  <section class="trust-fact">
-    <strong>Product trust review</strong>
-    Security, privacy, and visual quality are reviewed before public changes go live.
-  </section>
-  <section class="trust-fact">
-    <strong>Privacy-safe product analytics</strong>
-    Rybbit measures public product engagement without turning the private property workflow into an ad-tech surface.
-  </section>
-</section>
-
-<section class="section">
-  <div class="section-head">
-    <div>
-      <div class="kicker">Trust model</div>
-      <h2>What buyers usually want to confirm</h2>
-    </div>
-    <p>Most buyers want three answers quickly: what PropertyQuarry can see, what it can research, and where human review still stays in the loop.</p>
+  <div class="trust-actions">
+    <a class="btn primary" href="/app/account">Open account</a>
+    <a class="btn ghost" href="/data-deletion">Delete data</a>
+    <a class="btn ghost" href="/support">Contact support</a>
   </div>
-  <div class="trust-grid">
-    {% for card in trust_cards %}
-    <section class="trust-card">
-      <strong>{{ card.title }}</strong>
-      <p class="copy">{{ card.body }}</p>
-    </section>
-    {% endfor %}
-  </div>
-</section>
-
-<section class="section">
-  <div class="section-head">
-    <div>
-      <div class="kicker">Current account</div>
-      <h2>Saved review and storage settings</h2>
-    </div>
-    <p>Operational detail matters during rollout, but most buyers want the working safety model first.</p>
-  </div>
-  <div class="workspace-grid">
-    <section class="workspace-posture">
-      <strong>Where context is stored</strong>
-      <ul class="muted-list">
-        <li>Saved searches, shortlist decisions, and account settings stay attached to the signed-in PropertyQuarry account.</li>
-        <li>Generated dossiers, exports, and tours stay separate from public pages unless a user explicitly shares them.</li>
-        <li>Large files and exports use durable storage when the deployment supports it.</li>
-      </ul>
-    </section>
-    <section class="workspace-posture">
-      {% set morning_memo = (status.delivery_preferences or {}).get('morning_memo', {}) %}
-      <strong>Saved review defaults</strong>
-      <ul class="muted-list">
-        <li>Retention: {{ privacy.retention_mode or 'not set' }}</li>
-        <li>Metadata-only channels: {{ privacy.metadata_only_channels|join(', ') if privacy.metadata_only_channels else 'none' }}</li>
-        <li>Drafts allowed: {{ 'true' if privacy.allow_drafts else 'false' }}</li>
-        <li>Action suggestions: {{ 'true' if privacy.allow_action_suggestions else 'false' }}</li>
-        <li>Automatic digests: {{ 'true' if privacy.allow_auto_briefs else 'false' }}</li>
-        {% if privacy.allow_auto_briefs %}
-        <li>Digest cadence: {{ morning_memo.get('cadence', 'daily_morning') }} at {{ morning_memo.get('delivery_time_local', '08:00') }} {{ morning_memo.get('timezone', status.workspace.timezone or 'UTC') }}</li>
-        <li>Digest recipient: {{ morning_memo.get('resolved_recipient_email', 'waiting for recipient') }}</li>
-        {% endif %}
-      </ul>
-    </section>
-  </div>
-</section>
+</main>
 {% endblock %}

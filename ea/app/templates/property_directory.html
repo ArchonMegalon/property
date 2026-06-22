@@ -3,13 +3,13 @@
 <style>
   .pq-directory {
     display: grid;
-    gap: 18px;
+    gap: 16px;
   }
   .pq-directory-hero {
     display: grid;
-    grid-template-columns: minmax(0, 0.82fr) minmax(300px, 0.58fr);
-    gap: clamp(18px, 4vw, 44px);
-    align-items: end;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
     padding-top: 8px;
   }
   .pq-directory-copy {
@@ -26,7 +26,7 @@
     text-transform: uppercase;
   }
   .pq-directory h1 {
-    max-width: 12ch;
+    max-width: 14ch;
     margin: 0;
     font-size: clamp(2.15rem, 4vw, 4.2rem);
     line-height: 1;
@@ -117,6 +117,7 @@
     background: var(--panel-2);
   }
   .pq-directory-panel {
+    max-width: 640px;
     padding: 16px;
     display: grid;
     gap: 8px;
@@ -144,8 +145,9 @@
     <div class="pq-directory-copy">
       <p class="pq-directory-kicker">Directory</p>
       <h1>Find the people around a property decision.</h1>
-      <p class="pq-directory-lead">Search reviewed public advisors, relocation support, and local services that can help with a home search, viewing, or due diligence.</p>
+      <p class="pq-directory-lead">Reviewed public advisors and local services will appear here once the directory is ready.</p>
     </div>
+    {% if directory_status != 'disabled' %}
     <form class="pq-directory-search" method="get" action="/directory" aria-label="Search PropertyQuarry directory">
       <div class="pq-directory-fields">
         <label>
@@ -164,18 +166,19 @@
       <input type="hidden" name="limit" value="{{ directory_query.limit or 12 }}">
       <div class="pq-directory-actions">
         <button class="btn primary" type="submit">Search directory</button>
-        <a class="btn ghost" href="/directory">Reset</a>
+        {% if directory_query.keyword or directory_query.city or directory_query.country_code %}
+        <a class="btn ghost" href="/directory">Clear</a>
+        {% endif %}
       </div>
       <div class="pq-directory-status">
         {% if directory_status == 'ready' %}
         {{ directory_profiles|length }} public profile{{ '' if directory_profiles|length == 1 else 's' }} shown.
-        {% elif directory_status == 'disabled' %}
-        Directory profiles are being prepared.
         {% else %}
         Directory is temporarily unavailable.
         {% endif %}
       </div>
     </form>
+    {% endif %}
   </section>
 
   {% if directory_profiles %}
@@ -202,10 +205,10 @@
   </section>
   {% else %}
   <section class="pq-directory-panel">
-    <strong>{% if directory_status == 'disabled' %}Profiles are being prepared{% else %}No public profiles matched{% endif %}</strong>
+    <strong>{% if directory_status == 'disabled' %}Directory coming soon{% else %}No public profiles matched{% endif %}</strong>
     <p class="pq-directory-summary">
       {% if directory_status == 'disabled' %}
-      Reviewed public profiles will appear here once this section is ready.
+      Use support for advisor, relocation, or local-service questions until public profiles are available.
       {% elif directory_error %}
       Directory search is temporarily unavailable. Try again later.
       {% else %}

@@ -3136,12 +3136,11 @@ def test_propertyquarry_start_failure_explains_backend_reason(
             "data-property-active-step",
             "providers",
         )
-        start_button = page.locator("[data-property-start]")
         page.locator("[data-property-start-top]").click()
         page.wait_for_function(
             """
             () => {
-              const button = document.querySelector('[data-property-start]');
+              const button = document.querySelector('[data-property-start-top]');
               return Boolean(
                 button
                 && button.getAttribute('aria-busy') === 'true'
@@ -3154,7 +3153,7 @@ def test_propertyquarry_start_failure_explains_backend_reason(
         inline_error = page.locator("[data-property-inline-error]")
         expect(inline_error).to_contain_text("Upgrade required for this run")
         expect(inline_error).to_contain_text("plus plan")
-        expect(start_button).to_have_attribute("aria-busy", "false")
+        expect(page.locator("[data-property-start-top]")).to_have_attribute("aria-busy", "false")
     finally:
         context.close()
 
@@ -3272,7 +3271,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('input[name="require_floorplan"]').check()
 
         with page.expect_response("**/app/api/property/search-runs") as start_response:
-            page.locator("[data-property-start]").click()
+            page.locator("[data-property-start-top]").click()
         response = start_response.value
         assert response.ok
         try:
@@ -3311,7 +3310,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["max_distance_to_medical_care_importance"] == "important"
         assert preferences["max_distance_to_library_m"] == 1000
         assert preferences["max_distance_to_library_importance"] == "nice_to_have"
-        assert preferences["min_match_score"] == 45
+        assert preferences["min_match_score"] == 35
         assert preferences["require_floorplan"] is True
         assert len(observed["selected_platforms"]) == 3
         assert page.locator("body", has_text="Altbau near U6").is_visible()

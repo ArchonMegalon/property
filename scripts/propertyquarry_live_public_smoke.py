@@ -176,7 +176,12 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     elif path == "/security":
         checks.extend(
             (
-                ("security_route_copy", "Security, privacy, and visual quality are reviewed before public changes go live." in text),
+                (
+                    "security_route_copy",
+                    "Private by default." in text
+                    and "You choose what is shared" in text
+                    and "Account data stays editable" in text,
+                ),
                 ("security_old_proof_copy_removed", "release-side proof" not in text.lower()),
                 ("security_no_internal_release_copy", "Release checks and security review" not in text),
             )
@@ -203,7 +208,19 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     and "provider returned" not in lowered_visible
                     and "provider stores" not in lowered_visible,
                 ),
-                ("directory_has_search", "Search directory" in text or "Reset" in text),
+                (
+                    "directory_action_state",
+                    (
+                        "Search directory" in text
+                        and "Directory coming soon" not in text
+                    )
+                    or (
+                        "Directory coming soon" in text
+                        and "Search directory" not in text
+                        and ">Reset<" not in text
+                        and ">Clear<" not in text
+                    ),
+                ),
                 (
                     "directory_empty_noindex",
                     "Directory opening soon" not in text

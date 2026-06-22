@@ -31,11 +31,11 @@ def _fake_response(
 def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/": "PropertyQuarry Search once. Rank the right homes. Decide with evidence.",
-        "https://propertyquarry.com/security": "PropertyQuarry Security, privacy, and visual quality are reviewed before public changes go live.",
+        "https://propertyquarry.com/security": "PropertyQuarry Private by default. You choose what is shared Account data stays editable",
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Request access.",
         "https://propertyquarry.com/directory": (
             'PropertyQuarry directory <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
-            "Profiles are being prepared Search directory Reset."
+            "Directory coming soon"
         ),
         "https://propertyquarry.com/directory/profile/sample": (
             'PropertyQuarry <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '

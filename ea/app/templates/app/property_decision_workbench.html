@@ -6239,9 +6239,6 @@
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
-        {% elif setup_mode and surface_mode == 'search' %}
-        <span class="pqx-inline-status pqx-launch-status" data-property-launch-status aria-live="polite"></span>
-        <button class="pqx-button primary" type="button" data-pqx-launch-top>Launch search</button>
         {% endif %}
         {% if account_nav %}
         <details class="pqx-account-menu">
@@ -6993,7 +6990,6 @@
               </div>
               <div class="pqx-actions" data-property-actions hidden>
                 <button class="pqx-button subtle" type="button" data-property-save>Save search</button>
-                <button class="pqx-button primary" type="button" data-property-start aria-label="{{ console_form.get('submit_label') or 'Launch search' }}">{{ console_form.get('submit_label') or 'Launch search' }}</button>
               </div>
             </div>
             <div class="pqx-inline-status" data-property-inline-status></div>

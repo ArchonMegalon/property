@@ -124,10 +124,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     directory = client.get("/directory")
     assert directory.status_code == 200
     assert "Find the people around a property decision." in directory.text
-    assert "Profiles are being prepared" in directory.text
+    assert "Directory coming soon" in directory.text
     assert "governed directory lane" not in directory.text
     assert "another branded site" not in directory.text
-    assert "Search directory" in directory.text
+    assert "Search directory" not in directory.text
+    assert ">Reset<" not in directory.text
     assert "Brilliant Directories" not in directory.text
     assert "credentials" not in directory.text
     assert "provider returned" not in directory.text.lower()
@@ -147,11 +148,13 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Request access." in pricing.text
 
     security = client.get("/security")
-    assert "Automatic digests" in security.text
+    assert "Private by default." in security.text
+    assert "Automatic digests" not in security.text
     assert "Morning memo schedule" not in security.text
-    assert "Security, privacy, and visual quality are reviewed before public changes go live." in security.text
+    assert "You choose what is shared" in security.text
+    assert "Security, privacy, and visual quality are reviewed before public changes go live." not in security.text
     assert "Release checks and security review" not in security.text
-    assert "Saved searches, shortlist decisions, and account settings stay attached to the signed-in PropertyQuarry account." in security.text
+    assert "Searches, shortlist decisions, comments, and private property pages stay signed in unless you create a share link." in security.text
     assert "EA Postgres" not in security.text
     assert "source of truth" not in security.text.lower()
 

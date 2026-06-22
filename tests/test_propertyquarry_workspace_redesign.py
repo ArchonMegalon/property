@@ -5900,7 +5900,9 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert '.pqx-button[data-pqx-loading="true"]::before' in template
     assert "@keyframes pqxSpin" in template
     script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
-    assert "root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]')" in script
+    assert "root.querySelectorAll('[data-property-start-top]')" in script
+    assert 'data-pqx-launch-top' not in template
+    assert 'data-property-start aria-label' not in template
     assert "event.preventDefault();" in script
     assert "setSearchLaunchBusy(true);" in script
     assert "searchLaunchInFlight" in script

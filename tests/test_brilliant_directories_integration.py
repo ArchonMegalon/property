@@ -737,11 +737,12 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
     assert "PropertyQuarry Directory" in response.text
     assert "Find the people around a property decision." in response.text
-    assert "Profiles are being prepared" in response.text
+    assert "Directory coming soon" in response.text
     assert "governed directory lane" not in response.text
     assert "another branded site" not in response.text
     assert "</style>\n</style>" not in response.text
-    assert "Search directory" in response.text
+    assert "Search directory" not in response.text
+    assert ">Reset<" not in response.text
     assert "Brilliant Directories" not in response.text
     assert "brilliantdirectories.com" not in response.text.lower()
     assert "credentials" not in response.text

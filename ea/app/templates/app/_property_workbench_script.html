@@ -2877,7 +2877,7 @@
     };
     let searchLaunchInFlight = false;
     const launchButtons = () => [
-      ...root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]'),
+      ...root.querySelectorAll('[data-property-start-top]'),
     ];
     const setSearchLaunchBusy = (busy) => {
       launchButtons().forEach((button) => {
@@ -2943,7 +2943,7 @@
         root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the search.';
       }
     });
-    root.querySelectorAll('[data-property-start], [data-property-start-top], [data-pqx-launch-top]').forEach((button) => {
+    root.querySelectorAll('[data-property-start-top]').forEach((button) => {
       button.addEventListener('click', (event) => {
         event.preventDefault();
         startSearch();
