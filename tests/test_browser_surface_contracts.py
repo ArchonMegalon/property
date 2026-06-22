@@ -230,8 +230,8 @@ def test_propertyquarry_exposes_privacy_safe_pwa_shell() -> None:
     assert '<meta name="application-name" content="PropertyQuarry">' in app_page.text
     assert '<link rel="apple-touch-icon" href="/pwa-icon-192.png">' in public_page.text
     assert '<link rel="apple-touch-icon" href="/pwa-icon-192.png">' in app_page.text
-    assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in public_page.text
-    assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/app/' })" in app_page.text
+    assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/' })" in public_page.text
+    assert "navigator.serviceWorker.register('/service-worker.js', { scope: '/' })" in app_page.text
 
     assert manifest.status_code == 200
     payload = manifest.json()
