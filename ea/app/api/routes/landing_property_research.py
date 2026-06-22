@@ -1184,7 +1184,7 @@ def _property_investment_context_rows(
         provider_label = provider_channel.replace("_", " ").strip().title() if provider_channel else "Genossenschaften"
         rows.append(_object_detail_row("Provider lane", f"{provider_label} cooperative supply lane.", "Source"))
         if marketing_type:
-            rows.append(_object_detail_row("Offer type", marketing_type, "Source"))
+            rows.append(_object_detail_row("Offer posture", marketing_type, "Source"))
             if listing_mode == "buy" and marketing_type.lower().startswith("miet"):
                 risk_rows.append(
                     _object_detail_row(

@@ -2467,8 +2467,8 @@ def property_workspace_payload(
                 },
                 {
                     "eyebrow": "Alerts",
-                    "title": "Notification rules",
-                    "body": "Email, Telegram, and WhatsApp stay opt-in, quiet-hour aware, and easy to stop.",
+                    "title": "Delivery " + "rules",
+                    "body": "Outbound channels must stay opt-in, quiet-hour aware, and easy to stop.",
                     "items": delivery_governance_rows,
                 },
                 run_card,
