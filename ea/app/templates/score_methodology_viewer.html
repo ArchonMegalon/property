@@ -2,109 +2,65 @@
 {% block content %}
 <style>
   .pqx-score-viewer-shell {
-    max-width: 1120px;
+    max-width: 1040px;
     margin: 0 auto;
     display: grid;
-    gap: 14px;
+    gap: 12px;
   }
-  .pqx-score-viewer-hero {
+  .pqx-score-viewer-header {
     display: grid;
-    gap: 10px;
-    padding: clamp(10px, 2vw, 22px) 0 2px;
+    gap: 8px;
+    padding: 8px 0 0;
   }
   .pqx-score-viewer-kicker {
     color: var(--text-soft);
-    font-size: 0.76rem;
-    letter-spacing: 0.08em;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
   }
-  .pqx-score-viewer-hero h1 {
+  .pqx-score-viewer-header h1 {
     margin: 0;
-    font-size: clamp(2rem, 4vw, 3.4rem);
-    line-height: 0.96;
-    max-width: 10ch;
+    font-size: clamp(1.5rem, 2.2vw, 2rem);
+    line-height: 1.04;
+    max-width: 16ch;
   }
-  .pqx-score-viewer-hero p {
+  .pqx-score-viewer-header p {
     margin: 0;
-    max-width: 48rem;
+    max-width: 42rem;
     color: var(--text-soft);
+    font-size: 0.96rem;
   }
-  .pqx-score-viewer-meta {
+  .pqx-score-viewer-summary {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
   }
-  .pqx-score-viewer-meta span {
+  .pqx-score-viewer-summary span {
     display: inline-flex;
     align-items: center;
-    min-height: 32px;
-    padding: 0 11px;
+    min-height: 28px;
+    padding: 0 10px;
     border-radius: 999px;
     border: 1px solid var(--line);
-    background: color-mix(in srgb, var(--panel) 85%, transparent);
-    font-size: 0.88rem;
-  }
-  .pqx-score-viewer-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 0.95fr) minmax(360px, 1.35fr);
-    gap: 14px;
-    align-items: start;
-  }
-  .pqx-score-viewer-card {
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--panel);
-    padding: 14px;
-  }
-  .pqx-score-viewer-card h2 {
-    margin: 0 0 8px;
-    font-size: 1rem;
-  }
-  .pqx-score-viewer-card p {
-    margin: 0;
+    background: color-mix(in srgb, var(--panel) 82%, transparent);
+    font-size: 0.82rem;
     color: var(--text-soft);
-  }
-  .pqx-score-viewer-list {
-    display: grid;
-    gap: 8px;
-    margin-top: 12px;
-  }
-  .pqx-score-viewer-list article {
-    display: grid;
-    gap: 3px;
-    padding: 10px 0;
-    border-top: 1px solid var(--line);
-  }
-  .pqx-score-viewer-list article:first-child {
-    padding-top: 0;
-    border-top: 0;
-  }
-  .pqx-score-viewer-list b {
-    font-size: 0.92rem;
-  }
-  .pqx-score-viewer-list span {
-    color: var(--text-soft);
-    font-size: 0.9rem;
-    line-height: 1.42;
   }
   .pqx-score-viewer-frame {
     border: 1px solid var(--line);
     border-radius: 10px;
     overflow: hidden;
     background: var(--panel);
-    min-height: 76vh;
+    min-height: 78vh;
   }
   .pqx-score-viewer-frame iframe {
     width: 100%;
-    min-height: 76vh;
+    min-height: 78vh;
     border: 0;
     display: block;
     background: var(--panel);
   }
   @media (max-width: 980px) {
-    .pqx-score-viewer-grid {
-      grid-template-columns: 1fr;
-    }
     .pqx-score-viewer-frame,
     .pqx-score-viewer-frame iframe {
       min-height: 68vh;
@@ -113,11 +69,11 @@
 </style>
 
 <main class="pqx-score-viewer-shell">
-  <section class="pqx-score-viewer-hero">
+  <section class="pqx-score-viewer-header">
     <span class="pqx-score-viewer-kicker">Behind the score</span>
     <h1>{{ score_methodology.get('pdf_title') or 'How the score works' }}</h1>
     <p>{{ score_methodology.get('summary') or 'Hard rules decide eligibility first. Everything optional changes rank, confidence, or follow-up questions.' }}</p>
-    <div class="pqx-score-viewer-meta" aria-label="Score methodology summary">
+    <div class="pqx-score-viewer-summary" aria-label="Score methodology summary">
       <span>{{ score_methodology.get('language_label') or 'English' }}</span>
       <span>{{ score_methodology.get('country_code') or 'AT' }}</span>
       <span>{{ score_methodology.get('candidate_application', {}).get('fit_score') or 62 }}/100 demo read</span>
@@ -125,23 +81,8 @@
     </div>
   </section>
 
-  <section class="pqx-score-viewer-grid">
-    <aside class="pqx-score-viewer-card">
-      <h2>{{ score_methodology.get('calculation_title') or 'Example calculation' }}</h2>
-      <p>{{ score_methodology.get('neutral_note') or '' }}</p>
-      <div class="pqx-score-viewer-list">
-        {% for row in (score_methodology.get('calculation_rows') or [])[:5] %}
-        <article>
-          <b>{{ row.get('label') }} {{ row.get('delta') }}</b>
-          <span>{{ row.get('why') }}</span>
-        </article>
-        {% endfor %}
-      </div>
-    </aside>
-
-    <section class="pqx-score-viewer-frame" aria-label="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}">
-      <iframe src="{{ pdf_url }}" title="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}" loading="eager"></iframe>
-    </section>
+  <section class="pqx-score-viewer-frame" aria-label="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}">
+    <iframe src="{{ pdf_url }}" title="{{ score_methodology.get('pdf_title') or 'PropertyQuarry score methodology PDF' }}" loading="eager"></iframe>
   </section>
 </main>
 {% endblock %}
