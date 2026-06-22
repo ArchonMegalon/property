@@ -434,6 +434,9 @@ def _teable_request_json(*, base_url: str, api_key: str, path: str, timeout: int
     normalized_api_key = str(api_key or "").strip()
     if not normalized_api_key:
         return {}
+    parsed_base = urllib.parse.urlparse(normalized_base_url)
+    if parsed_base.scheme != "https" or not parsed_base.netloc:
+        return {}
     request = urllib.request.Request(
         f"{normalized_base_url}{path}",
         method="GET",
@@ -444,7 +447,8 @@ def _teable_request_json(*, base_url: str, api_key: str, path: str, timeout: int
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        # The Teable base URL is parsed and restricted to HTTPS before this call.
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
             payload = response.read().decode("utf-8")
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
         return {}

@@ -624,6 +624,34 @@ def test_propertyquarry_teable_table_discovery_resolves_propertyquarry_base_by_n
     assert config["propertyquarry_delivery_settings"]["table_id"] == "tbl_propertyquarry_delivery_settings"
 
 
+def test_propertyquarry_teable_request_rejects_non_https_base(monkeypatch) -> None:
+    calls: list[object] = []
+
+    def _urlopen(*args, **_kwargs):  # noqa: ANN001
+        calls.extend(args)
+        raise AssertionError("urlopen should not be called for non-HTTPS Teable endpoints")
+
+    monkeypatch.setattr(pq_teable_projection.urllib.request, "urlopen", _urlopen)
+
+    assert (
+        pq_teable_projection._teable_request_json(
+            base_url="http://teable.example",
+            api_key="teable-key",
+            path="/api/space",
+        )
+        == {}
+    )
+    assert (
+        pq_teable_projection._teable_request_json(
+            base_url="file:///tmp/teable.json",
+            api_key="teable-key",
+            path="/api/space",
+        )
+        == {}
+    )
+    assert calls == []
+
+
 def test_propertyquarry_teable_sync_keeps_projection_state_when_migrating_teable_host(monkeypatch) -> None:
     client = build_product_client(principal_id="pq-teable-portable")
     container = client.app.state.container
