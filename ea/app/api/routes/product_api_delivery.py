@@ -1147,7 +1147,8 @@ def capture_property_billing_order_return(
 def payfunnels_property_billing_return(
     plan_key: str = Query(default=""),
 ) -> RedirectResponse:
-    return RedirectResponse(f"/app/properties?billing=pending_confirmation&plan={plan_key}&provider=payfunnels", status_code=303)
+    query = urllib.parse.urlencode({"billing": "pending_confirmation", "plan": plan_key})
+    return RedirectResponse(f"/app/properties?{query}", status_code=303)
 
 
 @router.get("/signals/property/billing/payfunnels/cancel", include_in_schema=False)
@@ -1168,7 +1169,8 @@ def payfunnels_property_billing_cancel(
         },
     )
     _save_property_preferences(container, principal_id=context.principal_id, property_preferences=updated)
-    return RedirectResponse(f"/app/properties?billing=cancelled&plan={plan_key}&provider=payfunnels", status_code=303)
+    query = urllib.parse.urlencode({"billing": "cancelled", "plan": plan_key})
+    return RedirectResponse(f"/app/properties?{query}", status_code=303)
 
 
 @public_payfunnels_router.post("/signals/property/billing/payfunnels/webhook")

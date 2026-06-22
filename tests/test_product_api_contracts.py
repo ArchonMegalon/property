@@ -21098,6 +21098,32 @@ def test_property_payfunnels_checkout_and_webhook_activate_plus_plan(
     assert duplicate_body["idempotent"] is True
 
 
+def test_property_payfunnels_browser_returns_are_white_label() -> None:
+    principal_id = "exec-property-payfunnels-white-label-return"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    returned = client.get(
+        "/app/api/signals/property/billing/payfunnels/return?plan_key=plus",
+        follow_redirects=False,
+    )
+    assert returned.status_code == 303
+    return_location = str(returned.headers.get("location") or "")
+    assert return_location == "/app/properties?billing=pending_confirmation&plan=plus"
+    assert "provider=" not in return_location
+    assert "payfunnels" not in return_location.lower()
+
+    cancelled = client.get(
+        "/app/api/signals/property/billing/payfunnels/cancel?plan_key=plus",
+        follow_redirects=False,
+    )
+    assert cancelled.status_code == 303
+    cancel_location = str(cancelled.headers.get("location") or "")
+    assert cancel_location == "/app/properties?billing=cancelled&plan=plus"
+    assert "provider=" not in cancel_location
+    assert "payfunnels" not in cancel_location.lower()
+
+
 def test_property_paypal_checkout_uses_propertyquarry_base_url_on_property_host(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
