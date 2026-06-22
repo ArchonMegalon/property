@@ -117,7 +117,7 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert "<h2>Notifications</h2>" in account
     assert ">Save</button>" in account
 
-    assert "<h2>Plan</h2>" in billing
+    assert "<h2>Plan and payments</h2>" in billing
     assert ">Open</a>" not in billing
 
 

@@ -25,7 +25,7 @@
   <div class="pqx-section-head">
     <div>
       <div class="pqx-small">Account</div>
-      <h2>Account</h2>
+      <h2>Settings</h2>
     </div>
   </div>
 
@@ -34,7 +34,7 @@
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>
-        <p>Market, areas, budget, providers, and what matters.</p>
+        <p>Market, areas, budget, providers, and priorities.</p>
       </div>
       <a class="pqx-link-button primary" href="{{ profile_item.get('action_href') or '/app/search' }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
     </section>
@@ -83,7 +83,7 @@
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_card.value.get('title') or 'Plan and entitlements' }}</h2>
-        <p>Current allowance and checkout.</p>
+        <p>Allowance and checkout.</p>
       </div>
       <a class="pqx-link-button" href="/app/billing">Open billing</a>
     </section>
@@ -92,7 +92,7 @@
       <div>
         <span class="pqx-small">Data</span>
         <h2>Export account data</h2>
-        <p>Saved preferences, run summaries, delivery settings, and access links.</p>
+        <p>Preferences, run summaries, delivery settings, and access links.</p>
       </div>
       <a class="pqx-link-button" href="/app/api/property/account/export?download=1">Export data</a>
     </section>
@@ -112,7 +112,7 @@
       <div>
         <span class="pqx-small">Sharing</span>
         <h2>Access and shared pages</h2>
-        <p>Issue account links and revoke public packets or tours from one place.</p>
+        <p>Account links plus public packets and tours.</p>
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/access">Access links</a>
@@ -124,7 +124,7 @@
       <div>
         <span class="pqx-small">Trust</span>
         <h2>Connections and privacy</h2>
-        <p>Identity providers, privacy preferences, and how scoring works.</p>
+        <p>Identity providers, privacy preferences, and scoring.</p>
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/google">Google</a>

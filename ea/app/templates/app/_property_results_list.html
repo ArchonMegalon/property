@@ -1,10 +1,11 @@
 <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
   {% set run_summary = run.get('summary') or {} %}
   {% set is_shortlist_surface = surface_mode == 'shortlist' %}
-  {% set run_sources = run_summary.get('sources') or [] %}
-  {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
-  {% set score_demoted_total = run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0 %}
-  {% set results_label = 'shortlisted opportunities' if is_shortlist_surface and brief.get('search_goal') == 'investment' else ('shortlisted homes' if is_shortlist_surface else ('ranked opportunities' if brief.get('search_goal') == 'investment' else 'ranked homes')) %}
+    {% set run_sources = run_summary.get('sources') or [] %}
+    {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
+    {% set score_demoted_total = run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0 %}
+    {% set results_label = 'shortlisted opportunities' if is_shortlist_surface and brief.get('search_goal') == 'investment' else ('shortlisted homes' if is_shortlist_surface else ('ranked opportunities' if brief.get('search_goal') == 'investment' else 'ranked homes')) %}
+    {% set shortlist_compact_actions = is_shortlist_surface %}
   <div class="pqx-result-panel-head">
     <div class="pqx-results-headline">
       <div class="pqx-note pqx-results-summary-row">
@@ -139,10 +140,10 @@
         <span class="pqx-result-actions">
           {% set visual_property_url = candidate.get('property_url') or candidate.get('source_url') or candidate.get('listing_url') %}
           {% set tour = candidate.get('tour', {}) %}
-          {% if candidate.get('map_url') %}
+          {% if candidate.get('map_url') and not shortlist_compact_actions %}
           <a class="pqx-result-open" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>
           {% endif %}
-          {% if candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') %}
+          {% if (candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url')) and not shortlist_compact_actions %}
           <a class="pqx-result-open" href="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>
           {% endif %}
           {% if tour.get('url') %}
