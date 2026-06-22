@@ -1390,6 +1390,7 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-decision-stepper span',
         'html[data-pq-theme="dark"] .pqx-decision-stepper span.is-active',
         'html[data-pq-theme="dark"] .pqx-mode-button',
+        'html[data-pq-theme="dark"] .pqx-mobile-switch',
         'html[data-pq-theme="dark"] .pqx-mode-button.active',
         'html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action',
         'html[data-pq-theme="dark"] .pqx-check',

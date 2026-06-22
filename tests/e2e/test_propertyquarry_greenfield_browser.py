@@ -2690,6 +2690,109 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
         context.close()
 
 
+def test_propertyquarry_mobile_dark_mode_covers_secondary_surfaces(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "selected_platforms": ["willhaben", "derstandard_at"],
+            "search_agents": [
+                {
+                    "agent_id": "watch-1020-mobile-dark",
+                    "name": "Leopoldstadt dark mobile watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "duration_days": 90,
+                    "notification_limit": 3,
+                    "notification_period": "day",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                        "property_type": "apartment",
+                        "selected_platforms": ["willhaben", "derstandard_at"],
+                    },
+                },
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    selectors = [
+        ".pqx-topbar",
+        ".pqx-shell *",
+        ".pqx-primary-nav a",
+        ".pqx-run-chip",
+        ".pqx-button:not(.primary)",
+        ".pqx-link-button:not(.primary)",
+        ".pqx-card",
+        ".pqx-field input:not([type='checkbox'])",
+        ".pqx-field select",
+        ".pqx-account-card",
+        ".pqx-account-channel-option",
+        ".pqx-account-channel-detail",
+        ".pqx-account-channel-detail input",
+        ".pqx-billing-card",
+        ".pqx-automation-card",
+        ".pqx-automation-thumbnail",
+        ".pqx-empty",
+        ".pqx-bottom-nav",
+        ".pq-pack-shell",
+        ".pq-pack-button",
+        ".pq-pack-panel",
+        ".pq-pack-card",
+        ".pq-pack-input",
+        ".pq-pack-pill",
+        ".pq-pack-empty",
+    ]
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    context.add_init_script("window.localStorage.setItem('propertyquarry.theme', 'dark');")
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    routes = [
+        ("/app/search", "propertyquarry-search-mobile-dark.png"),
+        ("/app/agents", "propertyquarry-agents-mobile-dark.png"),
+        ("/app/account", "propertyquarry-account-mobile-dark.png"),
+        ("/app/billing", "propertyquarry-billing-mobile-dark.png"),
+        ("/app/settings/google", "propertyquarry-settings-google-mobile-dark.png"),
+        ("/app/settings/access", "propertyquarry-settings-access-mobile-dark.png"),
+        ("/app/settings/outcomes", "propertyquarry-settings-outcomes-mobile-dark.png"),
+        ("/app/properties/packets", "propertyquarry-packets-mobile-dark.png"),
+    ]
+    try:
+        page = context.new_page()
+        for route, screenshot_name in routes:
+            response = page.goto(f"{base_url}{route}", wait_until="networkidle")
+            assert response is not None and response.ok
+            expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+            _assert_no_horizontal_overflow(page)
+            _assert_dark_mode_surfaces_stay_readable(page, selectors)
+            if route != "/app/properties/packets":
+                _assert_property_shell_visual_gates(page, max_appbar_height=130)
+            screenshot_path = tmp_path / screenshot_name
+            page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
+            assert screenshot_path.exists() and screenshot_path.stat().st_size > 14_000
+    finally:
+        context.close()
+
+
 def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_compact(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
