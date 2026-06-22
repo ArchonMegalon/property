@@ -15,6 +15,8 @@ PUBLIC_ROUTES = (
     "/security",
     "/data-deletion",
     "/pricing",
+    "/directory",
+    "/directory/profile/sample",
     "/docs",
     "/integrations",
     "/guides/wohnung-kaufen-wien-checkliste",
@@ -127,6 +129,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Brilliant Directories" not in directory.text
     assert "credentials" not in directory.text
     assert "provider returned" not in directory.text.lower()
+
+    directory_profile = client.get("/directory/profile/sample")
+    assert directory_profile.status_code == 200
+    assert "Profile details stay on PropertyQuarry." in directory_profile.text
+    assert "Brilliant Directories" not in directory_profile.text
 
     pricing = client.get("/pricing")
     assert "<h1>Pricing</h1>" in pricing.text

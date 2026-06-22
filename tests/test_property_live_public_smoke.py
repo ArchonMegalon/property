@@ -34,6 +34,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/security": "PropertyQuarry Security, privacy, and visual quality are reviewed before public changes go live.",
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Request access.",
         "https://propertyquarry.com/directory": "PropertyQuarry directory Search directory Reset.",
+        "https://propertyquarry.com/directory/profile/sample": "PropertyQuarry Profile details stay on PropertyQuarry Back to directory Contact support.",
         "https://propertyquarry.com/privacy": "PropertyQuarry Privacy Public tours should use a narrow public manifest",
         "https://propertyquarry.com/terms": "PropertyQuarry Terms Generated or embedded tours help screening",
         "https://propertyquarry.com/support": "PropertyQuarry Support wrong-area matches",

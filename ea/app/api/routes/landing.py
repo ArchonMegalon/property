@@ -145,26 +145,17 @@ router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 
-def _brilliant_directories_public_profile_rows(
-    profiles: list[object],
-    *,
-    directory_host: str = "",
-) -> list[dict[str, object]]:
+def _brilliant_directories_public_profile_rows(profiles: list[object]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    normalized_host = str(directory_host or "").strip().lower()
     for raw_profile in profiles:
         if not isinstance(raw_profile, dict):
             continue
         profile = dict(raw_profile)
-        public_url = str(profile.get("public_url") or "").strip()
-        href = ""
-        if public_url.startswith("https://"):
-            href = public_url
-        elif public_url and normalized_host:
-            href = f"https://{normalized_host}/{public_url.lstrip('/')}"
+        profile_id = str(profile.get("profile_id") or "").strip()
+        href = f"/directory/profile/{urllib.parse.quote(profile_id, safe='')}" if profile_id else ""
         rows.append(
             {
-                "profile_id": str(profile.get("profile_id") or "").strip(),
+                "profile_id": profile_id,
                 "display_name": str(profile.get("display_name") or "").strip(),
                 "category": str(profile.get("category") or "").strip(),
                 "city": str(profile.get("city") or "").strip(),
@@ -176,6 +167,13 @@ def _brilliant_directories_public_profile_rows(
             }
         )
     return [row for row in rows if row.get("profile_id") and row.get("display_name")]
+
+
+def _normalize_public_directory_profile_id(profile_id: str) -> str:
+    normalized = str(profile_id or "").strip()
+    if not normalized or len(normalized) > 96 or not re.fullmatch(r"[A-Za-z0-9._:-]+", normalized):
+        raise HTTPException(status_code=404, detail="directory_profile_not_found")
+    return normalized
 
 
 def _google_sign_in_enabled() -> bool:
@@ -1949,7 +1947,6 @@ def property_directory_page(
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     directory_status = "disabled"
     directory_error = ""
-    directory_host = ""
     directory_profiles: list[dict[str, object]] = []
     directory_query = {
         "keyword": str(keyword or "").strip(),
@@ -1961,7 +1958,6 @@ def property_directory_page(
     }
     try:
         config = brilliant_directories_service.load_brilliant_directories_config()
-        directory_host = str(config.host or "").strip()
         if config.configured:
             packet = brilliant_directories_service.fetch_brilliant_directories_member_projection_packet(
                 config,
@@ -1976,7 +1972,6 @@ def property_directory_page(
             packet_payload = packet.as_dict()
             directory_profiles = _brilliant_directories_public_profile_rows(
                 list(packet_payload.get("profiles") or []),
-                directory_host=directory_host,
             )
             directory_status = "ready"
     except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
@@ -2001,6 +1996,34 @@ def property_directory_page(
                 "directory_public_site_url": brilliant_directories_service.brilliant_directories_public_site_url(),
                 "meta_description": "PropertyQuarry directory for public partner, advisor, relocation, and local-service profiles connected through the governed directory lane.",
                 "canonical_path": "/directory",
+            },
+        ),
+    )
+
+
+@router.get("/directory/profile/{profile_id}", response_class=HTMLResponse)
+def property_directory_profile_page(
+    profile_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    normalized_profile_id = _normalize_public_directory_profile_id(profile_id)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    return _render_public_template(
+        request,
+        "property_directory_profile.html",
+        **_public_context(
+            request=request,
+            current_nav="directory",
+            page_title="PropertyQuarry Directory Profile",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "directory_profile_id": normalized_profile_id,
+                "meta_description": "PropertyQuarry directory profile details stay on PropertyQuarry with only reviewed public information shown.",
+                "canonical_path": f"/directory/profile/{urllib.parse.quote(normalized_profile_id, safe='')}",
             },
         ),
     )

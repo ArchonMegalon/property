@@ -605,11 +605,18 @@ def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
     assert response.status_code == 200
     serialized = response.text
     assert "Vienna Relocation Advisors" in serialized
-    assert "https://directory.example/austria/vienna/vienna-relocation-advisors" in serialized
+    assert "/directory/profile/24" in serialized
+    assert "https://directory.example/austria/vienna/vienna-relocation-advisors" not in serialized
+    assert "target=\"_blank\"" not in serialized
     assert "1 public profile shown" in serialized
     assert "private@example.test" not in serialized
     assert "+43 1 555" not in serialized
     assert "Secret Street" not in serialized
+
+    profile_response = client.get("/directory/profile/24", headers={"host": "propertyquarry.com"})
+    assert profile_response.status_code == 200
+    assert "Profile details stay on PropertyQuarry." in profile_response.text
+    assert "Brilliant Directories" not in profile_response.text
 
 
 def test_brilliant_directories_pricing_stays_propertyquarry_white_label(

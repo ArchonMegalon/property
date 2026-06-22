@@ -18,6 +18,7 @@ DEFAULT_ROUTES = (
     "/security",
     "/pricing",
     "/directory",
+    "/directory/profile/sample",
     "/privacy",
     "/terms",
     "/support",
@@ -64,6 +65,7 @@ def _security_header_checks(*, path: str, final_url: str, headers: dict[str, obj
         "/security",
         "/pricing",
         "/directory",
+        "/directory/profile/sample",
         "/privacy",
         "/terms",
         "/support",
@@ -148,6 +150,7 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         "/security",
         "/pricing",
         "/directory",
+        "/directory/profile/sample",
         "/privacy",
         "/terms",
         "/support",
@@ -201,6 +204,14 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     and "provider stores" not in lowered_visible,
                 ),
                 ("directory_has_search", "Search directory" in text or "Reset" in text),
+            )
+        )
+    elif path.startswith("/directory/profile/"):
+        lowered_visible = visible_text.lower()
+        checks.extend(
+            (
+                ("directory_profile_white_label", "Profile details stay on PropertyQuarry" in text and "brilliant directories" not in lowered_visible and "brilliantdirectories" not in lowered_visible),
+                ("directory_profile_local_navigation", "Back to directory" in text and "Contact support" in text),
             )
         )
     elif path in {"/privacy", "/terms", "/support", "/imprint", "/cookies", "/subprocessors", "/refunds", "/disclaimers"}:

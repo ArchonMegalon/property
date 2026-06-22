@@ -1,0 +1,62 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .pq-directory-profile {
+    min-height: min(620px, calc(100vh - 180px));
+    display: grid;
+    align-content: center;
+    gap: 16px;
+  }
+  .pq-directory-profile-panel {
+    max-width: 760px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+    padding: clamp(18px, 4vw, 34px);
+    display: grid;
+    gap: 14px;
+  }
+  .pq-directory-profile-kicker {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pq-directory-profile h1 {
+    margin: 0;
+    font-size: clamp(2rem, 4vw, 3.6rem);
+    line-height: 1;
+    letter-spacing: 0;
+  }
+  .pq-directory-profile p {
+    max-width: 56rem;
+    color: var(--text-soft);
+    line-height: 1.58;
+  }
+  .pq-directory-profile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  html[data-pq-theme="dark"] .pq-directory-profile-panel {
+    background: var(--panel);
+    border-color: var(--line);
+    color: var(--text);
+  }
+</style>
+
+<main class="pq-directory-profile">
+  <section class="pq-directory-profile-panel">
+    <p class="pq-directory-profile-kicker">Directory profile</p>
+    <h1>Profile details stay on PropertyQuarry.</h1>
+    <p>Verified public profile details will appear here after directory onboarding is open. Until then, PropertyQuarry keeps directory navigation on this domain instead of sending users to another branded site.</p>
+    <div class="pq-directory-profile-actions">
+      <a class="btn primary" href="/directory">Back to directory</a>
+      <a class="btn ghost" href="/support">Contact support</a>
+    </div>
+  </section>
+</main>
+{% endblock %}
