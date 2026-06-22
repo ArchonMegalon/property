@@ -3131,6 +3131,85 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
         context.close()
 
 
+def test_propertyquarry_mobile_provider_family_controls_select_and_clear_cleanly(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    screenshot_path = tmp_path / "propertyquarry-mobile-provider-family-controls.png"
+    try:
+        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
+        page.locator('[data-property-step-trigger="providers"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        _assert_no_horizontal_overflow(page)
+
+        expected_provider_cap = page.locator('[data-console-form-variant="property_search"]').evaluate(
+            """(form) => {
+              const raw = String(form.getAttribute('data-console-form-meta') || '').trim();
+              const meta = raw ? JSON.parse(raw) : {};
+              return Number(meta?.commercial?.max_platforms || 0);
+            }"""
+        )
+        assert isinstance(expected_provider_cap, int)
+        assert expected_provider_cap > 0
+
+        first_provider_family = page.locator('[data-provider-group-panel]').first
+        first_provider_family.locator("summary").scroll_into_view_if_needed()
+        first_provider_family.locator("summary").click()
+
+        add_button = first_provider_family.get_by_role("button", name="Add family")
+        clear_button = first_provider_family.get_by_role("button", name="Clear family")
+        expect(add_button).to_be_visible()
+        expect(clear_button).to_be_visible()
+
+        button_metrics = page.evaluate(
+            """() => {
+              const add = [...document.querySelectorAll('[data-provider-group-panel] button')]
+                .find((node) => (node.textContent || '').trim() === 'Add family');
+              const clear = [...document.querySelectorAll('[data-provider-group-panel] button')]
+                .find((node) => (node.textContent || '').trim() === 'Clear family');
+              const addRect = add ? add.getBoundingClientRect() : null;
+              const clearRect = clear ? clear.getBoundingClientRect() : null;
+              return {
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+                addRight: addRect ? addRect.right : 0,
+                clearRight: clearRect ? clearRect.right : 0,
+                addBottom: addRect ? addRect.bottom : 0,
+                clearBottom: clearRect ? clearRect.bottom : 0,
+              };
+            }"""
+        )
+        assert button_metrics["addRight"] <= button_metrics["viewportWidth"] + 1
+        assert button_metrics["clearRight"] <= button_metrics["viewportWidth"] + 1
+        assert button_metrics["addBottom"] <= button_metrics["viewportHeight"] + 80
+        assert button_metrics["clearBottom"] <= button_metrics["viewportHeight"] + 80
+
+        family_provider_count = first_provider_family.locator('input[name="selected_platforms"]').count()
+        assert family_provider_count > 0
+
+        add_button.click()
+        checked_family_provider_count = first_provider_family.locator('input[name="selected_platforms"]:checked').count()
+        checked_total_after_family = page.locator('input[name="selected_platforms"]:checked').count()
+        assert checked_family_provider_count == min(family_provider_count, expected_provider_cap)
+        assert checked_total_after_family == checked_family_provider_count
+
+        clear_button.click()
+        expect(first_provider_family.locator('input[name="selected_platforms"]:checked')).to_have_count(0)
+        expect(page.locator('input[name="selected_platforms"]:checked')).to_have_count(0)
+
+        page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
+        assert screenshot_path.exists() and screenshot_path.stat().st_size > 16_000
+        _assert_property_shell_visual_gates(page, max_appbar_height=130)
+    finally:
+        context.close()
+
+
 def test_propertyquarry_start_failure_explains_backend_reason(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

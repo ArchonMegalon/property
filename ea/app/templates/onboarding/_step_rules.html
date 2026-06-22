@@ -2,65 +2,65 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 3</div>
-      <h2>Refine the shortlist after first value, and add integrations later.</h2>
+      <h2>Keep the first shortlist useful.</h2>
     </div>
     <p class="step-context">Finish setup.</p>
   </div>
 
   <div class="finish-grid">
     <div class="finish-card">
-      <strong>What the first useful property loop reveals</strong>
+      <strong>First useful loop</strong>
       {% if activation_preview.brief %}
       <p class="copy">Shortlist: {{ activation_preview.brief|join(' · ') }}</p>
       {% else %}
-      <p class="copy">Shortlist: define one good property brief, surface the first ranked candidates, and keep the scope narrow.</p>
+      <p class="copy">Shortlist: define one good brief, surface the first ranked homes, keep the scope narrow.</p>
       {% endif %}
       {% if activation_preview.queue %}
       <p class="copy">Next: {{ activation_preview.queue|join(' · ') }}</p>
       {% else %}
-      <p class="copy">Next: get to one useful review or follow-up that feels real.</p>
+      <p class="copy">Next: get to one useful review or follow-up.</p>
       {% endif %}
     </div>
     <div class="finish-card">
-      <strong>Rules after first value</strong>
-      <p class="copy">Start with reviewable recommendations and explicit notifications. Change automation depth only after the shortlist and property page feel credible.</p>
+      <strong>Keep it simple</strong>
+      <p class="copy">Add alerts or automation only after the shortlist already feels right.</p>
     </div>
   </div>
 
   <div class="path-grid">
     <section class="path-card">
-      <strong>Email alerts later</strong>
-      <p class="copy">Add alerts only when the shortlist quality already justifies asynchronous notifications to clients or teammates.</p>
+      <strong>Alerts later</strong>
+      <p class="copy">Turn them on once the shortlist quality is stable.</p>
       <div class="wizard-actions">
         <div class="right">
-          <a class="btn" href="/integrations">Review notification options</a>
+          <a class="btn" href="/integrations">Notification options</a>
         </div>
       </div>
     </section>
 
     <section class="path-card">
       <strong>Shared review later</strong>
-      <p class="copy">Add shared review only when more than one person truly needs the same shortlist, comments, and follow-ups.</p>
+      <p class="copy">Add it once more than one person needs the same shortlist.</p>
       <div class="wizard-actions">
         <div class="right">
-          <a class="btn" href="/pricing">Review paid tiers</a>
+          <a class="btn" href="/pricing">See plans</a>
         </div>
       </div>
     </section>
 
     <section class="path-card">
-      <strong>Preference tuning after results</strong>
-      <p class="copy">Use account settings after first value to change search defaults, limits, or alert depth based on real use.</p>
+      <strong>Tune after results</strong>
+      <p class="copy">Use account settings after first value to adjust defaults or alerts.</p>
       <div class="wizard-actions">
         <div class="right">
-          <a class="btn" href="/app/settings">Open preferences</a>
+          <a class="btn" href="/app/settings">Preferences</a>
         </div>
       </div>
     </section>
 
     <section class="path-card">
-      <strong>Evidence for follow-up research</strong>
-      <p class="copy">If the first shortlist does not feel useful, inspect missing facts and weak-fit reasons before adding more sources.</p>
+      <strong>Investigate before widening</strong>
+      <p class="copy">Check missing facts and weak-fit reasons before adding more sources.</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/app/search">Open PropertyQuarry</a>
@@ -68,13 +68,13 @@
       </div>
     </section>
     <section class="path-card">
-      <strong>Recommended starting point</strong>
+      <strong>Start small</strong>
       <p class="copy">Keep alerts simple at first.</p>
     </section>
 
     <section class="path-card">
-      <strong>Expand after results</strong>
-      <p class="copy">Add shared review, more providers, or deeper automation only after the first shortlist is already useful day to day.</p>
+      <strong>Expand later</strong>
+      <p class="copy">Add shared review, more providers, or deeper automation only after the shortlist is already useful day to day.</p>
     </section>
   </div>
 
@@ -82,15 +82,15 @@
   <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="3">
     {{ shared_browser_fields|safe }}
     <div class="check-grid">
-      <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Prepare messages</strong>Prepare listing questions or follow-up messages for review before anything is sent.</span></label>
-      <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow recommendation hints</strong>Let the product surface next steps, ranking explanations, and shortlist actions.</span></label>
-      <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow shortlist emails</strong>Send a scheduled summary.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Prepare messages</strong>Draft listing questions or follow-ups before anything is sent.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Suggest next steps</strong>Show ranking explanations and shortlist actions.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Send shortlist email</strong>Deliver a scheduled summary.</span></label>
     </div>
     <input type="hidden" name="auto_brief_delivery_channel" value="{{ morning_memo.get('delivery_channel', 'email') }}">
 
     <div class="field-grid" style="margin-top: 12px;">
       <div>
-        <label for="auto_brief_cadence">Email cadence</label>
+        <label for="auto_brief_cadence">Digest cadence</label>
         <select id="auto_brief_cadence" name="auto_brief_cadence">
           <option value="daily_morning" {% if morning_memo.get('cadence', 'daily_morning') == 'daily_morning' %}selected{% endif %}>Every day</option>
           <option value="weekdays_morning" {% if morning_memo.get('cadence') == 'weekdays_morning' %}selected{% endif %}>Weekdays only</option>
@@ -113,7 +113,7 @@
         <input id="auto_brief_quiet_hours_end" name="auto_brief_quiet_hours_end" type="time" value="{{ morning_memo.get('quiet_hours_end', '07:00') }}">
       </div>
       <div>
-        <label>Current digest target</label>
+        <label>Current recipient</label>
         <p class="copy" style="margin-top: 8px;">{{ morning_memo.get('resolved_recipient_email', 'Will resolve from the connected Google account once available.') }}</p>
       </div>
     </div>
