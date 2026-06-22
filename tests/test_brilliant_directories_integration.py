@@ -743,6 +743,40 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert profile_response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
 
 
+def test_brilliant_directories_sitemap_hides_unconfigured_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    client = build_property_client(principal_id="pq-brilliant-directories-sitemap-disabled")
+
+    response = client.get("/sitemap.xml", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "<loc>https://propertyquarry.com/</loc>" in response.text
+    assert "<loc>https://propertyquarry.com/pricing</loc>" in response.text
+    assert "<loc>https://propertyquarry.com/directory</loc>" not in response.text
+    assert "directory.example" not in response.text
+
+
+def test_brilliant_directories_sitemap_includes_configured_white_label_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    client = build_property_client(principal_id="pq-brilliant-directories-sitemap-ready")
+
+    response = client.get("/sitemap.xml", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "<loc>https://propertyquarry.com/directory</loc>" in response.text
+    assert "directory.example" not in response.text
+    assert "bd-secret-token" not in response.text
+
+
 def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

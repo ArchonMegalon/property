@@ -651,10 +651,14 @@ def robots_txt() -> PlainTextResponse:
 def sitemap_xml(request: Request) -> Response:
     brand = request_brand(request)
     base_url = str(brand.get("public_base_url") or "https://propertyquarry.com").strip().rstrip("/")
-    urls = (
+    directory_sitemap_enabled = False
+    try:
+        directory_sitemap_enabled = brilliant_directories_service.load_brilliant_directories_config().configured
+    except brilliant_directories_service.BrilliantDirectoriesApiError:
+        directory_sitemap_enabled = False
+    urls = [
         "/",
         "/pricing",
-        "/directory",
         "/security",
         "/privacy",
         "/terms",
@@ -669,7 +673,9 @@ def sitemap_xml(request: Request) -> Response:
         "/guides/wohnung-kaufen-wien-checkliste",
         "/markets/vienna",
         "/sign-in",
-    )
+    ]
+    if directory_sitemap_enabled:
+        urls.insert(2, "/directory")
     body = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for path in urls:
         if path == "/sign-in":

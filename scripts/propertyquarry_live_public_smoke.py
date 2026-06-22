@@ -352,11 +352,9 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             (
                 "sitemap_core",
                 (f"<loc>{sitemap_origin}/</loc>" in text and f"<loc>{sitemap_origin}/pricing</loc>" in text)
-                and f"<loc>{sitemap_origin}/directory</loc>" in text
                 or (
                     "<loc>https://propertyquarry.com/</loc>" in text
                     and "<loc>https://propertyquarry.com/pricing</loc>" in text
-                    and "<loc>https://propertyquarry.com/directory</loc>" in text
                 ),
             )
         )
