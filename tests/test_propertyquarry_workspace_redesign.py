@@ -3759,7 +3759,8 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
 def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1.08fr) minmax(272px, 0.62fr);" in body
+    assert "grid-template-columns: minmax(0, 1.14fr) minmax(248px, 0.56fr);" in body
+    assert ".pq-shell[data-property-app-shell] .pq-rail" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
     assert "min-height: clamp(156px, 20vh, 196px);" in body
     assert "max-height: min(calc(100vh - 440px), 202px);" in body
