@@ -3174,10 +3174,10 @@ def app_section_payload(
     except Exception:
         property_plan_max_results = 2
     try:
-        property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 45)))
+        property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 35)))
     except Exception:
-        property_plan_max_match_score = 45
-    property_visible_max_match_score = 80
+        property_plan_max_match_score = 35
+    property_visible_max_match_score = 60
     property_visible_max_results_per_source = 10
     property_plan_catalog = [
         dict(plan)
@@ -3287,9 +3287,9 @@ def app_section_payload(
     if property_search_mode == "strict" and property_run_status_for_defaults in {"processed", "completed"} and property_ranked_total_for_defaults < 6:
         property_search_mode = "discovery"
     try:
-        property_min_match_score_value = int(property_preferences.get("min_match_score") or min(65, property_plan_max_match_score))
+        property_min_match_score_value = int(property_preferences.get("min_match_score") or min(property_visible_max_match_score, property_plan_max_match_score))
     except Exception:
-        property_min_match_score_value = min(65, property_plan_max_match_score)
+        property_min_match_score_value = min(property_visible_max_match_score, property_plan_max_match_score)
     property_min_match_score_value = max(1, min(property_min_match_score_value, property_plan_max_match_score))
     property_min_match_tooltip = (
         "Minimum personal fit score a listing must beat before it can enter the shortlist. "

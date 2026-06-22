@@ -32,6 +32,7 @@
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
 {% set empty_outcome = workbench.get('empty_outcome') or {} %}
+{% set score_methodology = workbench.get('score_methodology') or {} %}
 {% macro suppression_panel(rows, actions=[], total_override=None) -%}
 {% if rows %}
 {% set trigger_rows = actions if actions else rows %}
@@ -5268,6 +5269,101 @@
       font-weight: 780;
       white-space: nowrap;
     }
+    .pqx-score-bts {
+      display: grid;
+      gap: 10px;
+      margin: 8px 0 12px;
+      padding: 14px;
+      border: 1px solid rgba(31, 78, 64, 0.14);
+      border-radius: 16px;
+      background:
+        linear-gradient(135deg, rgba(20, 88, 71, 0.08), rgba(177, 128, 37, 0.08)),
+        var(--pq-panel);
+    }
+    .pqx-score-bts-head {
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .pqx-score-bts-head > div:first-child {
+      display: grid;
+      gap: 2px;
+      max-width: 58ch;
+    }
+    .pqx-score-bts-kicker {
+      width: fit-content;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(20, 88, 71, 0.12);
+      color: var(--pq-muted);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .pqx-score-bts strong {
+      color: var(--pq-ink);
+      font-weight: 850;
+    }
+    .pqx-score-bts span,
+    .pqx-score-bts p {
+      margin: 0;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.42;
+    }
+    .pqx-score-bands {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+      max-width: 260px;
+    }
+    .pqx-score-bands span,
+    .pqx-score-examples span {
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+      padding: 5px 7px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: rgba(255, 253, 248, 0.72);
+      color: var(--pq-muted);
+      font-size: 10px;
+      font-weight: 720;
+    }
+    .pqx-score-bands b,
+    .pqx-score-examples b {
+      color: var(--pq-ink);
+      font-weight: 850;
+    }
+    .pqx-score-bts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-score-bts-grid div {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid rgba(31, 78, 64, 0.12);
+      border-radius: 12px;
+      background: rgba(255, 253, 248, 0.62);
+    }
+    .pqx-score-examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    html[data-pq-theme="dark"] .pqx-score-bts,
+    html[data-pq-theme="dark"] .pqx-score-bts-grid div,
+    html[data-pq-theme="dark"] .pqx-score-bands span,
+    html[data-pq-theme="dark"] .pqx-score-examples span {
+      background: color-mix(in srgb, var(--pq-paper) 86%, var(--pq-green) 14%);
+      border-color: var(--pq-line);
+    }
     .pqx-result-secondary {
       color: var(--pq-muted);
       font-size: 11px;
@@ -5900,6 +5996,15 @@
       .pqx-result-actions {
         justify-content: flex-start;
       }
+      .pqx-score-bts-head,
+      .pqx-score-bts-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-score-bands {
+        justify-content: flex-start;
+        max-width: none;
+      }
       .pqx-inline-map-preview,
       .pqx-previous-scope-trigger,
       .pqx-previous-scope-image {
@@ -6023,6 +6128,14 @@
       }
       .pqx-result-actions {
         justify-content: flex-end;
+      }
+      .pqx-score-bts {
+        padding: 12px;
+      }
+      .pqx-score-examples span {
+        width: 100%;
+        border-radius: 12px;
+        align-items: flex-start;
       }
     }
     html[data-pq-theme="dark"] .pqx-shell :is(
@@ -7275,6 +7388,22 @@
               {% endfor %}
             </div>
           </div>
+          {% if score_methodology %}
+          {% set score_application = score_methodology.get('candidate_application') or {} %}
+          <div class="pqx-card">
+            <div class="pqx-section-head">
+              <div>
+                <h2>{{ score_methodology.get('candidate_title') or 'Current score read' }}</h2>
+                <div class="pqx-note">{{ score_methodology.get('neutral_note') }}</div>
+              </div>
+              <span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100</span>
+            </div>
+            <div class="pqx-event-list">
+              <div class="pqx-event-card"><strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong><span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['Verified facts and matching preferences move this upward.'])[:2]|join(' · ') }}</span></div>
+              <div class="pqx-event-card"><strong>{{ score_methodology.get('negative_label') or 'Signals reducing confidence or score' }}</strong><span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['Missing facts stay visible and lower confidence until checked.'])[:2]|join(' · ') }}</span></div>
+            </div>
+          </div>
+          {% endif %}
         </section>
         {% endif %}
       </section>

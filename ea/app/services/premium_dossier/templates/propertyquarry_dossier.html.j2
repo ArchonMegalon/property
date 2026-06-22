@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{ dossier.score_methodology.language_code or payload.facts.language_code or 'de' }}">
   <head>
     <meta charset="utf-8">
     <title>{{ dossier.title }}</title>
@@ -110,6 +110,73 @@
         </div>
       </div>
     </section>
+
+    {% if dossier.score_methodology %}
+    {% set score = dossier.score_methodology %}
+    {% set score_application = score.candidate_application or {} %}
+    <section class="page">
+      <div class="page-inner">
+        <div class="section-kicker">Behind the score</div>
+        <div class="score-hero">
+          <div>
+            <h2>{{ score.pdf_title or score.title }}</h2>
+            {% if score.subtitle %}<p class="score-subtitle">{{ score.subtitle }}</p>{% endif %}
+            {% if score.summary %}<p>{{ score.summary }}</p>{% endif %}
+          </div>
+          <div class="score-read">
+            <div class="decision-label">{{ score.candidate_title or "Current candidate score read" }}</div>
+            <div class="score-number">{{ score_application.fit_score or payload.fit_score or "0" }}/100</div>
+            {% if score_application.band_label %}<div class="pill">{{ score_application.band_label }}</div>{% endif %}
+            {% if score.neutral_note %}<p>{{ score.neutral_note }}</p>{% endif %}
+          </div>
+        </div>
+        <div class="score-bands">
+          {% for band in score.score_bands[:4] %}
+          <div class="score-band">
+            <strong>{{ band.range }}</strong>
+            <span>{{ band.meaning }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="score-grid">
+          <div class="panel">
+            <h3>{{ score.positive_label or "Signals lifting the score" }}</h3>
+            <ul>
+              {% for line in score_application.positive_signals[:4] %}
+              <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>{{ score.negative_label or "Signals reducing confidence or score" }}</h3>
+            <ul>
+              {% for line in score_application.negative_signals[:4] %}
+              <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+        <div class="score-grid score-grid-wide">
+          <div class="panel">
+            <h3>Engine steps</h3>
+            <ol>
+              {% for step in score.steps[:6] %}
+              <li><strong>{{ step.title }}</strong>{% if step.detail %} · {{ step.detail }}{% endif %}</li>
+              {% endfor %}
+            </ol>
+          </div>
+          <div class="panel">
+            <h3>Examples</h3>
+            <ul>
+              {% for example in score.examples[:5] %}
+              <li><strong>{{ example.title }}</strong>{% if example.detail %} · {{ example.detail }}{% endif %}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
 
     <section class="page image-spread">
       <div class="page-inner">

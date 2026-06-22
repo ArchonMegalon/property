@@ -246,6 +246,27 @@ def _confidence_label(*, risk_lines: list[str], match_reasons: list[str], mismat
     return "Mittel"
 
 
+def _score_methodology_payload(payload: dict[str, object]) -> dict[str, object]:
+    source = payload.get("score_methodology")
+    if not isinstance(source, dict):
+        return {}
+    return dict(source)
+
+
+def _score_methodology_items(value: object, *, limit: int = 6) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in list(value or [])[:limit] if isinstance(value, list) else []:
+        if isinstance(item, dict):
+            title = str(item.get("title") or item.get("range") or "").strip()
+            detail = str(item.get("detail") or item.get("meaning") or "").strip()
+        else:
+            title = ""
+            detail = str(item or "").strip()
+        if title or detail:
+            rows.append({"title": title, "detail": detail})
+    return rows
+
+
 def _office_packet_label(packet_kind: PropertyPacketKind) -> str:
     labels = {
         PropertyPacketKind.FAMILY_REVIEW: "Family dossier",
@@ -1333,6 +1354,7 @@ def _visual_pdf(
     if not mismatch_reasons:
         mismatch_reasons = _fallback_risks(packet_facts)
     viewing_questions = _text_items(payload.get("viewing_questions"), limit=2) or _fallback_questions(packet_facts)
+    score_methodology = _score_methodology_payload(payload)
     household_review = dict(payload.get("household_review") or {}) if isinstance(payload.get("household_review"), dict) else {}
     household_stakeholders = [
         str(row.get("label") or row.get("name") or row.get("stakeholder") or "").strip()
@@ -1554,6 +1576,79 @@ def _visual_pdf(
             break
     pages.append({"ops": ops, "images": []})
     page_number += 1
+
+    if score_methodology:
+        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
+        title_text = str(score_methodology.get("pdf_title") or score_methodology.get("title") or "How the PropertyQuarry score is calculated").strip()
+        subtitle_text = str(score_methodology.get("subtitle") or "").strip()
+        summary_text = str(score_methodology.get("summary") or "").strip()
+        candidate_application = (
+            dict(score_methodology.get("candidate_application") or {})
+            if isinstance(score_methodology.get("candidate_application"), dict)
+            else {}
+        )
+        positive_signals = [
+            str(row or "").strip()
+            for row in list(candidate_application.get("positive_signals") or [])[:4]
+            if str(row or "").strip()
+        ] or match_reasons[:4]
+        negative_signals = [
+            str(row or "").strip()
+            for row in list(candidate_application.get("negative_signals") or [])[:4]
+            if str(row or "").strip()
+        ] or mismatch_reasons[:4]
+        try:
+            candidate_score = int(float(candidate_application.get("fit_score") or fit_score or 0))
+        except Exception:
+            candidate_score = 0
+        _draw_text(ops, title_text, x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
+        if subtitle_text:
+            _draw_wrapped(ops, subtitle_text, x=MARGIN_X, y=762, width_chars=86, size=9.8, leading=12, fill=(0.36, 0.37, 0.36))
+        if summary_text:
+            _draw_rect(ops, MARGIN_X, 628, CARD_WIDTH, 98, fill=(1.0, 0.995, 0.97))
+            _draw_rect(ops, MARGIN_X, 628, 7, 98, fill=(0.15, 0.38, 0.30))
+            _draw_wrapped(ops, summary_text, x=MARGIN_X + 18, y=700, width_chars=84, size=9.6, leading=11.8)
+        bands = _score_methodology_items(score_methodology.get("score_bands"), limit=4)
+        band_width = (CARD_WIDTH - 18) / 4.0
+        for index, row in enumerate(bands):
+            x = MARGIN_X + index * (band_width + 6)
+            _draw_rect(ops, x, 566, band_width, 42, fill=(0.96, 0.98, 0.96))
+            _draw_text(ops, row.get("title"), x=x + 9, y=592, size=9.4, font="F2", fill=(0.15, 0.38, 0.30))
+            _draw_wrapped(ops, row.get("detail"), x=x + 9, y=578, width_chars=18, size=7.8, leading=8.8)
+        _draw_rect(ops, MARGIN_X, 406, 248, 128, fill=(1.0, 0.995, 0.97))
+        _draw_rect(ops, MARGIN_X, 406, 7, 128, fill=(0.15, 0.38, 0.30))
+        _draw_text(ops, str(score_methodology.get("candidate_title") or "Current candidate score read"), x=MARGIN_X + 18, y=510, size=11, font="F2", fill=(0.15, 0.38, 0.30))
+        score_line = f"{candidate_score}/100"
+        band_label = str(candidate_application.get("band_label") or "").strip()
+        if band_label:
+            score_line = f"{score_line} - {band_label}"
+        _draw_text(ops, score_line, x=MARGIN_X + 18, y=480, size=20, font="F2", fill=(0.12, 0.14, 0.13))
+        _draw_wrapped(ops, str(score_methodology.get("neutral_note") or ""), x=MARGIN_X + 18, y=454, width_chars=32, size=8.8, leading=10.8)
+        _draw_rect(ops, MARGIN_X + 268, 406, CARD_WIDTH - 268, 128, fill=(1.0, 0.995, 0.97))
+        _draw_rect(ops, MARGIN_X + 268, 406, 7, 128, fill=(0.74, 0.55, 0.18))
+        _draw_text(ops, str(score_methodology.get("positive_label") or "Signals lifting the score"), x=MARGIN_X + 286, y=510, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
+        py = 490
+        for row in positive_signals[:3]:
+            py = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 286, y=py, width_chars=38, size=8.8, leading=10.8)
+        _draw_text(ops, str(score_methodology.get("negative_label") or "Signals reducing confidence or score"), x=MARGIN_X + 286, y=440, size=10.4, font="F2", fill=(0.62, 0.29, 0.26))
+        ny = 420
+        for row in negative_signals[:3]:
+            ny = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 286, y=ny, width_chars=38, size=8.8, leading=10.8)
+        _draw_text(ops, "Engine steps", x=MARGIN_X, y=356, size=14, font="F2", fill=(0.15, 0.38, 0.30))
+        step_y = 330
+        for row in _score_methodology_items(score_methodology.get("steps"), limit=6):
+            title_part = f"{row.get('title')}: " if row.get("title") else ""
+            step_y = _draw_wrapped(ops, title_part + row.get("detail", ""), x=MARGIN_X, y=step_y, width_chars=86, size=8.9, leading=10.7)
+            step_y -= 2
+            if step_y < 172:
+                break
+        _draw_text(ops, "Examples", x=MARGIN_X, y=142, size=13, font="F2", fill=(0.43, 0.38, 0.29))
+        example_y = 120
+        for row in _score_methodology_items(score_methodology.get("examples"), limit=4):
+            title_part = f"{row.get('title')}: " if row.get("title") else ""
+            example_y = _draw_wrapped(ops, title_part + row.get("detail", ""), x=MARGIN_X, y=example_y, width_chars=86, size=8.6, leading=10.4)
+        pages.append({"ops": ops, "images": []})
+        page_number += 1
 
     ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
     _draw_text(ops, "Eckdaten und Kennzahlen", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))

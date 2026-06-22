@@ -221,7 +221,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                 "listing_total": 14 if processed else 3,
                 "filtered_low_fit_total": 14 if processed else 0,
                 "high_fit_total": 0,
-                "high_match_min_score": 80,
+                "high_match_min_score": 60,
                 "tour_created_total": 0,
                 "tour_existing_total": 0,
                 "sources": [
@@ -2379,20 +2379,20 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('label', has_text="Zillow").count() == 0
         match_slider = page.locator('input[name="min_match_score"]')
         assert match_slider.is_visible()
-        assert match_slider.get_attribute("max") == "80"
-        assert match_slider.get_attribute("data-range-selectable-max") == "45"
-        assert match_slider.get_attribute("data-range-visual-max") == "80"
+        assert match_slider.get_attribute("max") == "60"
+        assert match_slider.get_attribute("data-range-selectable-max") == "35"
+        assert match_slider.get_attribute("data-range-visual-max") == "60"
         tooltip = match_slider.get_attribute("title") or ""
         assert "backend" in tooltip.lower()
         assert "slower" in tooltip.lower()
-        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/80"
-        assert page.locator('[data-current-plan-cap]').filter(has_text="Plan cap 45").count() >= 1
+        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "35/60"
+        assert page.locator('[data-current-plan-cap]').filter(has_text="Plan cap 35").count() >= 1
         floorplan_filter = page.locator('input[name="require_floorplan"]')
         assert floorplan_filter.is_visible()
         assert page.locator('label', has_text="Serious listings only").count() >= 1
-        match_slider.evaluate("(node) => { node.value = '80'; node.dispatchEvent(new Event('input', { bubbles: true })); }")
-        assert match_slider.input_value() == "45"
-        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/80"
+        match_slider.evaluate("(node) => { node.value = '60'; node.dispatchEvent(new Event('input', { bubbles: true })); }")
+        assert match_slider.input_value() == "35"
+        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "35/60"
     finally:
         context.close()
 
@@ -3094,9 +3094,9 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
             assert slider.is_visible()
             slider_box = slider.bounding_box()
             assert slider_box is not None and slider_box["height"] >= 34
-            assert slider.get_attribute("max") in {"10", "80"}
+            assert slider.get_attribute("max") in {"10", "60"}
         assert page.locator('input[name="max_results_per_source"]').get_attribute("data-range-selectable-max") == "2"
-        assert page.locator('input[name="min_match_score"]').get_attribute("data-range-selectable-max") == "45"
+        assert page.locator('input[name="min_match_score"]').get_attribute("data-range-selectable-max") == "35"
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
     finally:
         context.close()

@@ -22,6 +22,7 @@ from app.domain.property_preference_events import (
     PROPERTY_PACKET_FEEDBACK_SOURCE,
     PROPERTY_PREFERENCE_DOMAIN,
 )
+from app.product.property_score_methodology import build_property_score_methodology
 from app.product.service import build_product_service
 from app.settings import get_settings, resolve_signing_secret
 from app.services.fliplink import build_fliplink_packet_service
@@ -1083,6 +1084,20 @@ def render_property_packet(
     )
     if latest_scene and bool(latest_scene.get("share_with_packet_pdf")):
         source_payload["magic_fit_scene"] = dict(latest_scene)
+    facts = dict(source_payload.get("property_facts") or {}) if isinstance(source_payload.get("property_facts"), dict) else {}
+    country_code = str(
+        source_payload.get("country_code")
+        or facts.get("country_code")
+        or facts.get("market_country_code")
+        or ""
+    ).strip()
+    language_code = str(source_payload.get("language_code") or facts.get("language_code") or "").strip()
+    if not isinstance(source_payload.get("score_methodology"), dict):
+        source_payload["score_methodology"] = build_property_score_methodology(
+            language_code=language_code,
+            country_code=country_code,
+            candidate=source_payload,
+        )
     try:
         row = service.render_packet(
             principal_id=context.principal_id,

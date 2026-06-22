@@ -98,6 +98,8 @@ def render_property_packet_pdf_via_premium_pipeline(
     private_reference_media_included = _payload_has_private_reference_media(source) or _payload_has_private_reference_media(redaction.payload)
     html = render_premium_dossier_html(compiled, principal_id=principal_id)
     expected_text = ["PropertyQuarry", compiled.title]
+    if compiled.score_methodology:
+        expected_text.append(str(compiled.score_methodology.get("pdf_title") or compiled.score_methodology.get("title") or "Behind the score"))
     if normalized_appendix_mode.endswith("appendix"):
         expected_text.extend(["Viewing Appendix", "Deep research results"])
     request = PremiumDossierRenderRequest(

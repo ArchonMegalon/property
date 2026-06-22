@@ -180,6 +180,25 @@
           {% if not selected.get('match_reasons') %}<div class="pqx-note">No explicit match reason captured yet.</div>{% endif %}
         </div>
       </section>
+      {% if score_methodology %}
+      {% set score_application = score_methodology.get('candidate_application') or {} %}
+      <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
+        <div class="pqx-section-head">
+          <h2>{{ score_methodology.get('candidate_title') or 'Current score read' }}</h2>
+          <span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100{% if score_application.get('band_label') %} · {{ score_application.get('band_label') }}{% endif %}</span>
+        </div>
+        <div class="pqx-event-list">
+          <div class="pqx-event-card">
+            <strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong>
+            <span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['Verified facts and matching preferences move this upward.'])[:2]|join(' · ') }}</span>
+          </div>
+          <div class="pqx-event-card">
+            <strong>{{ score_methodology.get('negative_label') or 'Signals reducing confidence or score' }}</strong>
+            <span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['Missing facts stay visible and lower confidence until checked.'])[:2]|join(' · ') }}</span>
+          </div>
+        </div>
+      </section>
+      {% endif %}
       {% if selected.get('location_text') %}
       <section class="pqx-card" style="border:0;padding:0;background:transparent;box-shadow:none;">
         <div class="pqx-section-head"><h2>Location & area</h2></div>

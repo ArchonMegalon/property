@@ -271,6 +271,11 @@ def compile_premium_dossier(
         agent_questions = _safe_lines((editorial_questions or {}).get("bullets"), limit=8) or agent_questions
     recommendation = _recommendation_label(redacted_payload.get("recommendation"))
     compare_rows = _comparison_rows(redacted_payload.get("comparison_rows"))
+    score_methodology = (
+        dict(redacted_payload.get("score_methodology") or {})
+        if isinstance(redacted_payload.get("score_methodology"), dict)
+        else {}
+    )
     compare_reason = str(redacted_payload.get("compare_reason") or (compare_rows[0].get("compare_reason") if compare_rows else "") or "").strip()
     property_narrative = [
         *[
@@ -300,6 +305,7 @@ def compile_premium_dossier(
         agent_questions=agent_questions,
         provenance_lines=provenance_lines,
         comparison_rows=compare_rows,
+        score_methodology=score_methodology,
         gallery_urls=photo_refs,
         floorplan_urls=floorplan_refs,
         visual_story_urls=list(visual_story["visual_story_urls"]),

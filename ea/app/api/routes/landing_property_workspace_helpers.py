@@ -1379,7 +1379,7 @@ def _property_counterfactual_rows(
                 "title": f"Lower the match threshold to {next_score}",
                 "detail": "Keep more watch-tier candidates in the next sweep instead of filtering them out at the current score gate.",
                 "tag": "Threshold",
-                "action_label": f"Apply {next_score}/80",
+                "action_label": f"Apply {next_score}/60",
                 "adjustments": {"min_match_score": next_score},
                 "affected_total": low_fit_total,
             }

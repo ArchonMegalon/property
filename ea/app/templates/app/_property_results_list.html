@@ -24,6 +24,33 @@
       </div>
     </div>
   </div>
+  {% if score_methodology %}
+  <section class="pqx-score-bts" aria-label="{{ score_methodology.get('title') or 'Behind the score' }}">
+    <div class="pqx-score-bts-head">
+      <div>
+        <span class="pqx-score-bts-kicker">BTS</span>
+        <strong>{{ score_methodology.get('title') or 'Behind the score' }}</strong>
+        <span>{{ score_methodology.get('subtitle') or 'How the engine reads each home.' }}</span>
+      </div>
+      <div class="pqx-score-bands" aria-label="Score bands">
+        {% for band in (score_methodology.get('score_bands') or [])[:4] %}
+        <span><b>{{ band.get('range') }}</b>{{ band.get('meaning') }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    <p>{{ score_methodology.get('summary') }}</p>
+    <div class="pqx-score-bts-grid">
+      {% for step in (score_methodology.get('steps') or [])[:3] %}
+      <div><strong>{{ step.get('title') }}</strong><span>{{ step.get('detail') }}</span></div>
+      {% endfor %}
+    </div>
+    <div class="pqx-score-examples">
+      {% for example in (score_methodology.get('examples') or [])[:4] %}
+      <span><b>{{ example.get('title') }}</b>{{ example.get('detail') }}</span>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
   <div class="pqx-results-list" id="results-list" data-workbench-results-table>
     {% for candidate in results %}
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>

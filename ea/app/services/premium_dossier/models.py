@@ -36,6 +36,7 @@ class PremiumDossierCompileResult:
     agent_questions: list[str] = field(default_factory=list)
     provenance_lines: list[str] = field(default_factory=list)
     comparison_rows: list[dict[str, str]] = field(default_factory=list)
+    score_methodology: dict[str, object] = field(default_factory=dict)
     gallery_urls: list[str] = field(default_factory=list)
     floorplan_urls: list[str] = field(default_factory=list)
     visual_story_urls: list[str] = field(default_factory=list)

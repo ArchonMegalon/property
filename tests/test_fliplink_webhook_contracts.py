@@ -190,6 +190,41 @@ def test_fliplink_manual_publish_enforces_privacy_and_sale_policy(monkeypatch, t
     assert sale_ok.json()["publication"]["sale_mode_enabled"] is True
 
 
+def test_fliplink_render_route_builds_candidate_score_methodology(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    client = build_property_client(principal_id="fliplink-score-owner")
+    start_workspace(client, mode="personal", workspace_name="FlipLink Score Office")
+
+    publication_id = _seed_packet(
+        client,
+        property_ref="score-demo",
+        payload={
+            "title": "Score demo apartment",
+            "fit_score": 62,
+            "match_reasons": ["Echte 360-Tour vorhanden."],
+            "mismatch_reasons": ["Heizungsdetail fehlt noch."],
+            "property_facts": {
+                "country_code": "AT",
+                "language_code": "de",
+                "rooms": 3,
+                "area_m2": 82,
+                "postal_name": "1020 Wien",
+            },
+        },
+    )
+    detail = client.get(f"/app/api/properties/packets/{publication_id}")
+    assert detail.status_code == 200, detail.text
+    redacted_payload = detail.json()["publication"]["packet_summary_json"]["redacted_payload"]
+    score_methodology = redacted_payload["score_methodology"]
+
+    assert redacted_payload["fit_score"] == 62.0
+    assert score_methodology["language_code"] == "de"
+    assert score_methodology["candidate_application"]["fit_score"] == 62
+    assert score_methodology["candidate_application"]["band_label"] == "Starke Passung"
+    assert score_methodology["candidate_application"]["positive_signals"] == ["Echte 360-Tour vorhanden."]
+
+
 def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))

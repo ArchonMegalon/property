@@ -47,7 +47,7 @@ def test_free_property_plan_stays_narrower_than_paid_lanes() -> None:
     assert snapshot["investment_research_level"] == "none"
     assert snapshot["max_platforms"] == 3
     assert snapshot["max_results_per_source"] == 2
-    assert snapshot["max_match_score"] == 45
+    assert snapshot["max_match_score"] == 35
 
 
 def test_property_notification_price_signal_uses_catalog_currencies() -> None:
@@ -118,13 +118,13 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert plus["investment_research_level"] == "preview"
     assert plus["research_depth"] == "deep"
     assert plus["max_platforms"] == 8
-    assert plus["max_match_score"] == 65
+    assert plus["max_match_score"] == 45
     assert plus["magic_fit_scene_period"] == "day"
     assert plus["magic_fit_video_period"] == "day"
     assert agent["investment_research_level"] == "full"
     assert agent["research_depth"] == "deep"
     assert agent["max_platforms"] == 0
-    assert agent["max_match_score"] == 80
+    assert agent["max_match_score"] == 60
     assert agent["magic_fit_scene_period"] == "none"
     assert agent["magic_fit_video_period"] == "none"
 

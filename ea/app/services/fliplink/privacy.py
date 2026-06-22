@@ -610,6 +610,16 @@ def redact_property_packet(
             "viewing_questions": _list_text(source.get("viewing_questions") or source.get("questions")),
             "facts": redacted_facts,
         }
+        if isinstance(source.get("score_methodology"), dict):
+            payload["score_methodology"] = dict(source.get("score_methodology") or {})
+        try:
+            score_value = source.get("fit_score")
+            if score_value is None:
+                score_value = source.get("ranking_score")
+            if score_value is not None:
+                payload["fit_score"] = max(0.0, min(100.0, float(score_value)))
+        except Exception:
+            pass
         appendix_mode = str(source.get("appendix_mode") or "").strip().lower()
         if appendix_mode:
             payload["appendix_mode"] = appendix_mode

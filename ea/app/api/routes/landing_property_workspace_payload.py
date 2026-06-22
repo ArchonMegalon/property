@@ -50,6 +50,7 @@ from app.product.property_surface_state import (
     normalized_property_search_goal,
     property_mode_visibility_label,
 )
+from app.product.property_score_methodology import build_property_score_methodology
 from app.product.property_delivery_governance import property_delivery_governance_rows
 
 
@@ -2807,6 +2808,11 @@ def property_workspace_payload(
     )
     workbench_results = [dict(row) for row in list(shortlist_snapshot.get("results") or []) if isinstance(row, dict)]
     selected_result = dict(shortlist_snapshot.get("selected") or {})
+    score_methodology = build_property_score_methodology(
+        language_code=property_preferences.get("language_code"),
+        country_code=selected_country_code,
+        candidate=selected_result,
+    )
     run_health_summary = dict(run_health or {})
     workbench_filtered_total = int(
         run_health_summary.get("filtered_total")
@@ -2907,6 +2913,7 @@ def property_workspace_payload(
         suppression_rows=suppression_rows,
         delivery_proof_rows=delivery_proof_rows,
         artifact_receipt_rows=artifact_receipt_rows,
+        score_methodology=score_methodology,
         research_tasks=[],
         research_task_counts={
             "total": research_task_total,

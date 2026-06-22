@@ -622,7 +622,7 @@ _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE = 60.0
 _PROPERTY_SCOUT_OUTBOUND_NOTIFICATION_MIN_SCORE = 60.0
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
-_PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
+_PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 60.0
 _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
 _PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "completed_partial", "failed", "cancelled", "noop"}
 _PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID = "property-market-codex"
@@ -884,9 +884,9 @@ def _property_search_pref_value_missing(value: object) -> bool:
 def _property_search_match_score_cap(preferences: dict[str, object] | None) -> int:
     try:
         snapshot = property_commercial_snapshot(preferences)
-        return max(1, min(100, int(snapshot.get("max_match_score") or 45)))
+        return max(1, min(100, int(snapshot.get("max_match_score") or 35)))
     except Exception:
-        return 45
+        return 35
 
 
 def _property_search_mode(preferences: dict[str, object] | None) -> str:

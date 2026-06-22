@@ -105,6 +105,7 @@ class PropertyDecisionWorkbenchContract:
     suppression_rows: list[object] = field(default_factory=list)
     delivery_proof_rows: list[object] = field(default_factory=list)
     artifact_receipt_rows: list[object] = field(default_factory=list)
+    score_methodology: dict[str, object] = field(default_factory=dict)
     research_tasks: list[object] = field(default_factory=list)
     research_task_counts: dict[str, object] = field(default_factory=dict)
     selected_candidate_ref: str = ""

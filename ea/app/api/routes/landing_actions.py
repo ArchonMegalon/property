@@ -9,6 +9,7 @@ from app.api.dependencies import RequestContext, get_container, get_request_cont
 from app.api.routes.landing import _default_operator_id_for_browser, _form_value, _normalize_browser_return_to
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.property_market_catalog import default_timezone_for_country
 
 router = APIRouter(tags=["landing"])
 
@@ -403,8 +404,9 @@ async def app_correct_person(
     return RedirectResponse(return_to, status_code=303)
 
 
+@router.post("/app/actions/settings/search-digest")
 @router.post("/app/actions/settings/morning-memo")
-async def app_update_morning_memo_settings(
+async def app_update_search_digest_settings(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
@@ -415,13 +417,15 @@ async def app_update_morning_memo_settings(
     whatsapp_notification_opt_in = _form_value(body, "whatsapp_notifications_enabled", "").lower() in {"true", "1", "yes", "on"}
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
+    workspace_country = str(workspace.get("country_code") or workspace.get("region") or "AT").strip() or "AT"
+    workspace_default_timezone = default_timezone_for_country(workspace_country)
     container.onboarding.start_workspace(
         principal_id=context.principal_id,
         workspace_name=_form_value(body, "workspace_name", str(workspace.get("name") or "PropertyQuarry account")),
         workspace_mode=str(workspace.get("mode") or "personal"),
         region=str(workspace.get("region") or ""),
         language=_form_value(body, "language", str(workspace.get("language") or "en") or "en"),
-        timezone=_form_value(body, "timezone", str(workspace.get("timezone") or "Europe/Vienna") or "Europe/Vienna"),
+        timezone=_form_value(body, "timezone", str(workspace.get("timezone") or workspace_default_timezone) or workspace_default_timezone),
         selected_channels=tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip()),
     )
     status = container.onboarding.status(principal_id=context.principal_id)

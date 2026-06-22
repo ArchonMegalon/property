@@ -4132,8 +4132,8 @@ def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeyp
     assert result["listing_total"] == 2
     assert result["sources"][0]["filtered_property_type_total"] == 1
     assert result["sources"][0]["filtered_low_fit_total"] == 1
-    assert result["sources"][0]["high_match_min_score"] == 65.0
-    assert result["sources"][0]["max_match_score"] == 65
+    assert result["sources"][0]["high_match_min_score"] == 45.0
+    assert result["sources"][0]["max_match_score"] == 45
     assert "Garagenplatz" not in " ".join(titles)
     assert titles == ["Familienwohnung nahe Park", "Helle Wohnung mit Lift und Balkon"]
     assert "high-one" in assessed
@@ -6989,14 +6989,14 @@ def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatc
 
     def _fake_assess_candidate(**kwargs):
         object_id = str(kwargs.get("object_id") or "")
-        score = 42.0 if object_id.endswith("below-free") else 50.0
+        score = 30.0 if object_id.endswith("below-free") else 40.0
         return {
             "fit_score": score,
             "confidence": 0.8,
             "predicted_reaction": "consider",
             "recommendation": "view_if_compelling",
-            "match_reasons_json": ["Above the free threshold."] if score > 45 else [],
-            "mismatch_reasons_json": [] if score > 45 else ["Below the free threshold."],
+            "match_reasons_json": ["Above the free threshold."] if score > 35 else [],
+            "mismatch_reasons_json": [] if score > 35 else ["Below the free threshold."],
             "unknowns_json": [],
             "blocking_constraints_json": [],
         }
@@ -7014,11 +7014,11 @@ def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatc
     )
 
     assert result["listing_total"] == 1
-    assert result["high_match_min_score"] == 45.0
-    assert result["max_match_score"] == 45
+    assert result["high_match_min_score"] == 35.0
+    assert result["max_match_score"] == 35
     assert result["sources"][0]["filtered_low_fit_total"] == 1
-    assert result["sources"][0]["high_match_min_score"] == 45.0
-    assert result["sources"][0]["max_match_score"] == 45
+    assert result["sources"][0]["high_match_min_score"] == 35.0
+    assert result["sources"][0]["max_match_score"] == 35
     assert result["sources"][0]["top_candidates"][0]["title"] == "Apartment just above free threshold"
 
 
