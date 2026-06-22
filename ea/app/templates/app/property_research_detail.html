@@ -899,11 +899,11 @@
     .prd-map-card,
     .prd-meta-card,
     .prd-lightbox-card {
-      padding: 10px;
+      padding: 8px;
     }
     .prd-headline-panel h1 {
-      font-size: 1.1rem;
-      line-height: 1.2;
+      font-size: 1rem;
+      line-height: 1.16;
     }
     .prd-kicker {
       margin-bottom: 2px;
@@ -985,21 +985,84 @@
     .prd-media-actions,
     .object-actions {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
     }
     .prd-media-actions {
-      margin-top: -6px;
+      margin-top: -4px;
     }
     .prd-headline-panel .prd-visual-hero-action {
       display: none;
     }
+    .prd-headline-panel > .prd-copy:first-of-type {
+      display: none;
+    }
+    .prd-price {
+      font-size: 0.88rem;
+      line-height: 1.12;
+      margin-top: 4px;
+    }
+    .prd-facts {
+      gap: 5px;
+      margin-top: 5px;
+    }
+    .prd-chip {
+      min-height: 23px;
+      padding: 0 7px;
+      font-size: 11px;
+    }
+    .prd-actions .console-action,
+    .prd-actions .pqx-button,
+    .prd-media-actions .console-action {
+      min-height: 42px;
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.15;
+      justify-content: center;
+      text-align: center;
+    }
+    .prd-status-line {
+      gap: 6px;
+      margin-top: 5px;
+    }
+    .prd-status-badge {
+      min-height: 24px;
+      padding: 0 8px;
+      font-size: 11px;
+      letter-spacing: 0.03em;
+    }
     .prd-media-frame {
-      min-height: 196px;
+      min-height: 190px;
       max-height: none;
     }
     .prd-media-frame.prd-media-frame-live {
-      min-height: 214px;
+      min-height: 206px;
       max-height: none;
+    }
+    .prd-media-caption {
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      gap: 3px;
+    }
+    .prd-media-caption strong {
+      font-size: 0.9rem;
+      line-height: 1.12;
+    }
+    .prd-media-caption span {
+      font-size: 11px;
+      -webkit-line-clamp: 1;
+    }
+    .prd-map-inline {
+      grid-template-columns: 60px minmax(0, 1fr);
+      gap: 7px;
+    }
+    .prd-map-thumb.is-inline {
+      width: 60px;
+      min-width: 60px;
+    }
+    .prd-hero-gallery {
+      display: none;
     }
     .prd-gallery {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1032,18 +1095,18 @@
   @media (max-width: 520px) {
     .prd-meta {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 7px;
+      gap: 6px;
     }
     .prd-meta-card {
-      padding: 9px;
+      padding: 8px;
     }
     .prd-meta-card span {
-      font-size: 11px;
-      margin-bottom: 3px;
+      font-size: 10px;
+      margin-bottom: 2px;
     }
     .prd-meta-card strong {
-      font-size: 0.88rem;
-      line-height: 1.16;
+      font-size: 0.82rem;
+      line-height: 1.12;
     }
   }
   @media (max-width: 340px) {

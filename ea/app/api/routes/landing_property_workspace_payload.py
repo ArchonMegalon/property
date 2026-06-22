@@ -1951,6 +1951,56 @@ def property_workspace_payload(
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/profile{run_suffix}"},
         ],
     }
+
+    current_surface_path = {
+        "properties": "/app/properties",
+        "search": "/app/search",
+        "shortlist": "/app/shortlist",
+        "research": "/app/research",
+        "profile": "/app/profile",
+        "alerts": "/app/alerts",
+        "agents": "/app/agents",
+        "billing": "/app/billing",
+        "account": "/app/account",
+        "settings": "/app/account",
+    }.get(normalized_section, "")
+
+    def _href_targets_current_surface(href: object) -> bool:
+        href_value = str(href or "").strip()
+        if not href_value or not current_surface_path:
+            return False
+        parsed_href = urllib.parse.urlparse(href_value)
+        if parsed_href.fragment:
+            return False
+        target_path = str(parsed_href.path or "").rstrip("/") or "/"
+        active_path = current_surface_path.rstrip("/") or "/"
+        return target_path == active_path
+
+    def _strip_current_surface_href(item: dict[str, object]) -> dict[str, object]:
+        cleaned = dict(item)
+        if _href_targets_current_surface(cleaned.get("href")):
+            cleaned.pop("href", None)
+        return cleaned
+
+    hero_actions = {
+        section_key: [
+            dict(action)
+            for action in list(actions or [])
+            if str(action.get("href") or "").strip()
+            and (section_key != normalized_section or not _href_targets_current_surface(action.get("href")))
+        ]
+        for section_key, actions in hero_actions.items()
+    }
+    hero_highlights = {
+        section_key: [
+            _strip_current_surface_href(dict(highlight))
+            if section_key == normalized_section
+            else dict(highlight)
+            for highlight in list(highlights or [])
+            if isinstance(highlight, dict)
+        ]
+        for section_key, highlights in hero_highlights.items()
+    }
     preference_rows = [
         row_item(
             "Account",

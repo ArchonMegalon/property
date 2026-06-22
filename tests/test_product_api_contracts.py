@@ -6,6 +6,7 @@ import hmac
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import urllib.parse
@@ -21625,6 +21626,7 @@ def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
     assert "Billing truth" not in billing.text
     assert "Plan and limits" not in billing.text
     assert "Current commercial state" not in billing.text
+    assert re.search(r'<a class="pqx-link-button subtle" href="/app/billing[^"]*">Open</a>', billing.text) is None
 
 
 def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(
