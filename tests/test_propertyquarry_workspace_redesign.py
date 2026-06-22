@@ -581,6 +581,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Open current session" in signed_in_sign_in.text
     assert 'action="/app/actions/sign-out"' in signed_in_sign_in.text
     assert ">Log out<" in signed_in_sign_in.text
+    assert signed_in_sign_in.text.count('action="/app/actions/sign-out"') == 1
+    assert signed_in_sign_in.text.count(">Log out<") == 1
     assert 'href="/register">Create account</a>' not in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
     assert "Google?" not in sign_in.text

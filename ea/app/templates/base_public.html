@@ -808,8 +808,9 @@
         {% endif %}
         {% endfor %}
       </nav>
+      {% set hide_public_auth_actions = current_nav == 'sign-in' %}
       <div class="actions">
-        {% if not signing_in_progress %}
+        {% if not signing_in_progress and not hide_public_auth_actions %}
         {% if public_signed_in %}
         <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
         <form method="post" action="/app/actions/sign-out">
