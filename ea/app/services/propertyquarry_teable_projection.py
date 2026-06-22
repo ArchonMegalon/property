@@ -885,7 +885,7 @@ def build_propertyquarry_teable_projection_records(
     if normalized_principal:
         selected_channels = [
             _text(value, limit=80)
-            for value in list(status.get("selected_channels") or [])
+            for value in list(property_notifications.get("selected_channels") or status.get("selected_channels") or [])
             if _text(value, limit=80)
         ]
         preferred_channel = _text(property_notifications.get("preferred_channel") or "email", limit=80) or "email"

@@ -24,7 +24,11 @@ from app.container import AppContainer
 from app.product.property_canonical_graph import build_property_passport_snapshot
 from app.product.property_tour_hosting import revoke_hosted_property_tour_bundle
 from app.product.service import build_product_service
-from app.services.onboarding import normalize_property_notification_channel, normalize_property_whatsapp_ai_support_phone
+from app.services.onboarding import (
+    normalize_property_notification_channel,
+    normalize_property_notification_channels,
+    normalize_property_whatsapp_ai_support_phone,
+)
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 
@@ -181,14 +185,15 @@ async def update_property_account_notifications(
 ) -> RedirectResponse:
     raw_body = (await request.body()).decode("utf-8", "ignore")
     parsed_body = urllib.parse.parse_qs(raw_body, keep_blank_values=True)
-    preferred_channel = str((parsed_body.get("preferred_channel") or ["email"])[0] or "email")
+    requested_channels = parsed_body.get("notification_channels") or parsed_body.get("preferred_channel") or ["email"]
     whatsapp_ai_support_phone = (
         str((parsed_body.get("whatsapp_ai_support_phone") or [""])[0] or "")
         if "whatsapp_ai_support_phone" in parsed_body
         else None
     )
     try:
-        normalized_channel = normalize_property_notification_channel(preferred_channel)
+        normalized_channels = normalize_property_notification_channels(requested_channels, fallback="email")
+        normalized_channel = normalize_property_notification_channel(normalized_channels[0])
         normalized_support_phone = (
             normalize_property_whatsapp_ai_support_phone(whatsapp_ai_support_phone)
             if whatsapp_ai_support_phone is not None
@@ -199,6 +204,7 @@ async def update_property_account_notifications(
     container.onboarding.update_property_notification_preferences(
         principal_id=context.principal_id,
         preferred_channel=normalized_channel,
+        selected_channels=normalized_channels,
         whatsapp_ai_support_phone=whatsapp_ai_support_phone,
     )
     service = build_product_service(container)
@@ -209,6 +215,7 @@ async def update_property_account_notifications(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
         metadata={
             "preferred_channel": normalized_channel,
+            "selected_channels": list(normalized_channels),
             "whatsapp_ai_support": bool(normalized_support_phone),
             "whatsapp_ai_support_phone_last4": "".join(ch for ch in normalized_support_phone if ch.isdigit())[-4:],
         },

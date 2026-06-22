@@ -1197,6 +1197,37 @@ def test_property_notification_preference_suppresses_unselected_channels(monkeyp
     assert email_result == {"status": "suppressed", "reason": "preferred_channel_telegram"}
 
 
+def test_property_notification_preference_allows_multiple_selected_channels() -> None:
+    principal_id = "cf-email:notification-multiselect@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(
+        client,
+        mode="personal",
+        workspace_name="Notification Multi Office",
+        selected_channels=["google", "telegram", "whatsapp"],
+    )
+    onboarding = client.app.state.container.onboarding
+    onboarding.update_property_notification_preferences(
+        principal_id=principal_id,
+        preferred_channel="email",
+        selected_channels=("email", "whatsapp"),
+    )
+
+    service = product_service.build_product_service(client.app.state.container)
+    assert service._property_notification_channel_allows(  # noqa: SLF001
+        principal_id=principal_id,
+        channel="email",
+    ) == (True, "")
+    assert service._property_notification_channel_allows(  # noqa: SLF001
+        principal_id=principal_id,
+        channel="whatsapp",
+    ) == (True, "")
+    assert service._property_notification_channel_allows(  # noqa: SLF001
+        principal_id=principal_id,
+        channel="telegram",
+    ) == (False, "notification_channel_not_selected")
+
+
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

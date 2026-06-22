@@ -160,6 +160,31 @@ def normalize_property_notification_channel(value: object) -> str:
     return normalized
 
 
+def normalize_property_notification_channels(
+    values: object,
+    *,
+    fallback: object = "email",
+) -> tuple[str, ...]:
+    raw_values: list[object] = []
+    if isinstance(values, str):
+        raw_values = [item for item in values.replace(";", ",").split(",")]
+    elif isinstance(values, (list, tuple, set)):
+        raw_values = list(values)
+    elif values is not None:
+        raw_values = [values]
+    normalized: list[str] = []
+    for raw_value in raw_values:
+        if not str(raw_value or "").strip():
+            continue
+        channel = normalize_property_notification_channel(raw_value)
+        if channel not in normalized:
+            normalized.append(channel)
+    if not normalized and fallback is not None:
+        channel = normalize_property_notification_channel(fallback)
+        normalized.append(channel)
+    return tuple(normalized)
+
+
 def normalize_property_whatsapp_ai_support_phone(value: object) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -1243,6 +1268,7 @@ class OnboardingService(AssistantOnboardingService):
         telegram_bot_profile = _propertyquarry_telegram_bot_public_profile()
         whatsapp_ai_support_phone = str(preferences.get("whatsapp_ai_support_phone") or "").strip()
         configured_channel = str(preferences.get("preferred_channel") or "").strip().lower()
+        raw_selected_channels = preferences.get("selected_channels")
         if configured_channel:
             try:
                 preferred_channel = normalize_property_notification_channel(configured_channel)
@@ -1250,14 +1276,28 @@ class OnboardingService(AssistantOnboardingService):
                 preferred_channel = "email"
         else:
             preferred_channel = "email"
+        try:
+            selected_channels = normalize_property_notification_channels(
+                raw_selected_channels,
+                fallback=preferred_channel,
+            )
+        except ValueError:
+            selected_channels = (preferred_channel,)
+        if preferred_channel not in selected_channels:
+            preferred_channel = selected_channels[0]
         return {
             "preferred_channel": preferred_channel,
             "preferred_label": PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(preferred_channel, "Email"),
-            "configured": bool(configured_channel),
+            "selected_channels": list(selected_channels),
+            "selected_labels": [
+                PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(channel, channel.title())
+                for channel in selected_channels
+            ],
+            "configured": bool(configured_channel or raw_selected_channels),
             "notification_scope": "scout_updates",
             "whatsapp_ai_support_phone": whatsapp_ai_support_phone,
             "whatsapp_ai_support_enabled": bool(whatsapp_ai_support_phone),
-            "whatsapp_notification_opt_in": preferred_channel == "whatsapp",
+            "whatsapp_notification_opt_in": "whatsapp" in selected_channels,
             "whatsapp_ai_support_purpose": PROPERTY_WHATSAPP_AI_SUPPORT_PURPOSE,
             "whatsapp_ai_support_opening_prompt": PROPERTY_WHATSAPP_AI_SUPPORT_OPENING_PROMPT,
             "telegram_bot": {
@@ -1278,10 +1318,16 @@ class OnboardingService(AssistantOnboardingService):
         *,
         principal_id: str,
         preferred_channel: object,
+        selected_channels: object | None = None,
         whatsapp_ai_support_phone: object | None = None,
     ) -> dict[str, object]:
         state = self._ensure_state(principal_id)
         normalized_channel = normalize_property_notification_channel(preferred_channel)
+        normalized_channels = normalize_property_notification_channels(
+            normalized_channel if selected_channels is None else selected_channels,
+            fallback=normalized_channel,
+        )
+        normalized_channel = normalized_channels[0]
         channel_preferences = dict(state.channel_preferences_json or {})
         property_notifications = dict(channel_preferences.get("property_notifications") or {})
         normalized_support_phone: str | None = None
@@ -1290,8 +1336,13 @@ class OnboardingService(AssistantOnboardingService):
         property_notifications.update(
             {
                 "preferred_channel": normalized_channel,
+                "selected_channels": list(normalized_channels),
+                "selected_labels": [
+                    PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(channel, channel.title())
+                    for channel in normalized_channels
+                ],
                 "notification_scope": "scout_updates",
-                "whatsapp_notification_opt_in": normalized_channel == "whatsapp",
+                "whatsapp_notification_opt_in": "whatsapp" in normalized_channels,
                 "signal_status": "coming_soon",
                 "whatsapp_ai_support_purpose": PROPERTY_WHATSAPP_AI_SUPPORT_PURPOSE,
                 "whatsapp_ai_support_opening_prompt": PROPERTY_WHATSAPP_AI_SUPPORT_OPENING_PROMPT,
@@ -1312,7 +1363,7 @@ class OnboardingService(AssistantOnboardingService):
             for channel in state.selected_channels
             if str(channel or "").strip()
         }
-        selected.add(normalized_channel)
+        selected.update(normalized_channels)
         if normalized_support_phone:
             selected.add("whatsapp")
         saved = self._repo.upsert_state(

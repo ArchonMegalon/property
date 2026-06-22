@@ -640,16 +640,6 @@ def _schedule_cached_preview_render(
     cache_path = _map_preview_cache_path_for_key(cache_key)
     if cache_path.exists():
         return cache_path
-    _cached_local_map_overview_png_path(
-        cache_path,
-        overlay_rows=overlay_rows,
-        boundary_paths=boundary_paths,
-        pin=pin,
-        width=width,
-        height=height,
-    )
-    if cache_path.exists():
-        return cache_path
     cache_id = cache_path.stem
     with _PROPERTY_MAP_PREVIEW_RENDER_LOCK:
         if cache_id in _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT:
@@ -952,6 +942,56 @@ _VIENNA_DISTRICT_PREVIEW_BOUNDS: dict[str, tuple[str, tuple[float, float, float,
     "1230": ("Liesing", (16.240, 48.120, 16.340, 48.180)),
 }
 
+
+@lru_cache(maxsize=1)
+def _vienna_district_boundary_records() -> dict[str, dict[str, object]]:
+    path = Path(__file__).resolve().parents[2] / "data" / "vienna_district_boundaries_simplified.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    rows = dict(payload.get("districts") or {}) if isinstance(payload, dict) else {}
+    records: dict[str, dict[str, object]] = {}
+    for postal_code, row in rows.items():
+        if not isinstance(row, dict):
+            continue
+        key = str(postal_code or "").strip()
+        bounds_raw = row.get("bounds")
+        rings_raw = row.get("rings")
+        if not re.fullmatch(r"1[0-2]\d0", key):
+            continue
+        if not isinstance(bounds_raw, list) or len(bounds_raw) != 4:
+            continue
+        if not isinstance(rings_raw, list) or not rings_raw:
+            continue
+        try:
+            bounds = tuple(float(value) for value in bounds_raw)
+        except (TypeError, ValueError):
+            continue
+        rings: list[list[list[float]]] = []
+        for raw_ring in rings_raw:
+            if not isinstance(raw_ring, list) or len(raw_ring) < 4:
+                continue
+            ring: list[list[float]] = []
+            for raw_point in raw_ring:
+                if not isinstance(raw_point, list) or len(raw_point) < 2:
+                    continue
+                try:
+                    ring.append([float(raw_point[0]), float(raw_point[1])])
+                except (TypeError, ValueError):
+                    continue
+            if len(ring) >= 4:
+                rings.append(ring)
+        if not rings:
+            continue
+        records[key] = {
+            "name": str(row.get("name") or _VIENNA_DISTRICT_PREVIEW_BOUNDS.get(key, ("", ()))[0] or key).strip(),
+            "bounds": bounds,
+            "rings": rings,
+        }
+    return records
+
+
 _PROPERTY_SCOPE_REGION_PREVIEW_CENTERS: dict[str, dict[str, tuple[float, float]]] = {
     "AT": {
         "country": (47.5162, 14.5501),
@@ -1094,6 +1134,25 @@ def _local_scope_boundary_record(query: str, *, country_code: str, region_code: 
     if not match:
         return {}
     postal_code = match.group(1)
+    precise_district = _vienna_district_boundary_records().get(postal_code)
+    if precise_district:
+        district_name = str(precise_district.get("name") or postal_code).strip()
+        bounds = precise_district.get("bounds")
+        rings = precise_district.get("rings")
+        if isinstance(bounds, tuple) and isinstance(rings, list) and rings:
+            west, south, east, north = bounds
+            geojson: dict[str, object]
+            if len(rings) == 1:
+                geojson = {"type": "Polygon", "coordinates": [rings[0]]}
+            else:
+                geojson = {"type": "MultiPolygon", "coordinates": [[ring] for ring in rings]}
+            return {
+                "display_name": f"{district_name}, {postal_code} Vienna",
+                "bounds": bounds,
+                "geojson": geojson,
+                "lat": (south + north) / 2.0,
+                "lon": (west + east) / 2.0,
+            }
     district = _VIENNA_DISTRICT_PREVIEW_BOUNDS.get(postal_code)
     if not district:
         return {}
@@ -1282,7 +1341,7 @@ def _build_scope_boundary_preview(
             "query": normalized_query,
             "areas": [row["label"] for row in district_rows],
             "zoom": zoom,
-            "overlay_mode": "svg_tile_crop_v5",
+            "overlay_mode": "svg_tile_crop_v6",
             "render_bounds_source": "selected_areas",
             "materialize": str(materialize_preview or "sync").strip().lower(),
         },

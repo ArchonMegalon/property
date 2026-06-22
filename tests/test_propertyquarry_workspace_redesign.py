@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import html
+import time
 import urllib.parse
 from html.parser import HTMLParser
 from pathlib import Path
@@ -2446,7 +2447,7 @@ def test_property_scope_preview_uses_generic_boundary_projection(monkeypatch) ->
     assert preview["has_district_overlay"] is True
     assert len(preview_render_calls) == 1
     assert len(preview_render_calls[0]["overlay_rows"]) == 2
-    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v5"
+    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v6"
     assert preview_render_calls[0]["cache_key"]["render_bounds_source"] == "selected_areas"
     assert preview_render_calls[0]["zoom"] >= 10
 
@@ -2467,7 +2468,8 @@ def test_property_scope_preview_without_boundary_data_uses_local_vienna_overlay_
     assert preview["preview_kind"] == "osm_district_overlay"
     assert preview["has_district_overlay"] is True
     assert preview["district_rows"][0]["label"] == "Leopoldstadt"
-    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v5"
+    assert preview["district_rows"][0]["path"].count("L") > 8
+    assert preview_render_calls[0]["cache_key"]["overlay_mode"] == "svg_tile_crop_v6"
 
 
 def test_property_scope_preview_without_boundary_or_local_overlay_uses_local_layout_fallback(monkeypatch) -> None:
@@ -2692,17 +2694,18 @@ def test_property_scope_preview_map_only_uses_local_boundary_and_async_render(mo
     assert len(scheduled[0]["overlay_rows"]) == 2
 
 
-def test_property_scope_preview_map_only_materializes_first_paint_png_without_remote_tiles(monkeypatch, tmp_path: Path) -> None:
+def test_property_scope_preview_map_only_schedules_real_map_without_final_placeholder(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
-    monkeypatch.setattr(
-        landing_view_models.urllib.request,
-        "urlopen",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("agents thumbnails must not wait for remote map tiles")),
-    )
     monkeypatch.setattr(
         landing_view_models,
         "_nominatim_boundary_record",
         lambda query: (_ for _ in ()).throw(AssertionError("agents first paint must not call Nominatim")),
+    )
+    render_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        landing_view_models,
+        "_cached_preview_png_path",
+        lambda **kwargs: render_calls.append(dict(kwargs)) or (tmp_path / "rendered-later.png"),
     )
 
     preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna, 1200 Vienna")
@@ -2715,8 +2718,11 @@ def test_property_scope_preview_map_only_materializes_first_paint_png_without_re
     preview_id = re.search(r"/([0-9a-f]{40})\.png$", image_url)
     assert preview_id
     preview_file = tmp_path / "map_previews" / f"{preview_id.group(1)}.png"
-    assert preview_file.is_file()
-    assert preview_file.stat().st_size > 1000
+    assert not preview_file.exists()
+    deadline = time.monotonic() + 1.0
+    while not render_calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert render_calls
 
 
 def test_property_scope_preview_boundary_framing_adds_small_map_breathing_room() -> None:
@@ -8913,12 +8919,16 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Notification type" in account.text
     assert "Choose where strong-match notifications arrive." in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
+    assert 'type="checkbox" name="notification_channels" value="email"' in account.text
+    assert 'type="checkbox" name="notification_channels" value="telegram"' in account.text
+    assert 'type="checkbox" name="notification_channels" value="whatsapp"' in account.text
+    assert 'type="radio" name="preferred_channel"' not in account.text
     assert 'value="email"' in account.text
     assert 'value="telegram"' in account.text
     assert 'data-channel-detail="email"' in account.text
     assert 'data-channel-detail="telegram"' in account.text
     assert 'data-channel-detail="whatsapp"' in account.text
-    assert '.pqx-account-channel-form:has(input[name="preferred_channel"][value="whatsapp"]:checked)' in account.text
+    assert '.pqx-account-channel-form:has(input[name="notification_channels"][value="whatsapp"]:checked)' in account.text
     assert "WhatsApp number" in account.text
     assert "Used for WhatsApp scout updates when WhatsApp is selected" in account.text
     assert "Support starts by asking what you need before giving property guidance" in account.text
@@ -8953,7 +8963,10 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
 
     notification_update = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "telegram", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={
+            "notification_channels": ["email", "telegram"],
+            "whatsapp_ai_support_phone": "+43 664 791 6419",
+        },
         headers=headers,
         follow_redirects=False,
     )
@@ -8963,7 +8976,11 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert export_after_update.status_code == 200
     assert (
         export_after_update.json()["delivery_preferences"]["property_notifications"]["preferred_channel"]
-        == "telegram"
+        == "email"
+    )
+    assert (
+        export_after_update.json()["delivery_preferences"]["property_notifications"]["selected_channels"]
+        == ["email", "telegram"]
     )
     assert (
         export_after_update.json()["delivery_preferences"]["property_notifications"]["notification_scope"]
@@ -8989,7 +9006,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
 
     whatsapp_update = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={"notification_channels": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
         headers=headers,
         follow_redirects=False,
     )
@@ -8998,11 +9015,12 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert export_after_whatsapp.status_code == 200
     whatsapp_preferences = export_after_whatsapp.json()["delivery_preferences"]["property_notifications"]
     assert whatsapp_preferences["preferred_channel"] == "whatsapp"
+    assert whatsapp_preferences["selected_channels"] == ["whatsapp"]
     assert whatsapp_preferences["whatsapp_notification_opt_in"] is True
 
     signal_update = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "signal", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={"notification_channels": "signal", "whatsapp_ai_support_phone": "+43 664 791 6419"},
         headers=headers,
         follow_redirects=False,
     )
