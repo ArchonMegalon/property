@@ -875,22 +875,10 @@
     <div class="wrap footer">
       <div>{{ brand.name }}</div>
       <nav>
-        {% for item in public_nav %}
-        {% set is_sign_in_item = item.key == "sign-in" or "/sign-in" in ((item.href | default('')) | string) %}
-        {% if not ((signing_in_progress or public_signed_in) and is_sign_in_item) %}
-        <a href="{{ item.href }}">{{ item.label }}</a>
-        {% endif %}
-        {% endfor %}
-        <a href="/docs">Docs</a>
-        <a href="/integrations">Integrations</a>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
         <a href="/support">Support</a>
         <a href="/imprint">Imprint</a>
-        <a href="/cookies">Cookies</a>
-        <a href="/subprocessors">Subprocessors</a>
-        <a href="/refunds">Refunds</a>
-        <a href="/disclaimers">Disclaimers</a>
       </nav>
     </div>
   </footer>
