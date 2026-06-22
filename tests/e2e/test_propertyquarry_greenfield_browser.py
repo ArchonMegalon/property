@@ -2921,6 +2921,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             elif route == "/app/account":
                 expect(page.locator("body", has_text="Notifications")).to_be_visible()
                 expect(page.locator("body", has_text="Export account data")).to_be_visible()
+                expect(page.get_by_role("link", name="Open billing")).to_be_visible()
             else:
                 expect(page.locator("body", has_text="Billing history")).to_be_visible()
                 expect(page.locator("body", has_text="Cancellation and refunds")).to_be_visible()
@@ -2928,6 +2929,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                     """() => {
                         const summary = document.querySelector('.pqx-billing-summary');
                         const cards = Array.from(document.querySelectorAll('.pqx-billing-summary-card'));
+                        const detailCards = Array.from(document.querySelectorAll('.pqx-billing-card'));
                         const genericLinks = cards
                             .flatMap((card) => Array.from(card.querySelectorAll('.pqx-link-button')))
                             .filter((link) => {
@@ -2937,15 +2939,19 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                         return {
                             columns: summary ? window.getComputedStyle(summary).gridTemplateColumns.split(' ').length : 0,
                             cardCount: cards.length,
+                            detailCardCount: detailCards.length,
                             visibleGenericLinks: genericLinks.length,
                             tallestCard: Math.max(0, ...cards.map((card) => card.getBoundingClientRect().height)),
+                            bodyText: document.body.innerText,
                         };
                     }"""
                 )
                 assert billing_mobile_metrics["columns"] == 2
                 assert billing_mobile_metrics["cardCount"] >= 4
+                assert billing_mobile_metrics["detailCardCount"] == 3
                 assert billing_mobile_metrics["visibleGenericLinks"] == 0
                 assert billing_mobile_metrics["tallestCard"] <= 120
+                assert "When to upgrade" not in billing_mobile_metrics["bodyText"]
 
             screenshot_path = tmp_path / screenshot_name
             page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
