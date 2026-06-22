@@ -1741,6 +1741,57 @@ def test_propertyquarry_workspace_sign_out_works_in_real_browser(
         context.close()
 
 
+def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    context = _new_context(browser, mobile=False)
+    access_token = _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/account", wait_until="networkidle")
+        assert response is not None and response.ok
+        delivery_card = page.locator("#delivery")
+        expect(delivery_card).to_be_visible()
+
+        email_checkbox = delivery_card.locator('input[name="notification_channels"][value="email"]')
+        telegram_checkbox = delivery_card.locator('input[name="notification_channels"][value="telegram"]')
+        whatsapp_checkbox = delivery_card.locator('input[name="notification_channels"][value="whatsapp"]')
+        whatsapp_phone = delivery_card.locator("#whatsappAiSupportPhone")
+
+        expect(email_checkbox).to_be_checked()
+        telegram_checkbox.uncheck()
+        whatsapp_checkbox.check()
+        whatsapp_phone.fill("+43 664 791 6419")
+
+        with page.expect_navigation(wait_until="networkidle"):
+            delivery_card.get_by_role("button", name="Save").click()
+
+        assert "/app/account?notifications_saved=1#delivery" in page.url
+        expect(email_checkbox).to_be_checked()
+        expect(telegram_checkbox).not_to_be_checked()
+        expect(whatsapp_checkbox).to_be_checked()
+        expect(whatsapp_phone).to_have_value("+436647916419")
+
+        original_workspace_cookie = client.cookies.get("ea_workspace_session")
+        client.cookies.set("ea_workspace_session", access_token)
+        export = client.get("/app/api/property/account/export")
+        if original_workspace_cookie:
+            client.cookies.set("ea_workspace_session", original_workspace_cookie)
+        else:
+            client.cookies.pop("ea_workspace_session", None)
+        assert export.status_code == 200
+        preferences = export.json()["delivery_preferences"]["property_notifications"]
+        assert preferences["selected_channels"] == ["email", "whatsapp"]
+        assert preferences["preferred_channel"] == "email"
+        assert preferences["whatsapp_ai_support_phone"] == "+436647916419"
+    finally:
+        context.close()
+
+
 def test_propertyquarry_account_and_billing_hide_redundant_top_actions(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
