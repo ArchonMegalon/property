@@ -34,7 +34,7 @@
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>
-        <p>Market, areas, budget, providers, and priorities.</p>
+        <p>Saved search defaults.</p>
       </div>
       <a class="pqx-link-button primary" href="{{ profile_item.get('action_href') or '/app/search' }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
     </section>
@@ -43,7 +43,7 @@
       <div>
         <span class="pqx-small">Alerts</span>
         <h2>Notifications</h2>
-        <p>Send strong matches only to the channels you want.</p>
+        <p>Strong matches only.</p>
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
@@ -83,7 +83,7 @@
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_card.value.get('title') or 'Plan and entitlements' }}</h2>
-        <p>Allowance and checkout.</p>
+        <p>Billing and access.</p>
       </div>
       <a class="pqx-link-button" href="/app/billing">Open billing</a>
     </section>
@@ -92,7 +92,7 @@
       <div>
         <span class="pqx-small">Data</span>
         <h2>Export account data</h2>
-        <p>Preferences, run summaries, delivery settings, and access links.</p>
+        <p>Preferences, runs, and access links.</p>
       </div>
       <a class="pqx-link-button" href="/app/api/property/account/export?download=1">Export data</a>
     </section>
@@ -101,7 +101,7 @@
       <div>
         <span class="pqx-small">History</span>
         <h2>Clear search history</h2>
-        <p>Remove saved search runs. Shortlisted homes stay until deleted.</p>
+        <p>Remove saved runs. Shortlists stay.</p>
       </div>
       <form action="/app/api/property/search-runs/clear" method="post" onsubmit="return confirm('Clear saved search history for this account?');">
         <button class="pqx-link-button subtle" type="submit">Clear history</button>
@@ -112,7 +112,7 @@
       <div>
         <span class="pqx-small">Sharing</span>
         <h2>Access and shared pages</h2>
-        <p>Account links plus public packets and tours.</p>
+        <p>Access links, packets, and tours.</p>
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/access">Access links</a>
@@ -124,7 +124,7 @@
       <div>
         <span class="pqx-small">Trust</span>
         <h2>Connections and privacy</h2>
-        <p>Identity providers, privacy preferences, and scoring.</p>
+        <p>Connected sign-in and privacy.</p>
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/google">Google</a>
@@ -143,7 +143,7 @@
       <div>
         <span class="pqx-small">Deletion</span>
         <h2>Delete account data</h2>
-        <p>Request deletion of account records and research output.</p>
+        <p>Delete account records and research output.</p>
       </div>
       <a class="pqx-link-button danger" href="/data-deletion">Request deletion</a>
     </section>

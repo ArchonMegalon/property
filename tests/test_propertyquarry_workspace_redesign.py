@@ -9464,7 +9464,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Notifications" in account.text
-    assert "Send strong matches only to the channels you want." in account.text
+    assert "Strong matches only." in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'type="checkbox" name="notification_channels" value="email"' in account.text
     assert 'type="checkbox" name="notification_channels" value="telegram"' in account.text
