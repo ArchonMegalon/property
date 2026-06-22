@@ -584,8 +584,9 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Google?" not in sign_in.text
     assert "Facebook?" not in sign_in.text
     assert "Use the path that matches how you joined" not in sign_in.text
-    assert "Identity only" in sign_in.text or "Google unavailable" in sign_in.text
+    assert "Identity only" not in sign_in.text
     assert "Identity-only." not in sign_in.text
+    assert "Use your current session, email link, or connected identity." in sign_in.text
     assert "auth-provider-icon" in sign_in.text
     assert "first useful memo" not in page.text
     assert 'data-milestone="commitments"' not in page.text
@@ -3372,14 +3373,15 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
 def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 0.98fr) minmax(340px, 0.92fr);" in body
+    assert "grid-template-columns: minmax(0, 0.95fr) minmax(340px, 0.78fr);" in body
     assert "grid-template-columns: 1fr;" in body
-    assert "min-height: clamp(210px, 30vh, 300px);" in body
-    assert "max-height: min(calc(100vh - 370px), 320px);" in body
-    assert "min-height: clamp(230px, 32vh, 320px);" in body
-    assert "grid-template-columns: 76px minmax(0, 1fr);" in body
+    assert "min-height: clamp(176px, 24vh, 238px);" in body
+    assert "max-height: min(calc(100vh - 420px), 260px);" in body
+    assert "min-height: clamp(190px, 26vh, 252px);" in body
+    assert "grid-template-columns: 72px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert "prd-hero-gallery" in body
+    assert ".prd-hero-gallery .prd-gallery-label" in body
     assert "-webkit-line-clamp: 2;" in body
     assert "min-height: min(56vh, 520px);" not in body
     assert body.index("data-object-media-stage") < body.index("At a glance")
@@ -9001,7 +9003,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert account.text.count("Edit search") == 1
     assert "Open automation" not in account.text
     assert account.text.count("Open pricing") == 1
-    assert "Useful account controls" in account.text
+    assert "Account" in account.text
     assert "Automation and reports" not in account.text
     assert "Recurring intelligence leaving this account" not in account.text
     assert "Delivery lane" not in account.text
@@ -9011,7 +9013,8 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
     assert "Open pricing" in account.text
-    assert "Open security" in account.text
+    assert "How it works" in account.text
+    assert "Score PDF" in account.text
     assert "Sync runs" not in account.text
     assert "Last Google sync" not in account.text
     assert "Office signals ingested" not in account.text
@@ -9051,7 +9054,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Notification type" in account.text
-    assert "Choose where strong-match notifications arrive." in account.text
+    assert "Strong-match notifications." in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'type="checkbox" name="notification_channels" value="email"' in account.text
     assert 'type="checkbox" name="notification_channels" value="telegram"' in account.text
@@ -9064,8 +9067,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'data-channel-detail="whatsapp"' in account.text
     assert '.pqx-account-channel-form:has(input[name="notification_channels"][value="whatsapp"]:checked)' in account.text
     assert "WhatsApp number" in account.text
-    assert "Used for WhatsApp scout updates when WhatsApp is selected" in account.text
-    assert "Support starts by asking what you need before giving property guidance" in account.text
+    assert "Used when WhatsApp is selected." in account.text
     assert "Used only for PropertyQuarry AI support." not in account.text
     assert "Save alerts and AI support number" not in account.text
     assert 'name="whatsapp_ai_support_phone"' in account.text

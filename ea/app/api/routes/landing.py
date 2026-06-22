@@ -2219,9 +2219,9 @@ def integration_detail(
     )
 
 
-@router.get("/security", response_class=HTMLResponse)
-def security_page(
+def _how_it_works_page(
     request: Request,
+    *,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
@@ -2231,17 +2231,35 @@ def security_page(
         "security_page.html",
         **_public_context(
             request=request,
-            current_nav="security",
-            page_title="PropertyQuarry Security",
+            current_nav="how-it-works",
+            page_title="PropertyQuarry How It Works",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
             extra={
                 "trust_cards": TRUST_CARDS,
-                "meta_description": "Review how PropertyQuarry keeps research visible, actions explicit, and product trust grounded in reviewable evidence.",
+                "meta_description": "How PropertyQuarry ranks homes, keeps hard filters strict, keeps optional preferences in scoring, and protects private searches.",
             },
         ),
     )
+
+
+@router.get("/how-it-works", response_class=HTMLResponse)
+def how_it_works_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _how_it_works_page(request, container=container, access_identity=access_identity)
+
+
+@router.get("/security", response_class=HTMLResponse)
+def security_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    return _how_it_works_page(request, container=container, access_identity=access_identity)
 
 
 @router.get("/data-deletion", response_class=HTMLResponse)

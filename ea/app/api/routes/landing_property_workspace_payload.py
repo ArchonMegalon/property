@@ -1888,11 +1888,11 @@ def property_workspace_payload(
         "billing": [
             {"href": "/pricing", "label": "Open pricing", "tone": "primary"},
             {"href": f"/app/properties{run_suffix}", "label": "Back to search"},
-            {"href": "/security", "label": "Security"},
+            {"href": "/how-it-works", "label": "How it works"},
         ],
         "settings": [
             {"href": f"/app/properties{run_suffix}", "label": "Back to search", "tone": "primary"},
-            {"href": "/security", "label": "Open security"},
+            {"href": "/how-it-works", "label": "How it works"},
             {"href": "/pricing", "label": "Open pricing"},
         ],
     }
@@ -1986,7 +1986,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Account settings",
-            "Billing, saved defaults, and security stay easy to find.",
+            "Billing, saved defaults, and how scoring works stay easy to find.",
             "Control",
         ),
     ]
@@ -2699,7 +2699,7 @@ def property_workspace_payload(
                     "items": [
                         row_item("Search", "Change areas, filters, providers, or shortlist depth.", "Search"),
                         row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
-                        row_item("Security", "Review retention and identity settings.", "Trust"),
+                        row_item("How it works", "Scoring, privacy, and sharing rules.", "Guide"),
                     ],
                 },
             ],
@@ -2709,12 +2709,12 @@ def property_workspace_payload(
                 "body": "",
                 "items": [
                     {
-                        "title": "Security",
-                        "detail": "Review trust and data settings.",
-                        "tag": "Public",
-                        "action_href": "/security",
+                        "title": "How it works",
+                        "detail": "Scoring, privacy, and sharing rules.",
+                        "tag": "Guide",
+                        "action_href": "/how-it-works",
                         "action_method": "get",
-                        "action_label": "Open security",
+                        "action_label": "Open guide",
                     },
                 ],
             }],
@@ -2761,7 +2761,7 @@ def property_workspace_payload(
                     "items": [
                         row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
                         row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
-                        row_item("Security", "Review retention and identity settings.", "Trust"),
+                        row_item("How it works", "Scoring, privacy, and sharing rules.", "Guide"),
                     ],
                 },
             ],
@@ -2785,12 +2785,12 @@ def property_workspace_payload(
                         "action_label": "Open pricing",
                     },
                     {
-                        "title": "Security",
-                        "detail": "Review trust and data settings.",
-                        "tag": "Public",
-                        "action_href": "/security",
+                        "title": "How it works",
+                        "detail": "Scoring, privacy, and sharing rules.",
+                        "tag": "Guide",
+                        "action_href": "/how-it-works",
                         "action_method": "get",
-                        "action_label": "Open security",
+                        "action_label": "Open guide",
                     },
                 ],
             }],

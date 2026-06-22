@@ -41,7 +41,7 @@ _PLANS = {
             operator_seats=1,
             messaging_channels_enabled=False,
             audit_retention="30d",
-            feature_flags=("morning_memo", "decision_queue", "commitment_ledger", "draft_queue"),
+            feature_flags=("market_update", "review_queue", "follow-up_ledger", "review_workflow"),
         ),
         support_tier="guided",
         billing_state="trial",
@@ -53,7 +53,7 @@ _PLANS = {
         billing_portal_path="/app/settings/support",
         upgrade_target_mode="team",
         renewal_owner_role="principal",
-        contract_note="Google-first pilot with one executive and one operator.",
+        contract_note="PropertyQuarry pilot with one account owner and one collaborator.",
     ),
     "team": WorkspacePlan(
         plan_key="core",
@@ -64,7 +64,7 @@ _PLANS = {
             operator_seats=2,
             messaging_channels_enabled=True,
             audit_retention="90d",
-            feature_flags=("morning_memo", "decision_queue", "commitment_ledger", "draft_queue", "people_graph", "handoffs"),
+            feature_flags=("market_update", "review_queue", "follow-up_ledger", "review_workflow", "collaborator_notes", "shared_follow_ups"),
         ),
         support_tier="standard",
         billing_state="active",
@@ -76,11 +76,11 @@ _PLANS = {
         billing_portal_path="/app/settings/plan",
         upgrade_target_mode="executive_ops",
         renewal_owner_role="office_admin",
-        contract_note="Shared office deployment with collaborative operator coverage.",
+        contract_note="Shared property search with collaborative review coverage.",
     ),
     "executive_ops": WorkspacePlan(
         plan_key="executive",
-        display_name="Executive Ops",
+        display_name="Concierge",
         unit_of_sale="workspace",
         entitlements=PlanEntitlements(
             principal_seats=1,
@@ -88,26 +88,26 @@ _PLANS = {
             messaging_channels_enabled=True,
             audit_retention="180d",
             feature_flags=(
-                "morning_memo",
-                "decision_queue",
-                "commitment_ledger",
-                "draft_queue",
-                "people_graph",
-                "handoffs",
-                "admin_audit",
+                "market_update",
+                "review_queue",
+                "follow-up_ledger",
+                "review_workflow",
+                "collaborator_notes",
+                "shared_follow_ups",
+                "account_history",
             ),
         ),
         support_tier="priority",
         billing_state="active",
-        price_label="Executive Ops contract",
+        price_label="Concierge contract",
         billing_cadence="contract",
         invoice_window_label="Contract-managed billing window",
         renewal_window_label="Contract renewal review",
         billing_portal_state="account_managed",
         billing_portal_path="/app/settings/support",
         upgrade_target_mode="executive_ops",
-        renewal_owner_role="operator_lead",
-        contract_note="Managed executive-office deployment with priority support and audit depth.",
+        renewal_owner_role="account_lead",
+        contract_note="Managed property search with priority support and extended account history.",
     ),
 }
 
@@ -137,23 +137,23 @@ def workspace_commercial_snapshot(
     if plan.billing_state == "trial":
         warnings.append("Pilot workspace is still in trial.")
     if seat_overage:
-        warnings.append("Active operators exceed included seats.")
+        warnings.append("Active collaborators exceed included seats.")
         blocked_actions.append("operator_seat_overage")
         invoice_status = "upgrade_required"
         blocked_action_message = (
-            f"Add {seat_overage} more operator seat"
-            f"{'' if seat_overage == 1 else 's'} or move to {upgrade_target.display_name} before assigning more operators."
+            f"Add {seat_overage} more collaborator seat"
+            f"{'' if seat_overage == 1 else 's'} or move to {upgrade_target.display_name} before assigning more people."
         )
         usage_pressure_state = "seat_overage"
     elif selected_messaging and not plan.entitlements.messaging_channels_enabled:
         warnings.append("Messaging channels are selected but not included in this plan.")
         blocked_actions.append("messaging_setup")
         invoice_status = "upgrade_required"
-        blocked_action_message = f"Upgrade to {upgrade_target.display_name} before enabling Telegram or WhatsApp in the office loop."
+        blocked_action_message = f"Upgrade to {upgrade_target.display_name} before enabling Telegram or WhatsApp alerts."
         usage_pressure_state = "messaging_locked"
-    seat_pressure_label = f"{int(seats_used or 0)} of {seat_limit} operator seats used"
+    seat_pressure_label = f"{int(seats_used or 0)} of {seat_limit} collaborator seats used"
     if seat_overage:
-        seat_pressure_label = f"{int(seats_used or 0)} active operators across {seat_limit} included seats"
+        seat_pressure_label = f"{int(seats_used or 0)} active collaborators across {seat_limit} included seats"
     upgrade_path_key = ""
     upgrade_path_label = ""
     if upgrade_target.plan_key != plan.plan_key:

@@ -1634,19 +1634,54 @@ def _visual_pdf(
         ny = 420
         for row in negative_signals[:3]:
             ny = _draw_wrapped(ops, f"- {row}", x=MARGIN_X + 286, y=ny, width_chars=38, size=8.8, leading=10.8)
-        _draw_text(ops, "Engine steps", x=MARGIN_X, y=356, size=14, font="F2", fill=(0.15, 0.38, 0.30))
-        step_y = 330
-        for row in _score_methodology_items(score_methodology.get("steps"), limit=6):
-            title_part = f"{row.get('title')}: " if row.get("title") else ""
-            step_y = _draw_wrapped(ops, title_part + row.get("detail", ""), x=MARGIN_X, y=step_y, width_chars=86, size=8.9, leading=10.7)
-            step_y -= 2
-            if step_y < 172:
+        calculation_rows = [
+            dict(row)
+            for row in list(score_methodology.get("calculation_rows") or [])[:9]
+            if isinstance(row, dict)
+        ]
+        _draw_text(
+            ops,
+            str(score_methodology.get("calculation_title") or "Example calculation"),
+            x=MARGIN_X,
+            y=356,
+            size=13.4,
+            font="F2",
+            fill=(0.15, 0.38, 0.30),
+        )
+        calc_y = 332
+        for row in calculation_rows:
+            label = str(row.get("label") or "").strip()
+            delta = str(row.get("delta") or "").strip()
+            why = str(row.get("why") or "").strip()
+            if not (label or delta or why):
+                continue
+            _draw_text(ops, delta, x=MARGIN_X, y=calc_y, size=9.4, font="F2", fill=(0.12, 0.14, 0.13))
+            calc_y = _draw_wrapped(
+                ops,
+                f"{label}: {why}" if label else why,
+                x=MARGIN_X + 46,
+                y=calc_y,
+                width_chars=78,
+                size=8.5,
+                leading=9.8,
+            )
+            calc_y -= 1
+            if calc_y < 174:
                 break
-        _draw_text(ops, "Examples", x=MARGIN_X, y=142, size=13, font="F2", fill=(0.43, 0.38, 0.29))
-        example_y = 120
-        for row in _score_methodology_items(score_methodology.get("examples"), limit=4):
+        _draw_text(
+            ops,
+            str(score_methodology.get("steps_label") or "Rules applied"),
+            x=MARGIN_X,
+            y=146,
+            size=12.2,
+            font="F2",
+            fill=(0.43, 0.38, 0.29),
+        )
+        step_y = 124
+        for row in _score_methodology_items(score_methodology.get("steps"), limit=3):
             title_part = f"{row.get('title')}: " if row.get("title") else ""
-            example_y = _draw_wrapped(ops, title_part + row.get("detail", ""), x=MARGIN_X, y=example_y, width_chars=86, size=8.6, leading=10.4)
+            step_y = _draw_wrapped(ops, title_part + row.get("detail", ""), x=MARGIN_X, y=step_y, width_chars=86, size=8.1, leading=9.4)
+            step_y -= 1
         pages.append({"ops": ops, "images": []})
         page_number += 1
 

@@ -11,7 +11,7 @@
 {% set public_items = public_card.value.get('items') or [] if public_card.value else [] %}
 {% set security_item = namespace(value={}) %}
 {% for item in public_items %}
-  {% if item.get('title') == 'Security' %}{% set security_item.value = item %}{% endif %}
+  {% if item.get('title') in ['Security', 'How it works'] %}{% set security_item.value = item %}{% endif %}
 {% endfor %}
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
@@ -30,7 +30,7 @@
   <div class="pqx-section-head">
     <div>
       <div class="pqx-small">Account</div>
-      <h2>Useful account controls</h2>
+      <h2>Account</h2>
     </div>
   </div>
 
@@ -39,7 +39,7 @@
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>
-        <p>{{ profile_item.get('detail') or 'Market, areas, providers, budget, and what matters are edited in the Search workflow.' }}</p>
+        <p>Market, areas, budget, providers, and what matters.</p>
       </div>
       <a class="pqx-link-button primary" href="{{ profile_item.get('action_href') or '/app/search' }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
     </section>
@@ -48,7 +48,7 @@
       <div>
         <span class="pqx-small">Alerts</span>
         <h2>Notification type</h2>
-        <p>Choose where strong-match notifications arrive.</p>
+        <p>Strong-match notifications.</p>
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
@@ -81,7 +81,7 @@
           <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
             <label for="whatsappAiSupportPhone">WhatsApp number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
-            <span id="whatsappAiSupportCopy">Used for WhatsApp scout updates when WhatsApp is selected, and for AI support follow-up. Support starts by asking what you need before giving property guidance.</span>
+            <span id="whatsappAiSupportCopy">Used when WhatsApp is selected.</span>
           </div>
           <button class="pqx-link-button primary" type="submit">Save alerts</button>
         </form>
@@ -92,7 +92,7 @@
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_card.value.get('title') or 'Plan and entitlements' }}</h2>
-        <p>Upgrade only when the current allowance blocks a real search.</p>
+        <p>Current allowance and checkout.</p>
       </div>
       <a class="pqx-link-button" href="/pricing">Open pricing</a>
     </section>
@@ -100,17 +100,20 @@
     <section class="pqx-account-action-card" id="settings">
       <div>
         <span class="pqx-small">Trust</span>
-        <h2>Privacy settings</h2>
-        <p>Review retention, analytics, preference learning, and the rules for public sharing.</p>
+        <h2>How it works</h2>
+        <p>Scoring, privacy, sharing, and retention.</p>
       </div>
-      <a class="pqx-link-button" href="{{ security_item.value.get('action_href') or '/security' }}">{{ security_item.value.get('action_label') or 'Open security' }}</a>
+      <div class="pqx-account-card-actions">
+        <a class="pqx-link-button" href="/how-it-works">Open guide</a>
+        <a class="pqx-link-button" href="/app/api/properties/score-methodology/pdf?language=en" target="_blank" rel="noreferrer">Score PDF</a>
+      </div>
     </section>
 
     <section class="pqx-account-action-card" id="data-export">
       <div>
         <span class="pqx-small">Data</span>
         <h2>Export account data</h2>
-        <p>Download saved search preferences, recent run summaries, delivery settings, and active access-link history for this account.</p>
+        <p>Saved preferences, run summaries, delivery settings, and access links.</p>
       </div>
       <a class="pqx-link-button" href="/app/api/property/account/export?download=1">Export data</a>
     </section>
@@ -119,7 +122,7 @@
       <div>
         <span class="pqx-small">History</span>
         <h2>Clear search history</h2>
-        <p>Remove saved search runs from this account. Shortlisted homes remain until you delete them from the shortlist.</p>
+        <p>Remove saved search runs. Shortlisted homes stay until deleted.</p>
       </div>
       <form action="/app/api/property/search-runs/clear" method="post" onsubmit="return confirm('Clear saved search history for this account?');">
         <button class="pqx-link-button subtle" type="submit">Clear history</button>
@@ -130,7 +133,7 @@
       <div>
         <span class="pqx-small">Access</span>
         <h2>Access links</h2>
-        <p>Issue or revoke secure account links without leaving PropertyQuarry.</p>
+        <p>Issue or revoke account links.</p>
       </div>
       <a class="pqx-link-button" href="/app/settings/access">Manage access links</a>
     </section>
@@ -139,7 +142,7 @@
       <div>
         <span class="pqx-small">Sharing</span>
         <h2>Public packets and tours</h2>
-        <p>Review shared packet pages and archive anything that should no longer be reachable.</p>
+        <p>Review or revoke shared pages.</p>
       </div>
       <a class="pqx-link-button" href="/app/properties/packets">Manage shared links</a>
     </section>
@@ -148,7 +151,7 @@
       <div>
         <span class="pqx-small">Connections</span>
         <h2>Connected services</h2>
-        <p>Check identity, delivery, and source permissions used by the workflows you enabled.</p>
+        <p>Identity, delivery, and source permissions.</p>
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/google">Google</a>
@@ -165,7 +168,7 @@
       <div>
         <span class="pqx-small">Measurement</span>
         <h2>Analytics and learning</h2>
-        <p>Keep product analytics, preference learning, and cross-customer signal boundaries visible.</p>
+        <p>Product analytics and preference learning.</p>
       </div>
       <a class="pqx-link-button" href="/cookies">Review preferences</a>
     </section>
@@ -174,7 +177,7 @@
       <div>
         <span class="pqx-small">Deletion</span>
         <h2>Delete account data</h2>
-        <p>Request deletion of account records, saved searches, research output, and connected metadata.</p>
+        <p>Request deletion of account records and research output.</p>
       </div>
       <a class="pqx-link-button danger" href="/data-deletion">Request deletion</a>
     </section>

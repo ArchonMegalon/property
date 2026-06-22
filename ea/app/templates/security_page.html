@@ -3,14 +3,14 @@
 <style>
   .trust-shell {
     display: grid;
-    gap: 16px;
+    gap: 12px;
     max-width: 980px;
     margin: 0 auto;
   }
   .trust-hero {
-    padding: clamp(22px, 5vw, 52px) 0 8px;
+    padding: clamp(12px, 3vw, 28px) 0 4px;
     display: grid;
-    gap: 12px;
+    gap: 8px;
   }
   .trust-hero h1 {
     max-width: 12ch;
@@ -22,24 +22,24 @@
   .trust-hero p {
     max-width: 44rem;
     color: var(--text-soft);
-    font-size: 1.05rem;
-    line-height: 1.55;
+    font-size: 0.98rem;
+    line-height: 1.42;
   }
   .trust-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
   }
   .trust-card {
-    min-height: 138px;
-    padding: 16px;
+    min-height: 112px;
+    padding: 13px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel);
     color: var(--text);
     display: grid;
     align-content: start;
-    gap: 8px;
+    gap: 6px;
   }
   .trust-card strong {
     font-size: 1rem;
@@ -47,8 +47,8 @@
   .trust-card p {
     margin: 0;
     color: var(--text-soft);
-    font-size: 0.93rem;
-    line-height: 1.48;
+    font-size: 0.9rem;
+    line-height: 1.38;
   }
   .trust-actions {
     display: flex;
@@ -73,23 +73,28 @@
 
 <main class="trust-shell">
   <section class="trust-hero">
-    <div class="kicker">Security</div>
-    <h1>Private by default.</h1>
-    <p>PropertyQuarry keeps property research tied to your account, shows generated tours only when you ask for them, and keeps shared pages separate from your private search.</p>
+    <div class="kicker">How it works</div>
+    <h1>Strict rules. Smart ranking.</h1>
+    <p>Hard filters decide eligibility. Optional preferences tune the score. Private work stays private until you share it.</p>
   </section>
 
-  <section class="trust-grid" aria-label="PropertyQuarry security basics">
+  <section class="trust-grid" aria-label="PropertyQuarry trust basics">
+    <article class="trust-card">
+      <strong>Score guide</strong>
+      <p>Open the FlipLink-ready PDF that explains the score bands, hard rules, soft preferences, and examples.</p>
+      <a class="btn ghost" href="/app/api/properties/score-methodology/pdf?language=en" target="_blank" rel="noreferrer">Open PDF</a>
+    </article>
     <article class="trust-card">
       <strong>You choose what is shared</strong>
-      <p>Searches, shortlist decisions, comments, and private property pages stay signed in unless you create a share link.</p>
+      <p>Searches, decisions, notes, and private pages stay signed in unless you create a share link.</p>
     </article>
     <article class="trust-card">
       <strong>Actions stay explicit</strong>
-      <p>Outbound messages, public links, generated tours, and account changes are separate actions you can review.</p>
+      <p>Messages, public links, generated tours, and account changes remain separate actions.</p>
     </article>
     <article class="trust-card">
       <strong>Account data stays editable</strong>
-      <p>Use Account for notification channels, saved preferences, public links, exports, and deletion requests.</p>
+      <p>Account holds notification channels, saved preferences, public links, export, and deletion.</p>
     </article>
   </section>
 

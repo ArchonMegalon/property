@@ -7403,11 +7403,6 @@
               <div class="pqx-event-card"><strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong><span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['Verified facts and matching preferences move this upward.'])[:2]|join(' · ') }}</span></div>
               <div class="pqx-event-card"><strong>{{ score_methodology.get('negative_label') or 'Signals reducing confidence or score' }}</strong><span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['Missing facts stay visible and lower confidence until checked.'])[:2]|join(' · ') }}</span></div>
             </div>
-            <div class="pqx-score-bts-actions">
-              <a class="pqx-link-button" href="/app/api/properties/score-methodology/pdf?language={{ score_methodology.get('language_code') or 'en' }}&country={{ score_methodology.get('country_code') or selected.get('country_code') or 'AT' }}" target="_blank" rel="noreferrer">
-                Open score PDF
-              </a>
-            </div>
           </div>
           {% endif %}
         </section>

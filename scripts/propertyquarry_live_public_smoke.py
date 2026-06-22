@@ -178,9 +178,18 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             (
                 (
                     "security_route_copy",
-                    "Private by default." in text
-                    and "You choose what is shared" in text
-                    and "Account data stays editable" in text,
+                    (
+                        "Strict rules. Smart ranking." in text
+                        and "Score guide" in text
+                        and "Hard filters decide eligibility" in text
+                        and "score-methodology/pdf" in text
+                        and "You choose what is shared" in text
+                    )
+                    or (
+                        "Private by default." in text
+                        and "You choose what is shared" in text
+                        and "Account data stays editable" in text
+                    ),
                 ),
                 ("security_old_proof_copy_removed", "release-side proof" not in text.lower()),
                 ("security_no_internal_release_copy", "Release checks and security review" not in text),
@@ -279,8 +288,8 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             (
                 (
                     "sign_in_minimal_copy",
-                    "Use your current session, secure email link, or connected identity." in text
-                    and "Identity only" in text
+                    "Use your current session, email link, or connected identity." in text
+                    and "Identity only" not in text
                     and "Identity-only." not in text
                     and "Google?" not in text
                     and "Facebook?" not in text,

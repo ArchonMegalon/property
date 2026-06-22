@@ -240,6 +240,10 @@ def test_score_methodology_pdf_endpoint_uses_requested_language(monkeypatch, tmp
     pdf_text = response.content.decode("latin-1", errors="ignore")
     assert "Wie der PropertyQuarry-Score berechnet" in pdf_text
     assert "62/100" in pdf_text
+    assert "Beispielrechnung" in pdf_text
+    assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in pdf_text
+    assert "Engine steps" not in pdf_text
+    assert "Examples" not in pdf_text
 
 
 def test_score_methodology_pdf_endpoint_supports_every_country_provider_language(monkeypatch, tmp_path: Path) -> None:

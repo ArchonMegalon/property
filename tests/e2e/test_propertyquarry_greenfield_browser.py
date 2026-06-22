@@ -969,7 +969,6 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
         ".pill",
         ".tier-card",
         ".tier-card *",
-        ".pricing-head",
         ".access-panel",
         ".access-panel *",
         ".access-card",

@@ -78,7 +78,7 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     export = client.get("/app/api/diagnostics/export")
     assert export.status_code == 200
     body = export.json()
-    assert body["plan"]["display_name"] == "Executive Ops"
+    assert body["plan"]["display_name"] == "Concierge"
     assert body["billing"]["support_tier"] == "priority"
     assert body["billing"]["billing_portal_state"] in {"guided", "self_serve", "account_managed"}
     assert body["entitlements"]["operator_seats"] >= 1

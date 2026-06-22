@@ -411,7 +411,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Current search brief state" in settings.text
     assert "Operating posture" in settings.text
     assert "Open pricing" in settings.text
-    assert "Open security" in settings.text
+    assert "How it works" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
     assert "Office signals ingested" not in settings.text

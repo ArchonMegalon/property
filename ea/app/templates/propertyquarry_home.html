@@ -3,18 +3,18 @@
 <style>
   .pq-home {
     display: grid;
-    gap: 18px;
+    gap: 10px;
   }
   .pq-hero {
-    min-height: min(620px, calc(100vh - 180px));
+    min-height: auto;
     display: grid;
-    grid-template-columns: minmax(0, 0.88fr) minmax(340px, 0.72fr);
-    gap: clamp(20px, 5vw, 58px);
+    grid-template-columns: minmax(0, 0.82fr) minmax(340px, 0.68fr);
+    gap: clamp(18px, 4vw, 46px);
     align-items: center;
   }
   .pq-hero-copy {
     display: grid;
-    gap: 24px;
+    gap: 14px;
     align-content: center;
     max-width: 680px;
   }
@@ -27,17 +27,17 @@
     text-transform: uppercase;
   }
   .pq-hero h1 {
-    max-width: 12ch;
+    max-width: 13ch;
     margin: 0;
-    font-size: clamp(2.45rem, 5vw, 5rem);
+    font-size: clamp(2.35rem, 4.5vw, 4.45rem);
     line-height: 0.98;
     letter-spacing: 0;
   }
   .pq-lead {
     max-width: 44rem;
     color: var(--text-soft);
-    font-size: clamp(1rem, 1.5vw, 1.12rem);
-    line-height: 1.58;
+    font-size: clamp(0.96rem, 1.35vw, 1.06rem);
+    line-height: 1.42;
   }
   .pq-loop {
     display: flex;
@@ -51,7 +51,7 @@
     align-items: center;
     border: 1px solid var(--line);
     border-radius: 999px;
-    padding: 0 11px;
+    padding: 0 10px;
     background: var(--panel);
     color: var(--text-soft);
     font-size: 12px;
@@ -94,9 +94,9 @@
     border-radius: 10px;
     background: color-mix(in srgb, var(--panel) 86%, transparent);
     box-shadow: var(--shadow);
-    padding: 16px;
+    padding: 12px;
     display: grid;
-    gap: 12px;
+    gap: 10px;
   }
   .pq-desk::before {
     content: "";
@@ -131,13 +131,13 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel);
-    padding: 12px;
+    padding: 10px;
     display: grid;
-    gap: 8px;
+    gap: 6px;
   }
   .pq-row {
     align-items: start;
-    padding: 10px 0;
+    padding: 8px 0;
     border-top: 1px solid var(--line);
   }
   .pq-row:first-of-type {
@@ -156,17 +156,22 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
-    padding-bottom: 18px;
+    padding-bottom: 4px;
   }
   .pq-home-point {
-    min-height: 78px;
+    min-height: 58px;
     align-items: flex-start;
     border-top: 1px solid var(--line);
-    padding-top: 14px;
+    padding-top: 9px;
   }
   .pq-home-point strong {
     display: block;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
+    font-size: 0.95rem;
+  }
+  .pq-home-point span {
+    font-size: 0.9rem;
+    line-height: 1.32;
   }
   html[data-pq-theme="dark"] .pq-desk,
   html[data-pq-theme="dark"] .pq-board,
@@ -194,21 +199,21 @@
     .pq-hero {
       min-height: 0;
       align-items: start;
-      padding-top: 10px;
+      padding-top: 4px;
     }
     .pq-hero h1 {
       max-width: 11.8ch;
     }
   }
   @media (max-width: 760px) {
-    .pq-home { gap: 14px; }
-    .pq-hero-copy { gap: 18px; }
+    .pq-home { gap: 10px; }
+    .pq-hero-copy { gap: 12px; }
     .pq-hero h1 {
       max-width: none;
       font-size: clamp(2.2rem, 12vw, 3.35rem);
     }
     .pq-desk {
-      padding: 12px;
+      padding: 10px;
     }
     .pq-row,
     .pq-desk-head,
@@ -235,12 +240,12 @@
     <div class="pq-hero-copy">
       <p class="pq-kicker">PropertyQuarry</p>
       <h1>Search once. Rank the right homes. Decide with evidence.</h1>
-      <p class="pq-lead">A private property desk for serious searches: one brief, a ranked shortlist, and research that explains what to inspect next.</p>
+      <p class="pq-lead">One brief, ranked homes, and the evidence needed for the next viewing decision.</p>
       <div class="pq-loop" aria-label="PropertyQuarry flow">
         <span>Brief</span>
         <span>Ranked homes</span>
         <span>Evidence</span>
-        <span>Decision memory</span>
+        <span>Saved decisions</span>
       </div>
       {% if signing_in_progress %}
       <div class="pq-signed-in-handoff" data-propertyquarry-signed-in-handoff data-target-endpoint="/app/api/property/landing-handoff">
@@ -269,7 +274,7 @@
       <div class="pq-desk-head">
         <div>
           <strong>Example shortlist</strong>
-          <span>Hard rules first. Soft preferences only move rank.</span>
+          <span>Hard rules first. Preferences tune rank.</span>
         </div>
         <span class="pq-tag good">Live brief</span>
       </div>
@@ -281,14 +286,14 @@
         <article class="pq-row">
           <div>
             <strong>Clear floorplan, right district</strong>
-            <span>Balcony helps. Operating costs still need confirmation.</span>
+            <span>Balcony helps. Costs need confirmation.</span>
           </div>
           <div class="pq-score">84</div>
         </article>
         <article class="pq-row">
           <div>
             <strong>Quiet layout near transit</strong>
-            <span>Good fit, parking evidence missing.</span>
+            <span>Good fit. Parking evidence missing.</span>
           </div>
           <div class="pq-score">78</div>
         </article>
@@ -307,19 +312,19 @@
     <div class="pq-home-point">
       <div>
         <strong>Hard filters stay hard</strong>
-        <span>Area, transaction mode, and must-haves can exclude.</span>
+        <span>Area, mode, and must-haves can exclude.</span>
       </div>
     </div>
     <div class="pq-home-point">
       <div>
         <strong>Preferences score</strong>
-        <span>Schools, errands, balcony, noise, and commute adjust order.</span>
+        <span>Schools, errands, noise, and commute adjust order.</span>
       </div>
     </div>
     <div class="pq-home-point">
       <div>
         <strong>Research is attached</strong>
-        <span>Costs, floorplans, tours, and missing facts stay with the home.</span>
+        <span>Costs, floorplans, tours, and gaps stay with the home.</span>
       </div>
     </div>
   </section>

@@ -51,6 +51,9 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
     assert payload["candidate_application"]["band_label"] == "Starke Passung"
     assert payload["candidate_application"]["positive_signals"] == ["Echte 360-Tour vorhanden.", "Betriebskosten sind belegt."]
     assert payload["candidate_application"]["negative_signals"] == ["Heizungsdetail fehlt noch."]
+    assert payload["calculation_title"] == "Beispielrechnung: warum dieses Objekt bei 62 landet"
+    assert payload["calculation_rows"][-1]["delta"] == "=62"
+    assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in payload["calculation_rows"][-1]["why"]
 
 
 def test_score_methodology_survives_redaction_and_renders_in_premium_html() -> None:
@@ -104,11 +107,12 @@ def test_results_bts_exposes_score_pdf_action() -> None:
     assert "Open score PDF" in template
 
 
-def test_selected_property_score_cards_expose_score_pdf_action() -> None:
+def test_selected_property_score_cards_keep_score_pdf_out_of_property_cards() -> None:
     desktop = (ROOT / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
     mobile = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    results_bts = (ROOT / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
 
-    assert "/app/api/properties/score-methodology/pdf" in desktop
-    assert "/app/api/properties/score-methodology/pdf" in mobile
-    assert desktop.count("Open score PDF") >= 1
-    assert mobile.count("Open score PDF") >= 1
+    assert "/app/api/properties/score-methodology/pdf" not in desktop
+    assert desktop.count("Open score PDF") == 0
+    assert mobile.count("Open score PDF") == 0
+    assert results_bts.count("Open score PDF") == 1

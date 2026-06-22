@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 PUBLIC_ROUTES = (
     "/",
     "/product",
+    "/how-it-works",
     "/security",
     "/data-deletion",
     "/pricing",
@@ -115,7 +116,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     landing = client.get("/")
     assert "Search once. Rank the right homes. Decide with evidence." in landing.text
-    assert "ranked shortlist" in landing.text
+    assert "ranked homes" in landing.text
     assert "Open search" in landing.text
     assert "Hard filters stay hard" in landing.text
     assert "Preferences score" in landing.text
@@ -123,7 +124,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
 
     directory = client.get("/directory")
     assert directory.status_code == 200
-    assert "Find the people around a property decision." in directory.text
+    assert "Property advisors." in directory.text
     assert "Directory coming soon" in directory.text
     assert "governed directory lane" not in directory.text
     assert "another branded site" not in directory.text
@@ -140,21 +141,25 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Brilliant Directories" not in directory_profile.text
 
     pricing = client.get("/pricing")
-    assert "<h1>Pricing</h1>" in pricing.text
+    assert "<h1>Pricing</h1>" not in pricing.text
     assert "Choose by sources, shortlist size, and research depth." not in pricing.text
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
     assert "Checkout pending" not in pricing.text
     assert "Request access." in pricing.text
 
-    security = client.get("/security")
-    assert "Private by default." in security.text
+    security = client.get("/how-it-works")
+    assert "Strict rules. Smart ranking." in security.text
+    assert "Score guide" in security.text
+    assert "/app/api/properties/score-methodology/pdf?language=en" in security.text
+    assert "Hard filters decide eligibility. Optional preferences tune the score." in security.text
+    assert "Private by default." not in security.text
     assert "Automatic digests" not in security.text
     assert "Morning memo schedule" not in security.text
     assert "You choose what is shared" in security.text
     assert "Security, privacy, and visual quality are reviewed before public changes go live." not in security.text
     assert "Release checks and security review" not in security.text
-    assert "Searches, shortlist decisions, comments, and private property pages stay signed in unless you create a share link." in security.text
+    assert "Searches, decisions, notes, and private pages stay signed in unless you create a share link." in security.text
     assert "EA Postgres" not in security.text
     assert "source of truth" not in security.text.lower()
 
@@ -164,9 +169,9 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Data deletion request" in deletion.text
 
     sign_in = client.get("/sign-in")
-    assert "Use your current session, secure email link, or connected identity." in sign_in.text
+    assert "Use your current session, email link, or connected identity." in sign_in.text
     assert "Google unavailable" in sign_in.text
-    assert "Not configured on this deployment" in sign_in.text
+    assert "Unavailable" in sign_in.text
     assert "Identity only" not in sign_in.text
     assert "Choose the narrowest sign-in path" not in sign_in.text
 

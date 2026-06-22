@@ -187,11 +187,6 @@
           <h2>{{ score_methodology.get('candidate_title') or 'Current score read' }}</h2>
           <span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100{% if score_application.get('band_label') %} · {{ score_application.get('band_label') }}{% endif %}</span>
         </div>
-        <div class="pqx-score-bts-actions">
-          <a class="pqx-link-button" href="/app/api/properties/score-methodology/pdf?language={{ score_methodology.get('language_code') or 'en' }}&country={{ score_methodology.get('country_code') or selected.get('country_code') or 'AT' }}" target="_blank" rel="noreferrer">
-            Open score PDF
-          </a>
-        </div>
         <div class="pqx-event-list">
           <div class="pqx-event-card">
             <strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong>

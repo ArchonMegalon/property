@@ -4,14 +4,14 @@
       <div class="eyebrow">Step 2</div>
       <h2>Link Google if you want easier return access.</h2>
     </div>
-    <p class="step-context">Optional. Identity only by default.</p>
+    <p class="step-context">Optional return access.</p>
   </div>
 
   <div class="status-grid">
     <div class="status-card">
       <div class="kicker">Current status</div>
       <strong>{{ google.status|replace('_', ' ') if google.status else 'Not selected yet' }}</strong>
-      <p class="copy">This shows where the Google connection stands today.</p>
+      <p class="copy">Current Google connection.</p>
     </div>
       <div class="status-card">
       <div class="kicker">Recommended choice</div>
@@ -19,8 +19,8 @@
       <p class="copy">No mailbox or calendar access.</p>
     </div>
     <div class="status-card">
-      <div class="kicker">Identity boundary</div>
-      <strong>Keep Google narrow.</strong>
+      <div class="kicker">Boundary</div>
+      <strong>Keep Google narrow</strong>
       <p class="copy">Use the same Google account when you return.</p>
     </div>
   </div>
@@ -28,7 +28,7 @@
   <div class="bundle-grid">
     <div class="bundle-card">
       <strong>Google sign-in</strong>
-      <p class="copy">Only link Google identity and a verified return path. No Gmail, Calendar, or Contacts sync is requested in this default flow.</p>
+      <p class="copy">Link Google for return access. Gmail, Calendar, and Contacts stay off.</p>
       <button class="btn ghost" type="button" data-set-google-bundle="identity">Select Google sign-in</button>
     </div>
   </div>
@@ -40,7 +40,7 @@
         <select id="scope_bundle" name="scope_bundle">
         <option value="identity">Google sign-in (recommended)</option>
       </select>
-      <div class="field-help">Identity only.</div>
+      <div class="field-help">Sign-in only.</div>
     </div>
     <div class="status-grid">
       <div class="status-card">
@@ -51,7 +51,7 @@
       <div class="status-card">
         <div class="kicker">What stays out</div>
         <strong>No mailbox or calendar sync by default</strong>
-        <p class="copy">PropertyQuarry should not pull more Google data than it needs to support the core property workflow.</p>
+        <p class="copy">The property workflow does not need them by default.</p>
       </div>
     </div>
     <div class="wizard-actions">
