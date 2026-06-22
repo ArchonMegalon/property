@@ -144,7 +144,7 @@
     <div class="pq-directory-copy">
       <p class="pq-directory-kicker">Directory</p>
       <h1>Find the people around a property decision.</h1>
-      <p class="pq-directory-lead">Public partner, advisor, relocation, and local-service profiles stay in one PropertyQuarry directory, with only reviewed public profile details shown here.</p>
+      <p class="pq-directory-lead">Search reviewed public advisors, relocation support, and local services that can help with a home search, viewing, or due diligence.</p>
     </div>
     <form class="pq-directory-search" method="get" action="/directory" aria-label="Search PropertyQuarry directory">
       <div class="pq-directory-fields">
@@ -202,10 +202,10 @@
   </section>
   {% else %}
   <section class="pq-directory-panel">
-    <strong>{% if directory_status == 'disabled' %}Directory opening soon{% else %}No public profiles matched{% endif %}</strong>
+    <strong>{% if directory_status == 'disabled' %}Profiles are being prepared{% else %}No public profiles matched{% endif %}</strong>
     <p class="pq-directory-summary">
       {% if directory_status == 'disabled' %}
-      Verified public profiles will appear here once directory onboarding is open.
+      Reviewed public profiles will appear here once this section is ready.
       {% elif directory_error %}
       Directory search is temporarily unavailable. Try again later.
       {% else %}

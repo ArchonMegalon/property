@@ -124,7 +124,9 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     directory = client.get("/directory")
     assert directory.status_code == 200
     assert "Find the people around a property decision." in directory.text
-    assert "Directory opening soon" in directory.text
+    assert "Profiles are being prepared" in directory.text
+    assert "governed directory lane" not in directory.text
+    assert "another branded site" not in directory.text
     assert "Search directory" in directory.text
     assert "Brilliant Directories" not in directory.text
     assert "credentials" not in directory.text
@@ -133,6 +135,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     directory_profile = client.get("/directory/profile/sample")
     assert directory_profile.status_code == 200
     assert "Profile details stay on PropertyQuarry." in directory_profile.text
+    assert "another branded site" not in directory_profile.text
     assert "Brilliant Directories" not in directory_profile.text
 
     pricing = client.get("/pricing")

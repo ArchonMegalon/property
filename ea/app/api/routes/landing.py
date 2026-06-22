@@ -2012,7 +2012,7 @@ def property_directory_page(
                 "directory_error": directory_error,
                 "directory_profiles": directory_profiles,
                 "directory_query": directory_query,
-                "meta_description": "PropertyQuarry directory for public partner, advisor, relocation, and local-service profiles connected through the governed directory lane.",
+                "meta_description": "PropertyQuarry directory for reviewed public advisors, relocation support, and local services around a property decision.",
                 "robots_directive": directory_robots_directive,
                 "canonical_path": "/directory",
             },

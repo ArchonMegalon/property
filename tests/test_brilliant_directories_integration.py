@@ -727,7 +727,9 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
     assert "PropertyQuarry Directory" in response.text
     assert "Find the people around a property decision." in response.text
-    assert "Directory opening soon" in response.text
+    assert "Profiles are being prepared" in response.text
+    assert "governed directory lane" not in response.text
+    assert "another branded site" not in response.text
     assert "</style>\n</style>" not in response.text
     assert "Search directory" in response.text
     assert "Brilliant Directories" not in response.text
@@ -741,6 +743,7 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert profile_response.status_code == 200
     assert '<meta name="robots" content="noindex, follow, noarchive, nosnippet">' in profile_response.text
     assert profile_response.headers.get("X-Robots-Tag") == "noindex, follow, noarchive, nosnippet"
+    assert "another branded site" not in profile_response.text
 
 
 def test_brilliant_directories_sitemap_hides_unconfigured_directory(

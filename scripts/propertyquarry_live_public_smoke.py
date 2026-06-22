@@ -207,8 +207,8 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 (
                     "directory_empty_noindex",
                     "Directory opening soon" not in text
-                    and "No public profiles matched" not in text
-                    or 'name="robots" content="noindex, follow, noarchive, nosnippet"' in text,
+                    and "governed directory lane" not in text
+                    and 'name="robots" content="noindex, follow, noarchive, nosnippet"' in text,
                 ),
             )
         )
@@ -221,7 +221,10 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 (
                     "directory_profile_placeholder_noindex",
                     "Profile details stay on PropertyQuarry" not in text
-                    or 'name="robots" content="noindex, follow, noarchive, nosnippet"' in text,
+                    or (
+                        'name="robots" content="noindex, follow, noarchive, nosnippet"' in text
+                        and "another branded site" not in text
+                    ),
                 ),
             )
         )
