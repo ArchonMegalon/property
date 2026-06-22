@@ -15,8 +15,8 @@
 <section class="pqx-card pqx-billing-board">
   <div class="pqx-section-head">
     <div>
-      <div class="pqx-small">Plan access</div>
-      <h2>Your plan</h2>
+      <div class="pqx-small">Billing</div>
+      <h2>Plan</h2>
     </div>
   </div>
 
@@ -26,7 +26,6 @@
       <span class="pqx-small">{{ highlight.get('label') }}</span>
       <strong>{{ highlight.get('value') }}</strong>
       <small>{{ highlight.get('detail') }}</small>
-      {% if highlight.get('href') %}<a class="pqx-link-button subtle" href="{{ highlight.get('href') }}">Open</a>{% endif %}
     </section>
     {% endfor %}
   </div>

@@ -2881,7 +2881,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("[data-property-search-agent-grid]")).to_be_visible()
                 expect(page.locator(".pqx-automation-thumbnail").first).to_be_visible()
             elif route == "/app/account":
-                expect(page.locator("body", has_text="Notification type")).to_be_visible()
+                expect(page.locator("body", has_text="Notifications")).to_be_visible()
                 expect(page.locator("body", has_text="Export account data")).to_be_visible()
             else:
                 expect(page.locator("body", has_text="Billing history")).to_be_visible()

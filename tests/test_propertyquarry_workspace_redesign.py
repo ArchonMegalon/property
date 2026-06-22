@@ -107,6 +107,20 @@ def test_property_results_empty_state_keeps_shortlist_minimal() -> None:
     assert "Open automation" not in body
 
 
+def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    account = (repo_root / "ea/app/templates/app/_property_account_panel.html").read_text(encoding="utf-8")
+    billing = (repo_root / "ea/app/templates/app/_property_billing_panel.html").read_text(encoding="utf-8")
+
+    assert "Signal later" not in account
+    assert "PropertyQuarry bot <small>Telegram</small>" not in account
+    assert "<h2>Notifications</h2>" in account
+    assert ">Save</button>" in account
+
+    assert "<h2>Plan</h2>" in billing
+    assert ">Open</a>" not in billing
+
+
 def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_noise() -> None:
     client = build_property_client(principal_id="pq-rendered-surface-click-audit")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
@@ -136,6 +150,7 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
         "/app/shortlist",
     )
     noisy_phrases = (
+        "Signal later",
         "Use stored feedback preferences",
         "Manage feedback preferences",
         "Preference profile",
@@ -1834,6 +1849,36 @@ def test_propertyquarry_root_home_query_renders_public_home_when_signed_in(monke
     assert response.text.count("/app/api/property/map-previews/") >= 3
     assert "/static/property/home/example-shortlist-home-" not in response.text
     assert "/static/property/home/example-shortlist-collage.png" not in response.text
+
+
+def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch) -> None:
+    public_client = build_property_client(principal_id="pq-home-shortlist-public")
+    public_client.headers.pop("X-EA-Principal-ID", None)
+
+    public_home = public_client.get("/?home=1", headers={"host": "propertyquarry.com"})
+    assert public_home.status_code == 200
+    for label in (
+        "Balcony helps. Costs need confirmation.",
+        "3D tour ready",
+        "Walkthrough ready",
+    ):
+        assert f'>{label}</a>' in public_home.text
+    assert public_home.text.count('href="/sign-in?signing_in=1"') >= 3
+
+    principal_id = "pq-home-shortlist-authed"
+    authed_client = build_property_client(principal_id=principal_id)
+    start_workspace(authed_client, mode="personal", workspace_name="Home Shortlist Audit Office")
+    monkeypatch.setattr(landing_routes, "_workspace_session_payload", lambda request, container: {"principal_id": principal_id})
+    monkeypatch.setattr(landing_routes, "_load_status", lambda container, access_identity, request=None: (principal_id, {}))
+    authed_home = authed_client.get("/?home=1", headers={"host": "propertyquarry.com"})
+    assert authed_home.status_code == 200
+    for label in (
+        "Balcony helps. Costs need confirmation.",
+        "3D tour ready",
+        "Walkthrough ready",
+    ):
+        assert f'>{label}</a>' in authed_home.text
+    assert authed_home.text.count('href="/app/shortlist"') >= 3
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
@@ -9317,12 +9362,13 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'href="/cookies"' in account.text
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
-    assert "Notification type" in account.text
-    assert "Strong-match notifications." in account.text
+    assert "Notifications" in account.text
+    assert "Send strong matches only to the channels you want." in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'type="checkbox" name="notification_channels" value="email"' in account.text
     assert 'type="checkbox" name="notification_channels" value="telegram"' in account.text
     assert 'type="checkbox" name="notification_channels" value="whatsapp"' in account.text
+    assert "Signal later" not in account.text
     assert 'type="radio" name="preferred_channel"' not in account.text
     assert 'value="email"' in account.text
     assert 'value="telegram"' in account.text

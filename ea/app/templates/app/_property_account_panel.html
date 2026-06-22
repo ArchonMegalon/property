@@ -47,8 +47,8 @@
     <section class="pqx-account-action-card notification" id="delivery">
       <div>
         <span class="pqx-small">Alerts</span>
-        <h2>Notification type</h2>
-        <p>Strong-match notifications.</p>
+        <h2>Notifications</h2>
+        <p>Send strong matches only to the channels you want.</p>
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
@@ -57,23 +57,19 @@
             </label>
             <label class="pqx-account-channel-option" aria-label="PropertyQuarry Telegram bot">
               <input type="checkbox" name="notification_channels" value="telegram"{% if 'telegram' in selected_notification_channels %} checked{% endif %}>
-              <span>PropertyQuarry bot <small>Telegram</small></span>
+              <span>Telegram</span>
             </label>
             <label class="pqx-account-channel-option">
               <input type="checkbox" name="notification_channels" value="whatsapp"{% if 'whatsapp' in selected_notification_channels %} checked{% endif %}>
               <span>WhatsApp</span>
             </label>
-            <label class="pqx-account-channel-option disabled" aria-disabled="true">
-              <input type="checkbox" name="notification_channels_disabled" value="signal" disabled>
-              <span>Signal <small>later</small></span>
-            </label>
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="email">
-            <strong>Email alerts</strong>
+            <strong>Email</strong>
             <span>Uses the verified account email when available.</span>
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="telegram">
-            <strong>Telegram bot</strong>
+            <strong>Telegram</strong>
             <span>{{ telegram_bot_status }}</span>
             {% if telegram_bot_handle %}<span>{{ telegram_bot_handle }}</span>{% endif %}
             {% if telegram_bot_connect_url %}<a href="{{ telegram_bot_connect_url }}" target="_blank" rel="noopener">Open bot</a>{% endif %}
@@ -83,7 +79,7 @@
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
             <span id="whatsappAiSupportCopy">Used when WhatsApp is selected.</span>
           </div>
-          <button class="pqx-link-button primary" type="submit">Save alerts</button>
+          <button class="pqx-link-button primary" type="submit">Save</button>
         </form>
       </div>
     </section>
