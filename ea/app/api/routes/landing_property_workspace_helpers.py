@@ -686,26 +686,29 @@ def _property_candidate_orientation_preview(candidate: dict[str, object]) -> dic
     )
     thumb_image_url = ""
     if lat or lng:
-        thumb_image_url = landing_view_models._openstreetmap_static_preview_data_url(
-            int(round(lat * 10000.0)),
-            int(round(lng * 10000.0)),
+        thumb_image_url = landing_view_models._cached_preview_image_url(
+            cache_key={
+                "kind": "candidate-point",
+                "country": country_code.upper(),
+                "region": region_code,
+                "query": context_label or label,
+                "lat_key": int(round(lat * 10000.0)),
+                "lon_key": int(round(lng * 10000.0)),
+                "zoom": 15,
+                "overlay_mode": "pin_v1",
+            },
+            center_lat=lat,
+            center_lon=lng,
             zoom=15,
+            pin=(320.0, 184.0),
+            draw_overlay=False,
         )
     if thumb_image_url:
         image_url = thumb_image_url
     elif boundary_preview:
         image_url = str(boundary_preview.get("image_url") or "").strip()
     else:
-        svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="368" viewBox="0 0 320 184" role="img" aria-label="Area map preview">'
-            '<rect width="320" height="184" rx="18" fill="#ddd3c1"/>'
-            '<rect x="12" y="12" width="296" height="160" rx="14" fill="#f4efe5" stroke="#c6baa7"/>'
-            '<path d="M16 128 C54 104, 86 110, 120 96 S188 70, 236 58 S276 34, 304 22" fill="none" stroke="#cfc4b3" stroke-width="10" stroke-linecap="round"/>'
-            '<path d="M26 42 C64 52, 98 42, 134 50 S210 66, 300 48" fill="none" stroke="#ddd5c6" stroke-width="6" stroke-linecap="round"/>'
-            '<path d="M32 156 C68 144, 98 148, 134 136 S210 114, 292 126" fill="none" stroke="#d6cbbb" stroke-width="7" stroke-linecap="round"/>'
-            '</svg>'
-        )
-        image_url = f"data:image/svg+xml;utf8,{urllib.parse.quote(svg, safe='/:;,+-=()%')}"
+        image_url = ""
     alt = f"Wider area around {label}"
     caption = str(boundary_preview.get("summary") or "Open a larger area map").strip() if boundary_preview else "Open a larger area map"
     return {

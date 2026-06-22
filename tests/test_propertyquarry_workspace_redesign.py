@@ -1030,7 +1030,12 @@ def test_propertyquarry_results_fallback_preview_prefers_candidate_pin_map_over_
     monkeypatch.setattr(
         landing_view_models,
         "_build_scope_boundary_preview",
-        lambda **kwargs: {"image_url": "data:image/svg+xml;utf8,boundary", "summary": "Boundary preview"},
+        lambda **kwargs: {"image_url": "/app/api/property/map-previews/" + ("b" * 40) + ".png", "summary": "Boundary preview"},
+    )
+    monkeypatch.setattr(
+        landing_view_models,
+        "_cached_preview_image_url",
+        lambda **kwargs: "/app/api/property/map-previews/" + ("p" * 40) + ".png",
     )
     preview = landing_property_workspace_helpers._property_candidate_orientation_preview(
         {
@@ -1039,7 +1044,7 @@ def test_propertyquarry_results_fallback_preview_prefers_candidate_pin_map_over_
             "property_facts": {},
         }
     )
-    assert str(preview["image_url"]).startswith("data:image/")
+    assert str(preview["image_url"]).startswith("/app/api/property/map-previews/")
     assert "boundary" not in str(preview["image_url"])
     assert preview["image_url"] == preview["thumb_image_url"]
 
@@ -2531,8 +2536,8 @@ def test_property_candidate_orientation_preview_uses_openstreetmap_backdrop_for_
     monkeypatch.setattr(landing_view_models, "_build_scope_boundary_preview", lambda **kwargs: {})
     monkeypatch.setattr(
         landing_view_models,
-        "_openstreetmap_static_preview_data_url",
-        lambda lat_key, lon_key, zoom=13: "data:image/png;base64,preview",
+        "_cached_preview_image_url",
+        lambda **kwargs: "/app/api/property/map-previews/" + ("g" * 40) + ".png",
     )
     preview = landing_view_models._property_candidate_orientation_preview(
         {
@@ -2543,16 +2548,18 @@ def test_property_candidate_orientation_preview_uses_openstreetmap_backdrop_for_
             }
         }
     )
-    assert preview["image_url"] == "data:image/png;base64,preview"
+    assert preview["image_url"] == "/app/api/property/map-previews/" + ("g" * 40) + ".png"
+    assert preview["thumb_image_url"] == "/app/api/property/map-previews/" + ("g" * 40) + ".png"
     assert preview["alt"] == "Wider area around Graz"
 
 
 def test_property_candidate_orientation_preview_reuses_boundary_projection_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(landing_view_models, "_forward_geocode_preview_point", lambda label: None)
     monkeypatch.setattr(
         landing_view_models,
         "_build_scope_boundary_preview",
         lambda **kwargs: {
-            "image_url": "data:image/png;base64,boundarypreview",
+            "image_url": "/app/api/property/map-previews/" + ("d" * 40) + ".png",
             "summary": "Leopoldstadt",
             "district_rows": [{"label": "Leopoldstadt", "selected": True, "path": "M1 1 L2 1 L2 2 Z"}],
         },
@@ -2566,7 +2573,7 @@ def test_property_candidate_orientation_preview_reuses_boundary_projection_when_
             }
         }
     )
-    assert str(preview["image_url"]).startswith("data:image/")
+    assert str(preview["image_url"]).startswith("/app/api/property/map-previews/")
     assert preview["caption"] == "Leopoldstadt"
     assert preview["district_rows"][0]["label"] == "Leopoldstadt"
 
