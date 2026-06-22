@@ -568,6 +568,30 @@ def test_brilliant_directories_runtime_route_reports_disabled_without_network(
     assert payload["direct_property_truth_mutation_allowed"] is False
 
 
+def test_property_directory_members_route_is_white_label_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    client = build_property_client(principal_id="pq-directory-disabled")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get(
+        "/app/api/property/directories/members?city=Vienna&country_code=AT",
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = json.dumps(payload, sort_keys=True)
+    assert payload["contract_name"] == "propertyquarry.directory_projection.v1"
+    assert payload["status"] == "disabled"
+    assert payload["profile_count"] == 0
+    assert payload["profiles"] == []
+    assert "brilliant_directories" not in serialized
+    assert "brilliant directories" not in serialized.lower()
+    assert "brilliantdirectories" not in serialized.lower()
+
+
 def test_brilliant_directories_runtime_route_fetches_public_member_projection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -632,6 +656,60 @@ def test_brilliant_directories_runtime_route_fetches_public_member_projection(
     assert b"country_code=AT" in (sent.body or b"")
     assert b"limit=8" in (sent.body or b"")
     assert b"bd-secret-token" not in (sent.body or b"")
+
+
+def test_property_directory_members_route_returns_white_label_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.example")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+
+    def fake_execute(request: object, *, timeout_seconds: float = 30.0, opener: object | None = None) -> dict[str, object]:
+        del timeout_seconds, opener
+        assert getattr(request, "url", "") == "https://directory.example/api/v2/user/search"
+        return {
+            "message": [
+                {
+                    "user_id": "24",
+                    "company": "Vienna Relocation Advisors",
+                    "profession": "Relocation",
+                    "email": "private@example.test",
+                    "phone_number": "+43 1 555",
+                    "address1": "Secret Street 1",
+                    "filename": "austria/vienna/vienna-relocation-advisors",
+                    "city": "Vienna",
+                    "state_ln": "Vienna",
+                    "country_code": "AT",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(brilliant_directories_service, "execute_brilliant_directories_api_request", fake_execute)
+    client = build_property_client(principal_id="pq-directory-white-label")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get(
+        "/app/api/property/directories/members?keyword=relocation&city=Vienna&country_code=AT",
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = json.dumps(payload, sort_keys=True)
+    assert payload["contract_name"] == "propertyquarry.directory_projection.v1"
+    assert payload["status"] == "ready"
+    assert payload["profile_count"] == 1
+    assert payload["profiles"][0]["display_name"] == "Vienna Relocation Advisors"
+    assert "brilliant_directories" not in serialized
+    assert "brilliant directories" not in serialized.lower()
+    assert "brilliantdirectories" not in serialized.lower()
+    assert "private@example.test" not in serialized
+    assert "+43 1 555" not in serialized
+    assert "Secret Street" not in serialized
 
 
 def test_brilliant_directories_public_directory_page_is_white_label_when_disabled(

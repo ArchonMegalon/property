@@ -45,10 +45,13 @@ The runtime contract is intentionally narrow:
 
 - Build redacted, host-allowlisted Brilliant Directories API requests.
 - Build public member-search requests for `/api/v2/user/search`.
+- Build public member-detail requests for `/api/v2/user/get/{user_id}`.
 - Execute bounded JSON API requests with redirects blocked, non-JSON responses rejected, and a 2 MB response cap.
 - Project returned member rows into `public_directory_profile` records only.
-- Expose the authenticated PropertyQuarry runtime lane at `/app/api/property/directories/brilliant-directories/members`.
+- Expose the authenticated white-label PropertyQuarry runtime lane at `/app/api/property/directories/members`.
+- Keep `/app/api/property/directories/brilliant-directories/members` only as a compatibility/provider receipt lane, not as the product-facing endpoint.
 - Expose the white-label public directory at `/directory`; the page stays on PropertyQuarry while Brilliant Directories supplies public-safe profile records.
+- Expose public profile details at `/directory/profile/{profile_id}` so profile navigation stays on PropertyQuarry.
 - Keep `/pricing` PropertyQuarry-hosted. If Brilliant Directories manages pricing content later, sync the content into the local pricing surface instead of redirecting customers off-domain.
 - Strip provider contact, address, location-coordinate, billing, token, ranking, property-fact, and private preference fields from provider responses.
 - Keep imported profile URLs only when they are relative directory paths or absolute HTTPS URLs on the configured Brilliant Directories allowed-host list.

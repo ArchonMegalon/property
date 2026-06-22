@@ -1710,6 +1710,55 @@ def get_property_brilliant_directories_members(
     return payload
 
 
+@router.get("/property/directories/members")
+def get_property_directory_members(
+    keyword: str = Query(default="", max_length=140),
+    category: str = Query(default="", max_length=96),
+    city: str = Query(default="", max_length=96),
+    country_code: str = Query(default="", max_length=12),
+    page: int = Query(default=1, ge=1, le=100),
+    limit: int = Query(default=12, ge=1, le=50),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    del context
+    try:
+        config = brilliant_directories_service.load_brilliant_directories_config()
+    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if not config.configured:
+        return {
+            "contract_name": "propertyquarry.directory_projection.v1",
+            "status": "disabled",
+            "profile_count": 0,
+            "profiles": [],
+            "publication_allowed": False,
+            "direct_property_truth_mutation_allowed": False,
+        }
+    try:
+        packet = brilliant_directories_service.fetch_brilliant_directories_member_projection_packet(
+            config,
+            purpose="PropertyQuarry public directory member lookup",
+            keyword=keyword,
+            category=category,
+            city=city,
+            country_code=country_code,
+            page=page,
+            limit=limit,
+        )
+    except brilliant_directories_service.BrilliantDirectoriesApiError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    payload = packet.as_dict()
+    return {
+        "contract_name": "propertyquarry.directory_projection.v1",
+        "status": "ready",
+        "projection_mode": "public_directory_profile",
+        "profile_count": payload.get("profile_count", 0),
+        "profiles": payload.get("profiles", []),
+        "publication_allowed": payload.get("publication_allowed", False),
+        "direct_property_truth_mutation_allowed": payload.get("direct_property_truth_mutation_allowed", False),
+    }
+
+
 @router.get("/properties/{property_ref:path}/magic-fit-scene", response_model=PropertyMagicFitSceneOut | None)
 def get_property_magic_fit_scene(
     property_ref: str,
