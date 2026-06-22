@@ -144,7 +144,7 @@
     <div class="pq-directory-copy">
       <p class="pq-directory-kicker">Directory</p>
       <h1>Find the people around a property decision.</h1>
-      <p class="pq-directory-lead">Public partner, advisor, relocation, and local-service profiles stay in a PropertyQuarry-branded directory. The provider stores directory records; PropertyQuarry controls what becomes visible here.</p>
+      <p class="pq-directory-lead">Public partner, advisor, relocation, and local-service profiles stay in one PropertyQuarry directory, with only reviewed public profile details shown here.</p>
     </div>
     <form class="pq-directory-search" method="get" action="/directory" aria-label="Search PropertyQuarry directory">
       <div class="pq-directory-fields">
@@ -170,7 +170,7 @@
         {% if directory_status == 'ready' %}
         {{ directory_profiles|length }} public profile{{ '' if directory_profiles|length == 1 else 's' }} shown.
         {% elif directory_status == 'disabled' %}
-        Directory connection is not active on this host yet.
+        Directory profiles are being prepared.
         {% else %}
         Directory is temporarily unavailable.
         {% endif %}
@@ -202,12 +202,12 @@
   </section>
   {% else %}
   <section class="pq-directory-panel">
-    <strong>{% if directory_status == 'disabled' %}Directory connection pending{% else %}No public profiles matched{% endif %}</strong>
+    <strong>{% if directory_status == 'disabled' %}Directory opening soon{% else %}No public profiles matched{% endif %}</strong>
     <p class="pq-directory-summary">
       {% if directory_status == 'disabled' %}
-      Add the public directory credentials to populate this PropertyQuarry-hosted directory.
+      Verified public profiles will appear here once directory onboarding is open.
       {% elif directory_error %}
-      The provider returned {{ directory_error }}. Try a broader search or retry later.
+      Directory search is temporarily unavailable. Try again later.
       {% else %}
       Try another city, country, or search term.
       {% endif %}

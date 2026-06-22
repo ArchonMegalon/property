@@ -553,10 +553,14 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert response.status_code == 200
     assert "PropertyQuarry Directory" in response.text
     assert "Find the people around a property decision." in response.text
-    assert "Directory connection pending" in response.text
+    assert "Directory opening soon" in response.text
     assert "Search directory" in response.text
     assert "Brilliant Directories" not in response.text
     assert "brilliantdirectories.com" not in response.text.lower()
+    assert "credentials" not in response.text
+    assert "not active on this host" not in response.text
+    assert "provider returned" not in response.text.lower()
+    assert "provider stores" not in response.text.lower()
 
 
 def test_brilliant_directories_public_directory_page_renders_sanitized_profiles(

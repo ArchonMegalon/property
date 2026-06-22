@@ -187,9 +187,19 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             )
         )
     elif path == "/directory":
+        lowered_visible = visible_text.lower()
         checks.extend(
             (
-                ("directory_white_label", "PropertyQuarry directory" in text and "Brilliant Directories" not in visible_text),
+                (
+                    "directory_white_label",
+                    "PropertyQuarry directory" in text
+                    and "brilliant directories" not in lowered_visible
+                    and "brilliantdirectories" not in lowered_visible
+                    and "credentials" not in lowered_visible
+                    and "not active on this host" not in lowered_visible
+                    and "provider returned" not in lowered_visible
+                    and "provider stores" not in lowered_visible,
+                ),
                 ("directory_has_search", "Search directory" in text or "Reset" in text),
             )
         )
