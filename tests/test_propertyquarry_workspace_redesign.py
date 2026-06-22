@@ -3023,6 +3023,28 @@ def test_property_scope_preview_map_only_uses_local_boundary_and_async_render(mo
     assert len(scheduled[0]["overlay_rows"]) == 2
 
 
+def test_property_scope_preview_map_only_uses_slightly_wider_padding_for_full_district_shapes(monkeypatch) -> None:
+    captured: list[dict[str, object]] = []
+
+    def _fake_boundary_preview(**kwargs):
+        captured.append(dict(kwargs))
+        return {
+            "image_url": "/app/api/property/map-previews/framed.png",
+            "summary": kwargs.get("normalized_query"),
+            "preview_kind": "osm_district_overlay",
+            "has_district_overlay": True,
+            "district_rows": [{"label": "1020 Vienna", "selected": True, "path": "M0 0 L1 0 L1 1 Z"}],
+        }
+
+    monkeypatch.setattr(landing_view_models, "_build_scope_boundary_preview", _fake_boundary_preview)
+
+    preview = landing_view_models._property_scope_preview_map_only("AT", "vienna", "1020 Vienna")
+
+    assert preview["preview_kind"] == "osm_district_overlay"
+    assert captured
+    assert captured[0]["padding_ratio"] == 0.16
+
+
 def test_property_scope_preview_map_only_schedules_real_map_without_final_placeholder(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
     monkeypatch.setattr(
@@ -6219,7 +6241,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "thumb.classList.add('is-preview-error')" not in script
     assert "fallback.hidden = false" not in script
     assert "fallback.style.display = 'grid'" not in script
-    assert "grid-template-columns: minmax(150px, 0.38fr) minmax(0, 1fr);" in template
+    assert "grid-template-columns: minmax(144px, 0.36fr) minmax(0, 1fr);" in template
     assert ".pqx-automation-table" not in template
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch' in template
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-mobile-switch' in template
@@ -6230,7 +6252,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail]' in template
     assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock]' in template
     assert '.pqx-surface-search [data-property-actions]:not([hidden])' in template
-    assert '.pqx-surface-search [data-property-actions] {' not in template
+    assert '.pqx-surface-search [data-property-actions] {' in template
+    assert 'display: none !important;' in template
     assert 'scroll-snap-type: x proximity;' in template
     assert '-webkit-overflow-scrolling: touch;' in template
     assert 'env(safe-area-inset-bottom, 0px)' in template

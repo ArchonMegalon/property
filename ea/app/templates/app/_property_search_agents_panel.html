@@ -12,7 +12,7 @@
     <div>
       <div class="pqx-small">Saved searches</div>
       <h2>Saved searches</h2>
-      <div class="pqx-note">Recurring search briefs, alert caps, and recent outcomes.</div>
+      <div class="pqx-note">Recurring briefs, alert caps, recent runs.</div>
     </div>
     <div class="pqx-actions">
       <span class="pqx-pill">{{ active_total }} active</span>
@@ -22,8 +22,8 @@
 
   <div class="pqx-automation-kpis">
     <span><strong>{{ search_agents|length }}</strong> saved</span>
-    <span><strong>{{ active_total }}</strong> scheduled</span>
-    <span><strong>{{ (outcomes_card.value.get('items') or [])|length }}</strong> recent runs</span>
+    <span><strong>{{ active_total }}</strong> active</span>
+    <span><strong>{{ (outcomes_card.value.get('items') or [])|length }}</strong> recent</span>
   </div>
 
   <div class="pqx-automation-grid" data-property-search-agent-grid>

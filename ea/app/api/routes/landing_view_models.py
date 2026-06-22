@@ -1265,6 +1265,7 @@ def _build_scope_boundary_preview(
     market_label: str,
     allow_remote_lookup: bool = True,
     materialize_preview: str = "sync",
+    padding_ratio: float = 0.12,
 ) -> dict[str, object]:
     queries = [
         _preview_query_with_context(option_lookup.get(value.lower(), value), country_code, region_code)
@@ -1300,7 +1301,7 @@ def _build_scope_boundary_preview(
     union_bounds = _union_geo_bounds(bounds_rows)
     if not union_bounds:
         return {}
-    render_bounds = _expand_geo_bounds(union_bounds)
+    render_bounds = _expand_geo_bounds(union_bounds, padding_ratio=padding_ratio)
 
     center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
     center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
@@ -1688,6 +1689,7 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
             market_label=market_label,
             allow_remote_lookup=False,
             materialize_preview="async",
+            padding_ratio=0.16,
         )
     except Exception:
         boundary_preview = {}
