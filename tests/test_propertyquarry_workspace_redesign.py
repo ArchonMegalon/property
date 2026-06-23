@@ -9769,6 +9769,59 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     assert "Back to search" not in rendered_text
 
 
+def test_propertyquarry_billing_surface_embeds_white_label_commercial_lane_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+
+    client = build_property_client(principal_id="pq-billing-commercial-lane")
+    start_workspace(client, mode="personal", workspace_name="Embedded Billing")
+
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+
+    assert billing.status_code == 200
+    assert 'id="billing-commercial-lane"' in billing.text
+    assert 'src="/app/api/property/billing/commercial-lane"' in billing.text
+    assert 'href="/app/api/property/billing/commercial-lane"' in billing.text
+    assert "Secure billing" in billing.text
+    assert "Brilliant Directories" not in billing.text
+    assert "brilliantdirectories" not in billing.text.lower()
+    assert "billing.propertyquarry.com" not in billing.text
+
+    commercial_lane = client.get("/app/api/property/billing/commercial-lane", headers={"host": "propertyquarry.com"})
+
+    assert commercial_lane.status_code == 200
+    assert 'title="PropertyQuarry billing"' in commercial_lane.text
+    assert 'src="https://billing.propertyquarry.com/account"' in commercial_lane.text
+    assert "Brilliant Directories" not in commercial_lane.text
+
+
+def test_propertyquarry_billing_surface_keeps_local_board_when_white_label_commercial_lane_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,billing.brilliantdirectories.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.brilliantdirectories.com/account")
+
+    client = build_property_client(principal_id="pq-billing-fallback")
+    start_workspace(client, mode="personal", workspace_name="Fallback Billing")
+
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+
+    assert billing.status_code == 200
+    assert 'id="billing-commercial-lane"' not in billing.text
+    assert 'src="/app/api/property/billing/commercial-lane"' not in billing.text
+    assert "Plan and payments" in billing.text
+
+
 def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) -> None:
     monkeypatch.setenv(
         "EA_TELEGRAM_BOT_REGISTRY_JSON",

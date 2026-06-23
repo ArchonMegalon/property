@@ -166,6 +166,7 @@ def property_workspace_payload(
         break
     commercial = dict(property_state.get("commercial") or {})
     billing_truth = dict(property_state.get("billing_truth") or {})
+    billing_handoff = dict(property_state.get("billing_handoff") or {})
     saved_property_preferences = dict(property_state.get("preferences") or {})
     preference_bundle = dict(property_state.get("preference_bundle") or {})
     raw_preference_nodes = (
@@ -1954,7 +1955,11 @@ def property_workspace_payload(
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
         ],
         "billing": [
-            {"href": "/pricing", "label": "Open pricing", "tone": "primary"},
+            {
+                "href": str(billing_handoff.get("open_href") or "/pricing"),
+                "label": "Open billing" if billing_handoff.get("available") else "Open pricing",
+                "tone": "primary",
+            },
             {"href": f"/app/properties{run_suffix}", "label": "Open run"},
             {"href": "/how-it-works", "label": "Open guide"},
         ],
@@ -3103,6 +3108,7 @@ def property_workspace_payload(
         packet_recovery=packet_recovery,
         show_brief_default=not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(shortlist_snapshot.get("has_results")))),
     )
+    payload["billing_handoff"] = billing_handoff
     contract = PropertySurfacePayloadContract(
         title=str(payload.get("title") or ""),
         summary=str(payload.get("summary") or ""),

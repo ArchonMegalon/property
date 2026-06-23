@@ -193,6 +193,22 @@ def _normalize_public_directory_profile_id(profile_id: str) -> str:
     return normalized
 
 
+def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
+    try:
+        config = brilliant_directories_service.load_brilliant_directories_config()
+        hosted_url = brilliant_directories_service.brilliant_directories_billing_handoff_url(config)
+    except brilliant_directories_service.BrilliantDirectoriesApiError:
+        return {"available": False, "status": "unavailable"}
+    if not hosted_url:
+        return {"available": False, "status": "disabled"}
+    return {
+        "available": True,
+        "status": "ready",
+        "embedded_href": "/app/api/property/billing/commercial-lane",
+        "open_href": "/app/api/property/billing/commercial-lane",
+    }
+
+
 def _google_sign_in_enabled() -> bool:
     from app.services.google_oauth import load_google_oauth_config
 
@@ -1821,6 +1837,7 @@ def _property_console_context(
         "start_endpoint": "/app/api/property/search-runs",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,
+        "billing_handoff": _property_brilliant_directories_billing_handoff(),
         "billing_checkout_enabled": bool(billing_truth.get("checkout_enabled")),
         "billing_checkout_enabled_plans": list(billing_truth.get("checkout_enabled_plans") or []),
         "billing_order_endpoint": str(billing_truth.get("order_endpoint") or ""),
@@ -2184,6 +2201,38 @@ def propertyquarry_landing_handoff(
             "status": str(active_run.get("status") or "").strip(),
         }
     return {"target": "/app/search", "signed_in": True}
+
+
+@router.get("/app/api/property/billing/commercial-lane", include_in_schema=False, response_class=HTMLResponse)
+def property_billing_commercial_lane(
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    handoff = _property_brilliant_directories_billing_handoff()
+    if not handoff.get("available"):
+        return RedirectResponse("/app/billing", status_code=307)
+    config = brilliant_directories_service.load_brilliant_directories_config()
+    iframe_src = brilliant_directories_service.brilliant_directories_billing_handoff_url(config)
+    if not iframe_src:
+        return RedirectResponse("/app/billing", status_code=307)
+    response = _render_public_template(
+        request,
+        "property_billing_commercial_lane.html",
+        **_public_context(
+            request=request,
+            current_nav="billing",
+            page_title="PropertyQuarry Billing",
+            principal_id=context.principal_id,
+            status=_anonymous_onboarding_status(),
+            access_identity=None,
+            extra={
+                "robots_directive": "noindex, nofollow, noarchive, nosnippet",
+                "billing_lane_iframe_src": iframe_src,
+            },
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.get("/integrations", response_class=HTMLResponse)

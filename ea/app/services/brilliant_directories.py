@@ -15,6 +15,7 @@ BRILLIANT_DIRECTORIES_PROVIDER_KEY = "brilliant_directories"
 BRILLIANT_DIRECTORIES_CONTRACT_NAME = "propertyquarry.brilliant_directories_projection.v1"
 BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME = "propertyquarry.brilliant_directories_provider_verification.v1"
 BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+BRILLIANT_DIRECTORIES_WHITE_LABEL_BLOCKLIST = ("brilliantdirectories", "brilliant-directories")
 
 BRILLIANT_DIRECTORIES_PUBLIC_PROFILE_FIELDS = frozenset(
     {
@@ -97,6 +98,17 @@ def _safe_public_url(raw_url: str, *, allowed_hosts: tuple[str, ...]) -> str:
     if allowed_hosts and host not in allowed_hosts:
         return ""
     return urllib.parse.urlunparse(("https", parsed.netloc, parsed.path.rstrip("/") or "/", "", parsed.query, "")).strip()
+
+
+def _safe_white_label_handoff_url(raw_url: str, *, allowed_hosts: tuple[str, ...]) -> str:
+    normalized = _safe_public_url(raw_url, allowed_hosts=allowed_hosts)
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    host = str(parsed.hostname or "").strip().lower()
+    if any(marker in host for marker in BRILLIANT_DIRECTORIES_WHITE_LABEL_BLOCKLIST):
+        return ""
+    return normalized
 
 
 def _sha256_short(value: str) -> str:
@@ -262,6 +274,18 @@ def load_brilliant_directories_config() -> BrilliantDirectoriesConfig:
         allowed_hosts=allowed_hosts,
         api_key_header=api_key_header,
         api_key=api_key,
+    )
+
+
+def brilliant_directories_billing_handoff_url(config: BrilliantDirectoriesConfig | None = None) -> str:
+    resolved_config = config
+    if resolved_config is None:
+        resolved_config = load_brilliant_directories_config()
+    if not resolved_config.configured:
+        return ""
+    return _safe_white_label_handoff_url(
+        str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL") or "").strip(),
+        allowed_hosts=resolved_config.allowed_hosts,
     )
 
 

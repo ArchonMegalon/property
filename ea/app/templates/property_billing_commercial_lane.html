@@ -1,0 +1,41 @@
+{% extends "base_public.html" %}
+
+{% block content %}
+<style>
+  .pq-billing-lane {
+    min-height: calc(100vh - 96px);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 12px;
+    padding: 20px 24px 24px;
+  }
+  .pq-billing-lane-header h1 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+  .pq-billing-lane-header p {
+    margin: 6px 0 0;
+    color: rgba(75, 85, 99, 0.92);
+  }
+  .pq-billing-lane-frame {
+    width: 100%;
+    min-height: calc(100vh - 180px);
+    border: 0;
+    border-radius: 8px;
+    background: #fff;
+  }
+  html[data-pq-theme="dark"] .pq-billing-lane-header p {
+    color: rgba(209, 213, 219, 0.9);
+  }
+  html[data-pq-theme="dark"] .pq-billing-lane-frame {
+    background: #111827;
+  }
+</style>
+<section class="pq-billing-lane">
+  <header class="pq-billing-lane-header">
+    <h1>Billing</h1>
+    <p>Secure billing stays inside the PropertyQuarry account lane.</p>
+  </header>
+  <iframe class="pq-billing-lane-frame" src="{{ billing_lane_iframe_src }}" title="PropertyQuarry billing" loading="eager" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+</section>
+{% endblock %}

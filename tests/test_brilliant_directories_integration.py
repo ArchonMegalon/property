@@ -18,6 +18,7 @@ from app.services.brilliant_directories import (
     build_brilliant_directories_projection_packet,
     build_brilliant_directories_verification_receipt,
     build_directory_profile_projection,
+    brilliant_directories_billing_handoff_url,
     execute_brilliant_directories_api_request,
     fetch_brilliant_directories_member_profile_projection_packet,
     fetch_brilliant_directories_member_projection_packet,
@@ -65,6 +66,7 @@ def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PRICING_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER",
         "BRILLIANT_DIRECTORIES_API_KEY",
@@ -130,6 +132,23 @@ def test_brilliant_directories_request_builder_keeps_api_key_out_of_url_and_body
     assert request.body == b"category=relocation+advisor"
     assert "bd-secret-token" not in request.url
     assert request.redacted_receipt()["headers"]["X-Api-Key"] == "[redacted]"
+
+
+def test_brilliant_directories_billing_handoff_requires_white_label_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+
+    config = load_brilliant_directories_config()
+
+    assert brilliant_directories_billing_handoff_url(config) == "https://billing.propertyquarry.com/account"
+
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.brilliantdirectories.com/account")
+    assert brilliant_directories_billing_handoff_url(config) == ""
 
 
 def test_brilliant_directories_request_builder_supports_explicit_json_without_making_it_default(
