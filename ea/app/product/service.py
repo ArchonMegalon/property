@@ -29807,12 +29807,21 @@ class ProductService:
             if not matches_candidate:
                 return {}
             return {
+                "tour_url": str(candidate_row.get("tour_url") or "").strip(),
+                "vendor_tour_url": str(candidate_row.get("vendor_tour_url") or "").strip(),
                 "tour_requested_at": str(candidate_row.get("tour_requested_at") or "").strip(),
                 "tour_status_updated_at": str(candidate_row.get("tour_status_updated_at") or "").strip(),
+                "tour_eta_minutes": str(candidate_row.get("tour_eta_minutes") or "").strip(),
+                "tour_progress_pct": str(candidate_row.get("tour_progress_pct") or "").strip(),
+                "flythrough_url": str(candidate_row.get("flythrough_url") or "").strip(),
                 "flythrough_requested_at": str(candidate_row.get("flythrough_requested_at") or "").strip(),
                 "flythrough_status_updated_at": str(candidate_row.get("flythrough_status_updated_at") or "").strip(),
+                "flythrough_eta_minutes": str(candidate_row.get("flythrough_eta_minutes") or "").strip(),
+                "flythrough_progress_pct": str(candidate_row.get("flythrough_progress_pct") or "").strip(),
                 "tour_status": str(candidate_row.get("tour_status") or "").strip().lower(),
                 "flythrough_status": str(candidate_row.get("flythrough_status") or "").strip().lower(),
+                "flythrough_reason": str(candidate_row.get("flythrough_reason") or "").strip(),
+                "blocked_reason": str(candidate_row.get("blocked_reason") or "").strip(),
             }
 
         for candidate in list(summary.get("ranked_candidates") or []):

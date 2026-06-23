@@ -13564,6 +13564,114 @@ def test_property_tour_followup_processing_preserves_original_requested_timestam
     assert processing_state["tour_status_updated_at"] != processing_state["tour_requested_at"]
 
 
+def test_current_property_search_visual_state_returns_ready_urls(monkeypatch) -> None:
+    principal_id = "property-visual-state-ready-urls"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    ready_candidate = {
+        "title": "Ready visuals apartment",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/ready-visuals-1",
+        "source_ref": "willhaben:ready-visuals-1",
+        "tour_url": "https://propertyquarry.com/tours/ready-visuals-1",
+        "vendor_tour_url": "https://propertyquarry.com/tours/ready-visuals-1/control/3dvista",
+        "tour_status": "created",
+        "tour_eta_minutes": "4",
+        "tour_progress_pct": "88",
+        "flythrough_url": "https://propertyquarry.com/tours/ready-visuals-1?pane=flythrough-pane&autoplay=1",
+        "flythrough_status": "existing",
+        "flythrough_eta_minutes": "2",
+        "flythrough_progress_pct": "100",
+        "blocked_reason": "",
+        "flythrough_reason": "",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-state-ready-urls"
+        return {
+            "run_id": run_id,
+            "summary": {
+                "ranked_candidates": [dict(ready_candidate)],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+
+    state = service._current_property_search_visual_state(
+        principal_id=principal_id,
+        run_id="run-42",
+        source_ref="willhaben:ready-visuals-1",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/ready-visuals-1",
+    )
+
+    assert state["tour_url"] == "https://propertyquarry.com/tours/ready-visuals-1"
+    assert state["vendor_tour_url"] == "https://propertyquarry.com/tours/ready-visuals-1/control/3dvista"
+    assert state["flythrough_url"] == "https://propertyquarry.com/tours/ready-visuals-1?pane=flythrough-pane&autoplay=1"
+    assert state["tour_status"] == "created"
+    assert state["flythrough_status"] == "existing"
+
+
+def test_property_tour_followup_tasks_return_ready_visual_when_snapshot_already_has_url(monkeypatch) -> None:
+    principal_id = "property-tour-followup-already-ready"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/already-ready-1",
+        title="Already ready property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:already-ready-1",
+        external_id="already-ready-1",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-ready-1",
+        candidate_ref="candidate-ready-1",
+        allow_floorplan_only=True,
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "flythrough_url": "https://propertyquarry.com/tours/already-ready-1?pane=flythrough-pane&autoplay=1",
+            "flythrough_status": "existing",
+            "flythrough_requested_at": "2026-06-22T10:00:00+00:00",
+            "flythrough_status_updated_at": "2026-06-22T10:06:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: pytest.fail("ready visual must not be requested again"),
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="scheduler",
+        limit=10,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["resolved"][0]["resolution"] == "ready"
+    assert result["resolved"][0]["flythrough_url"] == "https://propertyquarry.com/tours/already-ready-1?pane=flythrough-pane&autoplay=1"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "ready"
+
+
 def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source_copy(monkeypatch) -> None:
     principal_id = "property-visual-status-prefers-ranked"
     client = build_product_client(principal_id=principal_id)
