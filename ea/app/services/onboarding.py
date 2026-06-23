@@ -1406,7 +1406,7 @@ class OnboardingService(AssistantOnboardingService):
         except ValueError:
             selected_channels = (preferred_channel,)
         if preferred_channel not in selected_channels:
-            preferred_channel = selected_channels[0]
+            selected_channels = (preferred_channel, *tuple(channel for channel in selected_channels if channel != preferred_channel))
         return {
             "preferred_channel": preferred_channel,
             "preferred_label": PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(preferred_channel, "Email"),
@@ -1445,14 +1445,15 @@ class OnboardingService(AssistantOnboardingService):
     ) -> dict[str, object]:
         state = self._ensure_state(principal_id)
         normalized_channel = normalize_property_notification_channel(preferred_channel)
+        channel_preferences = dict(state.channel_preferences_json or {})
+        property_notifications = dict(channel_preferences.get("property_notifications") or {})
+        existing_selected_channels = property_notifications.get("selected_channels")
         normalized_channels = normalize_property_notification_channels(
-            normalized_channel if selected_channels is None else selected_channels,
+            existing_selected_channels if selected_channels is None else selected_channels,
             fallback=normalized_channel,
         )
         if normalized_channel not in normalized_channels:
             raise ValueError("property_notification_primary_not_selected")
-        channel_preferences = dict(state.channel_preferences_json or {})
-        property_notifications = dict(channel_preferences.get("property_notifications") or {})
         normalized_support_phone: str | None = None
         if whatsapp_ai_support_phone is not None:
             normalized_support_phone = normalize_property_whatsapp_ai_support_phone(whatsapp_ai_support_phone)
@@ -1481,13 +1482,6 @@ class OnboardingService(AssistantOnboardingService):
         channel_preferences["property_notifications"] = property_notifications
         for channel in PROPERTY_NOTIFICATION_CHANNELS:
             channel_preferences.setdefault(channel, {})
-        selected = {
-            str(channel or "").strip().lower()
-            for channel in state.selected_channels
-            if str(channel or "").strip()
-        }
-        selected.difference_update(PROPERTY_NOTIFICATION_CHANNELS)
-        selected.update(normalized_channels)
         saved = self._repo.upsert_state(
             principal_id=state.principal_id,
             onboarding_id=state.onboarding_id,
@@ -1496,7 +1490,7 @@ class OnboardingService(AssistantOnboardingService):
             region=state.region,
             language=state.language,
             timezone=state.timezone,
-            selected_channels=tuple(sorted(selected)),
+            selected_channels=tuple(state.selected_channels),
             property_search_preferences_json=dict(state.property_search_preferences_json),
             privacy_preferences_json=dict(state.privacy_preferences_json),
             channel_preferences_json=channel_preferences,

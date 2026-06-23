@@ -1268,8 +1268,25 @@ def test_property_notification_preference_suppresses_unselected_channels(monkeyp
     onboarding.update_property_notification_preferences(
         principal_id=principal_id,
         preferred_channel="email",
+        selected_channels=("email",),
     )
     state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    assert state.selected_channels == ("google", "telegram", "whatsapp")
+    property_notifications = dict(dict(onboarding.status(principal_id=principal_id)["delivery_preferences"]).get("property_notifications") or {})
+    assert property_notifications["selected_channels"] == ["email"]
+    onboarding.update_property_notification_preferences(
+        principal_id=principal_id,
+        preferred_channel="email",
+    )
+    state = onboarding._ensure_state(principal_id)  # noqa: SLF001
+    assert state.selected_channels == ("google", "telegram", "whatsapp")
+    property_notifications = dict(dict(onboarding.status(principal_id=principal_id)["delivery_preferences"]).get("property_notifications") or {})
+    assert property_notifications["selected_channels"] == ["email"]
+    with pytest.raises(ValueError, match="property_notification_primary_not_selected"):
+        onboarding.update_property_notification_preferences(
+            principal_id=principal_id,
+            preferred_channel="telegram",
+        )
     onboarding._replace_channel_pref(  # noqa: SLF001
         state,
         "whatsapp",
@@ -1308,6 +1325,7 @@ def test_property_notification_preference_suppresses_unselected_channels(monkeyp
     onboarding.update_property_notification_preferences(
         principal_id=principal_id,
         preferred_channel="telegram",
+        selected_channels=("telegram",),
     )
     monkeypatch.setattr(
         product_service,
