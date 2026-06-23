@@ -1943,7 +1943,7 @@ def property_workspace_payload(
         "profile": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-            {"href": "/app/account#profile", "label": "Account"},
+            {"href": "/app/account#search-defaults", "label": "Search defaults"},
         ],
         "alerts": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
@@ -2020,7 +2020,7 @@ def property_workspace_payload(
         ],
         "settings": [
             {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
-            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": workspace_timezone, "href": "/app/account#profile"},
+            {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": workspace_timezone, "href": "/app/account#search-defaults"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
         ],
