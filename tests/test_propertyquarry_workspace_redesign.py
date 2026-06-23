@@ -676,7 +676,7 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Open current session" in sign_in.text
     assert ">Log out<" not in sign_in.text
     assert 'href="/app/search"' in signed_in_sign_in.text
-    assert "Open current session" in signed_in_sign_in.text
+    assert "Open search" in signed_in_sign_in.text
     assert 'action="/app/actions/sign-out"' in signed_in_sign_in.text
     assert ">Log out<" in signed_in_sign_in.text
     assert signed_in_sign_in.text.count('action="/app/actions/sign-out"') == 1
@@ -684,7 +684,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert 'href="/register">Create account</a>' not in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
     assert sign_in.text.count('href="/sign-in/current-session"') == 1
-    assert signed_in_sign_in.text.count("Open current session") == 1
+    assert "Open current session" not in signed_in_sign_in.text
+    assert signed_in_sign_in.text.count("Open search") == 1
     assert "Google?" not in sign_in.text
     assert "Facebook?" not in sign_in.text
     assert "Use the path that matches how you joined" not in sign_in.text
@@ -7032,6 +7033,9 @@ def test_property_live_run_has_no_manual_refresh_controls() -> None:
     assert ">Refresh<" not in running_panel
     assert "Refresh the provider step" not in body
     assert "Stop this live search?" in running_panel
+    assert 'href="/app/search">Start new search</a>' in running_panel
+    assert 'href="/app/properties">Start new search</a>' not in running_panel
+    assert 'href="/app/properties">New search</a>' not in running_panel
     assert "Stop and remove" not in running_panel
     assert "Refreshing this page will continue to show the completed result desk" not in body
     assert "Refreshing this page will continue to show the completed result desk" not in running_panel
@@ -9991,6 +9995,8 @@ def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None
 
     assert '"eyebrow": "Operating posture"' not in payload_source
     assert '"title": "Commercial posture"' not in payload_source
+    assert '"/app/account#settings"' not in payload_source
+    assert '"/app/settings/google"' in payload_source
     assert "Telegram and email" not in payload_source
     assert "Telegram or email" not in payload_source
     assert "through email" not in payload_source

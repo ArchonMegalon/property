@@ -151,7 +151,7 @@ def build_agent_management_rows(
         rows.append(
             {
                 "title": label,
-                "detail": " | ".join(part for part in detail_parts if part) or "Saved search settings can be edited from the search desk.",
+                "detail": " | ".join(part for part in detail_parts if part) or "Saved search settings can be edited from search.",
                 "tag": "Active" if bool(agent.get("enabled")) else "Paused",
                 "action_href": open_href,
                 "action_method": "get",

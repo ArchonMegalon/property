@@ -1935,16 +1935,16 @@ def property_workspace_payload(
         ],
         "research": [
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Refine search"},
+            {"href": f"/app/properties{run_suffix}", "label": "Open results"},
             {"href": f"/app/alerts{run_suffix}", "label": "Alerts"},
         ],
         "profile": [
-            {"href": f"/app/properties{run_suffix}", "label": "Refine search", "tone": "primary"},
+            {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-            {"href": "/app/account#settings", "label": "Account"},
+            {"href": "/app/account#profile", "label": "Account"},
         ],
         "alerts": [
-            {"href": f"/app/properties{run_suffix}", "label": "Open search desk", "tone": "primary"},
+            {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
             {"href": "/app/account#delivery", "label": "Delivery"},
         ],
@@ -1959,7 +1959,7 @@ def property_workspace_payload(
             {"href": "/how-it-works", "label": "Open guide"},
         ],
         "settings": [
-            {"href": f"/app/properties{run_suffix}", "label": "Back to search", "tone": "primary"},
+            {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": "/how-it-works", "label": "How it works"},
             {"href": "/pricing", "label": "Open pricing"},
         ],
@@ -2013,7 +2013,7 @@ def property_workspace_payload(
             {"label": "Per provider", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked homes per provider.", "href": f"/app/billing{run_suffix}"},
         ],
         "settings": [
-            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
+            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
             {"label": "Account", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": workspace_timezone, "href": "/app/account#profile"},
             {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
             {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/profile{run_suffix}"},
@@ -2412,7 +2412,7 @@ def property_workspace_payload(
         research_rows = list(recent_matches_card.get("items") or []) or [
             row_item(
                 "Research pages have not been opened yet",
-                "As soon as a run finishes with credible matches, the strongest candidates will be promoted into hosted property pages from this desk.",
+                "As soon as a run finishes with credible matches, the strongest candidates will be promoted into hosted property pages here.",
                 "First page",
             )
         ]
@@ -2429,15 +2429,15 @@ def property_workspace_payload(
             "tag": "Saved",
             "action_href": f"/app/properties{run_suffix}",
             "action_method": "get",
-            "action_label": "Refine brief",
+            "action_label": "Open results",
         },
         {
             "title": "Latest run",
-            "detail": run_message or "Open the search desk to launch or monitor the next sweep.",
+            "detail": run_message or "Open results to launch or monitor the next sweep.",
             "tag": run_status_label,
             "action_href": f"/app/properties{run_suffix}",
             "action_method": "get",
-            "action_label": "Open search desk",
+            "action_label": "Open results",
         },
         {
             "title": "Delivery path",
@@ -2453,7 +2453,7 @@ def property_workspace_payload(
         agent_management_rows = [
             row_item(
                 "No saved search yet",
-                "Create one from the search desk, then return here to edit, pause, or review its notification budget.",
+                "Create one from search, then return here to edit, pause, or review its notification budget.",
                 "First search",
             )
         ]
@@ -2545,7 +2545,7 @@ def property_workspace_payload(
                     "eyebrow": "Decision table",
                     "title": "Compare the top shortlist before you open a single full property page",
                     "body": "",
-                    "items": compare_rows or [row_item("No ranked shortlist yet", "Complete the next run and this panel becomes the first comparison desk for the leading candidates.", "First run")],
+                    "items": compare_rows or [row_item("No ranked shortlist yet", "Complete the next run and this panel becomes the first comparison view for the leading candidates.", "First run")],
                 },
                 shortlist_card,
             ],
@@ -2559,7 +2559,7 @@ def property_workspace_payload(
             "summary": "Turn high-fit candidates into property dossiers with evidence, property pages, and hosted follow-ups.",
             "hero_kicker": "Research pages",
             "hero_title": "Inspect the evidence before you open the raw listing.",
-            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, open details, property pages, and hosted tours where they exist.",
+            "hero_summary": "This lane should feel like a property dossier: fit reasons, open details, property pages, and hosted tours where they exist.",
             "hero_actions": hero_actions["research"],
             "hero_highlights": hero_highlights["research"],
             "primary_cards": [
@@ -2821,7 +2821,7 @@ def property_workspace_payload(
             "hero_summary": "Identity, plan, delivery, and editable defaults.",
             "hero_actions": [],
             "hero_highlights": [
-                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
+                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
@@ -2901,7 +2901,7 @@ def property_workspace_payload(
                 {"href": "/pricing", "label": "Open pricing"},
             ],
             "hero_highlights": [
-                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/account#settings"},
+                {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
                 {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},

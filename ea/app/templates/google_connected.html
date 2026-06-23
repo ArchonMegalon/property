@@ -71,7 +71,7 @@
   </section>
   <section class="google-step">
     <strong>What happens next</strong>
-    {{ sync_detail or 'Open Properties first. That is usually the fastest way to confirm the connection is already helping the active search.' }}
+    {{ sync_detail or 'Open search first. That is usually the fastest way to confirm the connection is already helping the active run.' }}
   </section>
 </section>
 
@@ -104,8 +104,8 @@
 <section class="section panel google-actions">
   <div class="cta-row">
     {% if return_to %}<a class="btn primary" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
-    <a class="btn{% if not return_to %} primary{% endif %}" href="/app/properties">Open Properties</a>
-    <a class="btn" href="/app/settings/google">Open Google settings</a>
+    <a class="btn{% if not return_to %} primary{% endif %}" href="/app/search">Open search</a>
+    <a class="btn" href="/app/settings/google">Google settings</a>
     <a class="btn ghost" href="{{ return_to or '/get-started' }}">{{ return_label or 'Back to setup' }}</a>
   </div>
   <details class="scope-details">

@@ -1996,7 +1996,7 @@ def landing(
                         "@type": "SoftwareApplication",
                         "name": "PropertyQuarry",
                         "applicationCategory": "BusinessApplication",
-                        "description": "A focused property desk for serious apartment and home decisions.",
+                        "description": "A focused property search workspace for serious apartment and home decisions.",
                         "offers": {
                             "@type": "AggregateOffer",
                             "lowPrice": "0",
@@ -2470,7 +2470,7 @@ def pricing_page(
                             },
                             {
                                 "question": "When does Agent make sense?",
-                                "answer": "Agent is for ongoing property-desk work that needs full source breadth, denser shortlists, and deeper research at the same time.",
+                                "answer": "Agent is for ongoing property search work that needs full source breadth, denser shortlists, and deeper research at the same time.",
                             },
                         )
                     ),
@@ -3077,7 +3077,7 @@ def workspace_access_session(
             current_nav="sign-in",
             link_kicker="Secure link expired",
             link_title="This sign-in link is no longer valid.",
-            link_summary="Request a fresh sign-in link or use another secure workspace path such as an invite, current session, or SSO.",
+            link_summary="Request a fresh sign-in link or use another secure workspace path such as an invite or SSO.",
             link_detail_title="What to do next",
             link_status_label="Link expired",
             link_rows=[
@@ -3230,7 +3230,7 @@ def workspace_invite_accept(
         primary_action_href="/sign-in",
         primary_action_label="Continue to sign in",
         secondary_action_href=str(request_brand(request).get("app_home") or "/app/today"),
-        secondary_action_label="Open current session",
+        secondary_action_label="Open search",
     )
 
 

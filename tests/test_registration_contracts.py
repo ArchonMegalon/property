@@ -258,7 +258,7 @@ def test_sign_in_page_shows_provider_return_status(monkeypatch: pytest.MonkeyPat
 
     assert response.status_code == 200
     assert f"{provider} returned to PropertyQuarry." in response.text
-    assert "Open the current session or use the email link for this account." in response.text
+    assert "Use the email link for this account." in response.text
     assert 'data-sign-in-provider-connected' in response.text
     assert 'href="/sign-in/current-session"' in response.text
     assert "data-focus-sign-in-email" in response.text
@@ -1511,7 +1511,8 @@ def test_register_google_callback_page_signals_original_registration_tab(monkeyp
     assert "ea-register-google-connected" in callback.text
     assert "window.location.replace" in callback.text
     assert "google_connected" in callback.text
-    assert "Open Properties" in callback.text
+    assert "Open search" in callback.text
+    assert 'href="/app/search"' in callback.text
 
 
 def test_register_verify_reports_google_oauth_configuration_hint_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:

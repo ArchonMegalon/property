@@ -11,7 +11,7 @@
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
         {% endif %}
         {% else %}
-        <a class="pqx-link-button" href="/app/properties">New search</a>
+        <a class="pqx-link-button" href="/app/search">Start new search</a>
         {% if run.get('run_id') %}
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Delete this finished search run?">Delete run</button>
         {% endif %}

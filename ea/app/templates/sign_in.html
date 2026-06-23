@@ -237,7 +237,7 @@
     <p class="lead">Use a saved session, email link, or connected identity.</p>
     <div class="cta-row">
       {% if public_signed_in %}
-      <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open current session</a>
+      <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
       <form method="post" action="/app/actions/sign-out">
         <input type="hidden" name="return_to" value="/sign-in?signing_in=1">
         <button class="btn" type="submit">Log out</button>
@@ -288,7 +288,7 @@
     {% if sign_in_connected_provider %}
     <div class="access-feedback" data-sign-in-provider-connected>
       <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>
-      <p class="copy">Open the current session or use the email link for this account.</p>
+      <p class="copy">Use the email link for this account.</p>
       <div class="cta-row">
         <button class="btn primary" type="button" data-focus-sign-in-email>Use email link</button>
       </div>
@@ -375,7 +375,7 @@
     {% else %}
     <div class="access-feedback">
       <strong>Email return links are not enabled on this deployment yet.</strong>
-      <p class="copy">Use an existing invite, access link, current session, or SSO until mail delivery is configured.</p>
+      <p class="copy">Use an existing invite, access link, or SSO until mail delivery is configured.</p>
     </div>
     {% endif %}
     {% if sign_in_link_status %}
@@ -388,7 +388,7 @@
       <p class="copy">Use the inbox that already has access or an invite.</p>
       {% else %}
       <strong>We could not send a sign-in link.</strong>
-      <p class="copy">{{ sign_in_link_error or 'Use your current session, an existing invite, or ask the account owner to issue a new link.' }}</p>
+      <p class="copy">{{ sign_in_link_error or 'Use an existing invite or ask the account owner to issue a new link.' }}</p>
       {% endif %}
     </div>
     {% endif %}
