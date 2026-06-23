@@ -1772,7 +1772,7 @@ def _property_scope_preview_map_only(country_code: str, region_code: str, locati
             market_label=market_label,
             allow_remote_lookup=False,
             materialize_preview="async",
-            padding_ratio=0.16,
+            padding_ratio=0.19,
         )
     except Exception:
         boundary_preview = {}

@@ -3097,7 +3097,7 @@ def test_property_scope_preview_map_only_uses_slightly_wider_padding_for_full_di
 
     assert preview["preview_kind"] == "osm_district_overlay"
     assert captured
-    assert captured[0]["padding_ratio"] == 0.16
+    assert captured[0]["padding_ratio"] == 0.19
 
 
 def test_property_scope_preview_map_only_schedules_real_map_without_final_placeholder(monkeypatch, tmp_path: Path) -> None:
