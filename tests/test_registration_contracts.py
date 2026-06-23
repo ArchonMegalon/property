@@ -355,6 +355,10 @@ def test_id_austria_unknown_identity_returns_to_sign_in(monkeypatch: pytest.Monk
     assert callback.status_code == 303
     assert callback.headers["location"].startswith("/sign-in?")
     assert "id_austria_error=id_austria_sign_in_not_found" in callback.headers["location"]
+    followup = client.get(callback.headers["location"])
+    assert followup.status_code == 200
+    assert "account settings" not in followup.text
+    assert "connect ID Austria from Account, with Connections inside it" in followup.text
 
 
 def test_sign_in_id_austria_callback_rejects_replayed_state_before_second_token_exchange(
