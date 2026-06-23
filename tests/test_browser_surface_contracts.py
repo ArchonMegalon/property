@@ -424,6 +424,17 @@ def test_propertyquarry_core_surface_internal_links_resolve() -> None:
         _assert_internal_links_resolve(client, source_path=path, html=response.text)
 
 
+def test_register_success_surface_uses_account_cta_not_settings_alias() -> None:
+    client = _client(principal_id="exec-register-account-cta")
+
+    response = client.get("/register", headers={"host": "propertyquarry.com", "accept": "text/html"})
+
+    assert response.status_code == 200
+    assert 'href="/app/account">Account</a>' in response.text
+    assert "Account settings" not in response.text
+    assert 'href="/app/settings"' not in response.text
+
+
 def test_legacy_app_aliases_redirect_to_canonical_routes() -> None:
     client = _client()
     for path, target in LEGACY_APP_ROUTE_REDIRECTS.items():
