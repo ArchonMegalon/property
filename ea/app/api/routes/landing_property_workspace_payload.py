@@ -2827,7 +2827,7 @@ def property_workspace_payload(
             "hero_actions": [],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
-                {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
+                {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
@@ -2907,7 +2907,7 @@ def property_workspace_payload(
             ],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
-                {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": "/app/account#plans"},
+                {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research", "href": f"/app/billing{run_suffix}"},
                 {"label": "Saved searches", "value": str(len(property_search_agents)), "detail": "Recurring searches ready to rerun or edit.", "href": f"/app/agents{run_suffix}"},
                 {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas.", "href": f"/app/search{run_suffix}"},
             ],
