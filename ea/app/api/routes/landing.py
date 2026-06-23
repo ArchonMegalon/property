@@ -3342,6 +3342,22 @@ def app_root(request: Request) -> RedirectResponse:
     return RedirectResponse(str(request_brand(request).get("app_home") or "/app/search"), status_code=307)
 
 
+@router.get("/app/research/{run_id}/{candidate_ref}", response_class=HTMLResponse)
+def property_research_packet_legacy(
+    run_id: str,
+    candidate_ref: str,
+    request: Request,
+) -> RedirectResponse:
+    query = list(request.query_params.multi_items())
+    merged: dict[str, str] = {str(key): str(value) for key, value in query}
+    merged["run_id"] = str(run_id or "").strip()
+    target = f"/app/research/{urllib.parse.quote(str(candidate_ref or '').strip(), safe='')}"
+    encoded_query = urllib.parse.urlencode(list(merged.items()))
+    if encoded_query:
+        target = f"{target}?{encoded_query}"
+    return RedirectResponse(target, status_code=307)
+
+
 @router.get("/app/research/{candidate_ref}", response_class=HTMLResponse)
 def property_research_packet(
     candidate_ref: str,

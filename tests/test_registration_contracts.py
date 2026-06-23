@@ -1765,13 +1765,13 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
     assert "PropertyQuarry research brief" in html
     assert "Current read" in html
     assert "<table" in html
-    assert 'href="https://propertyquarry.com/app/research/run-1/prop-1"' in html
+    assert 'href="https://propertyquarry.com/app/research/prop-1?run_id=run-1"' in html
     assert "BG Leopoldstadt, 082 25 E 89/25g" in html
     assert "EUR 310,000" in html
     assert "82 m2" in html
     assert 'href="https://propertyquarry.com/app/properties?run_id=run-1"' in html
     assert ">Open full " in html
-    assert ">https://propertyquarry.com/app/research/run-1/prop-1</a>" not in html
+    assert ">https://propertyquarry.com/app/research/prop-1?run_id=run-1</a>" not in html
     assert ">https://propertyquarry.com/app/properties?run_id=run-1</a>" not in html
     assert isinstance(payload["meta"]["top_property_refs"], str)
     assert isinstance(json.loads(payload["meta"]["top_property_refs"]), list)
@@ -1876,7 +1876,27 @@ def test_property_match_email_uses_propertyquarry_branding(monkeypatch: pytest.M
     assert "EA shortlisted" not in payload["text"]
     assert "PropertyQuarry" in str(payload["html"])
     assert "EA shortlisted" not in str(payload["html"])
+    assert 'href="https://propertyquarry.com/app/research/altbau-u6?run_id=run-42"' in str(payload["html"])
     assert receipt.message_id == "emailit-property-match-1"
+
+
+def test_property_notification_previews_emit_canonical_research_links() -> None:
+    from app.services.registration_email import property_notification_preview
+
+    search_results_html = str(property_notification_preview("search_results_ready").get("html") or "")
+    property_match_html = str(property_notification_preview("property_match").get("html") or "")
+    tour_ready_html = str(property_notification_preview("tour_ready").get("html") or "")
+    investment_ready_html = str(property_notification_preview("investment_research_ready").get("html") or "")
+
+    assert "/app/research/altbau-near-u6?run_id=run-42" in search_results_html
+    assert "/app/research/family-flat-near-augarten?run_id=run-42" in search_results_html
+    assert "/app/research/altbau-u6?run_id=run-42" in property_match_html
+    assert "/app/research/family-flat-near-augarten?run_id=run-42" in tour_ready_html
+    assert "/app/research/altbau-u6?run_id=run-42&amp;investment=1" in investment_ready_html
+    assert "/app/research/run-42/" not in search_results_html
+    assert "/app/research/run-42/" not in property_match_html
+    assert "/app/research/run-42/" not in tour_ready_html
+    assert "/app/research/run-42/" not in investment_ready_html
 
 
 def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.MonkeyPatch) -> None:

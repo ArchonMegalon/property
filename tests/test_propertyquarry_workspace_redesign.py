@@ -277,6 +277,24 @@ def test_property_research_detail_uses_property_shell_and_real_title() -> None:
     assert 'console_summary=display_source_label' in landing_route
 
 
+def test_property_research_legacy_path_redirects_to_canonical_candidate_route() -> None:
+    client = build_property_client(principal_id="pq-research-legacy-redirect")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    response = client.get(
+        "/app/research/run-42/altbau-u6",
+        params={"investment": 1},
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    location = response.headers["location"]
+    parsed = urllib.parse.urlsplit(location)
+    assert parsed.path == "/app/research/altbau-u6"
+    assert urllib.parse.parse_qs(parsed.query) == {"run_id": ["run-42"], "investment": ["1"]}
+
+
 def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_noise() -> None:
     client = build_property_client(principal_id="pq-rendered-surface-click-audit")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")

@@ -252,6 +252,32 @@ def _append_query_params(href: object, **params: object) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, encoded_query, parsed.fragment))
 
 
+def _canonical_property_research_url(href: object) -> str:
+    url = str(href or "").strip()
+    if not url:
+        return ""
+    parsed = urllib.parse.urlsplit(url)
+    match = re.fullmatch(r"(?P<prefix>.*/app/research)/(?P<run_id>[^/]+)/(?P<candidate_ref>[^/]+)", parsed.path or "")
+    if not match:
+        return url
+    run_id = str(match.group("run_id") or "").strip()
+    candidate_ref = str(match.group("candidate_ref") or "").strip()
+    if not run_id or not candidate_ref:
+        return url
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    merged: dict[str, str] = {str(key): str(value) for key, value in query}
+    merged["run_id"] = run_id
+    return urllib.parse.urlunsplit(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            f"{match.group('prefix')}/{candidate_ref}",
+            urllib.parse.urlencode(list(merged.items())),
+            parsed.fragment,
+        )
+    )
+
+
 def _email_button_row(buttons: list[str]) -> str:
     clean = [str(button or "").strip() for button in buttons if str(button or "").strip()]
     if not clean:
@@ -265,7 +291,7 @@ def _property_decision_action_urls(
     tour_url: object = "",
     property_url: object = "",
 ) -> dict[str, str]:
-    review_url = str(packet_url or tour_url or property_url or "").strip()
+    review_url = _canonical_property_research_url(packet_url or tour_url or property_url)
     return {
         "review": review_url,
         "yes": _append_query_params(review_url, decision="yes"),
@@ -860,6 +886,7 @@ def send_property_tour_email(
     sender_name: str = "",
 ) -> RegistrationEmailReceipt:
     title = str(property_title or "Apartment tour").strip() or "Apartment tour"
+    property_url = _canonical_property_research_url(property_url)
     variant_label = str(variant_key or "").strip().replace("_", " ")
     subject = f"Apartment tour ready: {title}"
     if variant_label:
@@ -968,6 +995,7 @@ def send_property_match_email(
 ) -> RegistrationEmailReceipt:
     title = str(property_title or "Property match").strip() or "Property match"
     provider = str(provider_label or "").strip()
+    review_url = _canonical_property_research_url(review_url)
     subject = f"Property match: {title}"
     primary_link = str(tour_url or review_url or property_url).strip()
     body = [
@@ -1116,7 +1144,7 @@ def send_property_search_results_ready_email(
             area_label = str(row.get("area_label") or "").strip()
             rooms_label = str(row.get("rooms_label") or "").strip()
             location_label = str(row.get("location_label") or "").strip()
-            review_url = str(row.get("review_url") or "").strip()
+            review_url = _canonical_property_research_url(row.get("review_url") or "")
             tour_url = str(row.get("tour_url") or "").strip()
             property_url = str(row.get("property_url") or "").strip()
             tour_status = str(row.get("tour_status") or "").strip().replace("_", " ") or (
@@ -1155,7 +1183,7 @@ def send_property_search_results_ready_email(
             )
             if part
         )
-        review_url = html.escape(str(row.get("review_url") or "").strip())
+        review_url = html.escape(_canonical_property_research_url(row.get("review_url") or ""))
         tour_url = html.escape(str(row.get("tour_url") or "").strip())
         property_url = html.escape(str(row.get("property_url") or "").strip())
         actions = []
@@ -1262,7 +1290,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 "rooms_label": "3 rooms",
                 "location_label": "Berlin Mitte",
                 "source_label": "ImmoScout24 Germany",
-                "review_url": "https://propertyquarry.com/app/research/run-42/altbau-near-u6",
+                "review_url": "https://propertyquarry.com/app/research/altbau-near-u6?run_id=run-42",
                 "tour_url": "https://propertyquarry.com/tours/altbau-near-u6",
                 "property_url": "https://www.immobilienscout24.de/expose/altbau-near-u6",
                 "tour_status": "ready",
@@ -1275,7 +1303,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 "rooms_label": "3 rooms",
                 "location_label": "1020 Wien",
                 "source_label": "Willhaben",
-                "review_url": "https://propertyquarry.com/app/research/run-42/family-flat-near-augarten",
+                "review_url": "https://propertyquarry.com/app/research/family-flat-near-augarten?run_id=run-42",
                 "tour_url": "",
                 "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
                 "tour_status": "queued",
@@ -1325,7 +1353,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                 title="Altbau near U6",
                 provider="ImmoScout24 Germany",
                 primary_link="https://propertyquarry.com/tours/altbau-u6",
-                review_url="https://propertyquarry.com/app/research/run-42/altbau-u6",
+                review_url="https://propertyquarry.com/app/research/altbau-u6?run_id=run-42",
                 tour_url="https://propertyquarry.com/tours/altbau-u6",
                 property_url="https://www.immobilienscout24.de/expose/altbau-u6",
                 fit_summary="Personal fit 92/100 · shortlist · Lift and transit fit.",
@@ -1334,7 +1362,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
         }
     if normalized == "tour_ready":
         action_urls = _property_decision_action_urls(
-            packet_url="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten",
+            packet_url="https://propertyquarry.com/app/research/family-flat-near-augarten?run_id=run-42",
             tour_url="https://propertyquarry.com/tours/family-flat-near-augarten",
             property_url="https://propertyquarry.com/source/property-1",
         )
@@ -1357,7 +1385,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                     + _email_button_row(
                         [
                             _email_button(href="https://propertyquarry.com/tours/family-flat-near-augarten", label="Open 360 review"),
-                            _email_button(href="https://propertyquarry.com/app/research/run-42/family-flat-near-augarten", label="Open property page", kind="secondary"),
+                            _email_button(href="https://propertyquarry.com/app/research/family-flat-near-augarten?run_id=run-42", label="Open property page", kind="secondary"),
                             _email_button(href=action_urls["yes"], label="Yes, shortlist", kind="secondary"),
                             _email_button(href=action_urls["no"], label="No — tell us why", kind="secondary"),
                         ]
@@ -1368,8 +1396,8 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
         }
     if normalized == "investment_research_ready":
         action_urls = _property_decision_action_urls(
-            packet_url="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1",
-            property_url="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1",
+            packet_url="https://propertyquarry.com/app/research/altbau-u6?run_id=run-42&investment=1",
+            property_url="https://propertyquarry.com/app/research/altbau-u6?run_id=run-42&investment=1",
         )
         return {
             "template_key": normalized,
@@ -1394,7 +1422,7 @@ def property_notification_preview(template_key: str) -> dict[str, object]:
                     '<ul style="margin:0 0 16px;padding-left:20px;"><li>Gross yield: 4.14%</li><li>Net yield: 2.8-3.2%</li><li>Missing documents: operating costs, energy certificate</li></ul>'
                     + _email_button_row(
                         [
-                            _email_button(href="https://propertyquarry.com/app/research/run-42/altbau-u6?investment=1", label="Open investment packet"),
+                            _email_button(href="https://propertyquarry.com/app/research/altbau-u6?run_id=run-42&investment=1", label="Open investment packet"),
                             _email_button(href=action_urls["ask_agent"], label="Ask for documents", kind="secondary"),
                             _email_button(href=action_urls["no"], label="Pass — too risky", kind="secondary"),
                         ]
