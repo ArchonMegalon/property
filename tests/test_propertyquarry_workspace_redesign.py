@@ -5557,7 +5557,8 @@ def test_property_workspace_templates_expose_account_navigation() -> None:
         assert "Account navigation" in body
         assert ">Upgrade<" in body
         assert ">Profile<" in body
-        assert ">Settings<" in body
+        assert ">Connections<" in body
+        assert ">Settings<" not in body
         assert ">Log out<" in body
         assert "account_nav.sign_out_action" in body
 
@@ -5731,6 +5732,9 @@ def test_property_workspace_sign_out_removes_signed_in_ui_globally() -> None:
     signed_in_properties = client.get("/app/properties")
     assert signed_in_properties.status_code == 200
     assert "aria-label=\"Account navigation\"" in signed_in_properties.text
+    assert 'href="/app/account#connected-services"' in signed_in_properties.text
+    assert ">Connections<" in signed_in_properties.text
+    assert ">Settings<" not in signed_in_properties.text
 
     signed_out = client.post("/app/actions/sign-out", data={"return_to": "/"}, follow_redirects=False)
     assert signed_out.status_code == 303
