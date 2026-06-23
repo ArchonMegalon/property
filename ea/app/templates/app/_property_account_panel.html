@@ -35,7 +35,8 @@
   </div>
 
   <div class="pqx-account-action-grid">
-    <section class="pqx-account-action-card primary" id="profile">
+    <span id="profile" hidden aria-hidden="true"></span>
+    <section class="pqx-account-action-card primary" id="search-defaults">
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>

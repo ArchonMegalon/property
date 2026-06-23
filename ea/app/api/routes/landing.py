@@ -1365,7 +1365,8 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
     return {
         "label": account_label,
         "menu_label": menu_label,
-        "profile_href": "/app/account#profile",
+        "profile_href": "/app/account#search-defaults",
+        "profile_label": "Search defaults",
         "billing_href": "/app/billing",
         "settings_href": "/app/account#connected-services",
         "sign_out_action": "/app/actions/sign-out",

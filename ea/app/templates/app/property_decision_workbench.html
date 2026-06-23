@@ -6433,7 +6433,7 @@
               <a class="pqx-link-button" href="{{ account_nav.billing_href }}">Upgrade</a>
               {% endif %}
               {% if not account_surface %}
-              <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Profile</a>
+              <a class="pqx-link-button" href="{{ account_nav.profile_href }}">{{ account_nav.profile_label or 'Search defaults' }}</a>
               {% endif %}
               {% if not account_surface %}
               <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Connections</a>
