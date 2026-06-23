@@ -84,11 +84,21 @@
   {% if outcomes_card.value and outcomes_card.value.get('items') %}
   <div class="pqx-automation-history-strip">
     {% for item in (outcomes_card.value.get('items') or [])[:4] %}
+    {% set item_href = item.get('action_href') or '' %}
+    {% set item_is_dead_placeholder = not item_href %}
+    {% if item_is_dead_placeholder %}
+    <div class="pqx-automation-history-link" aria-disabled="true">
+    {% else %}
     <a class="pqx-automation-history-link" href="{{ item.get('action_href') or '/app/agents' }}">
+    {% endif %}
       <span>{{ item.get('title') or 'Saved search' }}</span>
       <strong>{{ item.get('detail') or 'No finished run yet.' }}</strong>
       {% if item.get('tag') %}<small>{{ item.get('tag') }}</small>{% endif %}
+    {% if item_is_dead_placeholder %}
+    </div>
+    {% else %}
     </a>
+    {% endif %}
     {% endfor %}
   </div>
   {% endif %}

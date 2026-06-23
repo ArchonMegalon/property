@@ -432,6 +432,50 @@ def test_paid_property_plan_survives_console_context_projection() -> None:
     assert ">Agent<" in billing.text
 
 
+def test_automation_history_placeholder_is_not_a_self_link() -> None:
+    principal_id = "exec-product-automation-placeholder"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Automation Placeholder")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "search_agent_enabled": True,
+            "search_agents": [
+                {
+                    "agent_id": "agent-placeholder",
+                    "name": "Rent search",
+                    "enabled": True,
+                    "status": "active",
+                    "status_label": "Active",
+                    "duration_days": 30,
+                    "notification_limit": 5,
+                    "notification_period": "day",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "listing_mode": "rent",
+                        "property_type": ["apartment"],
+                        "location_query": "1010 Vienna",
+                    },
+                }
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    automation = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    assert automation.status_code == 200
+    assert "The first completed sweep will show ranked, sent, and held-back counts here." in automation.text
+    assert 'href="/app/agents"' not in automation.text
+
+
 def test_default_property_person_motion_hint_ignores_scanned_documents_io_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
