@@ -3367,7 +3367,7 @@
           }
           if (action === 'load') {
             if (!form) {
-              window.location.href = `/app/search?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+              window.location.href = savedSearchEditHref(agentId);
               return;
             }
             await loadSearchAgentRow(row, false);
@@ -3390,7 +3390,7 @@
             return;
           }
           if (action === 'save' && !form) {
-            window.location.href = `/app/search?load_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+            window.location.href = savedSearchEditHref(agentId);
             return;
           }
           await updateSearchAgent(agentId, action, action === 'save' ? currentSearchAgentPatch() : {});
@@ -3454,6 +3454,12 @@
     refreshPendingMapPreviews();
     const urlSearchParams = new URL(window.location.href).searchParams;
     const requestedRunAgentId = String(urlSearchParams.get('run_agent') || '').trim();
+    const activeRunId = String(urlSearchParams.get('run_id') || data?.run?.run_id || meta?.run_id || '').trim();
+    const savedSearchEditHref = (agentId) => {
+      const normalizedAgentId = encodeURIComponent(String(agentId || 'current').trim() || 'current');
+      const runSuffix = activeRunId ? `&run_id=${encodeURIComponent(activeRunId)}` : '';
+      return `/app/properties?load_agent=${normalizedAgentId}${runSuffix}`;
+    };
     const requestedAgentId = String(urlSearchParams.get('load_agent') || requestedRunAgentId || '').trim();
     if (requestedAgentId) {
       const requestedRow = root.querySelector(`[data-property-search-agent-row][data-search-agent-id="${CSS.escape(requestedAgentId)}"]`);

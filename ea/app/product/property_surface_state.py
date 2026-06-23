@@ -1361,7 +1361,7 @@ def build_property_search_agent_selection_snapshot(
     edit_href = ""
     if selected_agent_id:
         open_href = f"/app/agents?agent_id={urllib.parse.quote(selected_agent_id, safe='')}"
-        edit_href = f"/app/search?load_agent={urllib.parse.quote(selected_agent_id, safe='')}"
+        edit_href = f"/app/properties?load_agent={urllib.parse.quote(selected_agent_id, safe='')}"
         if run_id:
             suffix = urllib.parse.quote(run_id, safe="")
             open_href = f"{open_href}&run_id={suffix}"
