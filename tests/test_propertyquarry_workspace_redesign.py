@@ -5130,7 +5130,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-object-feedback-reaction="like"' in packet.text
     assert 'data-object-feedback-save' in packet.text
     assert "Save answer" in packet.text
-    assert "Manage preferences" in packet.text
+    assert "Open search brief" in packet.text
     assert "rgba(18, 23, 34" not in packet.text
     assert "rgba(15, 19, 26" not in packet.text
     assert "background: var(--panel);" in packet.text
@@ -5358,6 +5358,8 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Paste shared page link" in body
     assert "Copy response endpoint" in body
     assert "Which property pages can safely leave your account" in body
+    assert 'href="/app/account">Account</a>' in body
+    assert 'href="/app/profile">Preferences</a>' not in body
     assert "https://packets.propertyquarry.com/p/..." not in body
     assert "Copy response URL" not in body
     assert "Sharing cockpit" not in body
@@ -10046,6 +10048,10 @@ def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None
     assert "Email, Telegram, and WhatsApp stay quiet" in payload_source
     assert "saved delivery channel" in payload_source
     assert '"title": "Edit"' in payload_source
+    assert 'No ranking preferences saved yet.' not in payload_source
+    assert 'No search brief saved yet.' in payload_source
+    assert '"/app/profile"' not in payload_source
+    assert '"/app/search"' in payload_source
     assert '"title": "Plan access"' in payload_source
 
 
