@@ -1263,10 +1263,14 @@
   {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account'] %}
   {% if property_app_nav %}
   {% set mobile_nav = namespace(items=[]) %}
+  {% set active_shell_label = namespace(value=current_nav|replace('_', ' ')|title) %}
   {% set run_query = request.url.query %}
   {% set query_suffix = ('?' ~ run_query) if run_query else '' %}
   {% for group in nav_groups %}
     {% for item in group["items"] %}
+      {% if current_nav == item.key %}
+        {% set active_shell_label.value = item.label %}
+      {% endif %}
       {% if mobile_nav.items|length < 6 %}
         {% set mobile_nav.items = mobile_nav.items + [item] %}
       {% endif %}
@@ -1289,7 +1293,7 @@
       <div class="pq-rail-pulse" data-property-pulse-strip>
         <a class="pq-rail-pulse-card" href="{{ request.url.path }}{{ query_suffix }}">
           <span>Mode</span>
-          <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
+          <strong>{{ active_shell_label.value }}</strong>
         </a>
         <a class="pq-rail-pulse-card" href="/app/agents{{ query_suffix }}">
           <span>Surface</span>
@@ -1318,7 +1322,7 @@
       <header class="pq-appbar">
         <div class="pq-appbar-breadcrumbs" aria-label="PropertyQuarry section context">
           <span>{{ brand.name }}</span>
-          <span>{{ current_nav|replace('_', ' ')|title }}</span>
+          <span>{{ active_shell_label.value }}</span>
         </div>
         <div class="pq-appbar-row">
           <div class="pq-topbar-copy">
@@ -1371,7 +1375,7 @@
       <div class="pq-stage-window">
         <div class="pq-stage-window-bar">
           <div class="pq-stage-window-title">
-            <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
+            <strong>{{ active_shell_label.value }}</strong>
             <span>Focused view</span>
           </div>
           <div class="pq-appbar-meta">
