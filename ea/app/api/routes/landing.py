@@ -1505,7 +1505,13 @@ def _property_console_context(
     wants_preference_profile = surface_scope.wants_preference_profile
     wants_learning_summary = surface_scope.wants_learning_summary
     raw_property_preferences = dict(status.get("property_search_preferences") or {})
-    preferences = normalize_property_search_preferences(dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences))
+    merged_preference_seed = dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences)
+    if isinstance(raw_property_preferences.get("property_commercial"), dict) and not isinstance(
+        merged_preference_seed.get("property_commercial"),
+        dict,
+    ):
+        merged_preference_seed["property_commercial"] = dict(raw_property_preferences.get("property_commercial") or {})
+    preferences = normalize_property_search_preferences(merged_preference_seed)
     selected_country = normalize_country_code(preferences.get("country_code"))
     commercial = property_commercial_snapshot(preferences)
     billing_order_endpoints_by_plan: dict[str, str] = {}

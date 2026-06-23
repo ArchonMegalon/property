@@ -338,6 +338,8 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     response = client.get("/app/properties")
     assert response.status_code == 200
     assert 'data-console-form-variant="property_search"' in response.text
+
+
     assert 'name="min_match_score"' in response.text
     assert 'type="range"' in response.text
     assert 'max="60"' in response.text

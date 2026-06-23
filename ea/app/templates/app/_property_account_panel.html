@@ -9,6 +9,10 @@
 {% endfor %}
 {% set profile_item = (profile_card.value.get('items') or [{}])[0] if profile_card.value else {} %}
 {% set profile_items = profile_card.value.get('items') or [] %}
+{% set plan_items = plan_card.value.get('items') or [] %}
+{% set plan_item = plan_items[0] if plan_items else {} %}
+{% set plan_value = (plan_item.get('detail') or '').split('|')[0].strip() or 'Free' %}
+{% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Plan and payments.' %}
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
@@ -96,8 +100,8 @@
     <section class="pqx-account-action-card" id="plans">
       <div>
         <span class="pqx-small">Plan</span>
-        <h2>{{ plan_card.value.get('title') or 'Plan and entitlements' }}</h2>
-        <p>Plan and payments.</p>
+        <h2>{{ plan_value }}</h2>
+        <p>{{ plan_detail or 'Plan and payments.' }}</p>
       </div>
       <a class="pqx-link-button" href="/app/billing">Open billing</a>
     </section>

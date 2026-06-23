@@ -78,6 +78,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert decision_detail.json()["decision_type"] == "owner_assignment"
     assert decision_detail.json()["next_action"]
     assert seeded["session_id"] in decision_detail.json()["linked_thread_ids"]
+
     assert decision_detail.json()["impact_summary"]
     assert decision_detail.json()["sla_status"] in {"due_now", "due_soon", "on_track", "unscheduled", "resolved"}
     deadlines = client.get("/app/api/deadlines")
@@ -395,6 +396,40 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert invalid_action.status_code == 404
     assert "This action link is no longer valid." in invalid_action.text
     assert "Request new sign-in link" in invalid_action.text
+
+def test_paid_property_plan_survives_console_context_projection() -> None:
+    principal_id = "exec-product-paid-plan"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Paid Plan")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+                "plan_source": "product_contract",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    account = client.get("/app/account", headers={"host": "propertyquarry.com"})
+    assert account.status_code == 200
+    assert "Account" in account.text
+    assert ">Agent<" in account.text
+
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+    assert billing.status_code == 200
+    assert "Your plan" in billing.text
+    assert ">Agent<" in billing.text
 
 
 def test_default_property_person_motion_hint_ignores_scanned_documents_io_error(
