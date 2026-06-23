@@ -3850,7 +3850,7 @@ def property_research_packet(
         )
     feedback_payload = {
         "person_id": preference_person_id,
-        "profile_href": f"/app/search" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
+        "profile_href": f"/app/properties" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
         "suggestions": feedback_suggestions,
         "property_url": property_url,
         "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),

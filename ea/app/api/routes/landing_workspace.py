@@ -274,7 +274,7 @@ def _property_search_usage_state(product: object, *, principal_id: str, limit: i
                         or _positive_int(summary.get("held_back_total"))
                         or _positive_int(summary.get("filtered_out_total"))
                     ),
-                    "href": f"/app/shortlist?run_id={urllib.parse.quote(run_id)}" if run_id else "/app/search",
+                    "href": f"/app/shortlist?run_id={urllib.parse.quote(run_id)}" if run_id else "/app/properties",
                 }
             )
     latest = raw_runs[0] if raw_runs else {}
@@ -300,7 +300,7 @@ def _property_search_usage_state(product: object, *, principal_id: str, limit: i
         "latest_rows": latest_rows,
         "latest_run_id": latest_run_id,
         "latest_status": latest_status or "no run yet",
-        "latest_href": f"/app/shortlist?run_id={urllib.parse.quote(latest_run_id)}" if latest_run_id else "/app/search",
+        "latest_href": f"/app/shortlist?run_id={urllib.parse.quote(latest_run_id)}" if latest_run_id else "/app/properties",
         "repair_status": repair_status,
     }
 
@@ -599,7 +599,7 @@ def settings_usage_detail(
                             href=row["href"],
                         )
                         for row in list(property_usage["latest_rows"])
-                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first usage record.", "Search", href="/app/search")],
+                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first usage record.", "Search", href="/app/properties")],
                 },
                 {
                     "eyebrow": "Results",
@@ -2558,15 +2558,7 @@ def app_search(
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
     if request_brand(request)["key"] == "propertyquarry":
-        return _app_shell(
-            section="search",
-            request=request,
-            container=container,
-            context=context,
-            run_id="",
-            candidate="",
-            agent_id="",
-        )
+        return RedirectResponse("/app/properties", status_code=307)
     workspace = dict(container.onboarding.status(principal_id=context.principal_id).get("workspace") or {})
     product = build_product_service(container)
     normalized_query = str(query or "").strip()
