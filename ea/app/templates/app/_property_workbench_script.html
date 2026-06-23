@@ -3383,7 +3383,7 @@
           if (action === 'run') {
             if (!form) {
               await updateSearchAgent(agentId, 'resume', {});
-              window.location.href = `/app/search?run_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+              window.location.href = `/app/properties?run_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
               return;
             }
             await loadSearchAgentRow(row, true);
