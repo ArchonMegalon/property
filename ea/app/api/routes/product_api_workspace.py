@@ -185,15 +185,23 @@ async def update_property_account_notifications(
 ) -> RedirectResponse:
     raw_body = (await request.body()).decode("utf-8", "ignore")
     parsed_body = urllib.parse.parse_qs(raw_body, keep_blank_values=True)
-    requested_channels = parsed_body.get("notification_channels") or parsed_body.get("preferred_channel") or ["email"]
+    requested_channels = parsed_body.get("notification_channels")
+    requested_primary = str((parsed_body.get("preferred_channel") or [""])[0] or "").strip()
     whatsapp_ai_support_phone = (
         str((parsed_body.get("whatsapp_ai_support_phone") or [""])[0] or "")
         if "whatsapp_ai_support_phone" in parsed_body
         else None
     )
     try:
-        normalized_channels = normalize_property_notification_channels(requested_channels, fallback="email")
-        normalized_channel = normalize_property_notification_channel(normalized_channels[0])
+        normalized_channels = normalize_property_notification_channels(requested_channels, fallback=None)
+        if requested_primary:
+            normalized_channel = normalize_property_notification_channel(requested_primary)
+        elif len(normalized_channels) == 1:
+            normalized_channel = normalize_property_notification_channel(normalized_channels[0])
+        else:
+            raise ValueError("property_notification_primary_required")
+        if normalized_channel not in normalized_channels:
+            raise ValueError("property_notification_primary_not_selected")
         normalized_support_phone = (
             normalize_property_whatsapp_ai_support_phone(whatsapp_ai_support_phone)
             if whatsapp_ai_support_phone is not None

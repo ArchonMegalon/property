@@ -1449,7 +1449,8 @@ class OnboardingService(AssistantOnboardingService):
             normalized_channel if selected_channels is None else selected_channels,
             fallback=normalized_channel,
         )
-        normalized_channel = normalized_channels[0]
+        if normalized_channel not in normalized_channels:
+            raise ValueError("property_notification_primary_not_selected")
         channel_preferences = dict(state.channel_preferences_json or {})
         property_notifications = dict(channel_preferences.get("property_notifications") or {})
         normalized_support_phone: str | None = None
@@ -1485,9 +1486,8 @@ class OnboardingService(AssistantOnboardingService):
             for channel in state.selected_channels
             if str(channel or "").strip()
         }
+        selected.difference_update(PROPERTY_NOTIFICATION_CHANNELS)
         selected.update(normalized_channels)
-        if normalized_support_phone:
-            selected.add("whatsapp")
         saved = self._repo.upsert_state(
             principal_id=state.principal_id,
             onboarding_id=state.onboarding_id,

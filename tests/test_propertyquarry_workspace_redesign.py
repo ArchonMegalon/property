@@ -10095,6 +10095,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
         "/app/api/property/account/notifications",
         data={
             "notification_channels": ["email", "telegram"],
+            "preferred_channel": "telegram",
             "whatsapp_ai_support_phone": "+43 664 791 6419",
         },
         headers=headers,
@@ -10106,7 +10107,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert export_after_update.status_code == 200
     assert (
         export_after_update.json()["delivery_preferences"]["property_notifications"]["preferred_channel"]
-        == "email"
+        == "telegram"
     )
     assert (
         export_after_update.json()["delivery_preferences"]["property_notifications"]["selected_channels"]
@@ -10128,7 +10129,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
         export_after_update.json()["delivery_preferences"]["property_notifications"]["whatsapp_ai_support_purpose"]
         == "ai_support_only"
     )
-    assert "whatsapp" in client.app.state.container.onboarding._ensure_state(principal_id).selected_channels  # noqa: SLF001
+    assert "whatsapp" not in client.app.state.container.onboarding._ensure_state(principal_id).selected_channels  # noqa: SLF001
     contact_hint = build_product_service(client.app.state.container)._heyy_whatsapp_contact_hint(  # noqa: SLF001
         principal_id=principal_id
     )
@@ -10136,7 +10137,11 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
 
     whatsapp_update = client.post(
         "/app/api/property/account/notifications",
-        data={"notification_channels": "whatsapp", "whatsapp_ai_support_phone": "+43 664 791 6419"},
+        data={
+            "notification_channels": "whatsapp",
+            "preferred_channel": "whatsapp",
+            "whatsapp_ai_support_phone": "+43 664 791 6419",
+        },
         headers=headers,
         follow_redirects=False,
     )

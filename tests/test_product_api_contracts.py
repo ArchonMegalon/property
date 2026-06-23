@@ -29,7 +29,7 @@ from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.heyy_whatsapp_service import redact_phone_number
-from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
+from tests.product_test_helpers import build_operator_product_client, build_product_client, build_property_client, seed_product_state, start_workspace
 
 
 @pytest.fixture(autouse=True)
@@ -1356,6 +1356,62 @@ def test_property_notification_preference_allows_multiple_selected_channels() ->
         principal_id=principal_id,
         channel="telegram",
     ) == (False, "notification_channel_not_selected")
+
+
+def test_property_account_notifications_route_persists_explicit_primary_for_multiselect() -> None:
+    principal_id = "cf-email:notification-route-primary@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Notification Route Primary", selected_channels=["telegram", "whatsapp"])
+
+    response = client.post(
+        "/app/api/property/account/notifications",
+        data={
+            "notification_channels": ["telegram", "whatsapp"],
+            "preferred_channel": "whatsapp",
+            "whatsapp_ai_support_phone": "+43 664 791 6419",
+        },
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303, response.text
+    status = client.app.state.container.onboarding.status(principal_id=principal_id)
+    property_notifications = dict(dict(status.get("delivery_preferences") or {}).get("property_notifications") or {})
+    assert property_notifications["preferred_channel"] == "whatsapp"
+    assert property_notifications["selected_channels"] == ["telegram", "whatsapp"]
+    assert property_notifications["whatsapp_ai_support_phone"] == "+436647916419"
+
+
+def test_property_account_notifications_route_rejects_multiselect_without_primary() -> None:
+    principal_id = "cf-email:notification-route-missing-primary@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Notification Route Missing Primary")
+
+    response = client.post(
+        "/app/api/property/account/notifications",
+        data={"notification_channels": ["email", "whatsapp"]},
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400, response.text
+    assert "property_notification_primary_required" in response.text
+
+
+def test_property_account_notifications_route_rejects_primary_without_selected_channel() -> None:
+    principal_id = "cf-email:notification-route-primary-not-selected@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Notification Route Primary Not Selected")
+
+    response = client.post(
+        "/app/api/property/account/notifications",
+        data={"preferred_channel": "whatsapp"},
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400, response.text
+    assert "property_notification_primary_not_selected" in response.text
 
 
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:
