@@ -176,6 +176,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Request deletion of your PropertyQuarry data." in deletion.text
     assert "property@propertyquarry.com" in deletion.text
     assert "Data deletion request" in deletion.text
+    assert "those providers' own account settings" not in deletion.text.lower() and "from preferences" not in deletion.text.lower()
 
     sign_in = client.get("/sign-in")
     assert "Use a saved session, email link, or connected identity." in sign_in.text
