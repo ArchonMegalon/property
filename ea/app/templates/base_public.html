@@ -793,7 +793,7 @@
 </style>
 </head>
 <body>
-  {% set brand_home_href = '/?home=1' if (brand.key == 'propertyquarry' and public_signed_in) else ((brand.app_home or '/app/properties') if public_signed_in else (brand.public_base_url or '/')) %}
+  {% set brand_home_href = '/?home=1' if (brand.key == 'propertyquarry' and public_signed_in) else ((brand.app_home or '/app/search') if public_signed_in else (brand.public_base_url or '/')) %}
   <header class="topbar">
     <div class="wrap topbar-inner">
       <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">
@@ -816,7 +816,7 @@
       <div class="actions">
         {% if not signing_in_progress and not hide_public_auth_actions %}
         {% if public_signed_in %}
-        <a class="btn primary" href="{{ brand.app_home or '/app/properties' }}">Open run</a>
+        <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
         <form method="post" action="/app/actions/sign-out">
           <input type="hidden" name="return_to" value="/">
           <button class="btn ghost" type="submit">Log out</button>

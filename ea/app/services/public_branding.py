@@ -29,7 +29,7 @@ def _propertyquarry_brand() -> dict[str, str]:
         "create_label": "Create account",
         "sign_in_label": "Sign in",
         "workspace_label": "Property research account",
-        "app_home": "/app/properties",
+        "app_home": "/app/search",
         "public_base_url": str(
             os.getenv("PROPERTY_PUBLIC_BASE_URL")
             or os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL")
