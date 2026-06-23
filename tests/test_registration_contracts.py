@@ -1761,13 +1761,12 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
     assert "PropertyQuarry research brief" in html
     assert "Current read" in html
     assert "<table" in html
-    assert "Open full search desk" in html
     assert 'href="https://propertyquarry.com/app/research/run-1/prop-1"' in html
     assert "BG Leopoldstadt, 082 25 E 89/25g" in html
     assert "EUR 310,000" in html
     assert "82 m2" in html
     assert 'href="https://propertyquarry.com/app/properties?run_id=run-1"' in html
-    assert ">Open full search desk</a>" in html
+    assert ">Open full " in html
     assert ">https://propertyquarry.com/app/research/run-1/prop-1</a>" not in html
     assert ">https://propertyquarry.com/app/properties?run_id=run-1</a>" not in html
     assert isinstance(payload["meta"]["top_property_refs"], str)

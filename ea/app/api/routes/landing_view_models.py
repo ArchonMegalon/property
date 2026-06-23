@@ -3398,7 +3398,7 @@ def app_section_payload(
     property_form = {
         "variant": "property_search",
         "title": "Run a premium market sweep",
-        "eyebrow": "Flagship property desk",
+        "eyebrow": "Property search",
         "copy": "Set the market, shape the shortlist, choose the sources, then launch one visible research run with ranking, review pages, and client-ready alerts.",
         "submit_label": "Launch search",
         "fields": [

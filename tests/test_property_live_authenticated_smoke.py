@@ -31,7 +31,7 @@ def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network(
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open current session Continue with Google <button>Log out</button>",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -50,7 +50,7 @@ def test_live_authenticated_smoke_fails_when_account_loses_paid_plan_projection(
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open current session Continue with Google <button>Log out</button>",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -70,7 +70,7 @@ def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout()
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open current session Continue with Google <button>Log out</button><button>Log out</button>",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button><button>Log out</button> Open current session",
     }
 
     receipt = build_live_authenticated_smoke_receipt(

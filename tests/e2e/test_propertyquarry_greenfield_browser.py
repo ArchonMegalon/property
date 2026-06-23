@@ -575,6 +575,11 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(signed_page.locator(".topbar form[action='/app/actions/sign-out'] button", has_text="Log out")).to_be_visible()
         assert signed_page.get_by_text("Log out", exact=True).count() == 1
         assert signed_page.locator(".pq-hero-copy form[action='/app/actions/sign-out']").count() == 0
+        response = signed_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(signed_page.get_by_role("link", name="Open search").first).to_be_visible()
+        assert signed_page.get_by_role("link", name="Open current session").count() == 0
+        assert signed_page.get_by_text("Log out", exact=True).count() == 1
 
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
