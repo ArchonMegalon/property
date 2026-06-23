@@ -476,6 +476,56 @@ def test_automation_history_placeholder_is_not_a_self_link() -> None:
     assert 'href="/app/agents"' not in automation.text
 
 
+def test_account_billing_and_automation_surfaces_do_not_render_same_page_links() -> None:
+    principal_id = "exec-product-self-links"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Surface Self Links")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "search_agent_enabled": True,
+            "search_agents": [
+                {
+                    "agent_id": "agent-self-links",
+                    "name": "Vienna rent",
+                    "enabled": True,
+                    "status": "active",
+                    "status_label": "Active",
+                    "duration_days": 30,
+                    "notification_limit": 5,
+                    "notification_period": "day",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "listing_mode": "rent",
+                        "property_type": ["apartment"],
+                        "location_query": "1010 Vienna",
+                    },
+                }
+            ],
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+                "plan_source": "product_contract",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    for path in ("/app/agents", "/app/account", "/app/billing"):
+        response = client.get(path, headers={"host": "propertyquarry.com"})
+        assert response.status_code == 200
+        assert f'href="{path}"' not in response.text
+
+
 def test_default_property_person_motion_hint_ignores_scanned_documents_io_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
