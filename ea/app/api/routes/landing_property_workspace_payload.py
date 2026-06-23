@@ -54,6 +54,22 @@ from app.product.property_score_methodology import build_property_score_methodol
 from app.product.property_delivery_governance import property_delivery_governance_rows
 
 
+def _candidate_external_listing_url(candidate: dict[str, object]) -> str:
+    for key in ("property_url", "source_url"):
+        url = str(candidate.get(key) or "").strip()
+        if not url:
+            continue
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.netloc.strip().lower()
+        path = parsed.path.strip()
+        if path.startswith("/app/"):
+            continue
+        if host.endswith("propertyquarry.com") and path.startswith("/app/"):
+            continue
+        return url
+    return ""
+
+
 def _property_workbench_lightweight_image_url(value: object, *, max_data_url_chars: int = 4096) -> str:
     url = str(value or "").strip()
     if not url:
@@ -806,6 +822,13 @@ def property_workspace_payload(
         fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip()
         fact_line = _candidate_fact_line(candidate)
         detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the property page to inspect the ranking and evidence."
+        external_listing_url = _candidate_external_listing_url(candidate)
+        try:
+            from app.product import property_tour_hosting
+
+            tour_action_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(candidate.get("tour_url")) or "").strip()  # type: ignore[attr-defined]
+        except Exception:
+            tour_action_url = ""
         compare_rows.append(
             {
                 "title": str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
@@ -814,9 +837,9 @@ def property_workspace_payload(
                 "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
                 "action_label": "Open property page",
-                "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
-                "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
-                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Open listing" if candidate.get("review_url") else ""),
+                "secondary_action_href": str(tour_action_url or external_listing_url or "").strip(),
+                "secondary_action_method": "get" if (tour_action_url or external_listing_url) else "",
+                "secondary_action_label": "Open 360" if tour_action_url else ("Open listing" if external_listing_url else ""),
             }
         )
 
@@ -2395,6 +2418,8 @@ def property_workspace_payload(
         reasons = list(candidate.get("match_reasons") or [])[:2]
         mismatches = list(candidate.get("mismatch_reasons") or [])[:2]
         detail_parts = []
+        external_listing_url = _candidate_external_listing_url(candidate)
+        tour_url = str(_tour_payload(candidate).get("url") or "").strip()
         if candidate.get("fit_summary"):
             detail_parts.append(str(candidate.get("fit_summary") or "").strip())
         if reasons:
@@ -2409,9 +2434,9 @@ def property_workspace_payload(
                 "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
                 "action_label": "Open property page",
-                "secondary_action_href": str(candidate.get("review_url") or candidate.get("tour_url") or "").strip(),
-                "secondary_action_method": "get" if (candidate.get("review_url") or candidate.get("tour_url")) else "",
-                "secondary_action_label": "Open listing" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
+                "secondary_action_href": str(external_listing_url or tour_url or "").strip(),
+                "secondary_action_method": "get" if (external_listing_url or tour_url) else "",
+                "secondary_action_label": "Open listing" if external_listing_url else ("Open 360" if tour_url else ""),
             }
         )
     if not research_rows:

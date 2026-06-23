@@ -1,6 +1,24 @@
 from __future__ import annotations
 
+import urllib.parse
+
 from app.product.property_location_research import property_school_context_summary
+
+
+def _candidate_external_listing_url(candidate: dict[str, object]) -> str:
+    for key in ("property_url", "source_url"):
+        url = str(candidate.get(key) or "").strip()
+        if not url:
+            continue
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.netloc.strip().lower()
+        path = parsed.path.strip()
+        if path.startswith("/app/"):
+            continue
+        if host.endswith("propertyquarry.com") and path.startswith("/app/"):
+            continue
+        return url
+    return ""
 
 
 def build_property_source_rows(*, property_summary: dict[str, object]) -> list[dict[str, str]]:
@@ -146,6 +164,7 @@ def build_property_shortlist_panel(
         review_url = str(candidate.get("review_url") or "").strip()
         tour_url = str(candidate.get("tour_url") or "").strip()
         property_url = str(candidate.get("property_url") or "").strip()
+        external_listing_url = _candidate_external_listing_url(candidate)
         packet_ref = property_candidate_ref(
             {
                 "title": title,
@@ -162,9 +181,10 @@ def build_property_shortlist_panel(
             row["action_href"] = packet_url
             row["action_method"] = "get"
             row["action_label"] = "Open property page"
-            row["secondary_action_href"] = review_url
-            row["secondary_action_method"] = "get"
-            row["secondary_action_label"] = "Open listing"
+            if external_listing_url:
+                row["secondary_action_href"] = external_listing_url
+                row["secondary_action_method"] = "get"
+                row["secondary_action_label"] = "Open listing"
         else:
             row["action_href"] = packet_url
             row["action_method"] = "get"

@@ -273,12 +273,18 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Open listing" in shortlist.text
     assert "Open 360" in shortlist.text
     assert "data-feedback-save" in shortlist.text
+    shortlist_listing_links = re.findall(r'href="([^"]+)"[^>]*>\s*Open listing\s*</a>', shortlist.text)
+    assert shortlist_listing_links
+    assert set(shortlist_listing_links) == {"https://www.immobilienscout24.de/expose/altbau-u6"}
 
     research = client.get("/app/research", params={"run_id": "run-42"}, headers=property_headers)
     assert research.status_code == 200
     assert "Inspect the evidence before you open the raw listing." in research.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
     assert "https://propertyquarry.com/tours/auhofstrasse-14997053" in research.text
+    research_listing_links = re.findall(r'href="([^"]+)"[^>]*>\s*Open listing\s*</a>', research.text)
+    assert research_listing_links
+    assert set(research_listing_links) == {"https://www.immobilienscout24.de/expose/altbau-u6"}
     packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-42"', research.text)
     assert packet_match is not None
 

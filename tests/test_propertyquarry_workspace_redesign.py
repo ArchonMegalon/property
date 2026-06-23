@@ -8296,7 +8296,7 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
                             "match_reasons": ["Near parks"],
                             "mismatch_reasons": ["Needs a second bathroom"],
                             "recommendation": "shortlist",
-                            "review_url": "https://example.test/review",
+                            "review_url": "https://propertyquarry.com/app/handoffs/human_task:review-1",
                             "tour_url": "https://example.test/360",
                             "property_url": "https://example.test/source",
                             "property_facts": {
@@ -8324,6 +8324,7 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
     assert len(cards) == 1
     assert rows[0]["action_label"] == "Open property page"
     assert rows[0]["secondary_action_label"] == "Open listing"
+    assert rows[0]["secondary_action_href"] == "https://example.test/source"
     assert rows[0]["tertiary_action_label"] == "Open 360"
     assert rows[0]["quaternary_action_label"] == "Source"
     assert cards[0]["packet_url"].endswith("?run_id=run-42")
@@ -8352,6 +8353,41 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
             "tag": "Scanned",
         }
     ]
+
+
+def test_property_shortlist_panel_omits_open_listing_when_external_listing_url_missing() -> None:
+    def _priority_reason(match_reasons: list[str], mismatch_reasons: list[str], fit_summary: str) -> str:
+        if match_reasons:
+            return match_reasons[0]
+        if mismatch_reasons:
+            return mismatch_reasons[0]
+        return fit_summary
+
+    rows, _cards = landing_property_shortlist_panel.build_property_shortlist_panel(
+        property_summary={
+            "ranked_candidates": [
+                {
+                    "title": "Internal-review-only candidate",
+                    "fit_summary": "Worth reviewing, but source URL has not been recovered.",
+                    "recommendation": "shortlist",
+                    "review_url": "https://propertyquarry.com/app/research/internal-review-only",
+                    "tour_url": "https://example.test/360-only",
+                }
+            ]
+        },
+        property_preferences={},
+        active_run_id="run-7",
+        wants_run_views=True,
+        clean_candidate_copy=landing_view_models._clean_property_candidate_copy,
+        candidate_priority_reason=_priority_reason,
+        property_candidate_ref=landing_view_models._property_candidate_ref,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["action_label"] == "Open property page"
+    assert rows[0]["secondary_action_label"] == "Open 360"
+    assert rows[0]["secondary_action_href"] == "https://example.test/360-only"
+    assert "Open listing" not in rows[0].values()
 
 
 def test_property_search_analysis_cap_defaults_to_top_k_slice(monkeypatch) -> None:
