@@ -1,4 +1,11 @@
 <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
+  <div class="pqx-empty pqx-results-empty-state" data-pw-shortlist-empty-state hidden>
+    <strong>No shortlist yet.</strong>
+    <span class="pqx-actions">
+      <a class="pqx-button primary" href="/app/search">Start search</a>
+    </span>
+  </div>
+  <div data-pw-review-content>
   {% set selected_orientation_preview = selected.get('orientation_preview') or {} %}
   {% set selected_preview_url = selected_orientation_preview.get('image_url') or selected.get('preview_image_url') or '' %}
   <div class="pqx-theater no-media" data-pq-theater>
@@ -240,5 +247,6 @@
         {% endfor %}
       </div>
     </details>
+  </div>
   </div>
 </section>

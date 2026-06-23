@@ -2,6 +2,7 @@
     const root = document.querySelector('[data-property-decision-workbench]');
     if (!root) return;
     const initialSurface = String(root.getAttribute('data-pqx-surface') || '').trim().toLowerCase();
+    const shortlistSurface = initialSurface === 'shortlist';
     const payloadNode = root.querySelector('[data-property-workbench-json]');
     const metaNode = root.querySelector('[data-property-workspace-meta]');
     const data = JSON.parse(payloadNode?.textContent || '{}');
@@ -496,9 +497,60 @@
       if (!resultsList || !summaryRow || !rankedLink) return;
       const remaining = resultsList.querySelectorAll('[data-workbench-row]').length;
       const goal = String(meta.search_goal || data.brief?.search_goal || '').trim().toLowerCase();
-      rankedLink.innerHTML = goal === 'investment'
-        ? `<b>${remaining}</b> ranked opportunities`
-        : `<b>${remaining}</b> ranked homes`;
+      const resultsLabel = shortlistSurface
+        ? (goal === 'investment' ? 'shortlisted opportunities' : 'shortlisted homes')
+        : (goal === 'investment' ? 'ranked opportunities' : 'ranked homes');
+      rankedLink.innerHTML = `<b>${remaining}</b> ${resultsLabel}`;
+    };
+    const shortlistEmptyResultsMarkup = () => (
+      '<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="/app/search">Start search</a></span></div>'
+    );
+    const setShortlistReviewEmptyState = (isEmpty) => {
+      const reviewContent = root.querySelector('[data-pw-review-content]');
+      const emptyState = root.querySelector('[data-pw-shortlist-empty-state]');
+      if (reviewContent) reviewContent.hidden = Boolean(isEmpty);
+      if (emptyState) emptyState.hidden = !isEmpty;
+      if (isEmpty) setMode('results');
+    };
+    const replaceCandidateQueryParam = (candidateRef = '') => {
+      const url = new URL(window.location.href);
+      if (candidateRef) url.searchParams.set('candidate', candidateRef);
+      else url.searchParams.delete('candidate');
+      window.history.replaceState({}, '', url);
+    };
+    const shortlistRowForCandidate = (candidateRef = '') => {
+      const normalizedRef = String(candidateRef || '').trim();
+      if (!normalizedRef || !window.CSS?.escape) return null;
+      return root.querySelector(`[data-workbench-row][data-candidate-ref="${CSS.escape(normalizedRef)}"]`);
+    };
+    const reconcileShortlistArchive = (candidateRef = '') => {
+      if (!shortlistSurface) return false;
+      const removedCandidateRef = String(candidateRef || '').trim();
+      const selectedWasRemoved = removedCandidateRef && selectedFeedbackCandidateRef === removedCandidateRef;
+      shortlistRowForCandidate(removedCandidateRef)?.remove();
+      if (removedCandidateRef) {
+        replaceCandidates(candidates.filter((row) => String(row?.candidate_ref || '').trim() !== removedCandidateRef));
+      }
+      updateShortlistHeadlineCounts();
+      const resultsList = root.querySelector('[data-workbench-results-table]');
+      if (!candidates.length) {
+        if (resultsList) resultsList.innerHTML = shortlistEmptyResultsMarkup();
+        setShortlistReviewEmptyState(true);
+        selectedFeedbackCandidateRef = '';
+        replaceCandidateQueryParam('');
+        return true;
+      }
+      setShortlistReviewEmptyState(false);
+      const activeSelectionStillExists = selectedFeedbackCandidateRef && candidateByRef.has(selectedFeedbackCandidateRef);
+      if (!activeSelectionStillExists || selectedWasRemoved) {
+        const nextCandidateRef = String(root.querySelector('[data-workbench-row]')?.getAttribute('data-candidate-ref') || candidates[0]?.candidate_ref || '').trim();
+        if (nextCandidateRef) {
+          selectCandidate(nextCandidateRef);
+        } else {
+          replaceCandidateQueryParam('');
+        }
+      }
+      return true;
     };
     const createFlipLinkPacket = async (candidate, button) => {
       if (!candidate) return;
@@ -1618,7 +1670,6 @@
     };
     const renderRankedCandidates = (candidates, runPayload = null) => {
       const rows = Array.isArray(candidates) ? candidates.slice(0, 50) : [];
-      const shortlistSurface = initialSurface === 'shortlist';
       const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
       const summary = runPayload?.summary && typeof runPayload.summary === 'object' ? runPayload.summary : {};
       const componentFilteredTotal = Number(summary.filtered_area_total || 0)
@@ -3753,16 +3804,12 @@
         if (!candidate || !decisionState) return;
         const result = await recordDecisionState(candidate, decisionState, decisionStateStatusNode);
         if (!result) return;
+        if (shortlistSurface && decisionState === 'archived') {
+          reconcileShortlistArchive(String(candidate.candidate_ref || explicitCandidateRef || '').trim());
+          return;
+        }
         if (button.hasAttribute('data-pw-remove-row')) {
-          const row = button.closest('[data-workbench-row]');
-          if (row) {
-            const removedCandidateRef = String(row.getAttribute('data-candidate-ref') || explicitCandidateRef || '').trim();
-            row.remove();
-            if (removedCandidateRef && candidateByRef instanceof Map) candidateByRef.delete(removedCandidateRef);
-            updateShortlistHeadlineCounts();
-          } else {
-            window.location.reload();
-          }
+          window.location.reload();
         }
       });
     });

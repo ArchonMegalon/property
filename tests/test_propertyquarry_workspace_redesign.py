@@ -192,6 +192,7 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     repo_root = Path(__file__).resolve().parents[1]
     results = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
     review = (repo_root / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+    script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
 
     assert "loop.first and brief.get('plan_key') == 'agent'" not in results
     assert "Request walkthrough" in results
@@ -207,6 +208,12 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "data-pw-visual-poll-seconds=\"10\"" in review
     assert "pqx-progress-button is-processing" in review
     assert "Share results" in review
+    assert 'data-pw-shortlist-empty-state' in review
+    assert "shortlisted opportunities" in script
+    assert "shortlisted homes" in script
+    assert "reconcileShortlistArchive" in script
+    assert "setShortlistReviewEmptyState(true);" in script
+    assert "selectCandidate(nextCandidateRef);" in script
 
 
 def test_property_research_detail_right_rail_stays_compact() -> None:
