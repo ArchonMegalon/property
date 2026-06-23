@@ -424,10 +424,38 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     google_settings = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
     assert google_settings.status_code == 200
     assert "PropertyQuarry Google connection" in google_settings.text
+    assert "Connected Google accounts" in google_settings.text
+    assert "Active Google accounts" in google_settings.text
+    assert "Primary Google account" in google_settings.text
+    assert "Add Google account" in google_settings.text
+    assert "Connected inboxes" not in google_settings.text
+    assert "Active inboxes" not in google_settings.text
+    assert "Primary inbox" not in google_settings.text
+    assert "Add inbox" not in google_settings.text
     assert "Sync runs" not in google_settings.text
     assert "Last sync" not in google_settings.text
     assert "Freshness" not in google_settings.text
     assert "Volume" not in google_settings.text
+
+
+def test_google_settings_surface_preserves_ea_inbox_wording(monkeypatch) -> None:
+    from app.api.routes import landing_workspace as landing_workspace_routes
+
+    monkeypatch.setattr(
+        landing_workspace_routes,
+        "request_brand",
+        lambda request: {"key": "ea", "name": "EA", "app_home": "/app/today"},
+    )
+    client = build_product_client(principal_id="exec-browser-ea-google-copy")
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    settings = client.get("/app/settings/google")
+    assert settings.status_code == 200
+    assert "Connected inboxes" in settings.text
+    assert "Active inboxes" in settings.text
+    assert "Primary inbox" in settings.text
+    assert "Add inbox" in settings.text
+    assert "Connected inboxes and send defaults" in settings.text
 
 
 def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
@@ -799,7 +827,7 @@ def test_google_settings_surface_can_email_full_access_connect_link(monkeypatch)
     assert "Google email links are disabled on this product surface." in settings.text
 
 
-def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch) -> None:
+def test_google_settings_surface_manages_multiple_connected_google_accounts(monkeypatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
@@ -904,7 +932,8 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     assert "sync_status=completed" in secondary_callback.headers["location"]
     secondary_connected = client.get(secondary_callback.headers["location"])
     assert secondary_connected.status_code == 200
-    assert "Inbox connected." in secondary_connected.text
+    assert "Google account connected." in secondary_connected.text
+    assert "Inbox connected." not in secondary_connected.text
     assert "office@girschele.com" in secondary_connected.text
     monkeypatch.setattr(
         google_service,
@@ -924,14 +953,21 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
 
     settings = client.get("/app/settings/google")
     assert settings.status_code == 200
-    assert "Connected inboxes and send defaults" in settings.text
+    assert "Connected Google accounts" in settings.text
     assert "tibor@girschele.com" in settings.text
     assert "office@girschele.com" in settings.text
     assert settings.text.index("tibor@girschele.com") < settings.text.index("office@girschele.com")
-    assert "Add inbox" in settings.text
+    assert "Add Google account" in settings.text
     assert "Make primary" in settings.text
     assert "Verify send" in settings.text
-    assert "Inbox connected." in settings.text
+    assert "Google account connected." in settings.text
+    assert "Connected inboxes" not in settings.text
+    assert "Active inboxes" not in settings.text
+    assert "Primary inbox" not in settings.text
+    assert "Additional inbox" not in settings.text
+    assert "Add inbox" not in settings.text
+    assert "Connected inboxes and send defaults" not in settings.text
+    assert "Inbox connected." not in settings.text
     assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail:acct:google-sub-2/make-primary" in settings.text
     assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send" in settings.text
 
@@ -971,13 +1007,15 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     assert "account_status=primary_updated" in promoted.headers["location"]
     promoted_page = client.get(promoted.headers["location"])
     assert promoted_page.status_code == 200
-    assert "Primary inbox updated." in promoted_page.text
+    assert "Primary Google account updated." in promoted_page.text
+    assert "Primary inbox updated." not in promoted_page.text
     assert promoted_page.text.index("office@girschele.com") < promoted_page.text.index("tibor@girschele.com")
     assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/disconnect" in promoted_page.text
     assert "send not yet verified" in promoted_page.text
     reloaded_after_promote = client.get("/app/settings/google")
     assert reloaded_after_promote.status_code == 200
-    assert "Primary inbox updated. office@girschele.com" in reloaded_after_promote.text
+    assert "Primary Google account updated. office@girschele.com" in reloaded_after_promote.text
+    assert "Primary inbox updated. office@girschele.com" not in reloaded_after_promote.text
 
     verified_primary_after_promotion = client.post(
         "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send",
@@ -1010,11 +1048,13 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     assert "account_status=account_disconnected" in disconnected.headers["location"]
     disconnected_page = client.get(disconnected.headers["location"])
     assert disconnected_page.status_code == 200
-    assert "Inbox disconnected." in disconnected_page.text
+    assert "Google account disconnected." in disconnected_page.text
+    assert "Inbox disconnected." not in disconnected_page.text
     assert "Reconnect" in disconnected_page.text
     reloaded_after_disconnect = client.get("/app/settings/google")
     assert reloaded_after_disconnect.status_code == 200
-    assert "Inbox disconnected. tibor@girschele.com" in reloaded_after_disconnect.text
+    assert "Google account disconnected. tibor@girschele.com" in reloaded_after_disconnect.text
+    assert "Inbox disconnected. tibor@girschele.com" not in reloaded_after_disconnect.text
     diagnostics_after_disconnect = client.get("/app/api/diagnostics")
     assert diagnostics_after_disconnect.status_code == 200
     sync_after_disconnect = diagnostics_after_disconnect.json()["analytics"]["sync"]

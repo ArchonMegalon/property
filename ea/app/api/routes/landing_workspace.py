@@ -115,16 +115,18 @@ def _public_app_base_url(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
-def _google_account_status_detail(raw_status: str) -> str:
+def _google_account_status_detail(raw_status: str, *, is_property_brand: bool = False) -> str:
     normalized = str(raw_status or "").strip().lower()
+    account_label = "Google account" if is_property_brand else "Inbox"
+    primary_label = "Primary Google account" if is_property_brand else "Primary inbox"
     if normalized == "account_connected":
-        return "Inbox connected."
+        return f"{account_label} connected."
     if normalized in {"primary_updated", "account_primary_updated"}:
-        return "Primary inbox updated."
+        return f"{primary_label} updated."
     if normalized == "account_disconnected":
-        return "Inbox disconnected."
+        return f"{account_label} disconnected."
     if normalized == "account_reconnected":
-        return "Inbox reconnected."
+        return f"{account_label} reconnected."
     return normalized.replace("_", " ") if normalized else "Not recorded"
 
 
@@ -320,13 +322,17 @@ def _google_account_sync_detail(sync_row: dict[str, object] | None) -> str:
     )
 
 
-def _google_account_change_detail(change_row: dict[str, object] | None) -> str:
+def _google_account_change_detail(
+    change_row: dict[str, object] | None,
+    *,
+    is_property_brand: bool = False,
+) -> str:
     payload = dict(change_row or {})
     state = str(payload.get("state") or "").strip()
     changed_at = str(payload.get("changed_at") or "").strip()
     if not state:
         return "account action not yet recorded"
-    detail = _google_account_status_detail(state)
+    detail = _google_account_status_detail(state, is_property_brand=is_property_brand)
     if changed_at:
         return f"{detail[:-1]} {changed_at[:19]}." if detail.endswith(".") else f"{detail} {changed_at[:19]}"
     return detail
@@ -336,6 +342,7 @@ def _google_account_row(
     account: google_oauth_service.GoogleOAuthAccount,
     *,
     return_to: str,
+    is_property_brand: bool = False,
     verification: dict[str, object] | None = None,
     sync_row: dict[str, object] | None = None,
     change_row: dict[str, object] | None = None,
@@ -348,8 +355,13 @@ def _google_account_row(
     token_status = str(account.token_status or "unknown").strip().lower() or "unknown"
     active = enabled and token_status != "revoked"
     scope_label = _google_scope_label(account.consent_stage)
+    role_detail = (
+        ("Primary Google account" if is_primary else "Additional Google account")
+        if is_property_brand
+        else ("Primary inbox" if is_primary else "Additional inbox")
+    )
     detail_parts = [
-        "Primary inbox" if is_primary else "Additional inbox",
+        role_detail,
         scope_label,
         f"token {token_status.replace('_', ' ')}",
     ]
@@ -361,7 +373,7 @@ def _google_account_row(
         detail_parts.append(str(account.reauth_required_reason).replace("_", " "))
     detail_parts.append(_google_account_sync_detail(sync_row))
     detail_parts.append(_google_account_verification_detail(verification))
-    detail_parts.append(_google_account_change_detail(change_row))
+    detail_parts.append(_google_account_change_detail(change_row, is_property_brand=is_property_brand))
 
     encoded_binding_id = urllib.parse.quote(binding_id, safe=":@")
     encoded_return_to = urllib.parse.quote(return_to, safe="/?:=&")
@@ -1412,7 +1424,10 @@ def settings_google_detail(
         if resolved_verify_state == "completed" and resolved_verify_sender
         else "Not recorded"
     )
-    account_change_detail = _google_account_status_detail(resolved_account_change_state)
+    account_change_detail = _google_account_status_detail(
+        resolved_account_change_state,
+        is_property_brand=is_property_brand,
+    )
     if resolved_account_change_email and resolved_account_change_at:
         account_change_detail = f"{account_change_detail} {resolved_account_change_email} · {resolved_account_change_at[:19]}"
     elif resolved_account_change_email:
@@ -1426,6 +1441,16 @@ def settings_google_detail(
         email_link_detail = f"Sent {bundle_label} link to {email_link_email}"
     else:
         email_link_detail = "Google email links are disabled on this product surface. Use direct connect from this device."
+    connected_accounts_label = "Connected Google accounts" if is_property_brand else "Connected inboxes"
+    active_accounts_label = "Active Google accounts" if is_property_brand else "Active inboxes"
+    primary_account_label = "Primary Google account" if is_property_brand else "Primary inbox"
+    add_account_label = "Add Google account" if is_property_brand else "Add inbox"
+    connected_accounts_detail = (
+        f"{connected_account_total} Google account{'s' if connected_account_total != 1 else ''} connected."
+        if is_property_brand
+        else f"{connected_account_total} inbox{'es' if connected_account_total != 1 else ''} attached to this workspace."
+    )
+    accounts_section_title = "Connected Google accounts" if is_property_brand else "Connected inboxes and send defaults"
     if is_property_brand:
         sync_summary = (
             f"{connected_account_total} connected Google account{'s' if connected_account_total != 1 else ''} · "
@@ -1455,9 +1480,9 @@ def settings_google_detail(
         last_manual_sync_detail = "Not recorded"
     object_meta = [
         {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
-        {"label": "Connected inboxes", "value": str(connected_account_total)},
-        {"label": "Active inboxes", "value": str(active_account_total)},
-        {"label": "Primary inbox", "value": primary_email or "Not connected"},
+        {"label": connected_accounts_label, "value": str(connected_account_total)},
+        {"label": active_accounts_label, "value": str(active_account_total)},
+        {"label": primary_account_label, "value": primary_email or "Not connected"},
         {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
     ]
     if not is_property_brand:
@@ -1480,20 +1505,20 @@ def settings_google_detail(
         object_meta=object_meta,
         object_sidebar_title="What this view answers",
         object_sidebar_copy=(
-            "This view shows which Google account is primary, what additional inboxes are attached, and whether the connection needs reauth."
+            "This view shows which Google account is primary, what other Google accounts are connected, and whether the connection needs reauth."
             if is_property_brand
             else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
         ),
         object_sidebar_rows=[
             _object_detail_row(
-                "Connected inboxes",
-                f"{connected_account_total} inbox{'es' if connected_account_total != 1 else ''} attached to this workspace.",
+                connected_accounts_label,
+                connected_accounts_detail,
                 "Google",
                 action_href=connect_another_href,
-                action_label="Add inbox",
+                action_label=add_account_label,
                 action_method="get",
             ),
-            _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
+            _object_detail_row(primary_account_label, primary_email or "Not connected", "Google"),
             *([] if is_property_brand else [
                 _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
                 _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
@@ -1521,9 +1546,9 @@ def settings_google_detail(
                 "title": "Google binding and token state" if not is_property_brand else "Google identity and account",
                 "items": [
                     _object_detail_row("Connected", "Yes" if connected_account_total else "No", "Google"),
-                    _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
-                    _object_detail_row("Connected inboxes", str(connected_account_total), "Google"),
-                    _object_detail_row("Active inboxes", str(active_account_total), "Google"),
+                    _object_detail_row(primary_account_label, primary_email or "Not connected", "Google"),
+                    _object_detail_row(connected_accounts_label, str(connected_account_total), "Google"),
+                    _object_detail_row(active_accounts_label, str(active_account_total), "Google"),
                     _object_detail_row("Token status", str(sync.get("token_status") or "missing").replace("_", " "), "Auth"),
                     _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
                     _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
@@ -1543,11 +1568,12 @@ def settings_google_detail(
             },
             {
                 "eyebrow": "Accounts",
-                "title": "Connected inboxes and send defaults",
+                "title": accounts_section_title,
                 "items": [
                     _google_account_row(
                         account,
                         return_to="/app/settings/google",
+                        is_property_brand=is_property_brand,
                         verification=verification_by_binding.get(str(account.binding.binding_id or "").strip()),
                         sync_row=account_sync_by_email.get(str(account.google_email or "").strip().lower()),
                         change_row=account_change_by_binding.get(str(account.binding.binding_id or "").strip()),
