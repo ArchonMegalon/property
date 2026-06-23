@@ -107,6 +107,44 @@ def test_property_results_empty_state_keeps_shortlist_minimal() -> None:
     assert "Open automation" not in body
 
 
+def test_property_onboarding_step_rules_uses_account_cta() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/onboarding/_step_rules.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    class _AnchorParser(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.anchors: list[tuple[dict[str, str], str]] = []
+            self._current_attrs: dict[str, str] | None = None
+            self._current_text: list[str] = []
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            if tag == "a":
+                self._current_attrs = {key: value or "" for key, value in attrs}
+                self._current_text = []
+
+        def handle_data(self, data: str) -> None:
+            if self._current_attrs is not None and data.strip():
+                self._current_text.append(data.strip())
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "a" and self._current_attrs is not None:
+                self.anchors.append((self._current_attrs, " ".join(self._current_text).strip()))
+                self._current_attrs = None
+                self._current_text = []
+
+    parser = _AnchorParser()
+    parser.feed(body)
+
+    assert "Use account settings after first value to adjust defaults or alerts." not in body
+    assert "Use Account after first value to adjust defaults or alerts." in body
+    assert 'href="/app/settings">Preferences</a>' not in body
+    assert any(
+        attrs.get("href") == "/app/account" and text == "Account"
+        for attrs, text in parser.anchors
+    )
+
+
 def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     account = (repo_root / "ea/app/templates/app/_property_account_panel.html").read_text(encoding="utf-8")
