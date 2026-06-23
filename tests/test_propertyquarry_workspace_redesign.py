@@ -9924,6 +9924,59 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Access" in access.text
 
 
+def test_propertyquarry_settings_access_collaborator_link_redirects_to_agents(monkeypatch) -> None:
+    principal_id = "pq-settings-access-collaborator-target"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Access Target")
+    headers = {"host": "propertyquarry.com"}
+    captured_issue: dict[str, object] = {}
+
+    original_issue_workspace_access_session = ProductService.issue_workspace_access_session
+
+    def _capture_issue_workspace_access_session(self, **kwargs):
+        session = original_issue_workspace_access_session(self, **kwargs)
+        captured_issue["kwargs"] = dict(kwargs)
+        captured_issue["session"] = dict(session)
+        return session
+
+    monkeypatch.setattr(ProductService, "issue_workspace_access_session", _capture_issue_workspace_access_session)
+
+    issued = client.post(
+        "/app/actions/access-sessions/issue",
+        data={
+            "email": "collaborator@example.com",
+            "role": "operator",
+            "display_name": "Collaborator Access",
+            "return_to": "/app/settings/access",
+        },
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert issued.status_code == 303
+    assert issued.headers["location"].startswith("/app/settings/access?")
+
+    captured_kwargs = dict(captured_issue["kwargs"])
+    captured_session = dict(captured_issue["session"])
+    assert captured_kwargs["source_kind"] == "settings_access"
+    assert captured_kwargs["role"] == "operator"
+    assert captured_kwargs["default_target"] == "/app/agents"
+
+    product = build_product_service(client.app.state.container)
+    sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=10)
+    collaborator_session = next(row for row in sessions if row.get("email") == "collaborator@example.com")
+    assert collaborator_session["source_kind"] == "settings_access"
+    assert collaborator_session["role"] == "operator"
+    assert collaborator_session["default_target"] == "/app/agents"
+    assert captured_session["session_id"] == collaborator_session["session_id"]
+    assert captured_session["default_target"] == "/app/agents"
+    assert str(captured_session["access_url"]).startswith("/workspace-access/")
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened = client.get(str(captured_session["access_url"]), headers=headers, follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/agents"
+
+
 def test_propertyquarry_account_does_not_embed_full_raw_preference_payload() -> None:
     large_note = "oversized-preference-payload-" + ("x" * 250_000)
     payload = landing_property_workspace_payload.property_workspace_payload(

@@ -2215,6 +2215,7 @@ async def app_issue_workspace_access_session(
     email = str(_form_value(body, "email", "")).strip().lower()
     role = str(_form_value(body, "role", "principal")).strip().lower() or "principal"
     display_name = str(_form_value(body, "display_name", "")).strip()
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     try:
@@ -2224,6 +2225,7 @@ async def app_issue_workspace_access_session(
             role=role,
             display_name=display_name,
             source_kind="settings_access",
+            default_target="/app/agents" if is_property_brand and role == "operator" else "",
         )
     except Exception as exc:
         error_value = urllib.parse.quote(str(exc or "workspace_access_issue_failed"), safe="")
