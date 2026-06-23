@@ -243,6 +243,57 @@ def _id_austria_sign_in_enabled() -> bool:
     return id_austria_sign_in_configured()
 
 
+def _public_tours_enabled_for_examples() -> bool:
+    raw_value = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS")
+    if raw_value is None:
+        raw_value = os.environ.get("EA_ENABLE_PUBLIC_TOURS")
+    if raw_value is None:
+        raw_value = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES")
+    if raw_value is None:
+        raw_value = os.environ.get("EA_ENABLE_PUBLIC_SIDE_SURFACES")
+    return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def _propertyquarry_example_media_targets() -> dict[str, str]:
+    if not _public_tours_enabled_for_examples():
+        return {}
+    root = Path(str(os.environ.get("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
+    if not root.exists() or not root.is_dir():
+        return {}
+    resolved_root = root.resolve()
+    for bundle_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        manifest_path = bundle_dir / "tour.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        scenes = list(payload.get("scenes") or [])
+        has_floorplan_scene = any(
+            isinstance(scene, dict) and str(scene.get("role") or "").strip().lower() == "floorplan"
+            for scene in scenes
+        )
+        scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+        creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+        if not has_floorplan_scene and scene_strategy != "layout_first" and "floorplan" not in creation_mode:
+            continue
+        tour_href = str(payload.get("public_url") or payload.get("hosted_url") or "").strip()
+        if not tour_href:
+            continue
+        targets = {"tour_href": tour_href}
+        video_relpath = str(payload.get("video_relpath") or "").strip()
+        if video_relpath:
+            video_path = (bundle_dir / video_relpath).resolve()
+            if resolved_root in video_path.parents and video_path.exists():
+                separator = "&" if "?" in tour_href else "?"
+                targets["walkthrough_href"] = f"{tour_href}{separator}pane=flythrough-pane&autoplay=1"
+        return targets
+    return {}
+
+
 def _request_country_code(request: Request) -> str:
     for header in (
         "cf-ipcountry",
@@ -1939,27 +1990,20 @@ def landing(
         if authenticated_principal
         else "/sign-in?signing_in=1"
     )
-    example_shortlist_tour_href = (
-        "/app/shortlist?example=1#tour-preview"
-        if authenticated_principal
-        else "/sign-in?signing_in=1"
-    )
-    example_shortlist_walkthrough_href = (
-        "/app/shortlist?example=1#walkthrough-preview"
-        if authenticated_principal
-        else "/sign-in?signing_in=1"
-    )
+    example_media_targets = _propertyquarry_example_media_targets()
     example_shortlist = [
         {
             "title": "Clear floorplan, right district",
             "detail": "Balcony helps. Costs need confirmation.",
             "score": 84,
-            "tour_label": "3D tour ready",
-            "walkthrough_label": "Walkthrough ready",
             "href": example_shortlist_href,
             "detail_href": example_shortlist_detail_href,
-            "tour_href": example_shortlist_tour_href,
-            "walkthrough_href": example_shortlist_walkthrough_href,
+            "tour_href": example_media_targets.get("tour_href", ""),
+            "walkthrough_href": example_media_targets.get("walkthrough_href", ""),
+            "tour_label": "3D tour ready" if example_media_targets.get("tour_href", "") else "",
+            "walkthrough_label": (
+                "Walkthrough ready" if example_media_targets.get("walkthrough_href", "") else ""
+            ),
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1010 Vienna, 1020 Vienna"),
         },
         {

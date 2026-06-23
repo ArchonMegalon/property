@@ -2112,11 +2112,12 @@ def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch)
     assert public_home.status_code == 200
     for label in (
         "Balcony helps. Costs need confirmation.",
-        "3D tour ready",
-        "Walkthrough ready",
     ):
         assert f'>{label}</a>' in public_home.text
-    assert public_home.text.count('href="/sign-in?signing_in=1"') >= 3
+    assert "3D tour ready" not in public_home.text
+    assert "Walkthrough ready" not in public_home.text
+    assert "/app/shortlist?example=1#tour-preview" not in public_home.text
+    assert "/app/shortlist?example=1#walkthrough-preview" not in public_home.text
 
     principal_id = "pq-home-shortlist-authed"
     authed_client = build_property_client(principal_id=principal_id)
@@ -2127,13 +2128,99 @@ def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch)
     assert authed_home.status_code == 200
     for label in (
         "Balcony helps. Costs need confirmation.",
-        "3D tour ready",
-        "Walkthrough ready",
     ):
         assert f'>{label}</a>' in authed_home.text
     assert 'href="/app/shortlist?example=1#results-list"' in authed_home.text
-    assert 'href="/app/shortlist?example=1#tour-preview"' in authed_home.text
-    assert 'href="/app/shortlist?example=1#walkthrough-preview"' in authed_home.text
+    assert "/app/shortlist?example=1#tour-preview" not in authed_home.text
+    assert "/app/shortlist?example=1#walkthrough-preview" not in authed_home.text
+
+
+def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkeypatch, tmp_path: Path) -> None:
+    false_bundle_dir = tmp_path / "public_tours" / "aaa-photo-gallery"
+    false_bundle_dir.mkdir(parents=True)
+    (false_bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "aaa-photo-gallery",
+                "public_url": "/tours/aaa-photo-gallery",
+                "hosted_url": "/tours/aaa-photo-gallery",
+                "scene_strategy": "photo_gallery_hosted",
+                "creation_mode": "hosted_photo_gallery_tour",
+                "scenes": [
+                    {
+                        "scene_id": "photo-1",
+                        "role": "photo",
+                        "asset_relpath": "photo-01.jpg",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle_dir = tmp_path / "public_tours" / "demo-home-tour"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "demo-home-tour",
+                "public_url": "/tours/demo-home-tour",
+                "hosted_url": "/tours/demo-home-tour",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "video_relpath": "tour.mp4",
+                "scenes": [
+                    {
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+
+    targets = landing_routes._propertyquarry_example_media_targets()
+
+    assert targets == {
+        "tour_href": "/tours/demo-home-tour",
+        "walkthrough_href": "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1",
+    }
+
+
+def test_propertyquarry_example_media_targets_ignore_false_example_public_tours(monkeypatch, tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "public_tours" / "photo-gallery-only"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "photo-gallery-only",
+                "public_url": "/tours/photo-gallery-only",
+                "hosted_url": "/tours/photo-gallery-only",
+                "scene_strategy": "photo_gallery_hosted",
+                "creation_mode": "hosted_photo_gallery_tour",
+                "video_relpath": "tour.mp4",
+                "scenes": [
+                    {
+                        "scene_id": "photo-1",
+                        "role": "photo",
+                        "asset_relpath": "photo-01.jpg",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+
+    targets = landing_routes._propertyquarry_example_media_targets()
+
+    assert targets == {}
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
