@@ -1659,7 +1659,7 @@
       ) : '';
       const scoreDemotedLabel = !shortlistSurface && scoreDemotedTotal > 0 ? (
         `<span class="pqx-results-summary-link pqx-results-soft-link" ` +
-        `aria-label="${escapeHtml(scoreDemotedTotal)} homes stayed in scoring only">${escapeHtml(scoreDemotedTotal)} soft only</span>`
+        `aria-label="${escapeHtml(scoreDemotedTotal)} homes stayed below the shortlist score">${escapeHtml(scoreDemotedTotal)} below score</span>`
       ) : '';
       const filteredBreakdown = (!shortlistSurface && (filteredTotal > 0 || scoreDemotedTotal > 0)) ? `
           <details class="pqx-card" id="pqx-filtered-breakdown" data-pqx-filtered-breakdown>

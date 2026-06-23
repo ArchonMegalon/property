@@ -1174,7 +1174,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         context.close()
 
 
-def test_propertyquarry_results_filtered_link_opens_filtered_breakdown_when_no_relax_dialog_rules(
+def test_propertyquarry_soft_only_empty_state_uses_score_language_not_filtered_dialog(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
@@ -1188,24 +1188,11 @@ def test_propertyquarry_results_filtered_link_opens_filtered_breakdown_when_no_r
         response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="networkidle")
         assert response is not None and response.ok
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
-        filtered_button = page.locator('[data-pqx-filtered-open]').first
-        filtered_button.wait_for(timeout=5000)
-        expect(filtered_button).to_contain_text(
-            re.compile(r"\d+\s+filtered|widen this brief|reopen the brief|relax one hard filter", re.I),
+        expect(page.locator("[data-pqx-empty-results]")).to_contain_text(
+            re.compile(r"below the shortlist score|Lower shortlist score|Review scored homes", re.I),
             timeout=5000,
         )
-        filtered_button.click()
-        page.wait_for_function(
-            """
-            () => {
-              const dialog = document.querySelector('[data-pqx-filtered-dialog]');
-              const details = [...document.querySelectorAll('details')]
-                .find((node) => ((node.textContent || '').toLowerCase().includes('what to widen')));
-              return Boolean((dialog && dialog.open) || (details && details.open));
-            }
-            """,
-            timeout=5000,
-        )
+        assert page.locator('[data-pqx-filtered-open]:visible').count() == 0
     finally:
         context.close()
 
@@ -1554,30 +1541,10 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         )
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         assert page.locator("[data-pqx-empty-results]", has_text=re.compile("No strong matches|No valid homes|No shortlist|current brief|search finished", re.I)).is_visible()
-        assert page.locator("body", has_text="Ways to get more matches").is_visible()
+        assert page.locator("body", has_text=re.compile("Review scored homes|Lower shortlist score", re.I)).is_visible()
         assert page.locator("[data-pqx-counterfactuals]").is_visible()
-        assert page.get_by_role("button", name=re.compile("Apply|Allow|Use|Raise|Relax|Reopen")).first.is_visible()
-        page.locator("[data-pqx-filtered-open]:visible").first.click()
-        page.wait_for_function(
-            """
-            () => {
-              const breakdown = document.querySelector('[data-pqx-source-breakdown]');
-              const details = document.querySelector('details#pqx-filtered-breakdown');
-              const dialog = document.querySelector('[data-pqx-filtered-dialog]');
-              return Boolean(
-                (dialog && dialog.open)
-                ||
-                (details && details.open)
-                || (breakdown && /Genossenschaften Austria/i.test(String(breakdown.textContent || '')))
-              );
-            }
-            """,
-            timeout=5000,
-        )
-        assert (
-            page.locator("[data-pqx-filtered-dialog][open]").is_visible()
-            or page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
-        )
+        assert page.get_by_role("link", name=re.compile("Adjust score", re.I)).is_visible()
+        assert page.locator("[data-pqx-filtered-open]:visible").count() == 0
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)

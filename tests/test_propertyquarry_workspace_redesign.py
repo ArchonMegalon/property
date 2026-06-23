@@ -9005,6 +9005,30 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     assert "0/31 source variants" not in " ".join(summary.values())
 
 
+def test_propertyquarry_empty_outcome_explains_soft_only_shortlist_miss() -> None:
+    summary = property_surface_state.build_property_empty_outcome_summary(
+        run_summary={
+            "status": "processed",
+            "sources_total": 2,
+            "sources_completed": 2,
+            "listing_total": 14,
+            "filtered_total": 0,
+            "held_back_total": 0,
+            "filtered_low_fit_total": 14,
+        },
+        run_sources=[],
+        run_status_value="processed",
+        run_message="Property scouting run completed.",
+        counterfactual_rows=[],
+        suppression_rows=[],
+    )
+
+    assert summary["happened"] == "No homes cleared the shortlist score."
+    assert "The selected providers covered 14 listings." in summary["still_worked"]
+    assert "Lower the shortlist score" in summary["next_move"]
+    assert "below the current shortlist score" in summary["eta_feedback"]
+
+
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
     principal_id = "pq-packet-fact-enrichment"
     client = build_property_client(principal_id=principal_id)

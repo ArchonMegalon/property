@@ -7302,6 +7302,9 @@
       {% set empty_active_rule = (empty_outcome.get('active_rule') or '')|trim %}
       {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
       {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
+      {% set hard_filtered_total = (run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or 0)|int %}
+      {% set soft_demoted_total = (run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0)|int %}
+      {% set soft_only_empty_state = hard_filtered_total == 0 and soft_demoted_total > 0 %}
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results" data-pqx-screenfit-target="run-progress">
           <div class="pqx-title">
@@ -7309,18 +7312,25 @@
             <h1>
               {% if run_status == 'failed' %}
                 {{ empty_outcome.get('happened') or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
+              {% elif soft_only_empty_state %}
+                No homes cleared the shortlist score.
               {% else %}
                 {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
               {% endif %}
             </h1>
             <p class="pqx-note pqx-empty-outcome-line" data-pqx-run-summary>
-              {{ empty_eta_feedback or empty_still_worked or ('Repair is checking the run.' if run_status == 'failed' else 'No strong matches cleared the current brief.') }}
+              {% if run_status == 'failed' %}
+                {{ empty_eta_feedback or empty_still_worked or 'Repair is checking the run.' }}
+              {% elif soft_only_empty_state %}
+                {{ soft_demoted_total }} home{% if soft_demoted_total != 1 %}s{% endif %} stayed below the current shortlist score.
+              {% else %}
+                {{ empty_eta_feedback or empty_still_worked or 'No strong matches cleared the current brief.' }}
+              {% endif %}
             </p>
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
-              {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or 0)|int %}
-              {% set variant_display_total = (run.get('source_variant_display_total') or run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
+              {% set provider_display_total = (run_summary.get('sources_total') or run_summary.get('provider_total') or run.get('provider_display_total') or run_sources|length or 0)|int %}
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
@@ -7331,7 +7341,7 @@
             {% if empty_active_rule or empty_next_move %}
             <div class="pqx-empty-outcome-next">
               {% if empty_active_rule %}<span class="pqx-pill">{{ empty_active_rule }}</span>{% endif %}
-              <span class="pqx-small">{{ empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.') }}</span>
+              <span class="pqx-small">{{ 'Lower the shortlist score or inspect the reviewed homes.' if soft_only_empty_state else (empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.')) }}</span>
             </div>
             {% endif %}
             <div class="pqx-actions">
@@ -7345,8 +7355,8 @@
           {% if not ranked_candidates %}
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
             <div>
-                <h2>Widen the brief</h2>
-                <div class="pqx-note" data-pqx-run-summary">{{ empty_next_move or 'Relax one hard rule at a time so the next shortlist stays easy to compare.' }}</div>
+                <h2>{{ 'Review scored homes' if soft_only_empty_state else 'Widen the brief' }}</h2>
+                <div class="pqx-note" data-pqx-run-summary>{{ 'Lower the shortlist score or review the strongest near-misses first.' if soft_only_empty_state else (empty_next_move or 'Relax one hard rule at a time so the next shortlist stays easy to compare.') }}</div>
               </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
@@ -7364,7 +7374,15 @@
           </div>
           {% endif %}
           <div data-pqx-counterfactuals>
-          {% if (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) and not ranked_candidates %}
+          {% if soft_only_empty_state and not ranked_candidates %}
+          <div class="pqx-suppression-grid" style="margin-bottom:12px;">
+            <a class="pqx-suppression-item" href="/app/search">
+              <strong>Lower shortlist score</strong>
+              <span class="pqx-note">{{ soft_demoted_total }} reviewed homes are still available once the shortlist bar moves down.</span>
+              <span class="pqx-suppression-action">Adjust score</span>
+            </a>
+          </div>
+          {% elif (workbench.get('counterfactual_rows') or workbench.get('suppression_rows')) and not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
             {% for row in (workbench.get('counterfactual_rows') or [])[:3] %}
             {% if row.get('adjustments') %}
@@ -7398,9 +7416,13 @@
               </button>
             </div>
           {% endif %}
+          {% if not soft_only_empty_state %}
           {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or [], run_summary.get('filtered_total') or run_summary.get('held_back_total') or None) }}
+          {% endif %}
           </div>
+          {% if not soft_only_empty_state %}
           {{ filtered_recovery_dialog(workbench.get('counterfactual_rows') or [], workbench.get('suppression_rows') or []) }}
+          {% endif %}
           {% if not ranked_candidates %}
           </div>
           {% endif %}
@@ -7484,6 +7506,7 @@
             </table>
           </div>
           {% else %}
+          {% if not soft_only_empty_state %}
           <section class="pqx-card pqx-empty-results-note" data-pqx-ranked-candidates>
             <div class="pqx-section-head">
               <div>
@@ -7494,6 +7517,7 @@
             </div>
             <div class="pqx-note">{% if run_status == 'failed' %}Keep the brief as-is unless repair still returns nothing.{% else %}Use the filtered action above to widen the brief in one controlled step.{% endif %}</div>
           </section>
+          {% endif %}
           </div>
           {% endif %}
           {% if run.get('events') %}

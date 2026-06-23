@@ -1164,6 +1164,11 @@ def build_property_empty_outcome_summary(
     suppression_rows: list[dict[str, object]],
 ) -> dict[str, str]:
     filtered_total = int(run_summary.get("filtered_total") or run_summary.get("held_back_total") or 0)
+    score_demoted_total = int(
+        run_summary.get("score_demoted_total")
+        or run_summary.get("filtered_low_fit_total")
+        or 0
+    )
     source_total = int(run_summary.get("sources_total") or len(run_sources) or 0)
     source_completed = int(
         run_summary.get("sources_completed")
@@ -1225,6 +1230,11 @@ def build_property_empty_outcome_summary(
             f"{filtered_total} candidate{'s' if filtered_total != 1 else ''} were held back; "
             "most conflicted with the selected-area rule or were provider overview pages."
         )
+    elif filtered_total <= 0 and score_demoted_total > 0:
+        happened = "No homes cleared the shortlist score."
+        stopped_context = (
+            f"{score_demoted_total} reviewed home{'s' if score_demoted_total != 1 else ''} stayed below the current shortlist score."
+        )
     elif filtered_total > 0:
         happened = "No shortlist yet."
     else:
@@ -1234,6 +1244,12 @@ def build_property_empty_outcome_summary(
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
             f"{raw_listing_total or filtered_total} candidate{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
+        )
+    elif filtered_total <= 0 and score_demoted_total > 0:
+        still_worked = (
+            f"The selected providers covered {listing_total} listing{'s' if listing_total != 1 else ''}."
+            if listing_total
+            else stopped_context
         )
     else:
         still_worked = (
@@ -1245,6 +1261,8 @@ def build_property_empty_outcome_summary(
         next_move = "Wait for repair; this page refreshes quietly every 10s and will switch to the usable run when one is ready."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
+    elif filtered_total <= 0 and score_demoted_total > 0:
+        next_move = "Lower the shortlist score or review the strongest near-misses before changing any hard rules."
     else:
         next_move = (
             str(strongest_relax.get("detail") or "").strip()
@@ -1263,6 +1281,8 @@ def build_property_empty_outcome_summary(
     elif status_value not in {"processed", "completed", "completed_partial", "noop", "cancelled"} and eta_label:
         eta_feedback = f"Estimated remaining time: {eta_label}."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
+        eta_feedback = stopped_context
+    elif filtered_total <= 0 and score_demoted_total > 0:
         eta_feedback = stopped_context
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
