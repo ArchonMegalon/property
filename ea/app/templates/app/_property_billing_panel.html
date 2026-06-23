@@ -26,28 +26,6 @@
     {% endfor %}
   </div>
 
-  {% if billing_handoff and billing_handoff.get('available') %}
-  <section class="pqx-billing-card" id="billing-commercial-lane">
-    <div class="pqx-section-head">
-      <div>
-        <div class="pqx-small">Billing lane</div>
-        <h2>Secure billing</h2>
-        <div class="pqx-note">Manage plan changes and payment steps without leaving the PropertyQuarry account lane.</div>
-      </div>
-      <div class="pqx-actions">
-        <a class="pqx-link-button subtle" href="{{ billing_handoff.get('open_href') }}">Open billing</a>
-      </div>
-    </div>
-    <iframe
-      src="{{ billing_handoff.get('embedded_href') }}"
-      title="PropertyQuarry billing"
-      loading="eager"
-      referrerpolicy="strict-origin-when-cross-origin"
-      style="width:100%;min-height:70vh;border:0;border-radius:8px;background:#fff;"
-    ></iframe>
-  </section>
-  {% endif %}
-
   <div class="pqx-billing-grid">
     {% for card in [checkout_card.value, upgrade_card.value, history_card.value] if card %}
     <section class="pqx-billing-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>

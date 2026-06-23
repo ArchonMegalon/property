@@ -9828,20 +9828,21 @@ def test_propertyquarry_billing_surface_embeds_white_label_commercial_lane_when_
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
 
     assert billing.status_code == 200
-    assert 'id="billing-commercial-lane"' in billing.text
-    assert 'src="/app/api/property/billing/commercial-lane"' in billing.text
-    assert 'href="/app/api/property/billing/commercial-lane"' in billing.text
-    assert "Secure billing" in billing.text
+    assert 'class="pq-billing-lane-frame"' in billing.text
+    assert 'src="https://billing.propertyquarry.com/account"' in billing.text
+    assert 'id="billing-commercial-lane"' not in billing.text
+    assert "Plan and payments" not in billing.text
     assert "Brilliant Directories" not in billing.text
     assert "brilliantdirectories" not in billing.text.lower()
-    assert "billing.propertyquarry.com" not in billing.text
 
-    commercial_lane = client.get("/app/api/property/billing/commercial-lane", headers={"host": "propertyquarry.com"})
+    commercial_lane = client.get(
+        "/app/api/property/billing/commercial-lane",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
 
-    assert commercial_lane.status_code == 200
-    assert 'title="PropertyQuarry billing"' in commercial_lane.text
-    assert 'src="https://billing.propertyquarry.com/account"' in commercial_lane.text
-    assert "Brilliant Directories" not in commercial_lane.text
+    assert commercial_lane.status_code == 307
+    assert commercial_lane.headers["location"] == "/app/billing"
 
 
 def test_propertyquarry_billing_surface_keeps_local_board_when_white_label_commercial_lane_is_unavailable(
@@ -9860,8 +9861,8 @@ def test_propertyquarry_billing_surface_keeps_local_board_when_white_label_comme
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
 
     assert billing.status_code == 200
-    assert 'id="billing-commercial-lane"' not in billing.text
-    assert 'src="/app/api/property/billing/commercial-lane"' not in billing.text
+    assert 'class="pq-billing-lane-frame"' not in billing.text
+    assert 'src="https://billing.brilliantdirectories.com/account"' not in billing.text
     assert "Plan and payments" in billing.text
 
 

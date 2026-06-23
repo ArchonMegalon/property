@@ -204,8 +204,8 @@ def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
     return {
         "available": True,
         "status": "ready",
-        "embedded_href": "/app/api/property/billing/commercial-lane",
-        "open_href": "/app/api/property/billing/commercial-lane",
+        "hosted_href": hosted_url,
+        "open_href": "/app/billing",
     }
 
 
@@ -2205,17 +2205,21 @@ def propertyquarry_landing_handoff(
 
 
 @router.get("/app/api/property/billing/commercial-lane", include_in_schema=False, response_class=HTMLResponse)
-def property_billing_commercial_lane(
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-) -> HTMLResponse:
+def property_billing_commercial_lane() -> HTMLResponse:
     handoff = _property_brilliant_directories_billing_handoff()
     if not handoff.get("available"):
         return RedirectResponse("/app/billing", status_code=307)
-    config = brilliant_directories_service.load_brilliant_directories_config()
-    iframe_src = brilliant_directories_service.brilliant_directories_billing_handoff_url(config)
-    if not iframe_src:
-        return RedirectResponse("/app/billing", status_code=307)
+    return RedirectResponse("/app/billing", status_code=307)
+
+
+def _render_property_billing_handoff_page(
+    request: Request,
+    *,
+    context: RequestContext,
+    status: dict[str, object],
+    access_identity: CloudflareAccessIdentity | None,
+    iframe_src: str,
+) -> HTMLResponse:
     response = _render_public_template(
         request,
         "property_billing_commercial_lane.html",
@@ -2224,8 +2228,8 @@ def property_billing_commercial_lane(
             current_nav="billing",
             page_title="PropertyQuarry Billing",
             principal_id=context.principal_id,
-            status=_anonymous_onboarding_status(),
-            access_identity=None,
+            status=status,
+            access_identity=access_identity,
             extra={
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",
                 "billing_lane_iframe_src": iframe_src,
@@ -4028,6 +4032,7 @@ def app_shell(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
     run_id: str = Query(default=""),
     candidate: str = Query(default=""),
     agent_id: str = Query(default=""),
@@ -4339,6 +4344,16 @@ def app_shell(
             )
     workspace = dict(status.get("workspace") or {})
     if property_brand and resolved_section in property_sections:
+        billing_handoff = dict((property_context or {}).get("billing_handoff") or {}) if property_context else {}
+        billing_iframe_src = str(billing_handoff.get("hosted_href") or "").strip()
+        if current_nav == "billing" and billing_handoff.get("available") and billing_iframe_src:
+            return _render_property_billing_handoff_page(
+                request,
+                context=context,
+                status=status,
+                access_identity=access_identity,
+                iframe_src=billing_iframe_src,
+            )
         property_template = "app/property_decision_workbench.html"
         return _render_public_template(
             request,
