@@ -2244,11 +2244,12 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
         assert packet_href
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
-        response = page.goto(packet_url, wait_until="networkidle")
+        response = page.goto(packet_url, wait_until="domcontentloaded")
         assert response is not None and response.ok
         assert page.locator(".prd-media-frame").is_visible()
         assert "Open the space before you read the rest" not in page.content()
         _assert_research_packet_360_first(page, min_stage_height=190, max_stage_height=380)
+        page.wait_for_load_state("networkidle")
         body_box = page.locator(".prd-body").first.bounding_box()
         assert body_box is not None
         viewport_height = page.viewport_size["height"] if page.viewport_size else 900
