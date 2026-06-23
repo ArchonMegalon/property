@@ -6,7 +6,7 @@ import urllib.parse
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.dependencies import RequestContext, get_cloudflare_access_identity, get_container, get_request_context
 from app.api.routes.landing import (
     _console_shell_context,
     _form_value,
@@ -20,6 +20,7 @@ from app.api.routes.landing_property_research import _object_detail_row, _render
 from app.container import AppContainer
 from app.product.property_surface_state import normalize_property_search_run_snapshot
 from app.product.service import build_product_service
+from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services import google_oauth as google_oauth_service
 from app.services import id_austria_oidc as id_austria_service
 from app.services.facebook_oauth import build_facebook_oauth_start
@@ -2556,9 +2557,16 @@ def app_search(
     limit: int = Query(default=20, ge=1, le=100),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     if request_brand(request)["key"] == "propertyquarry":
-        return RedirectResponse("/app/properties", status_code=307)
+        return _app_shell(
+            section="search",
+            request=request,
+            container=container,
+            context=context,
+            access_identity=access_identity,
+        )
     workspace = dict(container.onboarding.status(principal_id=context.principal_id).get("workspace") or {})
     product = build_product_service(container)
     normalized_query = str(query or "").strip()

@@ -1948,13 +1948,26 @@ def test_propertyquarry_search_route_does_not_scan_active_run_for_initial_form(m
     assert "/app/properties?run_id=run-live-42" not in response.text
 
 
-def test_propertyquarry_properties_route_redirects_to_search_without_a_run() -> None:
-    client = build_property_client(principal_id="pq-properties-redirects-to-search")
+def test_propertyquarry_search_and_properties_routes_do_not_loop_without_a_run() -> None:
+    client = build_property_client(principal_id="pq-search-properties-no-run")
     start_workspace(client, mode="personal", workspace_name="Search First Office")
+    headers = {"host": "propertyquarry.com"}
 
-    response = client.get("/app/properties", headers={"host": "propertyquarry.com"}, follow_redirects=False)
-    assert response.status_code == 307
-    assert response.headers["location"] == "/app/search"
+    search = client.get("/app/search", headers=headers, follow_redirects=False)
+    assert search.status_code == 200
+    assert list(search.history) == []
+    assert 'data-property-decision-workbench' in search.text
+
+    properties_redirect = client.get("/app/properties", headers=headers, follow_redirects=False)
+    assert properties_redirect.status_code == 307
+    assert properties_redirect.headers["location"] == "/app/search"
+
+    properties = client.get("/app/properties", headers=headers)
+    assert properties.status_code == 200
+    assert str(properties.url).endswith("/app/search")
+    assert len(properties.history) == 1
+    assert properties.history[0].headers["location"] == "/app/search"
+    assert 'data-property-decision-workbench' in properties.text
 
 
 def test_propertyquarry_root_redirects_signed_in_users_to_search(monkeypatch) -> None:

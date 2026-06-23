@@ -327,8 +327,19 @@ def test_app_surface_routes_render_without_product_drift() -> None:
         _assert_no_drift(response.text)
         assert principal_id not in response.text
 
+    search = client.get("/app/search", follow_redirects=False)
+    assert search.status_code == 200
+    assert str(search.url).endswith("/app/search")
+    assert len(search.history) == 0
+
+    properties_redirect = client.get("/app/properties", follow_redirects=False)
+    assert properties_redirect.status_code == 307
+    assert properties_redirect.headers["location"] == "/app/search"
+
     properties = client.get("/app/properties")
     assert str(properties.url).endswith("/app/search")
+    assert len(properties.history) == 1
+    assert properties.history[0].headers["location"] == "/app/search"
     assert "Launch search" in properties.text
     assert "Search flow" in properties.text
 
