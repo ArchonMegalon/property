@@ -10,9 +10,9 @@
     <div class="pqx-results-headline">
       <div class="pqx-note pqx-results-summary-row">
         <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
-        {% if not is_shortlist_surface and filtered_total %}
+        {% if filtered_total %}
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} candidates stayed outside the brief because of hard rules">
-          {{ filtered_total }} filtered
+          {{ filtered_total }} {{ 'outside brief' if is_shortlist_surface else 'filtered' }}
         </a>
         {% endif %}
         {% if not is_shortlist_surface and score_demoted_total %}

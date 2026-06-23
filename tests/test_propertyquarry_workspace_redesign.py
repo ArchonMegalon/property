@@ -1248,6 +1248,47 @@ def test_propertyquarry_shortlist_without_runs_renders_actionable_empty_state() 
     assert 'data-pqx-results-empty-state' in response.text
 
 
+def test_propertyquarry_shortlist_surfaces_filtered_control_when_run_has_held_back_candidates(monkeypatch) -> None:
+    principal_id = "pq-shortlist-filtered-control"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Shortlist Filtered Control Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-shortlist-filtered-control"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "held_back_total": 7,
+            "summary": {
+                "held_back_total": 7,
+                "filtered_total": 7,
+                "sources_total": 1,
+                "listing_total": 9,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-1",
+                        "title": "Probe flat",
+                        "fit_score": 81,
+                        "packet_url": f"/app/research/cand-1?run_id={run_id}",
+                        "property_url": "https://example.test/flat-1",
+                        "property_facts": {"postal_name": "1010 Wien"},
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/shortlist", params={"run_id": "run-probe"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "7 outside brief" in response.text
+    assert 'data-pqx-filtered-open' in response.text
+    assert "Probe flat" in response.text
+
+
 def test_propertyquarry_shortlist_prefers_live_run_results_over_stale_shortlist_meta(monkeypatch) -> None:
     principal_id = "pq-shortlist-live-results"
     client = build_property_client(principal_id=principal_id)
