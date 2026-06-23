@@ -27903,7 +27903,7 @@ class ProductService:
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
-        summary_lines.append("Matterport and 3DVista buttons appear only when a real provider export exists. Open Flythrough starts the verified video immediately.")
+        summary_lines.append("Matterport and 3DVista buttons appear only when a real provider export exists. Open Walkthrough starts the verified video immediately.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         deep_flythrough_url = ""
@@ -27995,7 +27995,7 @@ class ProductService:
         if video_url:
             deep_flythrough_url = _telegram_safe_url_button_target(video_url)
             if deep_flythrough_url:
-                second_row.append(("Open Flythrough", deep_flythrough_url))
+                second_row.append(("Open Walkthrough", deep_flythrough_url))
         safe_public_pdf_url = _autologin_button_url(public_pdf_url)
         if safe_public_pdf_url:
             second_row.append(("Open Dossier PDF", safe_public_pdf_url))
@@ -28491,7 +28491,7 @@ class ProductService:
             url_buttons.append(first_row[:2])
         second_row: list[tuple[str, str]] = []
         if direct_flythrough_url:
-            second_row.append(("Open Flythrough", direct_flythrough_url))
+            second_row.append(("Open Walkthrough", direct_flythrough_url))
         if second_row:
             url_buttons.append(second_row[:2])
         direct_matterport_url = str(compare_links.get("matterport") or "").strip()
@@ -30464,28 +30464,28 @@ class ProductService:
                 payload["flythrough_reason"] = str(flythrough_result.get("reason") or "").strip()
                 payload["flythrough_raw_status"] = str(raw_flythrough_result.get("status") or "").strip().lower()
                 if flythrough_url:
-                    status_label = "Flythrough ready"
-                    status_detail = "Flythrough is ready on this page."
+                    status_label = "Walkthrough ready"
+                    status_detail = "Walkthrough is ready on this page."
                 elif flythrough_status in {"rendered", "existing"}:
-                    status_label = "Flythrough ready"
-                    status_detail = "Flythrough is ready on this page."
+                    status_label = "Walkthrough ready"
+                    status_detail = "Walkthrough is ready on this page."
                 elif flythrough_status in {"queued", "pending"}:
-                    status_label = "Flythrough queued"
+                    status_label = "Walkthrough queued"
                     status_detail = "Queued. Opens here when ready."
                 elif flythrough_status in {"processing", "running", "in_progress", "started"}:
-                    status_label = "Flythrough rendering"
+                    status_label = "Walkthrough rendering"
                     status_detail = "Rendering now. Opens here when ready."
                 else:
                     payload["flythrough_status"] = "pending"
-                    status_label = "Flythrough queued"
+                    status_label = "Walkthrough queued"
                     status_detail = "Queued. It starts after the 3D tour is ready."
             elif tour_status in {"blocked", "failed", "skipped"}:
                 payload["flythrough_status"] = "blocked"
-                status_label = "Flythrough blocked"
+                status_label = "Walkthrough blocked"
                 status_detail = "More source material is needed first."
             else:
                 payload["flythrough_status"] = "pending"
-                status_label = "Flythrough queued"
+                status_label = "Walkthrough queued"
                 status_detail = "Queued. It starts after the 3D tour is ready."
         else:
             payload["tour_status"] = tour_status or str(payload.get("tour_status") or "").strip().lower()

@@ -3689,7 +3689,7 @@ def property_research_packet(
     elif property_url:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if flythrough_url:
-        hero_actions.append({"href": flythrough_url, "label": "Open flythrough", "external": False})
+        hero_actions.append({"href": flythrough_url, "label": "Open walkthrough", "external": False})
     elif flythrough_status in {"queued", "pending"} and property_url:
         hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": "Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically."})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
@@ -3700,7 +3700,7 @@ def property_research_packet(
         hero_actions.append({"href": str(candidate.get("packet_url") or review_url or "").strip(), "label": "Copy page link", "copy": True})
     visual_status_line = ""
     if flythrough_url:
-        visual_status_line = "Flythrough is ready on this page."
+        visual_status_line = "Walkthrough is ready on this page."
     elif flythrough_status in {"queued", "pending"}:
         visual_status_line = "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:

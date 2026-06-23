@@ -549,7 +549,7 @@ def test_telegram_bot_property_link_e2e_sends_diorama_photo_and_artifact_buttons
     flattened = [button for row in buttons for button in row]
     assert ("Open Matterport", "https://propertyquarry.com/tours/e2e-property-link/control/matterport") in flattened
     assert ("Open 3DVista", "https://propertyquarry.com/tours/e2e-property-link/control/3dvista") in flattened
-    assert ("Open Flythrough", "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4") in flattened
+    assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/e2e-property-link/tour.mp4") in flattened
     assert any(label == "Open Dossier PDF" for label, _url in flattened)
 
 
@@ -687,7 +687,7 @@ def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
     buttons = [button for row in list(sent_documents[-1]["url_buttons"] or []) for button in row]
     assert ("Open Matterport", "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport") in buttons
     assert ("Open 3DVista", "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista") in buttons
-    assert ("Open Flythrough", "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4") in buttons
+    assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4") in buttons
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=20, principal_id="exec-telegram-e2e-property-pdf"))
     assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)
 

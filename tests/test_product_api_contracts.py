@@ -1508,7 +1508,7 @@ def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(m
     assert "Most important facts: 2 rooms · 48 m2 · EUR 1.095 · Floorplan" in str(observed["message_text"])
     flattened_buttons = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened_buttons)
-    assert ("Open Flythrough", "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4") in flattened_buttons
+    assert ("Open Walkthrough", "https://propertyquarry.com/tours/test-telegram-bundle/video.mp4") in flattened_buttons
     assert not list(observed.get("inline_buttons") or [])
     assert "video_principal_id" not in observed
     assert "document_principal_id" not in observed
@@ -2351,7 +2351,7 @@ def test_deliver_telegram_property_link_bundle_uses_hosted_control_and_direct_ma
     buttons = list(observed["url_buttons"])
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened)
-    assert ("Open Flythrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4") in flattened
+    assert ("Open Walkthrough", "https://propertyquarry.com/tours/files/test-direct-targets/tour.mp4") in flattened
     assert any(label == "Open Dossier PDF" for label, _url in flattened)
 
 
@@ -2700,7 +2700,7 @@ def test_deliver_telegram_property_link_bundle_auto_renders_magicfit_flythrough(
     assert observed["magicfit_render"]["tour_url"] == "https://propertyquarry.com/tours/test-auto-magicfit-bundle"
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert (
-        "Open Flythrough",
+        "Open Walkthrough",
         "https://propertyquarry.com/tours/files/test-auto-magicfit-bundle/tour.mp4",
     ) in flattened
     assert "video_ref" not in observed
@@ -2840,7 +2840,7 @@ def test_deliver_telegram_property_link_bundle_prefers_hosted_control_and_magicf
     flattened = [button for row in list(observed.get("url_buttons") or []) for button in row]
     assert not any(label == "Open 3D Control" for label, _url in flattened)
     assert (
-        "Open Flythrough",
+        "Open Walkthrough",
         "https://propertyquarry.com/tours/files/test-direct-buttons-bundle/tour.mp4",
     ) in flattened
     assert "video_ref" not in observed
