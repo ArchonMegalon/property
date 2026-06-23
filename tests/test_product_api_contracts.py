@@ -22,6 +22,7 @@ import pytest
 
 import app.api.routes.channels as channel_routes
 import app.api.routes.product_api_delivery as product_api_delivery_routes
+import app.product.property_tour_hosting as property_tour_hosting
 import app.product.service as product_service
 from app.api.routes.workspace_sections import workspace_section_payload
 from app.product.service import ProductService
@@ -12981,6 +12982,13 @@ def test_property_tour_binding_bootstraps_crezlo_metadata_from_runtime_state(mon
 
 def test_property_tour_url_resolver_prefers_branded_link_even_when_legacy_fields_are_swapped(monkeypatch) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda tour_url: "https://myexternalbrain.com/tours/brigittenau-apartment-a/control/matterport"
+        if str(tour_url or "").strip() == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
+        else "",
+    )
     branded_url, vendor_url = product_service._resolve_property_tour_urls(
         {
             "crezlo_public_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
@@ -13002,6 +13010,51 @@ def test_property_tour_url_resolver_does_not_fallback_to_vendor_as_primary(monke
     )
     assert branded_url == ""
     assert vendor_url == "https://vendor.example.com/tours/brigittenau-apartment-a"
+
+
+def test_property_tour_url_resolver_does_not_promote_gallery_shell_as_real_3d(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    branded_url, vendor_url = product_service._resolve_property_tour_urls(
+        {
+            "hosted_url": "https://propertyquarry.com/tours/gallery-shell",
+            "public_url": "https://propertyquarry.com/tours/gallery-shell",
+            "scene_strategy": "photo_gallery_hosted",
+            "creation_mode": "hosted_photo_gallery_tour",
+        }
+    )
+    assert branded_url == ""
+    assert vendor_url == ""
+
+
+def test_property_tour_url_resolver_keeps_vendor_truth_when_branded_shell_has_only_unverified_vendor_hint(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    branded_url, vendor_url = product_service._resolve_property_tour_urls(
+        {
+            "hosted_url": "https://propertyquarry.com/tours/unverified-shell",
+            "public_url": "https://vendor.example.com/tours/unverified-shell",
+            "share_url": "https://vendor.example.com/share/unverified-shell",
+            "scene_strategy": "hosted_3d_tour",
+            "creation_mode": "hosted_listing_tour",
+        }
+    )
+    assert branded_url == ""
+    assert vendor_url == "https://vendor.example.com/tours/unverified-shell"
+
+
+def test_property_tour_url_resolver_keeps_external_live_360_as_vendor_truth(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    branded_url, vendor_url = product_service._resolve_property_tour_urls(
+        {
+            "hosted_url": "https://propertyquarry.com/tours/live-360-shell",
+            "public_url": "https://propertyquarry.com/tours/live-360-shell",
+            "source_virtual_tour_url": "https://viewer.example.test/360/room-1",
+            "scene_strategy": "live_360_embed",
+            "control_mode": "external_live_360",
+            "creation_mode": "embedded_live_360",
+        }
+    )
+    assert branded_url == ""
+    assert vendor_url == "https://viewer.example.test/360/room-1"
 
 
 def test_property_scout_tour_auto_create_skips_existing_vendor_url(monkeypatch) -> None:
@@ -23159,7 +23212,7 @@ def test_existing_hosted_walkthrough_is_reused_even_when_not_magicfit(monkeypatc
         "_hosted_property_tour_video_delivery",
         lambda tour_url: {
             "video_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
-            "flythrough_url": "https://propertyquarry.com/tours/demo?pane=flythrough-pane&autoplay=1",
+            "flythrough_url": "https://propertyquarry.com/tours/files/demo/tour.mp4",
             "provider_key": "local_slideshow",
             "duration_seconds": 120.0,
             "coverage_proof": "boundary_verified_frame_continuation",
@@ -23195,10 +23248,10 @@ def test_existing_hosted_walkthrough_is_reused_even_when_not_magicfit(monkeypatc
     assert result["status"] == "existing"
     assert result["provider_key"] == "local_slideshow"
     assert result["video_url"] == "https://propertyquarry.com/tours/files/demo/tour.mp4"
-    assert result["flythrough_url"] == "https://propertyquarry.com/tours/demo?pane=flythrough-pane&autoplay=1"
+    assert result["flythrough_url"] == "https://propertyquarry.com/tours/files/demo/tour.mp4"
 
 
-def test_normalize_property_flythrough_result_prefers_hosted_tour_deep_link() -> None:
+def test_normalize_property_flythrough_result_uses_published_video_url_when_flythrough_url_missing() -> None:
     result = product_service._normalize_property_flythrough_result(
         {
             "status": "rendered",
@@ -23208,7 +23261,7 @@ def test_normalize_property_flythrough_result_prefers_hosted_tour_deep_link() ->
     )
 
     assert result["video_url"] == "https://propertyquarry.com/tours/files/demo/tour.mp4"
-    assert result["flythrough_url"] == "https://propertyquarry.com/tours/demo?pane=flythrough-pane&autoplay=1"
+    assert result["flythrough_url"] == "https://propertyquarry.com/tours/files/demo/tour.mp4"
 
 
 def test_pdf_appendix_exit_gate_rejects_missing_hero_poster(tmp_path: Path) -> None:
@@ -23876,6 +23929,142 @@ def test_property_tour_compare_links_rejects_provider_lookalike_exports(monkeypa
 
     assert product_service._property_tour_compare_links("https://propertyquarry.com/tours/lookalike-tour") == {}
     assert product_service._hosted_property_tour_provider_export_keys("https://propertyquarry.com/tours/lookalike-tour") == ()
+
+
+def test_hosted_property_tour_verified_open_url_rejects_gallery_and_cube_fallbacks(monkeypatch, tmp_path: Path) -> None:
+    gallery_slug = "gallery-tour"
+    gallery_dir = tmp_path / gallery_slug
+    gallery_dir.mkdir(parents=True)
+    (gallery_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": gallery_slug,
+                "scene_strategy": "photo_gallery_hosted",
+                "scenes": [{"name": "Living", "role": "photo", "asset_relpath": "living.jpg"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cube_slug = "cube-tour"
+    cube_dir = tmp_path / cube_slug
+    cube_dir.mkdir(parents=True)
+    (cube_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": cube_slug,
+                "scene_strategy": "pure_360_cube",
+                "control_mode": "walkable_3d",
+                "walkable_scene": {"rooms": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(f"https://propertyquarry.com/tours/{gallery_slug}") == ""
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(f"https://propertyquarry.com/tours/{cube_slug}") == ""
+
+
+def test_hosted_property_tour_verified_open_url_targets_real_provider_lane(monkeypatch, tmp_path: Path) -> None:
+    slug = "provider-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "matterport_url": "https://my.matterport.com/show/?m=TEST123"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(f"https://propertyquarry.com/tours/{slug}") == (
+        f"https://propertyquarry.com/tours/{slug}/control/matterport"
+    )
+
+
+def test_hosted_property_tour_walkthrough_asset_url_requires_verified_published_asset(monkeypatch, tmp_path: Path) -> None:
+    unverified_slug = "unverified-walkthrough"
+    unverified_dir = tmp_path / unverified_slug
+    unverified_dir.mkdir(parents=True)
+    (unverified_dir / "tour.mp4").write_bytes(b"video")
+    (unverified_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": unverified_slug,
+                "video_provider": "magicfit",
+                "video_relpath": "tour.mp4",
+            }
+        ),
+        encoding="utf-8",
+    )
+    verified_slug = "verified-walkthrough"
+    verified_dir = tmp_path / verified_slug
+    verified_dir.mkdir(parents=True)
+    (verified_dir / "tour.mp4").write_bytes(b"video")
+    (verified_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": verified_slug,
+                "video_provider": "magicfit",
+                "video_relpath": "tour.mp4",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert property_tour_hosting._hosted_property_tour_walkthrough_asset_url(
+        f"https://propertyquarry.com/tours/{unverified_slug}"
+    ) == ""
+    assert property_tour_hosting._hosted_property_tour_walkthrough_asset_url(
+        f"https://propertyquarry.com/tours/{verified_slug}"
+    ) == f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
+    assert property_tour_hosting._published_walkthrough_asset_url(
+        f"https://propertyquarry.com/tours/files/{unverified_slug}/tour.mp4"
+    ) == ""
+    assert property_tour_hosting._published_walkthrough_asset_url(
+        f"https://propertyquarry.com/tours/files/{verified_slug}/other.mp4"
+    ) == ""
+    assert property_tour_hosting._published_walkthrough_asset_url(
+        f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
+    ) == f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
+
+
+def test_normalize_property_flythrough_result_requires_published_video_asset(monkeypatch, tmp_path: Path) -> None:
+    slug = "published-flythrough"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "video_provider": "magicfit",
+                "video_relpath": "tour.mp4",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    pending = product_service._normalize_property_flythrough_result(
+        {
+            "status": "processing",
+            "flythrough_url": "https://propertyquarry.com/tours/test-tour?pane=flythrough-pane&autoplay=1",
+        }
+    )
+    assert pending.get("flythrough_url", "") == ""
+    assert pending["status"] == "processing"
+
+    rendered = product_service._normalize_property_flythrough_result(
+        {
+            "status": "processing",
+            "video_url": f"https://propertyquarry.com/tours/files/{slug}/tour.mp4",
+        }
+    )
+    assert rendered["flythrough_url"] == f"https://propertyquarry.com/tours/files/{slug}/tour.mp4"
+    assert rendered["video_url"] == f"https://propertyquarry.com/tours/files/{slug}/tour.mp4"
+    assert rendered["status"] == "rendered"
 
 
 def test_matterport_thumb_url_rejects_lookalike_domain() -> None:

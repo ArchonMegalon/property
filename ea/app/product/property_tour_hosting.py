@@ -264,30 +264,215 @@ def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[s
     public_url = _first_non_empty_text(structured_output.get("public_url"))
     share_url = _first_non_empty_text(structured_output.get("share_url"))
     crezlo_public_url = _first_non_empty_text(structured_output.get("crezlo_public_url"))
-
-    branded_tour_url = _first_non_empty_text(
-        hosted_url if _is_branded_public_tour_url(hosted_url) else "",
-        public_url if _is_branded_public_tour_url(public_url) else "",
-        crezlo_public_url if _is_branded_public_tour_url(crezlo_public_url) else "",
-        share_url if _is_branded_public_tour_url(share_url) else "",
-    )
+    source_live_360_url = _embedded_live_360_source_url(structured_output)
+    source_live_360_provider = _property_tour_provider_host_kind(source_live_360_url)
+    branded_candidates = [
+        candidate
+        for candidate in (
+            hosted_url,
+            public_url,
+            crezlo_public_url,
+            share_url,
+        )
+        if _is_branded_public_tour_url(candidate)
+    ]
+    non_branded_vendor_candidates = [
+        candidate
+        for candidate in (
+            public_url,
+            share_url,
+            crezlo_public_url,
+        )
+        if candidate and not _is_branded_public_tour_url(candidate)
+    ]
+    branded_tour_url = ""
+    for candidate in branded_candidates:
+        if _hosted_property_tour_verified_open_url(candidate):
+            branded_tour_url = candidate
+            break
     vendor_tour_url = _first_non_empty_text(
-        public_url if public_url != branded_tour_url else "",
-        share_url if share_url != branded_tour_url else "",
-        crezlo_public_url if crezlo_public_url != branded_tour_url else "",
+        source_live_360_url,
+        public_url if public_url and not _is_branded_public_tour_url(public_url) and public_url != branded_tour_url else "",
+        share_url if share_url and not _is_branded_public_tour_url(share_url) and share_url != branded_tour_url else "",
+        crezlo_public_url
+        if crezlo_public_url and not _is_branded_public_tour_url(crezlo_public_url) and crezlo_public_url != branded_tour_url
+        else "",
     )
     return branded_tour_url, vendor_tour_url
 
 def _property_tour_payload_is_disabled_fallback(structured_output: dict[str, object]) -> bool:
     normalized = dict(structured_output or {})
-    if str(normalized.get("scene_strategy") or "").strip() == "generated_listing_summary":
+    scene_strategy = str(normalized.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(normalized.get("creation_mode") or "").strip().lower()
+    control_mode = str(normalized.get("control_mode") or "").strip().lower()
+    if scene_strategy in {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}:
         return True
-    if str(normalized.get("creation_mode") or "").strip() == "hosted_listing_fallback":
+    if creation_mode == "hosted_listing_fallback":
+        return True
+    if control_mode == "walkable_3d":
         return True
     scenes = [dict(entry) for entry in (normalized.get("scenes") or []) if isinstance(entry, dict)]
     if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
         return True
     return False
+
+
+def _hosted_property_tour_slug_from_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return ""
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ""
+    return str(path_parts[-1] or "").strip()
+
+
+def _hosted_property_tour_payload_for_url(tour_url: object) -> dict[str, object]:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url or not _is_branded_public_tour_url(normalized_url):
+        return {}
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if not slug:
+        return {}
+    payload = _load_hosted_property_tour_payload(_public_tour_dir() / slug)
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _hosted_property_tour_control_url(tour_url: object, *, viewer: str = "") -> str:
+    normalized = str(tour_url or "").strip()
+    if not normalized:
+        return ""
+    viewer_slug = str(viewer or "").strip().lower()
+    if viewer_slug == "metaport":
+        viewer_slug = "matterport"
+    if viewer_slug not in {"", "matterport", "3dvista"}:
+        viewer_slug = ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+        path = str(parsed.path or "").rstrip("/")
+        if path.endswith("/control/matterport") or path.endswith("/control/3dvista"):
+            path = path.rsplit("/control/", 1)[0]
+        elif path.endswith("/control"):
+            path = path[: -len("/control")]
+        path = f"{path}/control/{viewer_slug}" if viewer_slug else f"{path}/control"
+        return urllib.parse.urlunparse(parsed._replace(path=path, query="", fragment=""))
+    except Exception:
+        base = normalized.rstrip("/")
+        return f"{base}/control/{viewer_slug}" if viewer_slug else f"{base}/control"
+
+
+def _hosted_property_tour_has_matterport_export(tour_url: object) -> bool:
+    payload = _hosted_property_tour_payload_for_url(tour_url)
+    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
+        value = str(payload.get(key) or "").strip()
+        if value and _property_tour_provider_host_kind(value) == "matterport":
+            return True
+    return False
+
+
+def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
+    payload = _hosted_property_tour_payload_for_url(tour_url)
+    for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
+        value = str(payload.get(key) or "").strip()
+        if value and _property_tour_provider_host_kind(value) == "3dvista":
+            return True
+    for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
+        if str(payload.get(key) or "").strip():
+            return True
+    return False
+
+
+def _hosted_property_tour_verified_provider(tour_url: object) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    direct_provider = _property_tour_provider_host_kind(normalized_url)
+    if direct_provider:
+        return direct_provider
+    payload = _hosted_property_tour_payload_for_url(normalized_url)
+    if not payload or _property_tour_payload_is_disabled_fallback(payload):
+        return ""
+    if _hosted_property_tour_has_matterport_export(normalized_url):
+        return "matterport"
+    if _hosted_property_tour_has_3dvista_export(normalized_url):
+        return "3dvista"
+    return ""
+
+
+def _hosted_property_tour_verified_open_url(tour_url: object) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    provider = _hosted_property_tour_verified_provider(normalized_url)
+    if not provider:
+        return ""
+    if _property_tour_provider_host_kind(normalized_url) == provider:
+        return normalized_url
+    return _hosted_property_tour_control_url(normalized_url, viewer=provider)
+
+
+def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if not slug:
+        return ""
+    bundle_dir = _public_tour_dir() / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    if not payload or not isinstance(payload, dict):
+        return ""
+    video_relpath = str(payload.get("video_relpath") or "").strip().lstrip("/")
+    if not video_relpath:
+        return ""
+    video_path = (bundle_dir / video_relpath).resolve()
+    if bundle_dir.resolve() not in video_path.parents or not video_path.exists() or not video_path.is_file():
+        return ""
+    provider_key = str(
+        payload.get("video_provider")
+        or payload.get("video_provider_key")
+        or payload.get("video_render_provider")
+        or ""
+    ).strip().lower()
+    if not provider_key:
+        return ""
+    coverage_proof = str(payload.get("video_coverage_proof") or "").strip()
+    generated_video_providers = {"magicfit", "onemin_i2v", "ea_one_manager_onemin_i2v", "poppy_ai"}
+    if provider_key in generated_video_providers and coverage_proof != "boundary_verified_frame_continuation":
+        return ""
+    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
+
+
+def _published_walkthrough_asset_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return ""
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    if Path(str(parsed.path or "")).suffix.lower() not in {".mp4", ".m4v", ".mov", ".webm"}:
+        return ""
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) >= 4 and path_parts[0] == "tours" and path_parts[1] == "files":
+        slug = str(path_parts[2] or "").strip()
+        hosted_tour_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, f"/tours/{slug}", "", "", ""))
+        if _is_branded_public_tour_url(hosted_tour_url):
+            verified_asset_url = _hosted_property_tour_walkthrough_asset_url(hosted_tour_url)
+            canonical_candidate_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+            if not verified_asset_url or canonical_candidate_url != verified_asset_url:
+                return ""
+            return verified_asset_url
+    return normalized
 
 def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> str:
     slug = str(structured_output.get("slug") or "").strip()
