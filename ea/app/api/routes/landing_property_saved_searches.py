@@ -102,7 +102,7 @@ def build_property_search_agents(
     raw_property_search_agents = property_preferences.get("search_agents") if explicit_agent_list else []
 
     property_search_agents: list[dict[str, object]] = []
-    for index, agent in enumerate(raw_property_search_agents):
+    for agent in raw_property_search_agents:
         if not isinstance(agent, dict):
             continue
         property_search_agents.append(
@@ -119,32 +119,6 @@ def build_property_search_agents(
                 scope_preview_builder=scope_preview_builder,
             )
         )
-    if not property_search_agents and not explicit_agent_list:
-        property_search_agents = [
-            format_property_search_agent(
-                {
-                    "agent_id": str(property_preferences.get("active_search_agent_id") or "current").strip() or "current",
-                    "enabled": bool(property_preferences.get("search_agent_enabled")),
-                    "duration_days": default_duration_days,
-                    "notification_limit": default_notification_limit,
-                    "notification_period": default_notification_period,
-                    "location_query": str(property_preferences.get("location_query") or "").strip(),
-                    "listing_mode": selected_listing_mode,
-                    "country_code": str(property_preferences.get("country_code") or "AT").strip().upper(),
-                    "selected_platforms": selected_platforms,
-                    "is_active": True,
-                },
-                property_preferences=property_preferences,
-                selected_platforms=selected_platforms,
-                selected_listing_mode=selected_listing_mode,
-                search_mode_requested=search_mode_requested,
-                default_duration_days=default_duration_days,
-                default_notification_limit=default_notification_limit,
-                default_notification_period=default_notification_period,
-                normalize_property_type_values=normalize_property_type_values,
-                scope_preview_builder=scope_preview_builder,
-            )
-        ]
     active_agent = next(
         (agent for agent in property_search_agents if agent.get("is_active")),
         property_search_agents[0] if property_search_agents else {},
@@ -162,7 +136,7 @@ def build_agent_management_rows(
         if not isinstance(agent, dict):
             continue
         agent_id = urllib.parse.quote(str(agent.get("agent_id") or "current").strip() or "current", safe="")
-        edit_href = f"/app/properties?load_agent={agent_id}"
+        edit_href = f"/app/search?load_agent={agent_id}"
         open_href = f"/app/agents?agent_id={agent_id}"
         if run_id:
             suffix = urllib.parse.quote(run_id, safe="")

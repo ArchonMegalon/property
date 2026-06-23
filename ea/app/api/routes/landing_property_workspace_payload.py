@@ -1955,8 +1955,8 @@ def property_workspace_payload(
         ],
         "billing": [
             {"href": "/pricing", "label": "Open pricing", "tone": "primary"},
-            {"href": f"/app/properties{run_suffix}", "label": "Back to search"},
-            {"href": "/how-it-works", "label": "How it works"},
+            {"href": f"/app/properties{run_suffix}", "label": "Open run"},
+            {"href": "/how-it-works", "label": "Open guide"},
         ],
         "settings": [
             {"href": f"/app/properties{run_suffix}", "label": "Back to search", "tone": "primary"},
@@ -2777,15 +2777,20 @@ def property_workspace_payload(
                             payment_status_detail,
                             payment_status_tag,
                         ),
-                        row_item(
-                            "Change plan",
-                            (
-                                "Upgrade only when a real search hits the current allowance."
-                                if bool(property_state.get("billing_checkout_enabled"))
-                                else ("Current access is already active." if has_active_paid_plan else "Checkout appears here once billing is enabled for this workspace.")
+                        {
+                            **row_item(
+                                "Compare plans",
+                                (
+                                    "Review limits before the next upgrade."
+                                    if bool(property_state.get("billing_checkout_enabled"))
+                                    else ("Current access is already active." if has_active_paid_plan else "Checkout is not enabled for this workspace yet.")
+                                ),
+                                "Decision",
                             ),
-                            "Decision",
-                        ),
+                            "action_href": "/pricing",
+                            "action_method": "get",
+                            "action_label": "Compare plans",
+                        },
                     ],
                 },
             ],

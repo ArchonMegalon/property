@@ -1351,7 +1351,7 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
         "menu_label": menu_label,
         "profile_href": "/app/account#profile",
         "billing_href": "/app/billing",
-        "settings_href": "/app/account#settings",
+        "settings_href": "/app/account#connected-services",
         "sign_out_action": "/app/actions/sign-out",
         "sign_out_return_to": sign_out_return_to,
     }

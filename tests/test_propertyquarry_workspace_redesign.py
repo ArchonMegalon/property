@@ -683,6 +683,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert signed_in_sign_in.text.count(">Log out<") == 1
     assert 'href="/register">Create account</a>' not in signed_in_sign_in.text
     assert 'href="/app/properties">Open current session</a>' not in sign_in.text
+    assert sign_in.text.count('href="/sign-in/current-session"') == 1
+    assert signed_in_sign_in.text.count("Open current session") == 1
     assert "Google?" not in sign_in.text
     assert "Facebook?" not in sign_in.text
     assert "Use the path that matches how you joined" not in sign_in.text
@@ -6383,8 +6385,8 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert 'title="Delete saved search"' in page.text
     assert "Selected watch, delivery, repair" not in page.text
     assert "Limits" not in page.text
-    assert 'href="/app/agents"' in page.text
     assert 'href="/app/search' in page.text
+    assert "/app/properties?load_agent=" not in page.text
     assert "Run</button>" in page.text
     assert "Refresh" not in page.text
     assert 'class="pqx-automation-thumbnail-action">Edit</span>' in page.text
@@ -9694,6 +9696,8 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
     assert "Open billing" in account.text
+    assert 'id="connected-services"' in account.text
+    assert 'id="settings"' in account.text
     assert "Connections and privacy" in account.text
     assert "How it works" in account.text
     assert "Privacy" in account.text
@@ -9712,6 +9716,9 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     assert "Plan and payments" in rendered_text
     assert "Current access and payments" in rendered_text
     assert "When to upgrade" not in rendered_text
+    assert "Compare plans" in rendered_text
+    assert "Open guide" in rendered_text
+    assert "Back to search" not in rendered_text
 
 
 def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) -> None:

@@ -31,7 +31,7 @@
     {% set scope_preview = agent.get('scope_preview') or {} %}
     {% set scope_image_url = scope_preview.get('image_url') or '' %}
     {% set scope_preview_kind = scope_preview.get('preview_kind') or 'osm_map_pending' %}
-    {% set agent_load_href = '/app/search?load_agent=' ~ ((agent.get('agent_id') or 'current')|urlencode) %}
+    {% set agent_load_href = '/app/search?load_agent=' ~ ((agent.get('agent_id') or 'current')|urlencode) ~ (('&run_id=' ~ (run.get('run_id')|urlencode)) if run.get('run_id') else '') %}
     <article class="pqx-automation-card{% if agent.get('is_active') %} is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
       <button class="pqx-automation-delete" type="button" data-search-agent-action="delete" aria-label="Delete {{ agent.get('name') or 'saved search' }}" title="Delete saved search">&times;</button>
       <a class="pqx-automation-thumbnail" href="{{ agent_load_href }}" data-scope-preview-kind="{{ scope_preview_kind }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}">

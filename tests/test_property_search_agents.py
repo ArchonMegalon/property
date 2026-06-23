@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.api.routes.landing_property_saved_searches import format_property_search_agent
+from app.api.routes.landing_property_saved_searches import (
+    build_agent_management_rows,
+    build_property_search_agents,
+    format_property_search_agent,
+)
 import app.services.onboarding as onboarding_service
 from app.services.onboarding import OnboardingService
 from tests.product_test_helpers import build_property_client, start_workspace
@@ -146,6 +150,53 @@ def test_property_search_agents_can_delete_the_last_saved_search() -> None:
     preferences = deleted.json()["property_search_preferences"]
     assert preferences["search_agents"] == []
     assert preferences["active_search_agent_id"] == ""
+
+
+def test_unsaved_property_brief_is_not_exposed_as_saved_search() -> None:
+    agents, active_agent = build_property_search_agents(
+        {
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Vienna",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "selected_platforms": ["willhaben"],
+            "search_agent_enabled": True,
+            "search_agent_duration_days": 30,
+            "search_agent_notification_limit": 3,
+            "search_agent_notification_period": "week",
+        },
+        selected_platforms=["willhaben"],
+        selected_listing_mode="buy",
+        search_mode_requested="strict",
+        default_duration_days=30,
+        default_notification_limit=3,
+        default_notification_period="week",
+        normalize_property_type_values=lambda value: [str(value or "apartment")],
+        scope_preview_builder=lambda country, region, location: {"summary": f"{country}:{region}:{location}"},
+    )
+
+    assert agents == []
+    assert active_agent == {}
+
+
+def test_property_search_agent_management_rows_edit_in_search_editor() -> None:
+    rows = build_agent_management_rows(
+        [
+            {
+                "agent_id": "agent-vienna",
+                "name": "Vienna apartments",
+                "scope_label": "1020 Vienna",
+                "notification_label": "3 per week",
+                "run_label": "Waiting for first run",
+                "enabled": True,
+            }
+        ],
+        run_id="run-live-42",
+    )
+
+    assert rows[0]["action_href"] == "/app/agents?agent_id=agent-vienna&run_id=run-live-42"
+    assert rows[0]["secondary_action_href"] == "/app/search?load_agent=agent-vienna&run_id=run-live-42"
 
 
 def test_property_search_agent_loads_saved_filters_into_current_preferences() -> None:
