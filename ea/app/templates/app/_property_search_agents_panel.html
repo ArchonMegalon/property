@@ -4,7 +4,6 @@
   {% if card.get('eyebrow') == 'Latest outcomes' %}{% set outcomes_card.value = card %}{% endif %}
 {% endfor %}
 {% set run = workbench.get('run') or {} %}
-{% set run_suffix = ('?run_id=' ~ run.get('run_id')) if run.get('run_id') else '' %}
 {% set active_total = (search_agents|selectattr('enabled')|list)|length %}
 {% if surface_mode == 'agents' %}
 <section class="pqx-card pqx-automation-board is-compact" data-property-search-agent-management>
@@ -16,7 +15,7 @@
     </div>
     <div class="pqx-actions">
       <span class="pqx-pill">{{ active_total }} active</span>
-      <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">New search</a>
+      <a class="pqx-link-button primary" href="/app/properties">New search</a>
     </div>
   </div>
 
@@ -75,7 +74,7 @@
       <strong>No saved search yet</strong>
       <span>Save a search brief to create the first recurring search.</span>
       <div class="pqx-actions">
-        <a class="pqx-link-button primary" href="/app/search{{ run_suffix }}">Create saved search</a>
+        <a class="pqx-link-button primary" href="/app/properties">Create saved search</a>
       </div>
     </div>
     {% endfor %}

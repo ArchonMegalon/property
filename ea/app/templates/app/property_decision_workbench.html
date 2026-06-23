@@ -6418,7 +6418,7 @@
         {% if run_active and run.get('run_id') %}
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
         {% elif run_terminal_no_results %}
-        <a class="pqx-link-button primary" href="/app/search">New search</a>
+        <a class="pqx-link-button primary" href="/app/properties">New search</a>
         {% endif %}
         {% if account_nav %}
         <details class="pqx-account-menu">
@@ -6590,7 +6590,7 @@
               <strong>{% if dashboard_agents %}Search · Run · Shortlist{% else %}Create the first search brief{% endif %}</strong>
             </div>
             <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/search">New search</a>
+              <a class="pqx-link-button primary" href="/app/properties">New search</a>
               <a class="pqx-link-button subtle" href="/app/agents">Saved searches</a>
             </div>
             {% endif %}
@@ -7345,7 +7345,7 @@
             </div>
             {% endif %}
             <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/search">New search</a>
+              <a class="pqx-link-button primary" href="/app/properties">New search</a>
             </div>
           </div>
         </aside>
