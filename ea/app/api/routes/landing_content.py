@@ -26,7 +26,7 @@ PROPERTY_APP_NAV_GROUPS = (
     {
         "label": "PropertyQuarry",
         "items": (
-            {"href": "/app/properties", "label": "Home", "key": "properties"},
+            {"href": "/app/properties", "label": "Runs", "key": "properties"},
             {"href": "/app/search", "label": "Search", "key": "search"},
             {"href": "/app/agents", "label": "Search agents", "key": "agents"},
             {"href": "/app/account", "label": "Account", "key": "account"},
