@@ -1951,7 +1951,7 @@ def property_workspace_payload(
         ],
         "agents": [
             {"href": f"/app/search{run_suffix}", "label": "New search", "tone": "primary"},
-            {"href": f"/app/search{run_suffix}", "label": "Edit brief"},
+            {"href": selected_agent_edit_href or f"/app/search{run_suffix}", "label": "Edit brief"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
         ],
         "billing": [

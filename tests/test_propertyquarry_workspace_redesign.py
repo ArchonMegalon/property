@@ -6653,6 +6653,49 @@ def test_property_agents_surface_uses_map_only_preview_for_saved_search_cards(mo
     assert map_preview_calls == [("AT", "vienna", "1020 Vienna")]
 
 
+def test_property_agents_hero_edit_brief_opens_selected_saved_search() -> None:
+    principal_id = "pq-agent-hero-edit-brief"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Saved Search Hero")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "1020 Vienna",
+            "active_search_agent_id": "agent-vienna",
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna",
+                    "name": "Vienna rent watch",
+                    "enabled": True,
+                    "country_code": "AT",
+                    "region_code": "vienna",
+                    "location_query": "1020 Vienna",
+                    "listing_mode": "rent",
+                    "property_type": "apartment",
+                    "preferences_json": {
+                        "country_code": "AT",
+                        "region_code": "vienna",
+                        "location_query": "1020 Vienna",
+                        "listing_mode": "rent",
+                    },
+                }
+            ],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    page = client.get("/app/agents?agent_id=agent-vienna", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert 'href="/app/search?load_agent=agent-vienna"' in page.text
+    assert 'href="/app/search">Edit brief</a>' not in page.text
+
+
 def test_property_agents_surface_renders_map_preview_for_every_saved_search(monkeypatch) -> None:
     principal_id = "pq-agent-preview-all"
     client = build_property_client(principal_id=principal_id)
