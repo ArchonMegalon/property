@@ -7557,7 +7557,7 @@ def test_propertyquarry_empty_completed_run_uses_premium_no_match_copy() -> None
     )
 
     assert "No matches yet" in body
-    assert "No matches yet." in body
+    assert "No shortlist yet." in body
 
 
 def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatch) -> None:

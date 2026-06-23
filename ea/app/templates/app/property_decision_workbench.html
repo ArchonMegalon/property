@@ -3776,7 +3776,7 @@
       box-shadow: 0 18px 42px rgba(74, 61, 44, 0.12);
     }
     .pqx-empty-results-completed .pqx-run-hero {
-      gap: 10px;
+      gap: 8px;
       padding: 12px;
       box-shadow: 0 12px 28px rgba(74, 61, 44, 0.08);
     }
@@ -3799,8 +3799,7 @@
       padding: 8px 10px;
     }
     .pqx-empty-results-completed .pqx-empty-outcome-summary {
-      margin-top: 0 !important;
-      padding: 10px;
+      display: none;
     }
     .pqx-empty-results-failed .pqx-title {
       display: grid;
@@ -3824,14 +3823,7 @@
       padding: 8px 10px;
     }
     .pqx-empty-results-failed .pqx-empty-outcome-summary {
-      margin-top: 0 !important;
-      padding: 10px;
-    }
-    .pqx-empty-results-failed .pqx-pref-list {
-      gap: 8px;
-    }
-    .pqx-empty-results-failed .pqx-pref-row {
-      padding: 8px 10px;
+      display: none;
     }
     .pqx-empty-results .pqx-command {
       align-self: start;
@@ -3861,7 +3853,24 @@
       color: #5f574d;
     }
     .pqx-empty-results [data-pqx-run-summary] {
-      display: none;
+      display: block;
+      color: #5f574d;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .pqx-empty-outcome-line {
+      margin: 0;
+    }
+    .pqx-empty-outcome-next {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .pqx-empty-outcome-next .pqx-small {
+      color: var(--pq-muted);
+      line-height: 1.4;
     }
     .pqx-empty-results .pqx-fact {
       border-color: var(--pq-line);
@@ -7289,6 +7298,10 @@
       </section>
       {% elif run_terminal_no_results %}
       {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
+      {% set empty_still_worked = (empty_outcome.get('still_worked') or '')|trim %}
+      {% set empty_active_rule = (empty_outcome.get('active_rule') or '')|trim %}
+      {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
+      {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results" data-pqx-screenfit-target="run-progress">
           <div class="pqx-title">
@@ -7297,12 +7310,12 @@
               {% if run_status == 'failed' %}
                 {{ empty_outcome.get('happened') or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
               {% else %}
-                {{ empty_outcome.get('happened') or 'No matches yet.' }}
+                {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
               {% endif %}
             </h1>
-            <div class="pqx-note" data-pqx-run-summary>
-              {{ empty_outcome.get('eta_feedback') or empty_outcome.get('still_worked') or ('Repair is checking the run.' if run_status == 'failed' else 'No strong matches cleared the current brief.') }}
-            </div>
+            <p class="pqx-note pqx-empty-outcome-line" data-pqx-run-summary>
+              {{ empty_eta_feedback or empty_still_worked or ('Repair is checking the run.' if run_status == 'failed' else 'No strong matches cleared the current brief.') }}
+            </p>
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
@@ -7315,17 +7328,12 @@
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
               {% endif %}
             </div>
-              <div class="pqx-card pqx-empty-outcome-summary" style="margin-top:12px;">
-              {% set empty_happened = (empty_outcome.get('happened') or '')|trim %}
-              {% set empty_still_worked = (empty_outcome.get('still_worked') or '')|trim %}
-              {% set empty_active_rule = (empty_outcome.get('active_rule') or '')|trim %}
-              {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
-              {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
-              <div class="pqx-pref-list">
-                <div class="pqx-pref-row"><div><strong>What changed</strong><small>{{ empty_still_worked or ('The brief was saved and is ready for the next pass.' if run_status != 'failed' else 'The saved brief stays intact while repair retries the interrupted run.') }}</small></div></div>
-                <div class="pqx-pref-row"><div><strong>Next</strong><small>{{ empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one rule first, then rerun.') }}</small></div></div>
-              </div>
+            {% if empty_active_rule or empty_next_move %}
+            <div class="pqx-empty-outcome-next">
+              {% if empty_active_rule %}<span class="pqx-pill">{{ empty_active_rule }}</span>{% endif %}
+              <span class="pqx-small">{{ empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.') }}</span>
             </div>
+            {% endif %}
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
             </div>
@@ -7337,8 +7345,8 @@
           {% if not ranked_candidates %}
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
             <div>
-                <h2>How to widen the brief</h2>
-                <div class="pqx-note" data-pqx-run-summary">{{ empty_outcome.get('next_move') or 'Relax one rule at a time so the next shortlist stays easy to compare.' }}</div>
+                <h2>Widen the brief</h2>
+                <div class="pqx-note" data-pqx-run-summary">{{ empty_next_move or 'Relax one hard rule at a time so the next shortlist stays easy to compare.' }}</div>
               </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
