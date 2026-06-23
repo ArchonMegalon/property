@@ -436,6 +436,7 @@ def property_workspace_payload(
     selected_candidate_ref = str(property_state.get("selected_candidate_ref") or "").strip()
     run_id = str(run_payload.get("run_id") or "").strip()
     run_suffix = f"?run_id={run_id}" if run_id else ""
+    signed_in_billing_href = str(billing_handoff.get("open_href") or "").strip() or f"/app/billing{run_suffix}"
     search_posture_items = list(search_posture_card.get("items") or [])
     fleet_digest = dict(billing_truth.get("fleet_digest") or property_state.get("fleet_digest") or {}) if wants_credit_digest else {}
     fleet_digest_items = [
@@ -1956,7 +1957,7 @@ def property_workspace_payload(
         ],
         "billing": [
             {
-                "href": str(billing_handoff.get("open_href") or "/pricing"),
+                "href": signed_in_billing_href,
                 "label": "Open billing" if billing_handoff.get("available") else "Open pricing",
                 "tone": "primary",
             },
@@ -1966,7 +1967,7 @@ def property_workspace_payload(
         "settings": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": "/how-it-works", "label": "How it works"},
-            {"href": "/pricing", "label": "Open pricing"},
+            {"href": signed_in_billing_href, "label": "Open pricing"},
         ],
     }
     hero_highlights = {
@@ -2792,7 +2793,7 @@ def property_workspace_payload(
                                 ),
                                 "Decision",
                             ),
-                            "action_href": "/pricing",
+                            "action_href": signed_in_billing_href,
                             "action_method": "get",
                             "action_label": "Compare plans",
                         },
@@ -2903,7 +2904,7 @@ def property_workspace_payload(
             "hero_actions": [
                 {"href": f"/app/search{run_suffix}", "label": "Edit search", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-                {"href": "/pricing", "label": "Open pricing"},
+                {"href": signed_in_billing_href, "label": "Open pricing"},
             ],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
@@ -2952,7 +2953,7 @@ def property_workspace_payload(
                         "title": "Pricing",
                         "detail": "Compare tiers.",
                         "tag": "Public",
-                        "action_href": "/pricing",
+                        "action_href": signed_in_billing_href,
                         "action_method": "get",
                         "action_label": "Open pricing",
                     },
