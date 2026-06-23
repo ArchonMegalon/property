@@ -411,7 +411,8 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Identity and return access" in settings.text
     assert "Google sign-in" in settings.text
     assert "Current search brief state" in settings.text
-    assert "Operating posture" in settings.text
+    assert "Operating posture" not in settings.text
+    assert "Notifications" in settings.text
     assert "Open pricing" in settings.text
     assert "How it works" in settings.text
     assert "Sync runs" not in settings.text
