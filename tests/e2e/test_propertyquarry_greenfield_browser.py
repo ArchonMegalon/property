@@ -2957,7 +2957,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=True, width=390, height=844)
     routes = [
-        ("/app/agents", "Automation", "propertyquarry-agents-mobile.png"),
+        ("/app/agents", "Saved searches", "propertyquarry-agents-mobile.png"),
         ("/app/account", "Account", "propertyquarry-account-mobile.png"),
         ("/app/billing", "Billing", "propertyquarry-billing-mobile.png"),
     ]

@@ -5607,7 +5607,7 @@ def test_property_workspace_hero_actions_use_visible_propertyquarry_surfaces() -
     body = _read_workbench_bundle()
     assert "Search" in body
     assert "Shortlist" in body
-    assert "Automation" in body
+    assert "Saved searches" in body
 
 
 def test_property_workspace_sign_out_clears_workspace_session_cookie() -> None:
@@ -6416,7 +6416,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
 
     page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
     assert page.status_code == 200
-    assert "Automation" in page.text
+    assert ">Automation<" not in page.text
     assert "Vienna apartments" in page.text
     assert "Monteverde land" in page.text
     assert "Saved searches" in page.text
@@ -6985,7 +6985,7 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert 'class="pqx-previous-open-link"' in body
     assert 'data-pqx-delete-run="' in body
     assert "data-pqx-dashboard-summary" in body
-    assert "Automation" in body
+    assert "Saved searches" in body
     assert "Start" in body
     assert "Recent decisions and reviews" in body
     assert "pqx-previous-scope-caption" in body
@@ -8874,7 +8874,7 @@ def test_propertyquarry_workspace_setup_stays_user_facing(monkeypatch) -> None:
     assert "Run" in response.text
     assert "Search" in response.text
     assert "Shortlist" in response.text
-    assert "Automation" in response.text
+    assert "Saved searches" in response.text
     assert "Build the brief. Then let the agents work." not in response.text
 
 
@@ -10171,7 +10171,8 @@ def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     assert ">Search<" in response.text
     assert ">Run<" not in response.text
     assert ">Shortlist<" in response.text
-    assert ">Automation<" in response.text
+    assert ">Saved searches<" in response.text
+    assert ">Automation<" not in response.text
     assert ">Account<" in response.text
     assert 'href="/app/research"' not in response.text
     assert ">Alerts<" not in response.text

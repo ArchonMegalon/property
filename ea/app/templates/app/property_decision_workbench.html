@@ -6375,9 +6375,9 @@
         <a href="/app/shortlist">Shortlist</a>
         {% endif %}
         {% if surface_mode == 'agents' %}
-        <span class="is-active" aria-current="page">Automation</span>
+        <span class="is-active" aria-current="page">Saved searches</span>
         {% else %}
-        <a href="/app/agents">Automation</a>
+        <a href="/app/agents">Saved searches</a>
         {% endif %}
         {% if surface_mode == 'billing' %}
         <span class="is-active" aria-current="page">Billing</span>
@@ -6471,7 +6471,7 @@
       <div class="pqx-mobile-switch" aria-label="PropertyQuarry view mode" data-property-mobile-dock>
         {% if has_mobile_results_panel %}<button class="pqx-mode-button{% if mobile_primary == 'results' %} active{% endif %}" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">{% if setup_mode and surface_mode in ['agents', 'alerts', 'account', 'billing'] %}Overview{% else %}Results{% endif %}</button>{% endif %}
         {% if has_mobile_property_panel %}<button class="pqx-mode-button{% if mobile_primary == 'property' %} active{% endif %}" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">{% if run_visible %}Run{% elif run_terminal_no_results %}Details{% else %}Property{% endif %}</button>{% endif %}
-        {% if has_mobile_brief_panel %}<button class="pqx-mode-button{% if mobile_primary == 'brief' %} active{% endif %}" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">{% if surface_mode == 'agents' %}Automation{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'account' %}Account{% elif surface_mode == 'billing' %}Billing{% else %}Search{% endif %}</button>{% endif %}
+        {% if has_mobile_brief_panel %}<button class="pqx-mode-button{% if mobile_primary == 'brief' %} active{% endif %}" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">{% if surface_mode == 'agents' %}Saved searches{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'account' %}Account{% elif surface_mode == 'billing' %}Billing{% else %}Search{% endif %}</button>{% endif %}
       </div>
       {% endif %}
 
@@ -6591,7 +6591,7 @@
             </div>
             <div class="pqx-actions">
               <a class="pqx-link-button primary" href="/app/search">New search</a>
-              <a class="pqx-link-button subtle" href="/app/agents">Automation</a>
+              <a class="pqx-link-button subtle" href="/app/agents">Saved searches</a>
             </div>
             {% endif %}
           </div>
@@ -6722,7 +6722,7 @@
             <div>
               <h2>
                 {% if surface_mode == 'agents' %}
-                Automation
+                Saved searches
                 {% elif surface_mode == 'alerts' %}
                 Alerts
                 {% elif surface_mode == 'billing' %}

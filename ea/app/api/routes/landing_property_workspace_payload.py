@@ -1926,12 +1926,12 @@ def property_workspace_payload(
         "properties": [
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
             {"href": f"/app/search{run_suffix}", "label": "Edit brief"},
-            {"href": f"/app/agents{run_suffix}", "label": "Automation"},
+            {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
         ],
         "shortlist": [
             {"href": f"/app/properties{run_suffix}", "label": "Open run", "tone": "primary"},
             {"href": f"/app/search{run_suffix}", "label": "Refine search"},
-            {"href": f"/app/agents{run_suffix}", "label": "Automation"},
+            {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
         ],
         "research": [
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
@@ -2498,7 +2498,7 @@ def property_workspace_payload(
             "hero_actions": [{"href": f"/app/search{run_suffix}", "label": "Open search"}, {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"href": f"/app/search{run_suffix}", "label": "Refine search", "tone": "primary"},
                 {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-                {"href": f"/app/agents{run_suffix}", "label": "Automation"},
+                {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
             ]),
             "hero_highlights": [
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
@@ -2638,9 +2638,9 @@ def property_workspace_payload(
             "show_shortlist_cards": False,
         },
         "agents": {
-            "title": "Automation",
+            "title": "Saved searches",
             "summary": "Edit saved searches, start a fresh sweep, and open recent outcomes.",
-            "hero_kicker": "Automation",
+            "hero_kicker": "Saved searches",
             "hero_title": "Saved searches.",
             "hero_summary": f"{sum(1 for agent in property_search_agents if agent.get('enabled'))} active | {len(property_search_agents)} saved.",
             "hero_actions": hero_actions["agents"],
@@ -2854,7 +2854,7 @@ def property_workspace_payload(
                     "title": "Reports and alerts",
                     "body": "",
                     "items": [
-                        row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Automation"),
+                        row_item("Recurring searches", f"{len(property_search_agents)} saved searches ready to rerun or edit.", "Saved searches"),
                         row_item("Delivery", "Digests and recurring market watches use your saved-search settings and chosen channel.", "Reports"),
                         row_item("Return access", str(google.get("connected_account_email") or "Sign-in without widening scope."), "Identity"),
                     ],
