@@ -2499,6 +2499,66 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         context.close()
 
 
+def test_propertyquarry_visual_request_does_not_invent_eta_before_backend_supplies_one(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        time.sleep(0.8)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-06-21T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Listing URL only loft",
+                    "request_kind": visual_requests[-1].get("request_kind", "flythrough"),
+                    "tour_url": "",
+                    "flythrough_url": "",
+                    "flythrough_status": "pending",
+                    "status_label": "Walkthrough queued",
+                    "status_detail": "Walkthrough is queued after your request.",
+                    "eta_label": "",
+                    "progress_pct": 18,
+                    "poll_after_seconds": 0,
+                    "delivery_status": "skipped",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        row = page.locator("[data-workbench-row]", has_text="Listing URL only loft").first
+        row.wait_for(timeout=5000)
+        packet_href = str(row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        request_button = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
+        request_button.click()
+        page.wait_for_timeout(900)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5000)
+        assert (page.locator("[data-prd-visual-eta]").inner_text() or "").strip() == ""
+    finally:
+        context.close()
+
+
 def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_vienna(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

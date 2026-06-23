@@ -706,16 +706,14 @@
         candidate.tour_status = nextTourStatus;
         candidate.flythrough_url = nextFlythroughUrl;
         candidate.flythrough_status = nextFlythroughStatus;
-        const flythroughEtaLabel = nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending'
-          ? 'about 10 min'
-          : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus) ? 'about 5 min' : '');
+        const flythroughEtaLabel = String(payload.eta_label || '').trim();
         const flythroughDetail = nextFlythroughUrl
           ? 'Walkthrough ready'
           : (String(payload.status_detail || '').trim()
             || (nextFlythroughStatus === 'queued' || nextFlythroughStatus === 'pending'
-              ? 'Queued after your request.'
+              ? 'Queued. Estimating timing...'
               : (['processing', 'running', 'in_progress', 'started', 'rendering'].includes(nextFlythroughStatus)
-                ? 'Rendering from the top-ranked home.'
+                ? 'Rendering from the source material.'
                 : '')));
         const flythroughProgress = nextFlythroughUrl
           ? 100

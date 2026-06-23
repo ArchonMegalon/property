@@ -2115,9 +2115,9 @@
         state: 'queued',
         label: requestKind === 'flythrough' ? 'Walkthrough queued' : '3D tour queued',
         detail: requestKind === 'flythrough'
-          ? 'Queueing walkthrough...'
-          : 'Queueing 3D tour...',
-        eta: 'about 10 min',
+          ? 'Queued. Estimating timing...'
+          : 'Queued. Estimating timing...',
+        eta: '',
         progress: requestKind === 'flythrough' ? 18 : 14,
       });
       let requestSucceeded = false;
