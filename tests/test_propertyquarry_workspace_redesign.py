@@ -103,6 +103,9 @@ def test_property_results_empty_state_keeps_shortlist_minimal() -> None:
     body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
 
     assert "No shortlist yet." in body
+    assert 'href="/app/search"' in body
+    assert 'href="/app/properties">Start search</a>' not in body
+    assert 'data-pw-shortlist-empty-cta' in body
     assert "Shortlisted homes stay here across searches until you remove them." not in body
     assert "Open automation" not in body
 
@@ -209,11 +212,47 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "pqx-progress-button is-processing" in review
     assert "Share results" in review
     assert 'data-pw-shortlist-empty-state' in review
+    assert 'data-pw-shortlist-empty-cta' in review
     assert "shortlisted opportunities" in script
     assert "shortlisted homes" in script
     assert "reconcileShortlistArchive" in script
     assert "setShortlistReviewEmptyState(true);" in script
     assert "selectCandidate(nextCandidateRef);" in script
+
+
+def test_property_shortlist_empty_state_stays_aligned_across_ssr_review_and_js_paths() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    results = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
+    review = (repo_root / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+    script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+
+    expected_cta = 'href="/app/search"'
+    expected_copy = "No shortlist yet."
+
+    assert expected_copy in results
+    assert expected_copy in review
+    assert "const shortlistEmptyCtaHref = () => '/app/search';" in script
+    assert 'data-pw-shortlist-empty-cta' in results
+    assert 'data-pw-shortlist-empty-cta' in review
+    assert expected_cta in results
+    assert expected_cta in review
+    assert 'data-pw-shortlist-empty-cta>Start search</a>' in script
+    assert 'href="/app/properties">Start search</a>' not in results
+
+
+def test_property_shortlist_archive_reconciliation_bundle_clears_selection_without_reload() -> None:
+    body = _read_workbench_bundle()
+
+    assert "const archivedCandidateRef = String(explicitCandidateRef || candidate.candidate_ref || '').trim();" in body
+    assert "if (shortlistSurface && decisionState === 'archived') {" in body
+    assert "reconcileShortlistArchive(archivedCandidateRef);" in body
+    assert "selectedFeedbackCandidateRef = '';" in body
+    assert "replaceCandidateQueryParam('');" in body
+    assert "if (!candidates.length) {" in body
+    assert "if (resultsList) resultsList.innerHTML = shortlistEmptyResultsMarkup();" in body
+    assert "setShortlistReviewEmptyState(true);" in body
+    assert "const nextCandidateRef = String(root.querySelector('[data-workbench-row]')?.getAttribute('data-candidate-ref') || candidates[0]?.candidate_ref || '').trim();" in body
+    assert "window.location.reload();" not in body
 
 
 def test_property_research_detail_right_rail_stays_compact() -> None:

@@ -502,8 +502,9 @@
         : (goal === 'investment' ? 'ranked opportunities' : 'ranked homes');
       rankedLink.innerHTML = `<b>${remaining}</b> ${resultsLabel}`;
     };
+    const shortlistEmptyCtaHref = () => '/app/search';
     const shortlistEmptyResultsMarkup = () => (
-      '<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="/app/search">Start search</a></span></div>'
+      `<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="${escapeHtml(shortlistEmptyCtaHref())}" data-pw-shortlist-empty-cta>Start search</a></span></div>`
     );
     const setShortlistReviewEmptyState = (isEmpty) => {
       const reviewContent = root.querySelector('[data-pw-review-content]');
@@ -535,9 +536,9 @@
       const resultsList = root.querySelector('[data-workbench-results-table]');
       if (!candidates.length) {
         if (resultsList) resultsList.innerHTML = shortlistEmptyResultsMarkup();
-        setShortlistReviewEmptyState(true);
         selectedFeedbackCandidateRef = '';
         replaceCandidateQueryParam('');
+        setShortlistReviewEmptyState(true);
         return true;
       }
       setShortlistReviewEmptyState(false);
@@ -1731,7 +1732,7 @@
             </div>
             <div class="pqx-results-list" id="results-list" data-workbench-results-table>
               ${shortlistSurface
-                ? '<div class="pqx-empty pqx-results-empty-state" data-pqx-results-empty-state><strong>No shortlist yet.</strong><span class="pqx-actions"><a class="pqx-button primary" href="/app/search">Start search</a></span></div>'
+                ? shortlistEmptyResultsMarkup()
                 : '<div class="pqx-empty">No ranked homes are ready yet. Relax one hard rule to rank more homes.</div>'}
             </div>
             ${filteredBreakdown}
@@ -3804,12 +3805,10 @@
         if (!candidate || !decisionState) return;
         const result = await recordDecisionState(candidate, decisionState, decisionStateStatusNode);
         if (!result) return;
+        const archivedCandidateRef = String(explicitCandidateRef || candidate.candidate_ref || '').trim();
         if (shortlistSurface && decisionState === 'archived') {
-          reconcileShortlistArchive(String(candidate.candidate_ref || explicitCandidateRef || '').trim());
+          reconcileShortlistArchive(archivedCandidateRef);
           return;
-        }
-        if (button.hasAttribute('data-pw-remove-row')) {
-          window.location.reload();
         }
       });
     });
