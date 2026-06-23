@@ -237,7 +237,7 @@
     <p class="lead">Use a saved session, email link, or connected identity.</p>
     <div class="cta-row">
       {% if public_signed_in %}
-      <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
+      <a class="btn primary" href="{{ brand.app_home or '/app/properties' }}">Open run</a>
       <form method="post" action="/app/actions/sign-out">
         <input type="hidden" name="return_to" value="/sign-in?signing_in=1">
         <button class="btn" type="submit">Log out</button>

@@ -1920,7 +1920,7 @@ def landing(
         and authenticated_principal
         and not _landing_public_home_requested(request)
     ):
-        return RedirectResponse("/app/search", status_code=307)
+        return RedirectResponse(str(brand.get("app_home") or "/app/properties"), status_code=307)
     principal_id = _principal_for_page(container=container, access_identity=access_identity, request=request)
     status = _anonymous_onboarding_status()
     if principal_id:
@@ -2875,7 +2875,7 @@ def sign_in_current_session(
         request=request,
     )
     if principal_id:
-        return RedirectResponse(str(request_brand(request).get("app_home") or "/app/search"), status_code=303)
+        return RedirectResponse(str(request_brand(request).get("app_home") or "/app/properties"), status_code=303)
     return RedirectResponse("/sign-in?current_session=missing", status_code=303)
 
 
@@ -3279,8 +3279,8 @@ def workspace_invite_accept(
         ],
         primary_action_href="/sign-in",
         primary_action_label="Continue to sign in",
-        secondary_action_href=str(request_brand(request).get("app_home") or "/app/today"),
-        secondary_action_label="Open search",
+        secondary_action_href=str(request_brand(request).get("app_home") or "/app/properties"),
+        secondary_action_label="Open run",
     )
 
 
@@ -3291,7 +3291,7 @@ def get_started() -> RedirectResponse:
 
 @router.get("/app", response_class=HTMLResponse)
 def app_root(request: Request) -> RedirectResponse:
-    return RedirectResponse(str(request_brand(request).get("app_home") or "/app/today"), status_code=307)
+    return RedirectResponse(str(request_brand(request).get("app_home") or "/app/properties"), status_code=307)
 
 
 @router.get("/app/research/{candidate_ref}", response_class=HTMLResponse)

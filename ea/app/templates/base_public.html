@@ -816,7 +816,7 @@
       <div class="actions">
         {% if not signing_in_progress and not hide_public_auth_actions %}
         {% if public_signed_in %}
-        <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
+        <a class="btn primary" href="{{ brand.app_home or '/app/properties' }}">Open run</a>
         <form method="post" action="/app/actions/sign-out">
           <input type="hidden" name="return_to" value="/">
           <button class="btn ghost" type="submit">Log out</button>
