@@ -108,6 +108,8 @@ def _assert_internal_links_resolve(client: TestClient, *, source_path: str, html
 
 
 def test_public_surface_routes_render_and_keep_product_language() -> None:
+    from ea.app.api.routes.landing_content import LANDING_FAQS, SIGN_IN_NOTES
+
     client = _client()
     for path in PUBLIC_ROUTES:
         response = client.get(path)
@@ -121,6 +123,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Hard filters stay hard" in landing.text
     assert "Preferences score" in landing.text
     assert "sample-memo" not in landing.text
+    assert (
+        "from account settings" not in landing.text.lower()
+        and "from preferences" not in landing.text.lower()
+        and "from account, with connections inside it" in landing.text.lower()
+    )
 
     directory = client.get("/directory")
     assert directory.status_code == 200
@@ -174,6 +181,12 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Use a saved session, email link, or connected identity." in sign_in.text
     assert "Identity only" not in sign_in.text
     assert "Choose the narrowest sign-in path" not in sign_in.text
+    assert (
+        "from account settings" not in next(row["answer"] for row in LANDING_FAQS if row["question"] == "Can I start alone and add others later?").lower()
+        and "from preferences" not in " ".join(SIGN_IN_NOTES).lower()
+        and "account, with connections inside it" in next(row["answer"] for row in LANDING_FAQS if row["question"] == "Can I start alone and add others later?").lower()
+        and "account, with connections inside it" in " ".join(SIGN_IN_NOTES).lower()
+    )
 
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")

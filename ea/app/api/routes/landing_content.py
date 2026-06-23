@@ -102,7 +102,7 @@ LANDING_FAQS = (
     },
     {
         "question": "Can I start alone and add others later?",
-        "answer": "Yes. Start with a private account, then add shared review and commercial seats later from account settings.",
+        "answer": "Yes. Start with a private account, then add shared review and commercial seats later from Account, with Connections inside it.",
     },
 )
 
@@ -119,7 +119,7 @@ SIGN_IN_NOTES = (
     "Return through a current session, a secure email link, an account invite, or SSO.",
     "Create a PropertyQuarry account from /register if you are starting fresh.",
     "Google connection is optional identity and return access, not the required center of the product.",
-    "Shared review, billing, and broader account controls come later from Preferences after the first shortlist proves useful.",
+    "Shared review, billing, and broader account controls come later from Account, with Connections inside it, after the first shortlist proves useful.",
 )
 
 PRICING_TIERS = (
