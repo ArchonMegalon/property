@@ -184,7 +184,7 @@ def test_property_workspace_payload_strips_same_surface_card_actions() -> None:
 
     assert "action_href" not in scope_row
     assert "action_label" not in scope_row
-    assert scope_row.get("secondary_action_href") == "/app/properties"
+    assert scope_row.get("secondary_action_href") == "/app/search"
     assert scope_row.get("secondary_action_label") == "Edit"
 
 
@@ -2402,7 +2402,7 @@ def test_property_search_agent_selection_snapshot_is_typed_and_linked() -> None:
     assert snapshot["selected_agent"]["location_query"] == "Graz"
     assert snapshot["selected_agent_latest_run"]["run_id"] == "run-1"
     assert "agent_id=agent-b" in snapshot["selected_agent_open_href"]
-    assert "run_id=run-live" in snapshot["selected_agent_edit_href"]
+    assert snapshot["selected_agent_edit_href"] == "/app/search?load_agent=agent-b&run_id=run-live"
 
 
 def test_property_workbench_candidate_snapshot_carries_detail_state() -> None:

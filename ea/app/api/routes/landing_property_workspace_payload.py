@@ -2663,7 +2663,7 @@ def property_workspace_payload(
                                 "action_href": selected_agent_open_href or f"/app/agents{run_suffix}",
                                 "action_method": "get",
                                 "action_label": "Open watch",
-                                "secondary_action_href": selected_agent_edit_href or f"/app/properties{run_suffix}",
+                                "secondary_action_href": selected_agent_edit_href or f"/app/search{run_suffix}",
                                 "secondary_action_method": "get",
                                 "secondary_action_label": "Edit",
                             },
