@@ -1721,29 +1721,48 @@
             ? `<a class="pqx-thumb pqx-thumb-link" href="${escapeHtml(packetUrl)}" aria-label="Open ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></a>`
             : `<span class="pqx-thumb"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></span>`)
           : '';
-        const tourUrl = String(candidate?.tour?.url || candidate?.tour_url || '').trim();
+        const tour = (candidate?.tour && typeof candidate.tour === 'object') ? candidate.tour : {};
+        const tourUrl = String(tour.url || candidate?.tour_url || '').trim();
+        const tourStatus = String(tour.status || candidate?.tour_status || '').trim().toLowerCase();
+        const tourPending = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(tourStatus);
+        const tourLabel = String(
+          tour.label || (tourUrl
+            ? '3D tour ready'
+            : (tourPending ? '3D tour queued' : 'Request 3D tour'))
+        ).trim();
+        const tourDetail = String(tour.detail || (tourUrl ? '3D tour ready' : '3D tour is building.')).trim();
+        const tourEta = String(tour.eta_label || '').trim();
+        const tourTooltip = [tourDetail, tourEta ? `ETA ${tourEta}` : ''].filter(Boolean).join(' · ');
+        const tourProgress = Math.max(0, Math.min(100, Number(tour.progress_pct || (tourPending ? 18 : (tourUrl ? 100 : 0))) || 0));
         const flythrough = (candidate?.flythrough && typeof candidate.flythrough === 'object') ? candidate.flythrough : {};
         const flythroughUrl = String(candidate?.flythrough_url || flythrough.url || '').trim();
         const flythroughStatus = String(candidate?.flythrough_status || flythrough.status || '').trim().toLowerCase();
+        const flythroughPending = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(flythroughStatus);
         const flythroughLabel = String(
-          flythroughUrl
-            ? 'Open walkthrough'
-            : (flythrough.label || (['queued', 'pending'].includes(flythroughStatus)
-              ? 'Walkthrough queued'
-              : (['processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(flythroughStatus)
-                ? 'Walkthrough processing'
-                : '')))
+          flythrough.label || (flythroughUrl
+            ? 'Walkthrough ready'
+            : (flythroughPending ? 'Walkthrough queued' : 'Request walkthrough'))
         ).trim();
+        const flythroughDetail = String(
+          flythrough.detail || (flythroughUrl ? 'Walkthrough ready' : 'Request a walkthrough when the listing deserves deeper screening.')
+        ).trim();
+        const flythroughEta = String(flythrough.eta_label || '').trim();
+        const flythroughTooltip = [flythroughDetail, flythroughEta ? `ETA ${flythroughEta}` : ''].filter(Boolean).join(' · ');
+        const flythroughProgress = Math.max(0, Math.min(100, Number(flythrough.progress_pct || (flythroughPending ? 18 : (flythroughUrl ? 100 : 0))) || 0));
         const facts = [
           layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
-          tourUrl ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}">360 ready</a>` : '',
-          flythroughLabel && !flythroughUrl ? `<span class="pqx-result-fact">${escapeHtml(flythroughLabel)}</span>` : '',
+          tourUrl ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="${escapeHtml(tourDetail || '3D tour ready')}">360 ready</a>` : '',
+          flythroughUrl ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}" aria-label="${escapeHtml(flythroughDetail || 'Walkthrough ready')}">Walkthrough ready</a>` : '',
         ].filter(Boolean).join('');
         const actions = [
-          propertyUrl ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
-          flythroughUrl ? `<a class="pqx-result-open" href="${escapeHtml(flythroughUrl)}">Open walkthrough</a>` : '',
-          propertyUrl && !tourUrl && !flythroughLabel ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Request walkthrough</button>` : '',
           packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
+          propertyUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
+          tourUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(tourUrl)}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Open 3D tour</a>` : '',
+          tourPending ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(tourProgress)}%;" title="${escapeHtml(tourTooltip)}" aria-label="${escapeHtml(tourTooltip)}">${escapeHtml(tourLabel)}</button>` : '',
+          propertyUrl && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Request 3D tour</button>` : '',
+          flythroughUrl && !shortlistSurface ? `<a class="pqx-progress-button is-ready" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Open walkthrough</a>` : '',
+          flythroughPending ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
+          propertyUrl && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         return `
