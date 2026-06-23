@@ -383,4 +383,16 @@ if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py \
   exit 1
 fi
 
+authenticated_smoke_receipt="/tmp/propertyquarry_deploy_authenticated_smoke.json"
+if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py \
+  --base-url "${base_url}" \
+  --principal-id "${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+  --expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Agent}" \
+  --country-code "${PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE:-AT}" \
+  --timeout-seconds 8 >"${authenticated_smoke_receipt}"; then
+  echo "PropertyQuarry authenticated route smoke failed." >&2
+  cat "${authenticated_smoke_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+
 echo "ok: PropertyQuarry deployed at ${base_url}"
