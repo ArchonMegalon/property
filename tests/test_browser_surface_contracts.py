@@ -157,6 +157,11 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert re.search(r'<span class="active" aria-current="page">Pricing</span>', pricing.text)
     assert re.search(r'<a href="/pricing"[^>]*>Pricing</a>', pricing.text) is None
 
+    cookies = client.get("/cookies")
+    refunds = client.get("/refunds")
+    assert "from account settings" not in f"{cookies.text} {refunds.text}".lower()
+    assert "from account, with connections inside it where appropriate" in f"{cookies.text} {refunds.text}".lower()
+
     security = client.get("/how-it-works")
     assert "Strict rules. Smart ranking." in security.text
     assert "Score guide" in security.text

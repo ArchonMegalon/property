@@ -384,7 +384,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Controls",
                 "title": "Preference model",
-                "body": "Cookie and analytics controls should be visible from account settings and respected by public pages where legally required.",
+                "body": "Cookie and analytics controls should be visible from Account, with Connections inside it where appropriate, and respected by public pages where legally required.",
                 "items": (
                     "Separate essential access from analytics and marketing.",
                     "Keep signed-in preference changes durable across devices.",
@@ -433,7 +433,7 @@ PUBLIC_TRUST_PAGES = {
         "band": (
             {
                 "title": "Self-service first",
-                "body": "Users should be able to see plan status, renewal, invoices, cancellation, and entitlement limits from account settings.",
+                "body": "Users should be able to see plan status, renewal, invoices, cancellation, and entitlement limits from Account, with Connections inside it where appropriate.",
             },
             {
                 "title": "Usage-aware",
