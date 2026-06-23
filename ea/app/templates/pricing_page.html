@@ -111,7 +111,7 @@
         <li><span>Per source</span><strong>{{ plan.max_results_per_source }}</strong></li>
         <li><span>Score ceiling</span><strong>{{ plan.max_match_score }}/100</strong></li>
         <li><span>Research</span><strong>{{ plan.research_depth }}</strong></li>
-        <li><span>Search agents</span><strong>{% if plan.search_agent_limit > 0 %}{{ plan.search_agent_limit }}{% else %}Unlimited{% endif %}</strong></li>
+        <li><span>Saved searches</span><strong>{% if plan.search_agent_limit > 0 %}{{ plan.search_agent_limit }}{% else %}Unlimited{% endif %}</strong></li>
       </ul>
       <div class="tier-actions">
         {% if plan.plan_key == 'free' %}
