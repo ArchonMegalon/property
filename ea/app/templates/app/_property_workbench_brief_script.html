@@ -4,7 +4,11 @@
       const parsed = Number.parseInt(fieldValue(form, name), 10);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     };
+    const hasUnlimitedProviderResults = () => {% if (commercial.get('current_plan_key') == 'agent') and ((commercial.get('max_results_per_source') or 0)|int <= 0) %}true{% else %}false{% endif %};
     const maxResultsPerSourceValue = (form) => (
+      hasUnlimitedProviderResults()
+        ? null
+        :
       form?.querySelector('[name="max_results_per_source"]')
         ? integerValue(form, 'max_results_per_source')
         : null

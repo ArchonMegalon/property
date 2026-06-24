@@ -491,7 +491,7 @@
         selected_platforms: selectedPlatforms,
         property_preferences: nextPreferences || {},
         force_refresh: false,
-        max_results_per_source: Number(nextPreferences?.max_results_per_source || 0) || null,
+        max_results_per_source: hasUnlimitedProviderResults() ? null : (Number(nextPreferences?.max_results_per_source || 0) || null),
       };
       const runResponse = await fetch(startEndpoint, {
         method: 'POST',

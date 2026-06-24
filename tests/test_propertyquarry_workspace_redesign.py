@@ -1284,15 +1284,21 @@ def test_propertyquarry_agent_search_scripts_submit_null_when_result_slider_is_a
     repo_root = Path(__file__).resolve().parents[1]
     console_shell = (repo_root / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
     brief_script = (repo_root / "ea/app/templates/app/_property_workbench_brief_script.html").read_text(encoding="utf-8")
+    workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
 
+    assert "const hasUnlimitedProviderResults = () =>" in console_shell
     assert "const maxResultsPerSourceValue = (form) => (" in console_shell
     assert "form?.querySelector('[name=\"max_results_per_source\"]')" in console_shell
     assert "? integerValue(form, 'max_results_per_source')" in console_shell
-    assert "const parsedMaxResults = maxResultsPerSourceValue(form);" in console_shell
+    assert "const parsedMaxResults = hasUnlimitedProviderResults() ? null : maxResultsPerSourceValue(form);" in console_shell
 
+    assert "const hasUnlimitedProviderResults = () =>" in brief_script
     assert "const maxResultsPerSourceValue = (form) => (" in brief_script
+    assert "hasUnlimitedProviderResults()" in brief_script
     assert "form?.querySelector('[name=\"max_results_per_source\"]')" in brief_script
     assert "max_results_per_source: maxResultsPerSourceValue(form)," in brief_script
+
+    assert "max_results_per_source: hasUnlimitedProviderResults() ? null : (Number(nextPreferences?.max_results_per_source || 0) || null)," in workbench_script
 
 
 def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
