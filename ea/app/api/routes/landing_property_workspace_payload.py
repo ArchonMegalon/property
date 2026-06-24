@@ -2559,6 +2559,17 @@ def property_workspace_payload(
         if bool(property_state.get("billing_checkout_enabled"))
         else ("Active" if has_active_paid_plan else "Inactive")
     )
+    billing_handoff_status = str(billing_handoff.get("status") or "").strip().lower()
+    billing_handoff_available = bool(billing_handoff.get("available"))
+    if billing_handoff_available:
+        billing_handoff_detail = "Ready inside the PropertyQuarry account lane. Local plan, invoice, and entitlement state still decides access."
+        billing_handoff_tag = "Ready"
+    elif billing_handoff_status == "unavailable":
+        billing_handoff_detail = "Local recovery is active. The external account lane is misconfigured or unavailable, so access stays governed here."
+        billing_handoff_tag = "Recovery"
+    else:
+        billing_handoff_detail = "Local billing is active. The external account lane is not enabled for this workspace."
+        billing_handoff_tag = "Local"
     billing_rows = [
         row_item(
             "Current plan",
@@ -2607,7 +2618,12 @@ def property_workspace_payload(
             "Status",
             payment_status_detail,
             payment_status_tag,
-        )
+        ),
+        row_item(
+            "White-label account lane",
+            billing_handoff_detail,
+            billing_handoff_tag,
+        ),
     ]
     if last_payment_status:
         latest_payment_detail = last_payment_status.title()

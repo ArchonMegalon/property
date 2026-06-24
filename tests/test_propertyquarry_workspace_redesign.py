@@ -12156,6 +12156,11 @@ def test_propertyquarry_billing_surface_keeps_local_board_when_white_label_comme
     assert 'class="pq-billing-lane-frame"' not in billing.text
     assert 'src="https://billing.brilliantdirectories.com/account"' not in billing.text
     assert "Plan and payments" in billing.text
+    assert "White-label account lane" in billing.text
+    assert "Local billing is active" in billing.text
+    assert "external account lane is not enabled for this workspace" in billing.text
+    assert "billing.brilliantdirectories.com" not in billing.text.lower()
+    assert "Brilliant Directories" not in billing.text
 
 
 def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) -> None:
