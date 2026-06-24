@@ -72,8 +72,6 @@ from app.api.routes.landing_property_research import (
     _property_investment_research_rows,
     _property_lookup_candidate,
     _property_missing_fact_items,
-    _property_packet_compare_rows,
-    _property_packet_compare_table,
     _property_packet_decision_rows,
     _property_packet_everyday_fit_rows,
     _property_packet_future_research_rows,
@@ -3615,15 +3613,6 @@ def property_research_packet(
     official_evidence_rows = _property_packet_official_evidence_rows(facts)
     official_posture_rows = _property_packet_official_posture_rows(facts)
     future_research_rows = _property_packet_future_research_rows(facts)
-    compare_rows = _property_packet_compare_rows(
-        property_context=property_context,
-        current_candidate_ref=normalized_candidate_ref,
-    )
-    compare_table_rows = _property_packet_compare_table(
-        property_context=property_context,
-        current_candidate=candidate,
-        current_candidate_ref=normalized_candidate_ref,
-    )
     investment_rows, investment_risk_rows = _property_investment_research_rows(
         property_url=property_url,
         facts=facts,
@@ -4042,13 +4031,6 @@ def property_research_packet(
             "title": "Timeline and follow-up",
             "items": timeline_rows,
         },
-        {
-            "eyebrow": "Compare next",
-            "title": "The next-best homes from this run",
-            "table_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Open"],
-            "table_rows": compare_table_rows,
-            "items": compare_rows or [_object_detail_row("No compare lane yet", "This run has no second-best candidate attached for side-by-side comparison yet.", "Waiting")],
-        },
     ]
     if str(preferences.get("listing_mode") or "").strip().lower() == "buy":
         research_sections.insert(
@@ -4112,8 +4094,8 @@ def property_research_packet(
         energy_rows=list(detail_sections.get("energy_rows") or []),
         missing_rows=missing_rows,
         decision_rows=decision_rows,
-        compare_rows=compare_rows,
-        compare_table_rows=compare_table_rows,
+        compare_rows=[],
+        compare_table_rows=[],
         compare_headers=["Candidate", "Fit", "Price", "Layout", "360", "Open"],
         official_evidence_rows=official_evidence_rows,
         official_posture_rows=official_posture_rows,

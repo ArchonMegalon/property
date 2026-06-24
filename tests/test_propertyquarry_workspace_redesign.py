@@ -3310,8 +3310,8 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
         energy_rows=[{"label": "EPC", "value": "B"}],
         missing_rows=[{"title": "Land register", "detail": "Still missing"}],
         decision_rows=[{"title": "Next step", "detail": "Call broker"}],
-        compare_rows=[{"title": "Comp A", "detail": "Open next"}],
-        compare_table_rows=[{"candidate": {"title": "Comp A"}}],
+        compare_rows=[],
+        compare_table_rows=[],
         compare_headers=["Candidate", "Fit"],
         official_evidence_rows=[{"title": "Cadastre", "detail": "Linked"}],
         official_posture_rows=[{"title": "Risk", "detail": "Clear"}],
@@ -5973,11 +5973,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Return and costs" in packet.text
     assert "Gross yield" in packet.text
     assert "Expected monthly rent" in packet.text
-    assert "Compare" in packet.text
+    assert "Compare" not in packet.text
     assert "Decision support" not in packet.text
     assert "The next-best properties from this run" not in packet.text
-    assert "Candidate" in packet.text
-    assert "Layout" in packet.text
     assert "Family flat near Tiergarten" in packet.text
     assert "Listing" in packet.text
     assert "Review page" not in packet.text

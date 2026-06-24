@@ -1,4 +1,5 @@
 {% set property_meta = console_form.get('meta') or {} %}
+{% set commercial = property_meta.get('commercial') or {} %}
 {% set workbench = decision_workbench or {} %}
 {% set surface_mode = workbench.get('surface_mode') or current_nav or 'properties' %}
 {% set results = workbench.get('results') or [] %}

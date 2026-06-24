@@ -1964,52 +1964,6 @@
         </section>
       </section>
 
-      {% if research_compare_table_rows %}
-      <section class="prd-band">
-        <div class="prd-kicker">Compare</div>
-        <h2 class="prd-section-title">Other properties in this run</h2>
-        <div class="prd-table-wrap">
-          <table class="prd-table">
-            <thead>
-              <tr>{% for header in research_compare_headers %}<th>{{ header }}</th>{% endfor %}</tr>
-            </thead>
-            <tbody>
-              {% for row in research_compare_table_rows %}
-              <tr>
-                {% for cell in row %}
-                <td>
-                  {% if cell is mapping %}
-                    {% if cell.get('href') %}<strong><a href="{{ cell.get('href') }}">{{ cell.get('title') }}</a></strong>{% else %}<strong>{{ cell.get('title') }}</strong>{% endif %}
-                    {% if cell.get('detail') %}<small>{{ cell.get('detail') }}</small>{% endif %}
-                  {% else %}
-                    {{ cell }}
-                  {% endif %}
-                </td>
-                {% endfor %}
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {% elif research_compare_rows %}
-      <section class="prd-band">
-        <div class="prd-kicker">Compare</div>
-        <h2 class="prd-section-title">Other properties worth checking after this one</h2>
-        <div class="prd-compare-list">
-          {% for item in research_compare_rows %}
-          <div class="prd-compare-card">
-            <div>
-              <strong>{% if item.get('href') %}<a href="{{ item.get('href') }}">{{ item.get('title') }}</a>{% else %}{{ item.get('title') }}{% endif %}</strong>
-              <span>{{ item.get('detail') }}</span>
-            </div>
-            <span class="prd-tag">{{ item.get('tag') }}</span>
-          </div>
-          {% endfor %}
-        </div>
-      </section>
-      {% endif %}
-
       <details class="prd-collapse">
         <summary>
           <span>

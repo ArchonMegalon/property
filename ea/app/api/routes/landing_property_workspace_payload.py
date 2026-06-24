@@ -846,36 +846,6 @@ def property_workspace_payload(
             return bool(has_buy_signal and not has_rent_price)
         return False
 
-    def _compare_rows_for_candidates(candidates: list[dict[str, object]]) -> list[dict[str, object]]:
-        rows: list[dict[str, object]] = []
-        for candidate in candidates[:3]:
-            fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip()
-            fact_line = _candidate_fact_line(candidate)
-            detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the property page to inspect the ranking and evidence."
-            external_listing_url = _candidate_external_listing_url(candidate)
-            try:
-                from app.product import property_tour_hosting
-
-                tour_action_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(candidate.get("tour_url")) or "").strip()  # type: ignore[attr-defined]
-            except Exception:
-                tour_action_url = ""
-            rows.append(
-                {
-                    "title": str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
-                    "detail": detail,
-                    "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate",
-                    "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
-                    "action_method": "get",
-                    "action_label": "Open property page",
-                    "secondary_action_href": str(tour_action_url or external_listing_url or "").strip(),
-                    "secondary_action_method": "get" if (tour_action_url or external_listing_url) else "",
-                    "secondary_action_label": "Open 360" if tour_action_url else ("Open listing" if external_listing_url else ""),
-                }
-            )
-        return rows
-
-    compare_rows = _compare_rows_for_candidates(shortlist_candidates)
-
     def _tour_status_line(candidate: dict[str, object]) -> str:
         provider_tour_url = str(
             candidate.get("source_virtual_tour_url")
@@ -2142,7 +2112,6 @@ def property_workspace_payload(
             }
         )
 
-    compare_rows = _compare_rows_for_candidates(admitted_shortlist_candidates)
     packet_ready_total = sum(
         1
         for candidate in admitted_shortlist_candidates
@@ -2859,15 +2828,7 @@ def property_workspace_payload(
             "hero_summary": "Ranked candidates first.",
             "hero_actions": hero_actions["shortlist"],
             "hero_highlights": hero_highlights["shortlist"],
-            "primary_cards": [
-                {
-                    "eyebrow": "Decision table",
-                    "title": "Compare the top shortlist before you open a single full property page",
-                    "body": "",
-                    "items": compare_rows or [row_item("No ranked shortlist yet", "Complete the next run and this panel becomes the first comparison view for the leading candidates.", "First run")],
-                },
-                shortlist_card,
-            ],
+            "primary_cards": [shortlist_card],
             "secondary_cards": [run_card, market_coverage_card],
             "console_form": property_form,
             "show_brief_form": False,
