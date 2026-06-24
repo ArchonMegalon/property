@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime
+import threading
 from typing import Any
 
 from app.services.property_decision_loop import (
@@ -11,6 +12,10 @@ from app.services.property_decision_loop import (
     PropertyDocumentRecord,
     PropertyEvidenceClaim,
 )
+
+
+_SCHEMA_READY_LOCK = threading.Lock()
+_SCHEMA_READY_DATABASE_URLS: set[str] = set()
 
 
 def _to_iso(value: Any) -> str:
@@ -24,7 +29,11 @@ class PostgresPropertyDecisionLoopRepository:
         self._database_url = str(database_url or "").strip()
         if not self._database_url:
             raise ValueError("database_url is required for PostgresPropertyDecisionLoopRepository")
-        self._ensure_schema()
+        if self._database_url not in _SCHEMA_READY_DATABASE_URLS:
+            with _SCHEMA_READY_LOCK:
+                if self._database_url not in _SCHEMA_READY_DATABASE_URLS:
+                    self._ensure_schema()
+                    _SCHEMA_READY_DATABASE_URLS.add(self._database_url)
 
     def _connect(self):  # type: ignore[no-untyped-def]
         try:
@@ -334,6 +343,45 @@ class PostgresPropertyDecisionLoopRepository:
                 )
             )
         return out
+
+    def latest_decision_states_for_property_refs(
+        self,
+        *,
+        principal_id: str,
+        property_refs: list[str] | tuple[str, ...],
+        limit: int = 200,
+    ) -> dict[str, str]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {}
+        n = max(1, min(int(limit or 200), 1000))
+        refs = tuple(
+            dict.fromkeys(
+                str(ref or "").strip()
+                for ref in list(property_refs or [])
+                if str(ref or "").strip()
+            )
+        )[:n]
+        if not refs:
+            return {}
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT ON (property_ref) property_ref, decision_state
+                    FROM property_decision_ledger
+                    WHERE principal_id = %s
+                      AND property_ref = ANY(%s)
+                    ORDER BY property_ref, created_at DESC
+                    """,
+                    (principal, list(refs)),
+                )
+                rows = cur.fetchall()
+        return {
+            str(row[0] or "").strip(): str(row[1] or "").strip().lower()
+            for row in rows
+            if str(row[0] or "").strip()
+        }
 
     def export_teable_projection_rows(
         self,

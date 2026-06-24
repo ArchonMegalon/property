@@ -17655,16 +17655,38 @@ class ProductService:
         self,
         *,
         principal_id: str,
+        property_refs: list[str] | tuple[str, ...] | None = None,
         limit: int = 500,
     ) -> dict[str, str]:
         normalized_principal = str(principal_id or "").strip()
         database_url = _property_search_run_database_url()
         if not normalized_principal or not database_url:
             return {}
+        refs = tuple(
+            dict.fromkeys(
+                urllib.parse.urldefrag(str(ref or "").strip())[0]
+                for ref in list(property_refs or [])
+                if str(ref or "").strip()
+            )
+        )
+        if property_refs is not None and not refs:
+            return {}
         try:
             from app.repositories.property_decision_loop_postgres import PostgresPropertyDecisionLoopRepository
 
-            rows = PostgresPropertyDecisionLoopRepository(database_url).export_teable_projection_rows(
+            repository = PostgresPropertyDecisionLoopRepository(database_url)
+            if refs:
+                states = repository.latest_decision_states_for_property_refs(
+                    principal_id=normalized_principal,
+                    property_refs=refs,
+                    limit=max(len(refs), min(int(limit or 500), 1000)),
+                )
+                return {
+                    str(ref or "").strip(): str(state or "").strip().lower()
+                    for ref, state in states.items()
+                    if str(ref or "").strip()
+                }
+            rows = repository.export_teable_projection_rows(
                 principal_id=normalized_principal,
                 limit=max(int(limit or 500), 100),
             )
@@ -17691,15 +17713,23 @@ class ProductService:
         status = self._container.onboarding.status(principal_id=normalized_principal)
         preferences = dict(status.get("property_search_preferences") or {})
         raw_candidates = list(preferences.get("saved_shortlist_candidates") or [])
-        decision_states = self._property_saved_shortlist_decision_states(principal_id=normalized_principal)
-        visible: list[dict[str, object]] = []
-        seen: set[str] = set()
+        candidate_rows: list[tuple[str, dict[str, object]]] = []
         for item in raw_candidates:
             if not isinstance(item, dict):
                 continue
             row = dict(item)
             property_ref = str(row.get("property_ref") or self._property_saved_shortlist_property_ref(row)).strip()
-            if not property_ref or property_ref in seen:
+            if not property_ref:
+                continue
+            candidate_rows.append((property_ref, row))
+        decision_states = self._property_saved_shortlist_decision_states(
+            principal_id=normalized_principal,
+            property_refs=tuple(property_ref for property_ref, _row in candidate_rows),
+        )
+        visible: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for property_ref, row in candidate_rows:
+            if property_ref in seen:
                 continue
             seen.add(property_ref)
             state = decision_states.get(property_ref, "")
@@ -17726,7 +17756,19 @@ class ProductService:
             for item in list(preferences.get("saved_shortlist_candidates") or [])
             if isinstance(item, dict)
         ]
-        decision_states = self._property_saved_shortlist_decision_states(principal_id=normalized_principal)
+        candidate_refs = [
+            str(row.get("property_ref") or self._property_saved_shortlist_property_ref(row)).strip()
+            for row in existing_rows
+        ]
+        candidate_refs.extend(
+            str(candidate.get("property_ref") or self._property_saved_shortlist_property_ref(candidate)).strip()
+            for candidate in list(candidates or [])
+            if isinstance(candidate, dict)
+        )
+        decision_states = self._property_saved_shortlist_decision_states(
+            principal_id=normalized_principal,
+            property_refs=tuple(ref for ref in candidate_refs if ref),
+        )
         blocked_refs = {
             property_ref
             for property_ref, state in decision_states.items()

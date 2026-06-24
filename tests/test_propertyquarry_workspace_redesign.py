@@ -2938,6 +2938,75 @@ def test_property_saved_shortlist_candidates_persist_across_runs() -> None:
     ]
 
 
+def test_property_saved_shortlist_decision_filter_uses_targeted_refs(monkeypatch) -> None:
+    from app.repositories import property_decision_loop_postgres as repo_module
+
+    seen_refs: list[tuple[str, ...]] = []
+
+    class _FakeDecisionLoopRepository:
+        def __init__(self, database_url: str) -> None:
+            assert database_url == "postgres://decision-loop"
+
+        def latest_decision_states_for_property_refs(
+            self,
+            *,
+            principal_id: str,
+            property_refs: list[str] | tuple[str, ...],
+            limit: int = 200,
+        ) -> dict[str, str]:
+            assert principal_id == "pq-saved-shortlist-targeted"
+            assert limit >= 2
+            seen_refs.append(tuple(property_refs))
+            return {"https://example.test/property-1": "archived"}
+
+        def export_teable_projection_rows(self, **_kwargs):
+            raise AssertionError("saved shortlist reads must not export the full decision-loop projection")
+
+    monkeypatch.setattr("app.product.service._property_search_run_database_url", lambda: "postgres://decision-loop")
+    monkeypatch.setattr(repo_module, "PostgresPropertyDecisionLoopRepository", _FakeDecisionLoopRepository)
+
+    client = build_property_client(principal_id="pq-saved-shortlist-targeted")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "Vienna",
+            "saved_shortlist_candidates": [
+                {"property_url": "https://example.test/property-1", "title": "Archived flat"},
+                {"property_url": "https://example.test/property-2", "title": "Visible flat"},
+            ],
+        },
+    )
+    assert stored.status_code == 200
+    product = build_product_service(client.app.state.container)
+
+    visible = product.list_property_saved_shortlist_candidates(principal_id="pq-saved-shortlist-targeted")
+
+    assert seen_refs == [("https://example.test/property-1", "https://example.test/property-2")]
+    assert [row["property_ref"] for row in visible] == ["https://example.test/property-2"]
+
+
+def test_property_decision_loop_postgres_repository_caches_schema_setup(monkeypatch) -> None:
+    from app.repositories import property_decision_loop_postgres as repo_module
+
+    database_url = "postgres://schema-cache-test"
+    repo_module._SCHEMA_READY_DATABASE_URLS.discard(database_url)
+    calls: list[str] = []
+
+    def _fake_ensure_schema(self) -> None:
+        calls.append(self._database_url)
+
+    monkeypatch.setattr(repo_module.PostgresPropertyDecisionLoopRepository, "_ensure_schema", _fake_ensure_schema)
+
+    repo_module.PostgresPropertyDecisionLoopRepository(database_url)
+    repo_module.PostgresPropertyDecisionLoopRepository(database_url)
+
+    assert calls == [database_url]
+    repo_module._SCHEMA_READY_DATABASE_URLS.discard(database_url)
+
+
 def test_property_lookup_candidate_falls_back_to_ranked_candidates() -> None:
     candidate = {
         "title": "Ranked-only home",
