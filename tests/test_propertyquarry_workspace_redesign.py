@@ -6303,10 +6303,12 @@ def test_property_workspace_sign_out_removes_signed_in_ui_globally() -> None:
     assert opened_access.status_code == 303
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
 
-    signed_in_properties = client.get("/app/properties")
+    signed_in_properties = client.get("/app/properties", params={"run_id": "run-account-nav"})
     assert signed_in_properties.status_code == 200
     assert "aria-label=\"Account navigation\"" in signed_in_properties.text
-    assert 'href="/app/account#connected-services"' in signed_in_properties.text
+    assert 'href="/app/account?run_id=run-account-nav#connected-services"' in signed_in_properties.text
+    assert 'href="/app/account?run_id=run-account-nav#search-defaults"' in signed_in_properties.text
+    assert 'href="/app/billing?run_id=run-account-nav"' in signed_in_properties.text
     assert ">Connections<" in signed_in_properties.text
     assert ">Settings<" not in signed_in_properties.text
 

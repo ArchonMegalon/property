@@ -88,13 +88,33 @@ def _packet_account_nav_context(*, request: Request, context: RequestContext) ->
         sign_out_return_to = "/"
     elif raw_sign_out_return_to != "/":
         sign_out_return_to = "/"
+
+    run_id = str(request.query_params.get("run_id") or "").strip()
+
+    def _with_run_suffix(path: str) -> str:
+        if not run_id:
+            return path
+        parts = urllib.parse.urlsplit(path)
+        query_pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        if not any(key == "run_id" for key, _value in query_pairs):
+            query_pairs.append(("run_id", run_id))
+        return urllib.parse.urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urllib.parse.urlencode(query_pairs),
+                parts.fragment,
+            )
+        )
+
     return {
         "label": account_label,
         "menu_label": menu_label,
-        "profile_href": "/app/account#search-defaults",
+        "profile_href": _with_run_suffix("/app/account#search-defaults"),
         "profile_label": "Search defaults",
-        "billing_href": "/app/billing",
-        "settings_href": "/app/account#connected-services",
+        "billing_href": _with_run_suffix("/app/billing"),
+        "settings_href": _with_run_suffix("/app/account#connected-services"),
         "sign_out_action": "/app/actions/sign-out",
         "sign_out_return_to": sign_out_return_to,
     }

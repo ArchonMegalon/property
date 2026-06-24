@@ -598,10 +598,13 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     )
     assert run_bound.status_code == 200, run_bound.text
 
-    dashboard_with_run = client.get("/app/properties/packets", headers={"host": "propertyquarry.com"})
+    dashboard_with_run = client.get("/app/properties/packets", params={"run_id": "run-packets-ctx"}, headers={"host": "propertyquarry.com"})
     assert 'href="/app/properties?run_id=run-packets-ctx"' in dashboard_with_run.text
     assert 'href="/app/shortlist?run_id=run-packets-ctx"' in dashboard_with_run.text
     assert 'href="/app/agents?run_id=run-packets-ctx"' in dashboard_with_run.text
+    assert 'href="/app/billing?run_id=run-packets-ctx"' in dashboard_with_run.text
+    assert 'href="/app/account?run_id=run-packets-ctx#search-defaults"' in dashboard_with_run.text
+    assert 'href="/app/account?run_id=run-packets-ctx#connected-services"' in dashboard_with_run.text
     assert "Risk signals" in dashboard.text
     assert "What changed" in dashboard.text
     assert "data-feedback-action=\"accept_as_preference_signal\"" in dashboard.text or "No viewer responses" in dashboard.text
