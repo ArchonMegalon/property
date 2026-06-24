@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import signal
 import sys
 import urllib.parse
 import urllib.request
@@ -19,6 +21,33 @@ if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 
 from app.services.property_market_catalog import default_platforms_for_country, provider_options
+
+
+class _WallClockTimeout(RuntimeError):
+    pass
+
+
+@contextlib.contextmanager
+def _wall_clock_timeout(seconds: float):
+    timeout_seconds = max(float(seconds or 0), 0.0)
+    if timeout_seconds <= 0 or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def _raise_timeout(_signum, _frame) -> None:
+        raise _WallClockTimeout(f"request exceeded {timeout_seconds:.1f}s wall-clock timeout")
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
 
 
 def _enabled() -> bool:
@@ -128,6 +157,7 @@ def _targeted_search_payload(*, country_code: str, provider_key: str, mode: str)
         "selected_platforms": [str(provider_key or "").strip()],
         "property_preferences": preferences,
         "force_refresh": True,
+        "dispatch_only": True,
     }
 
 
@@ -163,8 +193,9 @@ def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeo
             ),
         },
     )
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        body = response.read(220_000)
+    with _wall_clock_timeout(timeout_seconds):
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            body = response.read(220_000)
     return json.loads(body.decode("utf-8", errors="replace"))
 
 
@@ -177,6 +208,7 @@ def _build_targeted_provider_search_matrix(
     execute: bool,
     timeout_seconds: float,
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
+    checkpoint_writer: Callable[[list[dict[str, object]]], None] | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     executor = search_executor or (lambda payload, timeout: _post_search_run_payload(base_url=base_url, payload=payload, timeout_seconds=timeout))
@@ -238,7 +270,70 @@ def _build_targeted_provider_search_matrix(
                             }
                         )
                 rows.append(row)
+                if checkpoint_writer is not None:
+                    checkpoint_writer([dict(item) for item in rows])
     return rows
+
+
+def _targeted_search_matrix_summary(
+    rows: list[dict[str, object]],
+    *,
+    countries: Iterable[str],
+    execute_requested: bool,
+    enabled: bool,
+    dry_run: bool,
+) -> dict[str, object]:
+    normalized_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
+    status_counts: dict[str, int] = {}
+    providers_by_country: dict[str, set[str]] = {country: set() for country in normalized_countries}
+    modes_by_provider: dict[tuple[str, str], set[str]] = {}
+    for row in rows:
+        status = str(row.get("status") or "").strip().lower() or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+        country = str(row.get("country_code") or "").strip().upper()
+        provider = str(row.get("provider") or "").strip()
+        mode = str(row.get("mode") or "").strip()
+        if country and provider:
+            providers_by_country.setdefault(country, set()).add(provider)
+            modes_by_provider.setdefault((country, provider), set()).add(mode)
+    expected_modes = {"targeted_no_soft_filters", "targeted_soft_filters"}
+    missing_mode_pairs = [
+        {
+            "country_code": country,
+            "provider": provider,
+            "missing_modes": sorted(expected_modes - modes),
+        }
+        for (country, provider), modes in sorted(modes_by_provider.items())
+        if modes != expected_modes
+    ]
+    strict_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_no_soft_filters"]
+    soft_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_soft_filters"]
+    executed = bool(execute_requested and enabled and not dry_run)
+    return {
+        "country_codes": list(normalized_countries),
+        "case_count": len(rows),
+        "provider_count_by_country": {
+            country: len(providers_by_country.get(country, set()))
+            for country in normalized_countries
+        },
+        "strict_case_count": len(strict_rows),
+        "soft_filter_case_count": len(soft_rows),
+        "status_counts": dict(sorted(status_counts.items())),
+        "execution_requested": bool(execute_requested),
+        "executed": executed,
+        "executed_case_count": sum(1 for row in rows if str(row.get("status") or "").strip().lower() in {"pass", "fail"}) if executed else 0,
+        "passed_case_count": status_counts.get("pass", 0),
+        "failed_case_count": status_counts.get("fail", 0),
+        "planned_case_count": status_counts.get("planned", 0),
+        "dry_run_case_count": status_counts.get("dry_run", 0),
+        "skipped_case_count": status_counts.get("skipped", 0),
+        "all_search_ready_providers_covered": not missing_mode_pairs,
+        "missing_mode_pairs": missing_mode_pairs,
+        "payload_contracts_ok": all(bool(row.get("payload_contract_ok")) for row in rows) if rows else True,
+        "agent_unlimited_results_ok": all(bool(row.get("agent_unlimited_results")) for row in rows) if rows else True,
+        "strict_without_soft_filters_ok": all(not bool(row.get("soft_filters_present")) for row in strict_rows) if strict_rows else True,
+        "soft_filters_present_ok": all(bool(row.get("soft_filters_present")) for row in soft_rows) if soft_rows else True,
+    }
 
 
 def _fetch_provider_payload(*, base_url: str, country_code: str, timeout_seconds: float) -> dict[str, object]:
@@ -276,6 +371,7 @@ def build_live_provider_smoke_receipt(
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
     execute_search_matrix: bool | None = None,
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
+    checkpoint_path: str | Path = "",
 ) -> dict[str, object]:
     normalized_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
     enabled = _enabled()
@@ -349,6 +445,40 @@ def build_live_provider_smoke_receipt(
                     }
                 )
         checks.append(row)
+    checkpoint_target = Path(checkpoint_path) if str(checkpoint_path or "").strip() else None
+
+    def _write_checkpoint(rows: list[dict[str, object]]) -> None:
+        if checkpoint_target is None:
+            return
+        summary = _targeted_search_matrix_summary(
+            rows,
+            countries=normalized_countries,
+            execute_requested=should_execute_search_matrix,
+            enabled=enabled,
+            dry_run=dry_run,
+        )
+        partial_receipt = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "status": "running",
+            "enabled": enabled,
+            "dry_run": dry_run,
+            "base_url": base_url,
+            "checks": checks,
+            "targeted_search_matrix": rows,
+            "targeted_search_matrix_summary": summary,
+            "targeted_search_matrix_count": len(rows),
+            "targeted_search_matrix_status": "running",
+            "targeted_search_matrix_executed": should_execute_search_matrix and enabled and not dry_run,
+            "checkpoint": True,
+            "complete": False,
+            "notes": [
+                "Checkpoint receipt written after a targeted provider search row completed.",
+                "A final complete receipt overwrites this file when the run finishes.",
+            ],
+        }
+        checkpoint_target.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_target.write_text(json.dumps(partial_receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
     search_matrix = _build_targeted_provider_search_matrix(
         countries=normalized_countries,
         base_url=base_url,
@@ -357,6 +487,14 @@ def build_live_provider_smoke_receipt(
         execute=should_execute_search_matrix,
         timeout_seconds=timeout_seconds,
         search_executor=search_executor,
+        checkpoint_writer=_write_checkpoint if should_execute_search_matrix and enabled and not dry_run else None,
+    )
+    search_matrix_summary = _targeted_search_matrix_summary(
+        search_matrix,
+        countries=normalized_countries,
+        execute_requested=should_execute_search_matrix,
+        enabled=enabled,
+        dry_run=dry_run,
     )
     statuses = {str(row.get("status") or "").strip().lower() for row in checks}
     search_statuses = {str(row.get("status") or "").strip().lower() for row in search_matrix}
@@ -378,6 +516,7 @@ def build_live_provider_smoke_receipt(
         "base_url": base_url,
         "checks": checks,
         "targeted_search_matrix": search_matrix,
+        "targeted_search_matrix_summary": search_matrix_summary,
         "targeted_search_matrix_count": len(search_matrix),
         "targeted_search_matrix_status": (
             "fail"
@@ -391,6 +530,8 @@ def build_live_provider_smoke_receipt(
             else "planned"
         ),
         "targeted_search_matrix_executed": should_execute_search_matrix and enabled and not dry_run,
+        "checkpoint": False,
+        "complete": True,
         "notes": [
             "Live crawling is disabled unless PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1.",
             "Dry-run mode proves provider catalog, default provider, floorplan, and filter-pushdown contracts without crawling.",
@@ -414,12 +555,36 @@ def main() -> int:
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_BASE_URL") or "http://localhost:8097")
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
-    args = parser.parse_args()
-    receipt = build_live_provider_smoke_receipt(
-        countries=tuple(args.country or ("AT", "CR")),
-        base_url=str(args.base_url),
-        timeout_seconds=float(args.timeout_seconds),
+    matrix_group = parser.add_mutually_exclusive_group()
+    matrix_group.add_argument(
+        "--execute-search-matrix",
+        action="store_true",
+        help="Execute every targeted provider search case. Requires live mode and non-dry-run mode.",
     )
+    matrix_group.add_argument(
+        "--no-execute-search-matrix",
+        action="store_true",
+        help="Do not execute targeted provider search cases, regardless of environment.",
+    )
+    args = parser.parse_args()
+    execute_search_matrix = None
+    if args.execute_search_matrix:
+        execute_search_matrix = True
+    elif args.no_execute_search_matrix:
+        execute_search_matrix = False
+    try:
+        receipt = build_live_provider_smoke_receipt(
+            countries=tuple(args.country or ("AT", "CR")),
+            base_url=str(args.base_url),
+            timeout_seconds=float(args.timeout_seconds),
+            execute_search_matrix=execute_search_matrix,
+            checkpoint_path=args.write,
+        )
+    except KeyboardInterrupt:
+        if args.write and Path(args.write).exists():
+            print(f"interrupted: checkpoint receipt retained at {args.write}", file=sys.stderr)
+            return 130
+        raise
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
         Path(args.write).write_text(output + "\n", encoding="utf-8")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from scripts.property_live_provider_smoke import build_live_provider_smoke_receipt
 from app.services.property_market_catalog import provider_options
 
@@ -26,6 +28,11 @@ def test_live_provider_smoke_is_skipped_by_default(monkeypatch) -> None:
     assert receipt["targeted_search_matrix_count"] == 2 * (
         _search_ready_provider_count("AT") + _search_ready_provider_count("CR")
     )
+    summary = receipt["targeted_search_matrix_summary"]
+    assert summary["executed"] is False
+    assert summary["skipped_case_count"] == receipt["targeted_search_matrix_count"]
+    assert summary["all_search_ready_providers_covered"] is True
+    assert summary["agent_unlimited_results_ok"] is True
 
 
 def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> None:
@@ -48,6 +55,14 @@ def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> N
     assert all(row["agent_unlimited_results"] is True for row in matrix)
     assert all(row["status"] == "dry_run" for row in matrix)
     assert all(row["soft_filters_present"] is (row["mode"] == "targeted_soft_filters") for row in matrix)
+    summary = receipt["targeted_search_matrix_summary"]
+    assert summary["case_count"] == len(matrix)
+    assert summary["strict_case_count"] == _search_ready_provider_count("AT") + _search_ready_provider_count("CR")
+    assert summary["soft_filter_case_count"] == _search_ready_provider_count("AT") + _search_ready_provider_count("CR")
+    assert summary["dry_run_case_count"] == len(matrix)
+    assert summary["payload_contracts_ok"] is True
+    assert summary["strict_without_soft_filters_ok"] is True
+    assert summary["soft_filters_present_ok"] is True
 
 
 def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> None:
@@ -117,6 +132,11 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
     assert rows["CR"]["runtime_defaults_present_ok"] is True
     assert receipt["targeted_search_matrix_status"] == "planned"
     assert receipt["targeted_search_matrix_executed"] is False
+    summary = receipt["targeted_search_matrix_summary"]
+    assert summary["execution_requested"] is False
+    assert summary["executed"] is False
+    assert summary["planned_case_count"] == receipt["targeted_search_matrix_count"]
+    assert summary["all_search_ready_providers_covered"] is True
 
 
 def test_live_provider_smoke_live_mode_reports_runtime_mismatch(monkeypatch) -> None:
@@ -139,7 +159,7 @@ def test_live_provider_smoke_live_mode_reports_runtime_mismatch(monkeypatch) -> 
     assert row["runtime_defaults_present_ok"] is False
 
 
-def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch) -> None:
+def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E", "1")
@@ -159,6 +179,7 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch) -> 
         "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
     }
     observed_payloads: list[dict[str, object]] = []
+    checkpoint_path = tmp_path / "provider-matrix-checkpoint.json"
 
     def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
         observed_payloads.append(dict(payload))
@@ -175,12 +196,27 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch) -> 
         countries=("AT",),
         fetcher=lambda _country, _timeout: catalog_payload,
         search_executor=_search_executor,
+        checkpoint_path=checkpoint_path,
     )
 
     assert receipt["status"] == "pass"
     assert receipt["targeted_search_matrix_status"] == "pass"
     assert receipt["targeted_search_matrix_executed"] is True
+    summary = receipt["targeted_search_matrix_summary"]
+    assert summary["execution_requested"] is True
+    assert summary["executed"] is True
+    assert summary["executed_case_count"] == 2 * _search_ready_provider_count("AT")
+    assert summary["passed_case_count"] == 2 * _search_ready_provider_count("AT")
+    assert summary["failed_case_count"] == 0
+    assert summary["all_search_ready_providers_covered"] is True
+    assert summary["agent_unlimited_results_ok"] is True
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert checkpoint["checkpoint"] is True
+    assert checkpoint["complete"] is False
+    assert checkpoint["targeted_search_matrix_status"] == "running"
+    assert checkpoint["targeted_search_matrix_count"] == 2 * _search_ready_provider_count("AT")
     assert len(observed_payloads) == 2 * _search_ready_provider_count("AT")
+    assert all(payload.get("dispatch_only") is True for payload in observed_payloads)
     assert all("max_results_per_source" not in payload for payload in observed_payloads)
     assert {
         dict(payload.get("property_preferences") or {}).get("search_mode")

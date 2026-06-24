@@ -1872,6 +1872,7 @@ class PropertySearchRunStartIn(BaseModel):
     property_preferences: dict[str, object] = Field(default_factory=dict)
     force_refresh: bool = False
     max_results_per_source: int | None = None
+    dispatch_only: bool = False
 
 
 class PropertySearchResearchTaskUpdateIn(BaseModel):

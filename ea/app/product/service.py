@@ -31660,6 +31660,7 @@ class ProductService:
         property_search_preferences: dict[str, object],
         force_refresh: bool = False,
         max_results_per_source: int | None = None,
+        dispatch_only: bool = False,
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
@@ -31701,11 +31702,12 @@ class ProductService:
         except Exception:
             pass
         _prune_property_search_runs()
-        self._best_effort_propertyquarry_teable_sync(
-            principal_id=normalized_principal,
-            run_id=run_id,
-            reason="property_search_run_queued",
-        )
+        if not dispatch_only:
+            self._best_effort_propertyquarry_teable_sync(
+                principal_id=normalized_principal,
+                run_id=run_id,
+                reason="property_search_run_queued",
+            )
 
         def _progress(
             *,
@@ -31952,6 +31954,14 @@ class ProductService:
                 )
 
         threading.Thread(target=_worker, daemon=True).start()
+        if dispatch_only:
+            queued_state = dict(persisted_state)
+            queued_summary = dict(queued_state.get("summary") or {})
+            queued_summary["dispatch_only"] = True
+            queued_summary["worker_started"] = True
+            queued_state["summary"] = queued_summary
+            queued_state["message"] = str(queued_state.get("message") or "Search run queued.")
+            return queued_state
         return self._snapshot_property_search_run(run_id=run_id, principal_id=normalized_principal) or _new_property_search_run_record(
             run_id=run_id,
             principal_id=normalized_principal,

@@ -265,6 +265,7 @@ def _start_property_search_run_payload(
         property_search_preferences=merged_preferences,
         force_refresh=bool(body.force_refresh),
         max_results_per_source=body.max_results_per_source,
+        dispatch_only=bool(body.dispatch_only),
     )
 
 

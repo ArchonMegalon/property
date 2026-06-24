@@ -7924,6 +7924,68 @@ def test_property_search_run_greenfield_api_wraps_legacy_signal_contract(monkeyp
     assert legacy_status.json()["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
 
 
+def test_property_search_run_dispatch_only_returns_queued_without_snapshot(monkeypatch) -> None:
+    principal_id = "exec-property-search-run-dispatch-only"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Dispatch Office")
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["selected_platforms"] = tuple(selected_platforms)
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 0,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    def _fail_snapshot(*args, **kwargs):
+        raise AssertionError("dispatch_only must not wait on search-run snapshot before responding")
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fail_snapshot)
+
+    started = client.post(
+        "/app/api/property/search-runs",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {"country_code": "AT", "location_query": "1010 Vienna"},
+            "dispatch_only": True,
+        },
+    )
+
+    assert started.status_code == 200, started.text
+    body = started.json()
+    assert body["run_id"]
+    assert body["status"] == "queued"
+    assert body["status_url"] == f"/app/api/property/search-runs/{body['run_id']}"
+    assert body["summary"]["dispatch_only"] is True
+    assert body["summary"]["worker_started"] is True
+    for _ in range(50):
+        if observed.get("selected_platforms") == ("willhaben",):
+            break
+        time.sleep(0.01)
+    assert observed["selected_platforms"] == ("willhaben",)
+
+
 def test_property_search_run_worker_preserves_provider_repair_receipts_before_terminal(monkeypatch) -> None:
     principal_id = "exec-property-search-run-repair-before-terminal"
     client = build_property_client(principal_id=principal_id)
