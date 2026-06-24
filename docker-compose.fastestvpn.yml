@@ -106,9 +106,6 @@ services:
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
-    volumes:
-      - /docker/EA:/docker/EA:ro
-      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-worker:
     depends_on:
@@ -125,9 +122,6 @@ services:
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
-    volumes:
-      - /docker/EA:/docker/EA:ro
-      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-scheduler:
     depends_on:
@@ -144,9 +138,6 @@ services:
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
-    volumes:
-      - /docker/EA:/docker/EA:ro
-      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   ea_fastestvpn_state: {}

@@ -198,6 +198,7 @@ Runtime storage and deploy notes:
 - `ea_pgdata` is the expected Postgres volume mounted at `/var/lib/postgresql/data`; the durable DB volume is disk-backed and not RAM.
 - `docker-compose.cloudflared.yml` is the optional dedicated PropertyQuarry Cloudflare tunnel overlay.
 - `docker-compose.property-legacy-edge.yml` is the optional legacy edge override that restores the old `ea-api` network alias when you intentionally still need it.
+- `docker-compose.host-tools.yml` is the explicit opt-in host-tools profile. The default API, worker, scheduler, and property runtime must not mount `/var/run/docker.sock` or the host repository.
 - If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
 - Operator alias envs include `PROPERTYQUARRY_API_SERVICE`, `PROPERTYQUARRY_DB_SERVICE`, `PROPERTYQUARRY_SCHEDULER_SERVICE`, and `scripts/support_bundle.sh`.
 - Support exports and DB helpers document `SUPPORT_INCLUDE_DB_VOLUME=0`, `ea-db mount/volume attribution`, `SUPPORT_INCLUDE_DB_SIZE=0`, `SUPPORT_DB_SIZE_LIMIT=<n>`, `EA_RETENTION_PROFILE=aggressive|standard|conservative`, `EA_RETENTION_TABLES`, `EA_RETENTION_SKIP_TABLES`, `EA_DB_SIZE_SCHEMA=<schema>`, `EA_DB_SIZE_SORT_KEY=total|table|index`, `EA_DB_SIZE_TABLE_PREFIX=<prefix>`, and `EA_DB_SIZE_MIN_MB=<n>`.

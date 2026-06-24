@@ -1,0 +1,71 @@
+# PropertyQuarry Gold Board Scope
+
+Updated: 2026-06-24
+
+This file records the active whole-product goal and the documentation.ai audit scope. It is not a credential store and must not contain provider passwords, license keys, API keys, OAuth secrets, session cookies, or private customer data.
+
+## Active Gold Objective
+
+PropertyQuarry must become a polished premium product across the complete customer loop:
+
+- Minimal, human-designed desktop and mobile UI on every surface.
+- Consistent top navigation across search, shortlist, research, billing, account, alerts, settings, and public conversion pages.
+- Mobile phone UI polished to premium grade, including non-clipped filters, compact evidence panels, reachable actions, and stable keyboards/safe-area behavior.
+- Agent-tier users see all ranked results per provider with no artificial result limit and no compare-card UX.
+- Research pages focus on ranking, listing truth, evidence, verified 3D tour, verified walkthrough, and next action.
+- Decision-support and "next-best properties" card language stays removed where it competes with ranking.
+- Price, availability, address, fees, rooms, area, and source status are confirmed automatically when provider evidence exists; vague examples such as "price needs to be confirmed" are not acceptable as final product copy.
+- Google or any external login provider implicitly creates the account on first successful authentication.
+- Notifications, billing, presentation, search, saved shortlist, and account recovery feel coherent and production-grade.
+- Rybbit instrumentation is included where it helps prove conversion, search completion, tour/walkthrough usage, billing, and support loops.
+- Self-healing jobs detect stale provider data, broken hosted tour shells, missing walkthrough assets, stuck render jobs, and missing research packets, then queue repairs with visible status.
+- Targeted e2e tests cover every active provider with and without soft filters.
+- All fixes merge to `main`, push, deploy, and receive live smoke/e2e receipts before claiming gold.
+
+## Verified Visual Media Scope
+
+- Matterport tours are considered ready only when the hosted control URL verifies.
+- 3DVista tours are considered ready only when the hosted control URL or export verifies.
+- Pano2VR and krpano-compatible tours are considered ready only when the Pano2VR export entry verifies and the hosted control can open.
+- MagicFit rendered walkthroughs are considered ready only when a playable published video asset is verified.
+- A branded hosted shell without a verified provider control is not a ready 3D tour.
+- A raw walkthrough URL without a verified playable asset is not a ready walkthrough.
+
+## Billing And Brilliant Directories Scope
+
+Brilliant Directories is allowed only as a governed white-label directory and billing-lane integration. It must not become the source of truth for PropertyQuarry billing, entitlements, listing truth, rankings, search scope, private preferences, provider credentials, or customer decisions.
+
+Required behavior:
+
+- PropertyQuarry remains the source of truth for plan, entitlement, invoice status, and access checks.
+- Brilliant Directories may expose a white-label account or payment handoff URL only when HTTPS, host allowlist, and rights review pass.
+- No raw payment method, invoice, entitlement, customer private profile, search-run, property-fact, ranking, or listing payload is sent to Brilliant Directories.
+- Billing UI must show current plan, checkout state, recovery state, history, and provider status without disrupting the search workflow.
+- Directory profiles may be projected only after public-field rights review and redaction.
+- Webhooks require signature verification, replay protection, and receipt logging before they can affect local billing or directory state.
+
+## documentation.ai Whole-Project Audit Scope
+
+The supplied whole-project audit is in scope as a gold-board blocker list. Its highest-risk findings must be resolved or explicitly dispositioned before a production-gold claim:
+
+- Establish an authoritative release manifest: repository, branch, commit SHA, deployment ID, public origin, artifact set, and release label.
+- Reconcile public `main`, deployed commit, receipts, and any private/local branch state before regenerating receipts.
+- Remove host Docker control from default API/worker deployment profiles: no `/var/run/docker.sock`, no `/docker` mount, and no broad host repository access in the base stack.
+- Run core images as non-root and move host-tool operations into an explicit restricted operator profile.
+- Add reproducible dependencies: lock files with hashes, pinned browser/runtime versions, pinned base image digest, dependency audit, container scan, and SBOM.
+- Replace configuration-derived operator access with durable identity, workspace membership, role assignment, scoped grants, and route/action authorization.
+- Add session `jti`, issuer, audience, key version, revocation/session version checks, short expiry, key rotation, and security-event ledger.
+- Keep principal-header overrides and loopback no-auth disabled in production.
+- Split deployment profiles for core, provider lab, media workers, property, memorial, and unrelated release-control lanes.
+- Add CI gates for type/lint, security/SAST, dependency/container scan, coverage, visual regression, accessibility, performance budgets, and release artifact freshness.
+- Harden public network posture: localhost binding or authenticated ingress, no placeholder secrets, explicit trusted proxy configuration.
+- Split product README from operator/lab docs and add a markdown link checker.
+- Restore or separately publish any memorial/gold plane only with current-HEAD proof receipts.
+
+## Current Priority Order
+
+1. Finish mobile surface polish and non-clipped What Matters controls.
+2. Finish verified 3D tour and walkthrough readiness behavior with regression tests.
+3. Polish billing and Brilliant Directories handoff documentation/contracts without leaking private billing truth.
+4. Add documentation.ai audit receipts and release-manifest proof.
+5. Run targeted unit/browser e2e, commit, push, deploy, and live smoke.

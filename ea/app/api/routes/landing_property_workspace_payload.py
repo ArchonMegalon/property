@@ -1233,6 +1233,9 @@ def property_workspace_payload(
             "3dvista": "3DVista",
             "threedvista": "3DVista",
             "three_d_vista": "3DVista",
+            "pano2vr": "Pano2VR",
+            "pano_2_vr": "Pano2VR",
+            "krpano": "krpano",
             "magicfit": "Magicfit",
             "ea_one_manager_onemin_i2v": "Magicfit",
             "onemin_i2v": "Magicfit",
@@ -1270,9 +1273,10 @@ def property_workspace_payload(
                 provider_key = ""
             provider_label = _visual_provider_label(provider_key) if provider_key else "Hosted 3D tour"
             if verified_tour_url:
+                verified_provider_keys = {"matterport", "3dvista", "pano2vr"}
                 status_detail = (
                     f"{provider_label} control is live inside the hosted tour."
-                    if provider_key in {"matterport", "3dvista"}
+                    if provider_key in verified_provider_keys
                     else "Hosted 3D tour is live."
                 )
                 return {
@@ -1285,24 +1289,7 @@ def property_workspace_payload(
                     "provider_key": provider_key,
                     "status_detail": status_detail,
                     "recovery_label": "",
-                    "control_label": f"Open {provider_label}" if provider_key in {"matterport", "3dvista"} else "Open hosted tour",
-                }
-            try:
-                branded_tour_url = property_tour_hosting._is_branded_public_tour_url(tour_url)  # type: ignore[attr-defined]
-            except Exception:
-                branded_tour_url = False
-            if branded_tour_url:
-                return {
-                    "status": "ready",
-                    "label": "360 ready",
-                    "url": tour_url,
-                    "embed_url": "",
-                    "eta_label": "Open hosted tour",
-                    "provider_label": provider_label,
-                    "provider_key": provider_key,
-                    "status_detail": "Hosted 3D tour is published and ready to open.",
-                    "recovery_label": "",
-                    "control_label": "Open hosted tour",
+                    "control_label": f"Open {provider_label}" if provider_key in verified_provider_keys else "Open hosted tour",
                 }
             return {
                 "status": "blocked",
@@ -1312,7 +1299,7 @@ def property_workspace_payload(
                 "eta_label": "A real hosted 3D tour is not available for this listing yet.",
                 "provider_label": provider_label,
                 "provider_key": provider_key,
-                "status_detail": "A hosted tour link exists, but no verified Matterport or 3DVista control is available yet.",
+                "status_detail": "A hosted tour link exists, but no verified Matterport, 3DVista, or Pano2VR control is available yet.",
                 "recovery_label": "Verification or repair needed",
                 "control_label": "",
             }

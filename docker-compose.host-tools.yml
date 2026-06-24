@@ -1,0 +1,32 @@
+services:
+  ea-operator-host-tools:
+    image: ea-runtime:latest
+    container_name: ea-operator-host-tools
+    profiles:
+      - host-tools
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      EA_ROLE: operator_tools
+      EA_RUNTIME_MODE: operator
+      EA_FASTESTVPN_COMPOSE_ROOT: /docker/property
+      HOME: /home/ea
+      TZ: Europe/Vienna
+    command: ["sleep", "infinity"]
+    volumes:
+      - .:/docker/property:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ea_artifacts:/data/artifacts
+      - ea_provider_ledger:/data/provider-ledger
+    working_dir: /docker/property
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /home/ea:size=128m,mode=700,uid=10001,gid=10001
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 512m

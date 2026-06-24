@@ -413,10 +413,7 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         }
         walkthrough_asset_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(bundle_tour_url)
         if walkthrough_asset_href:
-            separator = "&" if "?" in bundle_tour_url else "?"
-            targets["walkthrough_href"] = _propertyquarry_public_href(
-                f"{bundle_tour_url}{separator}pane=flythrough-pane&autoplay=1"
-            )
+            targets["walkthrough_href"] = _propertyquarry_public_href(walkthrough_asset_href)
         return targets
     return {}
 
@@ -3868,7 +3865,7 @@ def property_research_packet(
             seen_gallery_urls.add(item_url)
             filtered_gallery_items.append(dict(item))
         gallery_items = filtered_gallery_items
-    flythrough_url = str(research_media.get("walkthrough_href") or candidate.get("flythrough_url") or "").strip()
+    flythrough_url = str(research_media.get("walkthrough_href") or "").strip()
     hosted_tour_ready = bool(research_media.get("hosted_ready"))
     tour_action_href = str(research_media.get("primary_href") or "").strip() if hosted_tour_ready else ""
     tour_status = str(candidate.get("tour_status") or "").strip().lower()

@@ -1263,9 +1263,22 @@
     .prd-topbar {
       grid-template-columns: 1fr;
       align-items: start;
-      gap: 10px;
+      gap: 8px;
       min-height: 0;
-      padding: 10px 14px 12px;
+      padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 10px;
+      border-radius: 0 0 18px 18px;
+      box-shadow: 0 14px 30px color-mix(in srgb, var(--prd-gold) 8%, transparent);
+    }
+    .prd-brand {
+      gap: 8px;
+    }
+    .prd-brand-mark {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+    }
+    .prd-brand-copy span {
+      display: none;
     }
     .prd-primary-nav {
       justify-content: flex-start;
@@ -1288,9 +1301,9 @@
       max-width: none;
     }
     .prd-shell {
-      width: calc(100vw - 24px);
-      padding: 14px 0 28px;
-      gap: 12px;
+      width: calc(100vw - 16px);
+      padding: 10px 0 24px;
+      gap: 10px;
     }
     .prd-hero,
     .prd-summary-stack,
@@ -1307,7 +1320,8 @@
     .prd-map-card,
     .prd-meta-card,
     .prd-lightbox-card {
-      padding: 12px;
+      padding: 10px;
+      border-radius: 14px;
     }
     .prd-headline-panel .prd-actions {
       grid-template-columns: 1fr;
@@ -1356,7 +1370,16 @@
       line-height: 1.18;
     }
     .prd-summary-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scroll-snap-type: x proximity;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .prd-summary-grid::-webkit-scrollbar {
+      display: none;
     }
     .prd-summary-box p,
     .prd-key-point span,
@@ -1432,6 +1455,7 @@
     .prd-visual-console {
       gap: 8px;
       padding: 10px;
+      order: 2;
     }
     .prd-visual-grid {
       grid-template-columns: 1fr;
@@ -1445,6 +1469,10 @@
       align-items: stretch;
       flex-direction: column;
     }
+    .prd-visual-card-copy,
+    .prd-visual-heading .prd-copy {
+      display: none;
+    }
     .prd-status-badge {
       min-height: 24px;
       padding: 0 8px;
@@ -1452,11 +1480,12 @@
       letter-spacing: 0.03em;
     }
     .prd-media-frame {
-      min-height: 240px;
+      min-height: min(54svh, 300px);
       max-height: none;
+      border-radius: 16px;
     }
     .prd-media-frame.prd-media-frame-live {
-      min-height: 260px;
+      min-height: min(58svh, 330px);
       max-height: none;
     }
     .prd-media-caption {
@@ -1492,11 +1521,16 @@
       max-width: calc(100vw - 16px);
     }
     .prd-side-stack .object-feedback {
-      max-height: min(70svh, 560px);
+      max-height: min(52svh, 440px);
       overflow-y: auto;
       overscroll-behavior: contain;
       scroll-padding-bottom: 12px;
       -webkit-overflow-scrolling: touch;
+    }
+    .prd-current-read .prd-summary-box {
+      flex: 0 0 min(126px, 40vw);
+      scroll-snap-align: start;
+      min-height: 58px;
     }
     .prd-side-stack .object-feedback::-webkit-scrollbar {
       width: 0;
@@ -2346,11 +2380,13 @@
         pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
       };
     }
-    const state = String(payload?.tour_url ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
+    const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
+    const verifiedTourUrl = String(payload?.verified_tour_url || (rawTourState === 'ready' ? payload?.tour_url : '') || '').trim();
+    const state = String(verifiedTourUrl ? 'ready' : payload?.status || payload?.tour_status || 'pending').trim().toLowerCase();
     return {
       state,
-      label: String(payload?.tour_url ? 'Open 3D tour' : payload?.status_label || fallbackLabel || '3D tour queued').trim(),
-      href: String(payload?.tour_url || '').trim(),
+      label: String(verifiedTourUrl ? 'Open 3D tour' : payload?.status_label || fallbackLabel || '3D tour queued').trim(),
+      href: verifiedTourUrl,
       detail: String(payload?.status_detail || '').trim(),
       eta: String(payload?.eta_label || '').trim(),
       progress: Number(payload?.progress_pct || 0) || 0,

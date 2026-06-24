@@ -35,9 +35,6 @@ services:
       EA_FASTESTVPN_COMPOSE_ROOT: ${PROPERTYQUARRY_FASTESTVPN_COMPOSE_ROOT:-/docker/property}
       EA_FASTESTVPN_ON_DEMAND_ENABLED: ${PROPERTYQUARRY_FASTESTVPN_ON_DEMAND_ENABLED:-0}
       EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${PROPERTYQUARRY_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
-    volumes:
-      - .:/docker/property:ro
-      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-worker:
     environment:
@@ -48,9 +45,6 @@ services:
       EA_FASTESTVPN_COMPOSE_ROOT: ${PROPERTYQUARRY_FASTESTVPN_COMPOSE_ROOT:-/docker/property}
       EA_FASTESTVPN_ON_DEMAND_ENABLED: ${PROPERTYQUARRY_FASTESTVPN_ON_DEMAND_ENABLED:-0}
       EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${PROPERTYQUARRY_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
-    volumes:
-      - .:/docker/property:ro
-      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-scheduler:
     environment:
@@ -61,6 +55,3 @@ services:
       EA_FASTESTVPN_COMPOSE_ROOT: ${PROPERTYQUARRY_FASTESTVPN_COMPOSE_ROOT:-/docker/property}
       EA_FASTESTVPN_ON_DEMAND_ENABLED: ${PROPERTYQUARRY_FASTESTVPN_ON_DEMAND_ENABLED:-0}
       EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${PROPERTYQUARRY_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
-    volumes:
-      - .:/docker/property:ro
-      - /var/run/docker.sock:/var/run/docker.sock

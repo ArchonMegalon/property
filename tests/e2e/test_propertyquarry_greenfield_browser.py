@@ -654,7 +654,7 @@ def test_propertyquarry_home_example_media_links_open_real_public_tour_targets(
         tour_href = page.get_by_role("link", name="3D tour ready").get_attribute("href")
         walkthrough_href = page.get_by_role("link", name="Walkthrough ready").get_attribute("href")
         assert tour_href == f"/tours/{slug}/control/matterport"
-        assert walkthrough_href == f"/tours/{slug}?pane=flythrough-pane&autoplay=1"
+        assert walkthrough_href == f"/tours/files/{slug}/tour.mp4"
         assert "#tour-preview" not in page.content()
         assert "#walkthrough-preview" not in page.content()
     finally:
@@ -2096,12 +2096,19 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             "avoid_flood_risk_area",
         ):
             expect(page.locator(f'[data-property-field-name="{field_name}"]')).to_be_hidden()
-        for keyword in ("Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby"):
+        keyword_states = (
+            ("playground nearby", "nice_to_have"),
+            ("Baumarkt nearby", "important"),
+            ("shopping center nearby", "important"),
+            ("flaniermeile nearby", "important"),
+            ("theatre nearby", "important"),
+        )
+        for keyword, state in keyword_states:
             row = page.locator(f'[data-keyword-priority-row][data-keyword-value="{keyword}"]')
             row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
-            row.locator("[data-keyword-preference-select]").select_option("important")
+            row.locator("[data-keyword-preference-select]").select_option(state)
             expect(row.locator("[data-keyword-distance-select]")).to_be_enabled()
-            expect(row).to_have_attribute("data-preference-state", "important")
+            expect(row).to_have_attribute("data-preference-state", state)
         school_parent = page.locator('[data-school-priority-row][data-school-value="volksschule"]')
         school_parent.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
         school_parent.locator("[data-school-preference-select]").select_option("important")
@@ -2171,6 +2178,31 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                 assert float(control["width"]) >= 104.0, row
                 assert float(control["left"]) >= -1.0, row
                 assert float(control["right"]) >= -1.0, row
+        playground_clip = page.evaluate(
+            """
+            () => {
+              const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const select = row?.querySelector('[data-keyword-distance-select]');
+              const list = row?.closest('.pqx-pref-list');
+              row?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+              const rowRect = row?.getBoundingClientRect();
+              const selectRect = select?.getBoundingClientRect();
+              const listRect = list?.getBoundingClientRect();
+              return {
+                rowTop: rowRect ? rowRect.top : 0,
+                rowBottom: rowRect ? rowRect.bottom : 0,
+                selectTop: selectRect ? selectRect.top : 0,
+                selectBottom: selectRect ? selectRect.bottom : 0,
+                listTop: listRect ? listRect.top : 0,
+                listBottom: listRect ? listRect.bottom : 0,
+              };
+            }
+            """
+        )
+        assert playground_clip["selectTop"] >= playground_clip["rowTop"] - 1, playground_clip
+        assert playground_clip["selectBottom"] <= playground_clip["rowBottom"] + 1, playground_clip
+        assert playground_clip["selectTop"] >= playground_clip["listTop"] - 1, playground_clip
+        assert playground_clip["selectBottom"] <= playground_clip["listBottom"] + 1, playground_clip
 
     try:
         _assert_distance_rows_fit(desktop.new_page(), desktop_shot)
@@ -2420,7 +2452,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                     "request_kind": "flythrough",
                     "tour_url": "",
                     "tour_status": "pending",
-                    "flythrough_url": "https://propertyquarry.com/tours/listing-url-only-loft?pane=flythrough-pane",
+                    "flythrough_url": "https://propertyquarry.com/tours/files/listing-url-only-loft/walkthrough.mp4",
                     "flythrough_status": "ready",
                     "status_label": "Open walkthrough",
                     "status_detail": "Walkthrough is ready on this page.",
@@ -2531,8 +2563,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         expect(updated_button).to_be_visible()
         updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
         assert updated_href
-        assert "/tours/" in updated_href
-        assert "pane=flythrough-pane" in updated_href
+        assert "/tours/files/" in updated_href
+        assert updated_href.endswith("/walkthrough.mp4")
     finally:
         context.close()
 

@@ -2560,7 +2560,7 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
 
     assert targets == {
         "tour_href": "/tours/demo-home-tour/control/matterport",
-        "walkthrough_href": "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1",
+        "walkthrough_href": "/tours/files/demo-home-tour/tour.mp4",
     }
 
 
@@ -4660,8 +4660,10 @@ def test_property_workspace_payload_does_not_embed_external_branded_tour_host(mo
     )
 
     tour = payload["decision_workbench"]["results"][0]["tour"]
-    assert tour["url"] == "https://myexternalbrain.com/tours/live-flat"
+    assert tour["status"] == "blocked"
+    assert tour["url"] == ""
     assert tour["embed_url"] == ""
+    assert "no verified Matterport, 3DVista, or Pano2VR control" in tour["status_detail"]
 
 
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
@@ -4881,6 +4883,7 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert payload["embed_href"] == ""
     assert payload["hosted_ready"] is False
     assert payload["status_label"] == "360 needs rebuild"
+    assert "Matterport, 3DVista, or Pano2VR" in payload["status_detail"]
     assert payload["primary_href"] == ""
 
     monkeypatch.setattr(
@@ -4908,6 +4911,32 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["status_label"] == "Matterport ready"
     assert ready_payload["status_detail"] == "Matterport control is live inside the hosted PropertyQuarry tour."
     assert ready_payload["walkthrough_status_detail"] == "Magicfit rendered walkthrough is ready on this page."
+
+
+def test_property_research_media_uses_pano2vr_label_for_verified_controls(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "https://propertyquarry.com/tours/pano-ready/control/pano2vr",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "pano2vr",
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_url": "https://propertyquarry.com/tours/pano-ready",
+            "property_url": "https://example.test/listing",
+        }
+    )
+
+    assert payload["hosted_ready"] is True
+    assert payload["provider_label"] == "Pano2VR"
+    assert payload["primary_label"] == "Open Pano2VR"
+    assert payload["status_label"] == "Pano2VR ready"
+    assert payload["status_detail"] == "Pano2VR control is live inside the hosted PropertyQuarry tour."
 
 
 def test_property_research_media_uses_provider_specific_vendor_360_copy(monkeypatch) -> None:
@@ -9268,6 +9297,8 @@ def test_propertyquarry_shortlist_keeps_live_ranked_candidates_without_second_ga
 def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_actions(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-shortlist-media-ready")
     start_workspace(client, mode="personal", workspace_name="Property Office")
+    verified_tour_href = "https://propertyquarry.com/tours/walkthrough-ready-loft/control/matterport"
+    verified_walkthrough_href = "https://propertyquarry.com/tours/files/walkthrough-ready-loft/walkthrough.mp4"
 
     candidate = {
         "candidate_ref": "walkthrough-ready-loft",
@@ -9279,13 +9310,13 @@ def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_
         "packet_url": "/app/research/walkthrough-ready-loft?run_id=run-43",
         "match_reasons": ["Hosted media is ready."],
         "tour_url": "https://propertyquarry.com/tours/walkthrough-ready-loft",
-        "flythrough_url": "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1",
+        "flythrough_url": verified_walkthrough_href,
         "tour": {
             "url": "https://propertyquarry.com/tours/walkthrough-ready-loft",
             "detail": "Hosted 3D tour is published and ready to open.",
         },
         "flythrough": {
-            "url": "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1",
+            "url": verified_walkthrough_href,
             "detail": "Walkthrough render is ready.",
         },
         "property_facts": {
@@ -9324,6 +9355,21 @@ def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_
         }
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: verified_tour_href,
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "matterport",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_walkthrough_asset_url",
+        lambda _url: verified_walkthrough_href,
+    )
 
     shortlist = client.get("/app/shortlist", params={"run_id": "run-43"}, headers={"host": "propertyquarry.com"})
     visible_text = re.sub(r"<script\b[^>]*>.*?</script>", " ", shortlist.text, flags=re.IGNORECASE | re.DOTALL)
@@ -11082,6 +11128,12 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
         "_hosted_property_tour_verified_provider",
         lambda _url: "matterport",
     )
+    verified_walkthrough_href = "https://propertyquarry.com/tours/files/walkthrough-ready-loft/walkthrough.mp4"
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_walkthrough_asset_url",
+        lambda _url: verified_walkthrough_href,
+    )
 
     packet_ref = landing_property_research._property_candidate_ref(
         {
@@ -11098,7 +11150,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
-    assert 'href="https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&amp;autoplay=1"' in rendered_html
+    assert f'href="{verified_walkthrough_href}"' in rendered_html
     assert '>Open Matterport</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
     assert "Magicfit rendered walkthrough is ready on this page." in rendered_html

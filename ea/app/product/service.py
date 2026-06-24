@@ -30880,8 +30880,10 @@ class ProductService:
                     status_label = "Walkthrough ready"
                     status_detail = "Walkthrough is ready on this page."
                 elif flythrough_status in {"rendered", "existing"}:
-                    status_label = "Walkthrough ready"
-                    status_detail = "Walkthrough is ready on this page."
+                    payload["flythrough_status"] = "blocked"
+                    flythrough_status = "blocked"
+                    status_label = "Walkthrough verification needed"
+                    status_detail = "The render finished, but no verified playable walkthrough asset is published yet."
                 elif flythrough_status in {"queued", "pending"}:
                     status_label = "Walkthrough queued"
                     status_detail = "Queued. Opens here when ready."
@@ -30905,9 +30907,13 @@ class ProductService:
             verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
             if verified_tour_url:
                 payload["verified_tour_url"] = verified_tour_url
-            if str(payload.get("tour_url") or verified_tour_url or "").strip():
+            if verified_tour_url:
                 status_label = "3D tour ready"
                 status_detail = "Ready on this page."
+            elif str(payload.get("tour_url") or "").strip():
+                payload["tour_status"] = "repairing"
+                status_label = "3D tour verification needed"
+                status_detail = "The hosted tour shell exists, but no verified Matterport, 3DVista, or Pano2VR control is published yet."
             elif payload["tour_status"] in {"queued", "pending"}:
                 status_label = "3D tour queued"
                 status_detail = "Queued. Opens here when ready."

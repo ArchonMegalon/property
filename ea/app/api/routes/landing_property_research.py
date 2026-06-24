@@ -611,6 +611,9 @@ def _property_visual_provider_label(value: object) -> str:
         "3dvista": "3DVista",
         "threedvista": "3DVista",
         "three_d_vista": "3DVista",
+        "pano2vr": "Pano2VR",
+        "pano_2_vr": "Pano2VR",
+        "krpano": "krpano",
         "magicfit": "Magicfit",
         "ea_one_manager_onemin_i2v": "Magicfit",
         "onemin_i2v": "Magicfit",
@@ -650,7 +653,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
         candidate.get("flythrough_url")
     )
-    walkthrough_ready = bool(verified_walkthrough_href or str(candidate.get("flythrough_url") or "").strip())
+    walkthrough_ready = bool(verified_walkthrough_href)
     vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
     vendor_tour_provider_label = _property_visual_provider_label(vendor_tour_provider) if vendor_tour_provider else ""
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
@@ -664,7 +667,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         )
     elif tour_url:
         status_label = "360 needs rebuild"
-        status_detail = "The hosted tour link is not backed by usable viewer assets yet. Request a rebuild from this page."
+        status_detail = "The hosted tour link is not backed by usable Matterport, 3DVista, or Pano2VR viewer assets yet. Request a rebuild from this page."
     elif vendor_tour_url:
         status_label = f"{vendor_tour_provider_label} source ready" if vendor_tour_provider_label else "Source 360 available"
         status_detail = (
@@ -1442,4 +1445,3 @@ def _property_investment_research_rows(
         top_rent = snapshot["rent_samples"][0]
         rows.append(_object_detail_row("Closest rent comp", f"{top_rent.get('title')} | {top_rent.get('per_sqm_eur')} {currency_code}/m2 via {top_rent.get('source_label')}", "Comp"))
     return rows, risk_rows
-

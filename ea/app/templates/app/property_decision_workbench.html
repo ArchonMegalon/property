@@ -2862,7 +2862,7 @@
       .pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows="true"] .pqx-pref-list,
       .pqx-what-matters-panel .pqx-pref-list {
         grid-template-columns: minmax(0, 1fr);
-        gap: 4px;
+        gap: 5px;
         min-width: 0;
         max-width: 100%;
       }
@@ -2873,6 +2873,11 @@
         padding-right: 2px;
         scroll-padding-bottom: 8px;
         -webkit-overflow-scrolling: touch;
+      }
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open][data-active-distance-rows="true"] .pqx-pref-list {
+        max-height: min(46svh, 390px);
+        padding-bottom: 12px;
+        scroll-padding-bottom: 18px;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list::-webkit-scrollbar {
         width: 0;
@@ -2887,6 +2892,7 @@
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
         grid-column: auto;
         grid-template-columns: repeat(2, minmax(0, 1fr));
+        min-height: 90px;
         transform: none;
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div {
@@ -2897,6 +2903,9 @@
         grid-column: auto;
         width: 100%;
         max-width: 100%;
+      }
+      .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
+        scroll-margin-bottom: 18px;
       }
       .pqx-what-matters-panel .pqx-pref-row > div {
         grid-column: auto;
@@ -5757,6 +5766,11 @@
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
         padding: 10px;
+        border-radius: 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(249, 245, 237, 0.94)),
+          var(--pq-paper);
+        box-shadow: 0 18px 42px rgba(41, 37, 30, 0.1);
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head {
         display: grid;
@@ -5812,6 +5826,36 @@
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-workflow-step strong {
         font-size: 10.5px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form {
+        gap: 9px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body {
+        gap: 8px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field:not([hidden]) {
+        gap: 7px;
+        padding: 10px;
+        border: 1px solid rgba(185, 173, 154, 0.42);
+        border-radius: 14px;
+        background: rgba(255, 253, 248, 0.76);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field[data-property-field-name="keywords"] {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field > label {
+        display: grid;
+        gap: 7px;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-field input:not([type="checkbox"]),
+      .pqx-shell[data-pqx-surface="search"] .pqx-field select {
+        min-height: 42px;
+        border-radius: 11px;
+        background: #fffefa;
       }
       .pqx-result-panel,
       .pqx-review,

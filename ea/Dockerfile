@@ -50,7 +50,8 @@ RUN set -eu; \
         cp "$script" /app/scripts/; \
       done; \
     fi; \
-    chown -R ea:ea /app /usr/local/bin/docker-entrypoint.sh; \
+    mkdir -p /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea; \
+    chown -R ea:ea /app /data /home/ea /usr/local/bin/docker-entrypoint.sh; \
     rm -rf /tmp/src
 
 RUN pip install --no-cache-dir -r requirements.txt
@@ -58,7 +59,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
     find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \;
 
-USER root
+USER ea
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
   CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; openvoice) port=${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:${port}/health/live >/dev/null ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
 

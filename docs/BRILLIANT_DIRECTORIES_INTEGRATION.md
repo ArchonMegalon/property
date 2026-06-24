@@ -2,7 +2,7 @@
 
 Brilliant Directories is PropertyQuarry's governed public directory projection lane. It can support public partner, provider, agent, relocation, and local-service directories after rights and account verification pass.
 
-It must not own property facts, listing truth, ranking, search scope, user preferences, billing, or publication approval.
+It must not own property facts, listing truth, ranking, search scope, user preferences, billing truth, entitlements, or publication approval.
 
 ## Allowed Uses
 
@@ -10,6 +10,7 @@ It must not own property facts, listing truth, ranking, search scope, user prefe
 - Public agent or service-resource directory records.
 - Operator-reviewed import/export checks.
 - Directory webhook receipts after signature and replay controls are verified.
+- Governed white-label billing handoff when PropertyQuarry remains the source of truth for plans, invoices, entitlements, and access checks.
 
 ## Forbidden Inputs
 
@@ -17,7 +18,7 @@ It must not own property facts, listing truth, ranking, search scope, user prefe
 - Portal credentials or Brilliant Directories admin credentials.
 - Private user preferences, commute destinations, family or medical notes.
 - Search-run payloads, ranking scores, property facts, listing truth, or shortlist decisions.
-- Billing, payment, invoice, or entitlement data.
+- Billing, payment, invoice, entitlement, or access-check source-of-truth data.
 - Seller, agent, WhatsApp, Telegram, phone, or private email contact details unless an explicit public-directory rights review allows that field.
 
 ## Runtime Flags
@@ -57,7 +58,7 @@ The runtime contract is intentionally narrow:
 
 The runtime lane only accepts public directory search terms such as keyword, category, city, country, page, and limit. It does not send private user profile data, search-run payloads, listing facts, saved-search names, rankings, or property decisions to Brilliant Directories.
 
-The adapter does not create users, posts, leads, invoices, reviews, property listings, or public pages. Those require a separate rights and approval gate.
+The adapter does not create users, posts, leads, invoices, reviews, property listings, or public pages. Those require a separate rights and approval gate. Billing handoff is limited to an HTTPS, allowlisted, white-label account/payment URL; local plan state and entitlement checks must continue to come from PropertyQuarry-owned records.
 
 ## Verification
 
@@ -85,4 +86,5 @@ The integration is based on Brilliant Directories' official developer docs for A
 - Import/export/delete behavior verified.
 - Public-directory field rights reviewed.
 - Webhook signature and replay controls implemented before accepting callbacks.
+- Billing webhook signature, replay protection, and local entitlement reconciliation implemented before any Brilliant Directories event can change access.
 - Human approval remains required before any public PropertyQuarry surface uses directory output.
