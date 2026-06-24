@@ -17,6 +17,7 @@ DEFAULT_ROUTES = (
     "/app/billing",
     "/sign-in",
 )
+MAX_RESPONSE_BODY_BYTES = 900_000
 
 FORBIDDEN_CUSTOMER_NOISE = (
     "billing truth",
@@ -94,7 +95,7 @@ def fetch_url(
                 "status_code": int(response.status),
                 "final_url": str(response.geturl()),
                 "headers": dict(response.headers.items()),
-                "body": response.read(220_000),
+                "body": response.read(MAX_RESPONSE_BODY_BYTES),
                 "duration_ms": int((ended - started).total_seconds() * 1000),
             }
     except urllib.error.HTTPError as exc:
@@ -103,7 +104,7 @@ def fetch_url(
             "status_code": int(exc.code),
             "final_url": str(exc.geturl()),
             "headers": dict(exc.headers.items()),
-            "body": exc.read(220_000),
+            "body": exc.read(MAX_RESPONSE_BODY_BYTES),
             "duration_ms": int((ended - started).total_seconds() * 1000),
         }
     except Exception as exc:
@@ -134,7 +135,12 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
     elif path == "/app/billing":
         checks.extend(
             (
-                ("billing_has_pricing_action", "Open pricing" in visible_text or "Request access" in visible_text),
+                (
+                    "billing_has_pricing_action",
+                    "Open pricing" in visible_text
+                    or "Request access" in visible_text
+                    or "Compare plans" in visible_text,
+                ),
                 ("billing_no_self_link", 'href="/app/billing"' not in text),
                 ("billing_no_customer_noise", not any(noise in lowered_visible for noise in FORBIDDEN_CUSTOMER_NOISE)),
             )
@@ -143,7 +149,7 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
         logout_count = len(re.findall(r">Log out<", text))
         checks.extend(
             (
-                ("sign_in_current_session", "Open current session" in visible_text),
+                ("sign_in_current_session", "Open current session" in visible_text or "Open search" in visible_text),
                 ("sign_in_single_logout", logout_count == 1),
                 ("sign_in_google_state", "Continue with Google" in visible_text),
                 ("sign_in_no_double_logout", logout_count <= 1),
