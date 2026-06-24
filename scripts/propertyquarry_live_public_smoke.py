@@ -197,6 +197,15 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ("pricing_subtitle_removed", "Choose by sources, shortlist size, and research depth." not in text),
             )
         )
+    elif path == "/sign-in":
+        lowered_visible = visible_text.lower()
+        checks.extend(
+            (
+                ("sign_in_live_service_copy", "Use a saved session, email link, or connected identity." in text),
+                ("sign_in_no_rollout_language", "verified rollout" not in lowered_visible and "invite only" not in lowered_visible),
+                ("sign_in_no_waitlist_language", "waitlist" not in lowered_visible and "request access" not in lowered_visible),
+            )
+        )
     elif path == "/directory":
         lowered_visible = visible_text.lower()
         checks.extend(
