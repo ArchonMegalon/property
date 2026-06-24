@@ -490,27 +490,6 @@ ul {
   color: #332915;
 }
 
-.comparison-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 5mm;
-}
-
-.comparison-table th,
-.comparison-table td {
-  border-bottom: 1px solid var(--line);
-  padding: 3.4mm 2mm;
-  text-align: left;
-}
-
-.comparison-table th {
-  font-family: "Segoe UI", Arial, sans-serif;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--muted);
-}
-
 .legal {
   margin-top: 8mm;
   color: #5e5b54;

@@ -572,6 +572,34 @@ def test_propertyquarry_candidate_display_facts_use_listing_postal_over_dirty_so
     assert facts["address"] == "1220 Wien"
 
 
+def test_propertyquarry_candidate_display_facts_fill_price_display_from_numeric_price_fields() -> None:
+    candidate = {
+        "title": "Vienna apartment",
+        "property_facts": {
+            "postal_name": "1010 Wien",
+            "price_eur": 649000,
+        },
+    }
+
+    facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
+
+    assert facts["price_display"] == "EUR 649,000"
+
+
+def test_propertyquarry_candidate_display_facts_fill_price_display_from_listing_text() -> None:
+    candidate = {
+        "title": "Chelsea townhouse",
+        "summary": "GBP 420,000 · 72 m² · London",
+        "property_facts": {
+            "postal_name": "London",
+        },
+    }
+
+    facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
+
+    assert facts["price_display"] == "GBP 420,000"
+
+
 def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_code() -> None:
     assert _property_source_display_label("DER STANDARD Immobilien | Austria | Rent | 1010 Vienna") == "DER STANDARD Immobilien"
     assert _property_source_display_label("Willhaben | Austria | Rent | Salzburg") == "Willhaben"
@@ -1774,6 +1802,51 @@ def test_propertyquarry_running_panel_prefers_listing_snapshot_location_over_sou
     assert "1020 Wien" in response.text
 
 
+def test_propertyquarry_running_panel_formats_numeric_rent_without_still_verifying(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-rent-price-fallback")
+    start_workspace(client, mode="personal", workspace_name="Running Rent Fallback Office")
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-rent-fallback", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "status_label": "Search in progress",
+            "progress": 41,
+            "message": "Checking current rental leaders.",
+            "summary": {
+                "status": "in_progress",
+                "reviewed_listing_total": 9,
+                "ranked_candidates": [
+                    {
+                        "title": "Numeric rent fallback flat",
+                        "fit_score": 64.0,
+                        "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+                        "source_url": "https://example.test/rent-fallback-flat",
+                        "property_facts": {
+                            "postal_name": "1070 Wien",
+                            "total_rent_eur": 1940.0,
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-live-rent-fallback"}, headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert "Current best so far" in response.text
+    assert "EUR 1,940" in response.text
+    assert "Still verifying" not in response.text
+
+
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
     client = build_property_client(principal_id="pq-what-matters-comboboxes")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -2895,6 +2968,58 @@ def test_property_surface_state_previous_run_price_fallback_uses_catalog_currenc
 
     assert summary["top_price_display"] == "CAD 825,000"
     assert summary["top_candidates"][0]["price_display"] == "CAD 825,000"
+
+
+def test_property_surface_state_previous_run_price_fallback_uses_numeric_price_fields() -> None:
+    summary = property_surface_state.build_property_previous_run_summary(
+        {
+            "run_id": "run-eur",
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "title": "Vienna apartment",
+                        "price_eur": 649000,
+                        "property_facts": {"postal_name": "Vienna", "area_sqm": 81},
+                    }
+                ]
+            },
+            "preferences": {"country_code": "AT", "location_query": "Vienna", "listing_mode": "buy"},
+        },
+        include_scope_preview=False,
+        scope_preview_builder=lambda country, region, location: {"summary": f"{country}:{region}:{location}"},
+        compact_provider_label=lambda label: label,
+        candidate_maps_url_builder=lambda candidate: "",
+    )
+
+    assert summary["top_price_display"] == "EUR 649,000"
+    assert summary["top_candidates"][0]["price_display"] == "EUR 649,000"
+
+
+def test_property_surface_state_previous_run_price_fallback_uses_summary_copy_before_placeholder() -> None:
+    summary = property_surface_state.build_property_previous_run_summary(
+        {
+            "run_id": "run-gbp",
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "title": "Chelsea townhouse",
+                        "summary": "GBP 420,000 · 72 m² · London",
+                        "property_facts": {"postal_name": "London", "area_sqm": 72},
+                    }
+                ]
+            },
+            "preferences": {"country_code": "GB", "location_query": "London", "listing_mode": "buy"},
+        },
+        include_scope_preview=False,
+        scope_preview_builder=lambda country, region, location: {"summary": f"{country}:{region}:{location}"},
+        compact_provider_label=lambda label: label,
+        candidate_maps_url_builder=lambda candidate: "",
+    )
+
+    assert summary["top_price_display"] == "GBP 420,000"
+    assert summary["top_candidates"][0]["price_display"] == "GBP 420,000"
 
 
 def test_property_surface_state_builds_shortlist_snapshot_and_preserves_rank_order() -> None:
@@ -4375,6 +4500,52 @@ def test_property_workspace_payload_exposes_visual_provider_labels_for_ready_del
     assert "Matterport source is live" in result["tour"]["status_detail"]
     assert result["flythrough"]["provider_label"] == "Magicfit"
     assert "Magicfit rendered walkthrough ready" in result["flythrough"]["detail"]
+
+
+def test_property_workspace_payload_fills_result_price_display_from_numeric_price_fields() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "buy",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-numeric-price-display",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "buy",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-numeric-price",
+                            "title": "Numeric price display candidate",
+                            "property_url": "https://example.test/numeric-price",
+                            "fit_score": 81,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_eur": 649000,
+                                "area_m2": 81,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+    assert result["price_display"] == "EUR 649,000"
 
 
 def test_property_workspace_payload_uses_market_timezone_when_account_has_no_timezone() -> None:
@@ -7956,6 +8127,11 @@ def test_property_workspace_setup_is_dashboard_first_and_compact() -> None:
     assert ".pqx-disclosure-summary {" in body
     assert ".pqx-disclosure-icon {" in body
     assert ".pqx-workflow-step:hover," in body
+    assert "live_preview.get('costs_display')" in body
+    assert "live_preview_facts.get('price_eur')" in body
+    assert "live_preview_facts.get('total_rent_eur')" in body
+    assert "'{:,.0f}'.format(live_preview_price_numeric|float)" in body
+    assert "live_preview.get('price_display') or 'Still verifying'" not in body
 
 
 def test_property_shortlist_surface_keeps_results_first_and_restores_desktop_review() -> None:
@@ -7972,6 +8148,12 @@ def test_property_shortlist_surface_keeps_results_first_and_restores_desktop_rev
     assert 'data-pw-decision-state="archived"' in body
     assert "data-pw-remove-row" in body
     assert "No price published" in body
+    assert "candidate?.price_eur" in body
+    assert "candidate?.total_rent_eur" in body
+    assert "facts?.price_eur" in body
+    assert "facts?.total_rent_eur" in body
+    assert "candidate_facts.get('price_eur')" in body
+    assert "provisional_facts.get('price_eur')" in body
     assert 'data-candidate-listing-url="${escapeHtml(propertyUrl)}"' in body
     assert "const openRowTarget = () => {" in body
     assert "window.location.href = packetUrl;" in body
@@ -9031,11 +9213,90 @@ def test_propertyquarry_shortlist_keeps_live_ranked_candidates_without_second_ga
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
 
     shortlist = client.get("/app/shortlist", params={"run_id": "run-live-42"}, headers={"host": "propertyquarry.com"})
+    visible_text = re.sub(r"<script\b[^>]*>.*?</script>", " ", shortlist.text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<style\b[^>]*>.*?</style>", " ", visible_text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<[^>]+>", " ", visible_text)
 
     assert shortlist.status_code == 200
     assert "Praterstrasse fit" in shortlist.text
     assert "Another ranked survivor" in shortlist.text
-    assert "Request 3D tour" in shortlist.text
+    assert "Request 3D tour" not in visible_text
+    assert "Request walkthrough" not in visible_text
+    assert "Open 3D tour" not in visible_text
+    assert "Open walkthrough" not in visible_text
+
+
+def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_actions(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-media-ready")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "candidate_ref": "walkthrough-ready-loft",
+        "title": "Walkthrough ready loft",
+        "property_url": "https://example.test/walkthrough-ready-loft",
+        "source_url": "https://example.test/walkthrough-ready-loft",
+        "fit_score": 88,
+        "location_label": "Vienna",
+        "packet_url": "/app/research/walkthrough-ready-loft?run_id=run-43",
+        "match_reasons": ["Hosted media is ready."],
+        "tour_url": "https://propertyquarry.com/tours/walkthrough-ready-loft",
+        "flythrough_url": "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1",
+        "tour": {
+            "url": "https://propertyquarry.com/tours/walkthrough-ready-loft",
+            "detail": "Hosted 3D tour is published and ready to open.",
+        },
+        "flythrough": {
+            "url": "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1",
+            "detail": "Walkthrough render is ready.",
+        },
+        "property_facts": {
+            "price_eur": 615000.0,
+            "area_m2": 92,
+            "postal_name": "Vienna",
+            "rooms": 4,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "buy",
+                "search_goal": "home",
+                "location_query": "Vienna",
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Buy | Vienna",
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-43"}, headers={"host": "propertyquarry.com"})
+    visible_text = re.sub(r"<script\b[^>]*>.*?</script>", " ", shortlist.text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<style\b[^>]*>.*?</style>", " ", visible_text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<[^>]+>", " ", visible_text)
+
+    assert shortlist.status_code == 200
+    assert "360 ready" in visible_text
+    assert "Walkthrough ready" in visible_text
+    assert "Open 3D tour" not in visible_text
+    assert "Open walkthrough" not in visible_text
+    assert "Open property" in visible_text
 
 
 def test_propertyquarry_shortlist_fails_honestly_when_ranked_candidates_are_not_admissible(monkeypatch) -> None:

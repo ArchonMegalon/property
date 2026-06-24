@@ -145,6 +145,33 @@ def test_premium_dossier_html_contains_core_sections() -> None:
     assert "https://www.google.com/maps/search/?api=1" in html
 
 
+def test_premium_dossier_html_omits_comparison_snapshot_even_with_comparison_rows() -> None:
+    source = _sample_source()
+    source["comparison_rows"] = [
+        {
+            "title": "Ranked alternative A",
+            "price": "EUR 285,000",
+            "rooms": 2,
+            "area_sqm": 68.4,
+            "recommendation": "Ranked alternative",
+            "compare_reason": "Older compare-era reason that should not render as its own section.",
+            "property_url": "https://propertyquarry.com/listings/a",
+        }
+    ]
+    compiled = compile_premium_dossier(
+        source=source,
+        redacted_payload=source,
+        packet_kind=PropertyPacketKind.FAMILY_REVIEW,
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+        renderer_version="v1_premium_markupgo_dossier",
+    )
+    html = render_premium_dossier_html(compiled)
+    assert "Comparison snapshot" not in html
+    assert "comparison-table" not in html
+    assert "Ranked alternative A" not in html
+
+
 def test_premium_dossier_prefers_scene_render_as_hero_over_stock_gallery_order() -> None:
     source = _sample_source()
     source["magic_fit_scene"] = {

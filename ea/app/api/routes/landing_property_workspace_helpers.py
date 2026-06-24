@@ -8,6 +8,7 @@ from typing import Any
 
 from app.product.property_surface_state import build_property_run_reliability_snapshot
 from app.services.property_artifact_contracts import required_artifact_receipt_rows
+from app.services.property_market_catalog import supported_currency_codes
 
 
 _PROPERTY_POSTAL_LOCALITY_PATTERN = re.compile(
@@ -217,6 +218,49 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
             current = str(merged.get(key) or "").strip()
             if not current or _normalized(current) in source_scope_candidates or (source_postal_code and listing_postal_code and source_postal_code != listing_postal_code):
                 merged[key] = listing_postal_name
+
+    if not str(merged.get("price_display") or "").strip():
+        fallback_price = ""
+        for raw_value in (
+            merged.get("rent_display"),
+            merged.get("purchase_price_display"),
+            merged.get("buy_price_display"),
+            merged.get("price"),
+            merged.get("rent"),
+        ):
+            fallback_price = str(raw_value or "").strip()
+            if fallback_price:
+                break
+        if not fallback_price:
+            for key in (
+                "price_eur",
+                "purchase_price_eur",
+                "buy_price_eur",
+                "rent_eur",
+                "total_rent_eur",
+                "monthly_rent_eur",
+            ):
+                raw_value = merged.get(key)
+                try:
+                    amount = float(raw_value)
+                except Exception:
+                    amount = 0.0
+                if amount > 0:
+                    currency_code = str(merged.get("currency_code") or "EUR").strip().upper() or "EUR"
+                    fallback_price = f"{currency_code} {amount:,.0f}"
+                    break
+        if not fallback_price and listing_text:
+            currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
+            for pattern in (
+                r"(€\s?[0-9][0-9\.\s]*(?:,\d{1,2})?\s*,-?)",
+                rf"((?:{currency_pattern})\s?[0-9][0-9\.,\s]*)",
+            ):
+                match = re.search(pattern, listing_text, flags=re.IGNORECASE)
+                if match:
+                    fallback_price = " ".join(str(match.group(1) or "").split()).strip(" ,")
+                    break
+        if fallback_price:
+            merged["price_display"] = fallback_price
 
     if not snapshot:
         return merged

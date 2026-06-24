@@ -271,7 +271,8 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Altbau near U6" in shortlist.text
     assert "Open property page" in shortlist.text
     assert "Open listing" in shortlist.text
-    assert "Open 360" in shortlist.text
+    assert "360 ready" in shortlist.text
+    assert "Open 360" not in shortlist.text
     assert "data-feedback-save" in shortlist.text
     shortlist_listing_links = re.findall(r'href="([^"]+)"[^>]*>\s*Open listing\s*</a>', shortlist.text)
     assert shortlist_listing_links

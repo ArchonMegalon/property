@@ -4338,7 +4338,10 @@ def app_shell(
             or {}
         )
         if not route_run:
-            raise HTTPException(status_code=404, detail="property_search_run_not_found")
+            if resolved_section == "properties" and str(context.auth_source or "").strip() == "workspace_access_session":
+                route_run = {}
+            else:
+                raise HTTPException(status_code=404, detail="property_search_run_not_found")
         if resolved_section == "properties":
             route_run_status = str(route_run.get("status") or "").strip().lower()
             if route_run_status in {"processed", "completed", "completed_partial"} and _property_run_payload_has_shortlist_results(route_run):

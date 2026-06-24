@@ -1046,6 +1046,7 @@ def _previous_run_price_text(candidate: dict[str, object]) -> str:
     for raw_value in (
         candidate.get("price_display"),
         candidate.get("costs_display"),
+        candidate.get("rent_display"),
         facts.get("price_display"),
         facts.get("rent_display"),
         facts.get("price"),
@@ -1054,17 +1055,35 @@ def _previous_run_price_text(candidate: dict[str, object]) -> str:
         text = str(raw_value or "").strip()
         if text:
             return text
-    title_text = " ".join(str(candidate.get("title") or "").split()).strip()
-    if not title_text:
-        return ""
-    currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
-    for pattern in (
-        r"(€\s?[0-9][0-9\.\s]*(?:,\d{1,2})?\s*,-?)",
-        rf"((?:{currency_pattern})\s?[0-9][0-9\.,\s]*)",
+    for raw_value in (
+        candidate.get("price_eur"),
+        candidate.get("purchase_price_eur"),
+        candidate.get("buy_price_eur"),
+        facts.get("price_eur"),
+        facts.get("purchase_price_eur"),
+        facts.get("buy_price_eur"),
     ):
-        match = re.search(pattern, title_text, flags=re.IGNORECASE)
-        if match:
-            return " ".join(str(match.group(1) or "").split()).strip(" ,")
+        try:
+            amount = float(raw_value)
+        except Exception:
+            amount = 0.0
+        if amount > 0:
+            return f"EUR {amount:,.0f}"
+    currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
+    for source_text in (
+        candidate.get("summary"),
+        candidate.get("title"),
+    ):
+        text = " ".join(str(source_text or "").split()).strip()
+        if not text:
+            continue
+        for pattern in (
+            r"(€\s?[0-9][0-9\.\s]*(?:,\d{1,2})?\s*,-?)",
+            rf"((?:{currency_pattern})\s?[0-9][0-9\.,\s]*)",
+        ):
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                return " ".join(str(match.group(1) or "").split()).strip(" ,")
     return ""
 
 

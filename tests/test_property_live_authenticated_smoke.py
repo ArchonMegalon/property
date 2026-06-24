@@ -65,6 +65,25 @@ def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network(
     assert receipt["failed_count"] == 0
 
 
+def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_expected() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
+        "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+    }
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="user-free@example.test",
+        expected_plan_label="Free",
+        fetcher=lambda url, _timeout: _fake_response(bodies[url], final_url=url),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failed_count"] == 0
+
+
 def test_live_authenticated_smoke_fails_when_account_loses_paid_plan_projection() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",

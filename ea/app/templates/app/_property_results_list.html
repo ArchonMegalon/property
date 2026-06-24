@@ -73,8 +73,12 @@
     <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
       {% set orientation_preview = candidate.get('orientation_preview') or {} %}
       {% set primary_preview_url = candidate.get('preview_image_url') or orientation_preview.get('thumb_image_url') or orientation_preview.get('image_url') or '' %}
-      {% set primary_price = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or 'No price published') %}
-      {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or '') %}
+      {% set candidate_facts = candidate.get('property_facts') or {} %}
+      {% set candidate_price_text = candidate.get('price_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('costs_display') or candidate.get('rent_display') or candidate_facts.get('price_display') or candidate_facts.get('rent_display') or candidate_facts.get('price') or candidate_facts.get('rent') or '') %}
+      {% set candidate_price_numeric = candidate.get('price_eur') or candidate.get('purchase_price_eur') or candidate.get('buy_price_eur') or candidate_facts.get('price_eur') or candidate_facts.get('purchase_price_eur') or candidate_facts.get('buy_price_eur') %}
+      {% set candidate_price_currency = candidate.get('currency_code') or candidate_facts.get('currency_code') or ('EUR' if candidate_price_numeric else '') %}
+      {% set primary_price = candidate_price_text or ((candidate_price_currency ~ ' ' ~ '{:,.0f}'.format(candidate_price_numeric|float)) if candidate_price_numeric else 'No price published') %}
+      {% set secondary_price = candidate.get('costs_display') if candidate.get('price_display') and candidate.get('price_display') != 'n/a' else (candidate.get('price_per_sqm_display') or candidate.get('costs_display') or candidate.get('rent_display') or candidate_facts.get('price_per_sqm_display') or '') %}
       {% set thesis_line = candidate.get('investment', {}).get('headline') if brief.get('search_goal') == 'investment' else '' %}
       {% set fit_tooltip = candidate.get('fit_summary') or ((candidate.get('match_reasons') or [])[:2]|join(' · ')) or 'Personal fit score from the current shortlist pass.' %}
       {% if not thesis_line %}
@@ -147,10 +151,14 @@
               {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('market_delta_display') %}
               <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('market_delta_display') }}</span>
               {% endif %}
-              {% if tour.get('url') %}
+              {% if tour.get('url') and shortlist_compact_actions %}
+              <span class="pqx-result-fact" title="{{ tour.get('detail') or '3D tour ready' }}">360 ready</span>
+              {% elif tour.get('url') %}
               <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="{{ tour.get('detail') or '3D tour ready' }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') }}">360 ready</a>
               {% endif %}
-              {% if walkthrough.get('url') %}
+              {% if walkthrough.get('url') and shortlist_compact_actions %}
+              <span class="pqx-result-fact" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}">Walkthrough ready</span>
+              {% elif walkthrough.get('url') %}
               <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}" aria-label="{{ walkthrough.get('detail') or 'Walkthrough ready' }}">Walkthrough ready</a>
               {% endif %}
               {% if tour_provider_label and tour.get('url') %}
@@ -192,9 +200,9 @@
           {% endif %}
           {% if tour.get('url') and not shortlist_compact_actions %}
           <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}">{% if (tour.get('provider_label') or '') == 'Matterport' %}Open Matterport{% elif (tour.get('provider_label') or '') == '3DVista' %}Open 3DVista{% else %}Open 3D tour{% endif %}</a>
-          {% elif tour_pending %}
+          {% elif tour_pending and not shortlist_compact_actions %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ tour_progress }}%;" title="{{ tour_tooltip }}" aria-label="{{ tour_tooltip }}">{{ tour.get('label') or '3D tour queued' }}</button>
-          {% elif visual_property_url %}
+          {% elif visual_property_url and not shortlist_compact_actions %}
           <button
             class="pqx-result-open pqx-result-open-button"
             type="button"
@@ -209,9 +217,9 @@
           {% endif %}
           {% if walkthrough.get('url') and not shortlist_compact_actions %}
           <a class="pqx-progress-button is-ready" href="{{ walkthrough.get('url') }}" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">Open walkthrough</a>
-          {% elif walkthrough_pending %}
+          {% elif walkthrough_pending and not shortlist_compact_actions %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ walkthrough_progress }}%;" title="{{ walkthrough_tooltip }}" aria-label="{{ walkthrough_tooltip }}">{{ walkthrough_label }}</button>
-          {% elif visual_property_url %}
+          {% elif visual_property_url and not shortlist_compact_actions %}
           <button
             class="pqx-result-open pqx-result-open-button"
             type="button"

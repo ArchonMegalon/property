@@ -1862,8 +1862,37 @@
         ).trim();
         const packetUrl = String(candidate?.packet_url || candidate?.review_url || '').trim();
         const propertyUrl = String(candidate?.property_url || candidate?.source_url || candidate?.listing_url || '').trim();
-        const primaryPrice = String(candidate?.price_display || candidate?.costs_display || 'No price published').trim();
-        const secondaryPrice = String(candidate?.costs_display || candidate?.price_per_sqm_display || '').trim();
+        const facts = (candidate?.property_facts && typeof candidate.property_facts === 'object') ? candidate.property_facts : {};
+        const derivedPrimaryPrice = [
+          candidate?.price_display,
+          candidate?.costs_display,
+          candidate?.rent_display,
+          facts?.price_display,
+          facts?.rent_display,
+          facts?.price,
+          facts?.rent,
+        ].map((value) => String(value || '').trim()).find(Boolean)
+          || [
+            candidate?.price_eur,
+            candidate?.purchase_price_eur,
+            candidate?.buy_price_eur,
+            candidate?.rent_eur,
+            candidate?.total_rent_eur,
+            candidate?.monthly_rent_eur,
+            facts?.price_eur,
+            facts?.purchase_price_eur,
+            facts?.buy_price_eur,
+            facts?.rent_eur,
+            facts?.total_rent_eur,
+            facts?.monthly_rent_eur,
+          ]
+            .map((value) => Number(value))
+            .find((value) => Number.isFinite(value) && value > 0)
+          || '';
+        const primaryPrice = typeof derivedPrimaryPrice === 'number'
+          ? `${String(candidate?.currency_code || facts?.currency_code || 'EUR').trim() || 'EUR'} ${Math.round(derivedPrimaryPrice).toLocaleString('en-US')}`
+          : String(derivedPrimaryPrice || '').trim() || 'No price published';
+        const secondaryPrice = String(candidate?.costs_display || candidate?.price_per_sqm_display || candidate?.rent_display || facts?.price_per_sqm_display || '').trim();
         const layout = String(candidate?.layout_display || '').trim();
         const fitSummary = String(
           candidate?.fit_summary
@@ -1906,18 +1935,26 @@
         const flythroughProgress = Math.max(0, Math.min(100, Number(flythrough.progress_pct || (flythroughPending ? 18 : (flythroughUrl ? 100 : 0))) || 0));
         const facts = [
           layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
-          tourUrl ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="${escapeHtml(tourDetail || '3D tour ready')}">360 ready</a>` : '',
-          flythroughUrl ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}" aria-label="${escapeHtml(flythroughDetail || 'Walkthrough ready')}">Walkthrough ready</a>` : '',
+          tourUrl
+            ? (shortlistSurface
+              ? `<span class="pqx-result-fact" title="${escapeHtml(tourDetail || '3D tour ready')}">360 ready</span>`
+              : `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="${escapeHtml(tourDetail || '3D tour ready')}">360 ready</a>`)
+            : '',
+          flythroughUrl
+            ? (shortlistSurface
+              ? `<span class="pqx-result-fact" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}">Walkthrough ready</span>`
+              : `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}" aria-label="${escapeHtml(flythroughDetail || 'Walkthrough ready')}">Walkthrough ready</a>`)
+            : '',
         ].filter(Boolean).join('');
         const actions = [
           packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
           propertyUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
           tourUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(tourUrl)}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Open 3D tour</a>` : '',
-          tourPending ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(tourProgress)}%;" title="${escapeHtml(tourTooltip)}" aria-label="${escapeHtml(tourTooltip)}">${escapeHtml(tourLabel)}</button>` : '',
-          propertyUrl && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Request 3D tour</button>` : '',
+          tourPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(tourProgress)}%;" title="${escapeHtml(tourTooltip)}" aria-label="${escapeHtml(tourTooltip)}">${escapeHtml(tourLabel)}</button>` : '',
+          propertyUrl && !shortlistSurface && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Request 3D tour</button>` : '',
           flythroughUrl && !shortlistSurface ? `<a class="pqx-progress-button is-ready" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Open walkthrough</a>` : '',
-          flythroughPending ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
-          propertyUrl && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough">Request walkthrough</button>` : '',
+          flythroughPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
+          propertyUrl && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         return `
@@ -2009,8 +2046,53 @@
       const candidates = rankedCandidatesFromRunPayload(runPayload);
       const candidate = candidates[0];
       if (!candidate || typeof candidate !== 'object') return '';
+      const priceSummaryFromText = (value) => {
+        const text = String(value || '').replace(/\s+/g, ' ').trim();
+        if (!text) return '';
+        const patterns = [
+          /(€\s?[0-9][0-9.\s]*(?:,[0-9]{1,2})?\s*,-?)/i,
+          /((?:EUR|USD|GBP|CHF)\s?[0-9][0-9.,\s]*)/i,
+        ];
+        for (const pattern of patterns) {
+          const match = text.match(pattern);
+          if (match && String(match[1] || '').trim()) return String(match[1] || '').replace(/\s+/g, ' ').trim().replace(/[,\s]+$/, '');
+        }
+        return '';
+      };
+      const facts = (candidate?.property_facts && typeof candidate.property_facts === 'object') ? candidate.property_facts : {};
+      const derivedPrice = [
+        candidate?.price_display,
+        candidate?.costs_display,
+        candidate?.rent_display,
+        facts?.price_display,
+        facts?.rent_display,
+        facts?.price,
+        facts?.rent,
+      ].map((value) => String(value || '').trim()).find(Boolean)
+        || [
+          candidate?.price_eur,
+          candidate?.purchase_price_eur,
+          candidate?.buy_price_eur,
+          candidate?.rent_eur,
+          candidate?.total_rent_eur,
+          candidate?.monthly_rent_eur,
+          facts?.price_eur,
+          facts?.purchase_price_eur,
+          facts?.buy_price_eur,
+          facts?.rent_eur,
+          facts?.total_rent_eur,
+          facts?.monthly_rent_eur,
+        ]
+          .map((value) => Number(value))
+          .find((value) => Number.isFinite(value) && value > 0)
+        || '';
+      const price = typeof derivedPrice === 'number'
+        ? `${String(candidate?.currency_code || facts?.currency_code || 'EUR').trim() || 'EUR'} ${Math.round(derivedPrice).toLocaleString('en-US')}`
+        : String(derivedPrice || '').trim()
+          || priceSummaryFromText(candidate?.summary)
+          || priceSummaryFromText(candidate?.title)
+          || 'Price not published';
       const fitScore = Number(candidate?.fit_score || candidate?.ranking_score || 0);
-      const price = String(candidate?.price_display || '').trim() || 'Not confirmed yet';
       const layout = String(candidate?.layout_display || '').trim() || 'Still being verified';
       const location = String(candidate?.location_label || candidate?.source_label || '').trim() || 'Source match';
       const reason = String(candidate?.compare_reason || candidate?.fit_summary || candidate?.summary || '').trim() || 'Current best candidate in this run.';
