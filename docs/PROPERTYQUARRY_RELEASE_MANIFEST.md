@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `a281d36fcb4c448c143d73d3d5d2202aa039cf80` |
+| Runtime commit SHA | `d2305163741e71363f5745ca14f23cad44e9e8a7` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for visual-state self-healing, deploy-probe, mobile What Matters, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, and hosted tour-control verifier candidate |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for visual-state self-healing, deploy-probe, mobile What Matters, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `a281d36` passed:
+The candidate at `d230516` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -34,6 +34,8 @@ The candidate at `a281d36` passed:
 - `PYTHONPATH=ea pytest -q tests/test_public_rybbit.py`
 - `PYTHONPATH=ea pytest -q tests/test_property_tour_control_verifier.py tests/test_property_repo_isolation_contracts.py -k 'tour_control_verifier or release_gates_include_phase'`
 - `PYTHONPATH=ea python3 scripts/verify_property_tour_controls.py --write _completion/property_tour_controls/latest.json`
+- `PYTHONPATH=ea pytest -q tests/test_property_live_provider_smoke.py tests/test_property_env_config_contracts.py -k 'live_provider_smoke or env_example'`
+- `PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=1 PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py --all-search-ready-countries --write _completion/provider_smoke/all-search-ready-dry-run.json`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'what_matters_as_comboboxes'`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'settings_subpages_keep_property_shell_and_mobile_dock or shell_uses_the_new_surface_navigation'`
 - `PYTHONPATH=ea pytest -q tests/test_property_packet_publications.py`
@@ -55,6 +57,7 @@ The candidate at `a281d36` passed:
 - Authenticated mobile-origin smoke for `/app/billing` returned `200`, rendered `Plan and payments`, `White-label account lane`, `Local billing is active`, and `external account lane is not enabled`, hid `Brilliant Directories`/`brilliantdirectories`, and included the mobile dock.
 - Authenticated origin smoke for `/app/search` after Rybbit analytics sanitization rendered `pq.property.opened`, `pq.tour.opened`, and `pq.flythrough.opened`, did not render `data-rybbit-prop-candidate`, did not render old `data-rybbit-event="property_*"` app event names, and did not render `saved_search_id` analytics payloads.
 - Hosted tour-control verifier after deploy returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The live-probe receipt was written to `_completion/property_tour_controls/latest-live.json` and intentionally omits raw provider URLs.
+- All-search-ready provider matrix dry-run after deploy returned `status=dry_run`, `country_scope=all_search_ready`, 17 countries, 121 search-ready providers, 242 cases, 121 strict no-soft-filter payloads, 121 soft-filter payloads, `payload_contracts_ok=True`, `agent_unlimited_results_ok=True`, `strict_without_soft_filters_ok=True`, and `soft_filters_present_ok=True`. Receipt written to `_completion/provider_smoke/all-search-ready-dry-run.json`.
 
 Observed route timings after the latest deploy:
 
@@ -81,6 +84,7 @@ The previous billing payload carried roughly 16.6 MB of account/form state and t
 - Full-page `/app/shortlist` improved from 7-11s repeated probes to roughly 1.2-2.4s warmed probes after a 3.75s cold request, but still needs browser/performance-budget receipts before gold.
 - The user-referenced research detail route improved from repeated 21-25s origin responses and a 14.02s post-compact-context cold request to 1.3-1.7s origin responses after removing redundant feedback reads and no-op search-run rewrites, but still needs browser/performance-budget receipts before gold.
 - The release gate now runs `scripts/verify_property_tour_controls.py`; current hosted tour inventory has zero verified Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls, so visual-media gold remains blocked until real provider controls/assets are imported and the verifier returns ready modes.
+- Provider matrix generation now covers every search-ready country/provider in dry-run mode, but live execution against `/app/api/property/search-runs` remains blocked until the full all-search-ready matrix is run with `PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1` and passes without provider/runtime failures.
 - The user-referenced research detail route now renders an honest unavailable/skipped visual state, but still has no live 360 source or playable walkthrough for that listing.
 - Brilliant Directories billing is in the active gold goal only as a governed handoff; the local billing surface now shows fail-closed account-lane recovery, but signature verification, replay protection, receipt logging, local entitlement reconciliation, and PropertyQuarry-owned plan/invoice/access truth remain release blockers before any webhook-driven or handoff-driven state change.
 - Rybbit app analytics now use taxonomy-style app events and strip candidate identifiers from app Rybbit attributes, but wider conversion/support-loop analytics still need end-to-end dashboard receipts before gold.
