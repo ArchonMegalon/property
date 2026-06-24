@@ -343,7 +343,7 @@
         {% if sign_in_facebook_error == 'facebook_sign_in_not_found' %}
         This Facebook identity did not reopen a saved PropertyQuarry workspace. Retry Facebook sign-in and PropertyQuarry will start the account automatically.
         {% elif sign_in_facebook_error.startswith('facebook_oauth_') %}
-        Facebook sign-in is not ready on this deployment yet.
+        Facebook sign-in is temporarily unavailable. If this persists, verify the Facebook OAuth configuration and callback setup on this host.
         {% else %}
         {{ sign_in_facebook_error }}
         {% endif %}
@@ -359,7 +359,7 @@
         {% elif sign_in_id_austria_error == 'id_austria_austria_ip_required' %}
         ID Austria sign-in is offered only when this request is detected from Austria.
         {% elif sign_in_id_austria_error.startswith('id_austria_') %}
-        ID Austria sign-in is not ready on this deployment yet.
+        ID Austria sign-in is temporarily unavailable. If this persists, verify the ID Austria OpenID configuration and callback setup on this host.
         {% else %}
         {{ sign_in_id_austria_error }}
         {% endif %}

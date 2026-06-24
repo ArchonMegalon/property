@@ -815,6 +815,31 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert 'href="/app/properties">Open PropertyQuarry</a>' not in onboarding_rules
 
 
+def test_propertyquarry_provider_sign_in_errors_use_live_service_language() -> None:
+    client = build_property_client(principal_id="pq-provider-sign-in-errors")
+    client.headers.pop("X-EA-Principal-ID", None)
+    headers = {"host": "propertyquarry.com"}
+
+    facebook = client.get("/sign-in?facebook_error=facebook_oauth_config_missing", headers=headers)
+    id_austria = client.get("/sign-in?id_austria_error=id_austria_config_missing", headers=headers)
+    google = client.get("/sign-in?google_error=google_oauth_config_missing", headers=headers)
+
+    assert facebook.status_code == 200
+    assert id_austria.status_code == 200
+    assert google.status_code == 200
+
+    assert "Facebook sign-in is temporarily unavailable." in facebook.text
+    assert "verify the Facebook OAuth configuration and callback setup on this host." in facebook.text
+    assert "Facebook sign-in is not ready on this deployment yet." not in facebook.text
+
+    assert "ID Austria sign-in is temporarily unavailable." in id_austria.text
+    assert "verify the ID Austria OpenID configuration and callback setup on this host." in id_austria.text
+    assert "ID Austria sign-in is not ready on this deployment yet." not in id_austria.text
+
+    assert "Google sign-in is temporarily unavailable." in google.text
+    assert "verify the Google OAuth configuration and callback setup on this host." in google.text
+
+
 def test_propertyquarry_sign_in_offers_id_austria_only_for_austrian_requests(monkeypatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID", "https://propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET", "id-austria-secret")
