@@ -3256,14 +3256,6 @@ def app_section_payload(
         for entry in list(property_learning_summary.get("recent_feedback") or [])[:4]
         if isinstance(entry, dict)
     ]
-    try:
-        property_plan_max_results = max(1, int(property_state.get("commercial", {}).get("max_results_per_source") or 2))
-    except Exception:
-        property_plan_max_results = 2
-    try:
-        property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 35)))
-    except Exception:
-        property_plan_max_match_score = 35
     property_visible_max_match_score = 60
     property_visible_max_results_per_source = 10
     property_plan_catalog = [
@@ -3272,6 +3264,23 @@ def app_section_payload(
         if isinstance(plan, dict)
     ]
     property_current_plan_key = str(property_state.get("commercial", {}).get("current_plan_key") or "free").strip().lower() or "free"
+    try:
+        property_plan_raw_max_results = int(property_state.get("commercial", {}).get("max_results_per_source") or 0)
+    except Exception:
+        property_plan_raw_max_results = 0
+    property_plan_has_unlimited_results = property_current_plan_key == "agent" and property_plan_raw_max_results <= 0
+    try:
+        property_plan_max_results = (
+            property_visible_max_results_per_source
+            if property_plan_has_unlimited_results
+            else max(1, int(property_state.get("commercial", {}).get("max_results_per_source") or 2))
+        )
+    except Exception:
+        property_plan_max_results = property_visible_max_results_per_source if property_plan_has_unlimited_results else 2
+    try:
+        property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 35)))
+    except Exception:
+        property_plan_max_match_score = 35
 
     def _property_upgrade_hint(metric_key: str, current_cap: int, visible_cap: int) -> str:
         if current_cap >= visible_cap:
@@ -4974,8 +4983,12 @@ def app_section_payload(
                             "Profile",
                         ),
                         row_item(
-                            "Result cap per source",
-                            str(property_preferences.get("max_results_per_source") or "3"),
+                            "Result cap per provider",
+                            (
+                                "All ranked"
+                                if property_plan_has_unlimited_results and not _positive_int(property_preferences.get("max_results_per_source"))
+                                else str(property_preferences.get("max_results_per_source") or "3")
+                            ),
                             "Guardrail",
                         ),
                     ],

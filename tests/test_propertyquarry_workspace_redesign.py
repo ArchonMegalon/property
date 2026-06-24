@@ -1160,6 +1160,64 @@ def test_propertyquarry_account_surfaces_use_persisted_property_plan() -> None:
     assert '<small>Free</small>' not in usage.text
 
 
+def test_propertyquarry_agent_search_form_uses_visible_unlimited_provider_cap() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "search",
+        status={"workspace": {"name": "Agent Search"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent"},
+            "commercial": {
+                "current_plan_label": "Agent",
+                "current_plan_key": "agent",
+                "max_results_per_source": 0,
+            },
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    form_schema = list(((payload.get("console_form") or {}).get("fields") or []))
+    max_results_field = next(
+        field
+        for field in form_schema
+        if isinstance(field, dict) and str(field.get("name") or "").strip() == "max_results_per_source"
+    )
+
+    assert max_results_field["selectable_max"] == "10"
+    assert max_results_field["value"] == "10"
+    assert max_results_field["upgrade_hint"] == ""
+
+
+def test_propertyquarry_agent_search_brief_summary_uses_all_ranked_provider_copy() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Agent Summary"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent"},
+            "commercial": {
+                "current_plan_label": "Agent",
+                "current_plan_key": "agent",
+                "max_results_per_source": 0,
+            },
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    search_brief_card = next(
+        card
+        for card in list(payload.get("primary_cards") or [])
+        if isinstance(card, dict) and str(card.get("eyebrow") or "").strip() == "Search brief"
+    )
+    result_cap_row = next(
+        item
+        for item in list(search_brief_card.get("items") or [])
+        if isinstance(item, dict) and str(item.get("title") or "").strip() == "Result cap per provider"
+    )
+
+    assert result_cap_row["detail"] == "All ranked"
+
+
 def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
     client = build_property_client(principal_id="exec-property-support-trust-copy")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
