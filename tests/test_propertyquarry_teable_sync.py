@@ -405,6 +405,27 @@ def test_propertyquarry_teable_projection_covers_user_subscription_search_and_ev
     assert records["propertyquarry_documents"][0]["linked_risks_json"] == ["no_floorplan"]
 
 
+def test_propertyquarry_teable_projection_clears_agent_result_cap_even_if_stale_preference_exists() -> None:
+    records = build_propertyquarry_teable_projection_records(
+        principal_id="pq-agent-unlimited",
+        onboarding_status={
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "selected_platforms": ["willhaben"],
+                "max_results_per_source": 9,
+                "property_commercial": {
+                    "active_plan_key": "agent",
+                    "status": "active",
+                    "active_until": "2999-01-01T00:00:00+00:00",
+                },
+            }
+        },
+    )
+
+    assert records["propertyquarry_preferences"][0]["max_results_per_source"] is None
+
+
 def test_propertyquarry_teable_schema_has_unique_field_names() -> None:
     for table_name, fields in pq_teable_projection.PROPERTYQUARRY_TEABLE_TABLE_FIELDS.items():
         field_names = [str(field.get("name") or "").strip() for field in fields]

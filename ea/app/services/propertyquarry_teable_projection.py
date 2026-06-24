@@ -1040,6 +1040,9 @@ def build_propertyquarry_teable_projection_records(
             "commercial_json": safe_commercial_json,
             "last_projected_at": projected_at,
         }
+        projected_max_results_per_source = _number(effective_preferences.get("max_results_per_source"))
+        if _text(safe_commercial_json.get("active_plan_key"), limit=80).lower() == "agent":
+            projected_max_results_per_source = None
         preference_rows[f"preferences:{normalized_tenant}:{normalized_principal}:{preference_person_id}"] = {
             "projection_id": f"preferences:{normalized_tenant}:{normalized_principal}:{preference_person_id}",
             "tenant_key": normalized_tenant,
@@ -1055,7 +1058,7 @@ def build_propertyquarry_teable_projection_records(
             "max_price_eur": _number(effective_preferences.get("max_price_eur")),
             "min_rooms": _number(effective_preferences.get("min_rooms")),
             "min_area_m2": _number(effective_preferences.get("min_area_m2")),
-            "max_results_per_source": _number(effective_preferences.get("max_results_per_source")),
+            "max_results_per_source": projected_max_results_per_source,
             "use_stored_feedback_preferences": bool(effective_preferences.get("use_stored_feedback_preferences", True)),
             "alert_frequency": _text(effective_preferences.get("alert_frequency"), limit=80),
             "preferences_json": safe_preferences,
