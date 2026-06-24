@@ -39,7 +39,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Create account Open account, then activate from billing.",
         "https://propertyquarry.com/directory": (
             'PropertyQuarry directory <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
-            "Directory coming soon"
+            "Directory is temporarily unavailable"
         ),
         "https://propertyquarry.com/directory/profile/sample": (
             'PropertyQuarry <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '

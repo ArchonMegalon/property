@@ -205,10 +205,10 @@
   </section>
   {% else %}
   <section class="pq-directory-panel">
-    <strong>{% if directory_status == 'disabled' %}Directory coming soon{% else %}No public profiles matched{% endif %}</strong>
+    <strong>{% if directory_status == 'disabled' %}Directory is temporarily unavailable{% else %}No public profiles matched{% endif %}</strong>
     <p class="pq-directory-summary">
       {% if directory_status == 'disabled' %}
-      Public profiles are not live yet.
+      Reviewed public profiles are not available right now.
       {% elif directory_error %}
       Directory search is temporarily unavailable. Try again later.
       {% else %}

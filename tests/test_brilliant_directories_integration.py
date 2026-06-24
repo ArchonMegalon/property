@@ -762,7 +762,7 @@ def test_brilliant_directories_public_directory_page_is_white_label_when_disable
     assert "PropertyQuarry Directory" in response.text
     assert "Property advisors." in response.text
     assert "Reviewed public profiles for relocation, financing, inspections, and local support." in response.text
-    assert "Directory coming soon" in response.text
+    assert "Directory is temporarily unavailable" in response.text
     assert "governed directory lane" not in response.text
     assert "another branded site" not in response.text
     assert "</style>\n</style>" not in response.text

@@ -215,10 +215,10 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                     "directory_action_state",
                     (
                         "Search directory" in text
-                        and "Directory coming soon" not in text
+                        and "Directory is temporarily unavailable" not in text
                     )
                     or (
-                        "Directory coming soon" in text
+                        "Directory is temporarily unavailable" in text
                         and "Search directory" not in text
                         and ">Reset<" not in text
                         and ">Clear<" not in text

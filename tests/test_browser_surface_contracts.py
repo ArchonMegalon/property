@@ -142,7 +142,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     directory = client.get("/directory")
     assert directory.status_code == 200
     assert "Property advisors." in directory.text
-    assert "Directory coming soon" in directory.text
+    assert "Directory is temporarily unavailable" in directory.text
     assert "governed directory lane" not in directory.text
     assert "another branded site" not in directory.text
     assert "Search directory" not in directory.text
