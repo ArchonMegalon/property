@@ -7979,6 +7979,7 @@ def test_property_search_run_dispatch_only_returns_queued_without_snapshot(monke
     assert body["status_url"] == f"/app/api/property/search-runs/{body['run_id']}"
     assert body["summary"]["dispatch_only"] is True
     assert body["summary"]["worker_started"] is True
+    assert body["summary"]["worker_concurrency_limit"] >= 1
     for _ in range(50):
         if observed.get("selected_platforms") == ("willhaben",):
             break

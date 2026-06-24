@@ -638,6 +638,20 @@ _PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID = "property-market-codex"
 _PROPERTY_SCHOOLATLAS_SOURCE_URL = "https://www.statistik.at/atlas/schulen/"
 
 
+def _property_search_run_worker_concurrency() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_SEARCH_RUN_WORKER_CONCURRENCY") or "").strip()
+    if not raw_value:
+        return 2
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 2
+    return max(1, min(parsed, 8))
+
+
+_PROPERTY_SEARCH_RUN_WORKER_SEMAPHORE = threading.BoundedSemaphore(_property_search_run_worker_concurrency())
+
+
 def _property_scout_outbound_notification_min_score() -> float:
     raw_value = str(os.getenv("PROPERTYQUARRY_SCOUT_OUTBOUND_MIN_SCORE") or "").strip()
     if not raw_value:
@@ -31953,12 +31967,17 @@ class ProductService:
                     reason="property_search_run_failed",
                 )
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _bounded_worker() -> None:
+            with _PROPERTY_SEARCH_RUN_WORKER_SEMAPHORE:
+                _worker()
+
+        threading.Thread(target=_bounded_worker, daemon=True).start()
         if dispatch_only:
             queued_state = dict(persisted_state)
             queued_summary = dict(queued_state.get("summary") or {})
             queued_summary["dispatch_only"] = True
             queued_summary["worker_started"] = True
+            queued_summary["worker_concurrency_limit"] = _property_search_run_worker_concurrency()
             queued_state["summary"] = queued_summary
             queued_state["message"] = str(queued_state.get("message") or "Search run queued.")
             return queued_state
