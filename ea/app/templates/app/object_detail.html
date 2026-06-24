@@ -1,5 +1,7 @@
 {% extends "base_console.html" %}
 {% block content %}
+{% set object_run_id = request.query_params.get('run_id') if request is defined and request.query_params is defined else '' %}
+{% set object_query_suffix = ('?run_id=' ~ (object_run_id|urlencode)) if object_run_id else '' %}
 <style>
   .object-grid,
   .object-media-grid,
@@ -737,7 +739,7 @@
 	      <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
 	      <div class="object-actions">
 	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save answer</button>
-	        <a class="console-action" href="{{ object_feedback.get('profile_href') or '/app/search' }}">Open search brief</a>
+	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Open search brief</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
 	      <div class="object-actions" style="margin-top: 12px;">

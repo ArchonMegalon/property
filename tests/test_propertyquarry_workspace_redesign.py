@@ -489,11 +489,13 @@ def test_property_result_title_display_cleans_provider_url_garbage() -> None:
 def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tools() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     body = template_path.read_text(encoding="utf-8")
+    assert "{% set object_query_suffix = ('?run_id=' ~ (object_run_id|urlencode)) if object_run_id else '' %}" in body
     assert "Open question helper" in body
     assert "Visualize furnished living" in body
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the packet PDF dossier" in body
+    assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Open search brief</a>' in body
 
 
 def test_propertyquarry_blocks_legacy_object_detail_routes_for_generic_office_objects() -> None:
