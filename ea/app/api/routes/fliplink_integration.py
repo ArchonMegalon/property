@@ -636,6 +636,13 @@ def property_packets_dashboard(
         for item in list(inbox.get("items") or [])
         if isinstance(item, dict) and str(item.get("status") or "").strip().lower() not in {"reviewed", "dismissed", "blocked"}
     )
+    selected_search_run_id = str(request.query_params.get("run_id") or "").strip()
+    if not selected_search_run_id:
+        for row in rows:
+            selected_search_run_id = str(row.get("search_run_id") or "").strip()
+            if selected_search_run_id:
+                break
+    packet_query_suffix = f"?{urllib.parse.urlencode({'run_id': selected_search_run_id})}" if selected_search_run_id else ""
     webhook_url = f"{str(request.base_url).rstrip('/')}/v1/integrations/fliplink/webhook"
     return templates.TemplateResponse(
         request,
@@ -645,6 +652,8 @@ def property_packets_dashboard(
             "workspace_label": "PropertyQuarry account",
             "current_nav": "packets",
             "account_nav": _packet_account_nav_context(request=request, context=context),
+            "packet_query_suffix": packet_query_suffix,
+            "selected_search_run_id": selected_search_run_id,
             "publications": rows,
             "fliplink_capacity": capacity,
             "feedback_items": list(inbox.get("items") or []),

@@ -358,16 +358,16 @@
         <span><strong>PropertyQuarry</strong><span>{{ workspace_label }}</span></span>
       </a>
       <nav class="pq-pack-nav" aria-label="PropertyQuarry sections">
-        <a href="/app/properties">Search</a>
-        <a href="/app/shortlist">Shortlist</a>
+        <a href="/app/properties{{ packet_query_suffix or '' }}">Search</a>
+        <a href="/app/shortlist{{ packet_query_suffix or '' }}">Shortlist</a>
         <span class="is-active" aria-current="page">Research</span>
-        <a href="/app/agents">Saved searches</a>
-        <a href="/app/alerts">Alerts</a>
-        <a href="/app/billing">Billing</a>
-        <a href="/app/account">Account</a>
+        <a href="/app/agents{{ packet_query_suffix or '' }}">Saved searches</a>
+        <a href="/app/alerts{{ packet_query_suffix or '' }}">Alerts</a>
+        <a href="/app/billing{{ packet_query_suffix or '' }}">Billing</a>
+        <a href="/app/account{{ packet_query_suffix or '' }}">Account</a>
       </nav>
       <nav class="pq-pack-actions">
-        <a class="pq-pack-button" href="/app/properties">Open run</a>
+        <a class="pq-pack-button" href="/app/properties{{ packet_query_suffix or '' }}">{% if selected_search_run_id %}Open run {{ selected_search_run_id }}{% else %}Open run{% endif %}</a>
         {% if account_nav %}
         <details class="pq-pack-account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>

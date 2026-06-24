@@ -580,6 +580,28 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     assert "data-browseract-publish" in dashboard.text
     assert "data-archive-publication" in dashboard.text
     assert "Household reactions" in dashboard.text
+
+    run_bound = client.post(
+        "/app/api/properties/listing-456/packets/render",
+        json={
+            "packet_kind": "family_review",
+            "privacy_mode": "family_review",
+            "fliplink_format": "flipbook_3d",
+            "search_run_id": "run-packets-ctx",
+            "property_payload": {
+                "title": "Run-bound villa",
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/demo-run-bound",
+                "match_reasons": ["Run context should stay attached."],
+                "property_facts": {"rooms": 5, "area_m2": 140, "postal_name": "1190 Wien"},
+            },
+        },
+    )
+    assert run_bound.status_code == 200, run_bound.text
+
+    dashboard_with_run = client.get("/app/properties/packets", headers={"host": "propertyquarry.com"})
+    assert 'href="/app/properties?run_id=run-packets-ctx"' in dashboard_with_run.text
+    assert 'href="/app/shortlist?run_id=run-packets-ctx"' in dashboard_with_run.text
+    assert 'href="/app/agents?run_id=run-packets-ctx"' in dashboard_with_run.text
     assert "Risk signals" in dashboard.text
     assert "What changed" in dashboard.text
     assert "data-feedback-action=\"accept_as_preference_signal\"" in dashboard.text or "No viewer responses" in dashboard.text
