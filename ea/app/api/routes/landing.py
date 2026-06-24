@@ -105,6 +105,8 @@ from app.product.property_score_methodology import (
 )
 from app.product.projections.common import compact_text
 from app.product.service import (
+    _property_visual_terminal_status_for_reason,
+    _property_visual_unavailable_detail,
     _property_visual_eta_label,
     _property_visual_progress_pct,
     build_product_service,
@@ -3869,6 +3871,19 @@ def property_research_packet(
     tour_action_href = str(research_media.get("primary_href") or "").strip() if hosted_tour_ready else ""
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
+    terminal_tour_status = _property_visual_terminal_status_for_reason(
+        request_kind="tour",
+        reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip(),
+    )
+    if terminal_tour_status and not tour_url and tour_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
+        tour_status = terminal_tour_status
+    flythrough_reason = str(candidate.get("flythrough_reason") or "").strip()
+    terminal_flythrough_status = _property_visual_terminal_status_for_reason(
+        request_kind="flythrough",
+        reason=flythrough_reason,
+    )
+    if terminal_flythrough_status and not flythrough_url and flythrough_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
+        flythrough_status = terminal_flythrough_status
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
     flythrough_eta_raw = str(candidate.get("flythrough_eta_minutes") or "").strip()
     tour_requested_at = str(candidate.get("tour_requested_at") or "").strip()
@@ -3926,6 +3941,8 @@ def property_research_packet(
         hero_actions.append({"kind": "tour", "label": "3D tour queued", "property_url": property_url, "state": "pending", "progress_pct": max(tour_progress_pct, 14), "eta_label": tour_eta_label, "status_detail": "Still queued. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Queued{f' · about {eta_raw} min' if eta_raw else ''}."})
     elif tour_status in {"processing", "running", "in_progress", "started"} and property_url:
         hero_actions.append({"kind": "tour", "label": "3D tour rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(tour_progress_pct, 58), "eta_label": tour_eta_label, "status_detail": "Still rendering. Taking longer than usual." if tour_eta_label.startswith("delayed") else f"Rendering{f' · about {eta_raw} min' if eta_raw else ''}."})
+    elif tour_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
+        hero_actions.append({"kind": "tour", "label": "3D tour unavailable", "property_url": property_url, "state": tour_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="tour", reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip())})
     elif property_url:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if flythrough_url:
@@ -3934,6 +3951,8 @@ def property_research_packet(
         hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": "Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically."})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
         hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": "Still rendering. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Rendering now. Opens here when ready."})
+    elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough unavailable", "property_url": property_url, "state": flythrough_status, "progress_pct": 0, "eta_label": "", "status_detail": _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)})
     elif property_url:
         hero_actions.append({"kind": "flythrough", "label": "Request walkthrough", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if str(candidate.get("packet_url") or review_url or "").strip():
@@ -3945,6 +3964,8 @@ def property_research_packet(
         visual_status_line = "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = "Walkthrough rendering."
+    elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"}:
+        visual_status_line = _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason)
     elif hosted_tour_ready and tour_url:
         visual_status_line = str(research_media.get("status_detail") or "3D tour ready.").strip()
     elif tour_url and not hosted_tour_ready:
@@ -3953,6 +3974,8 @@ def property_research_packet(
         visual_status_line = "3D tour queued."
     elif tour_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = "3D tour rendering."
+    elif tour_status in {"blocked", "failed", "skipped", "not_applicable"}:
+        visual_status_line = _property_visual_unavailable_detail(request_kind="tour", reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip())
     overview_rows = [
         {"label": "Price", "value": price_summary or "Price on request"},
         {"label": "Area", "value": f"{area_summary} m²" if area_summary else "Not listed"},
@@ -4051,6 +4074,18 @@ def property_research_packet(
                 or [_object_detail_row("Investment research is off", "Run the buy-side research pass if you need yield, reserve, and document-risk context.", "Optional")],
             },
         )
+    feedback_assessment = dict(assessment or {})
+    if not feedback_assessment:
+        feedback_assessment = {
+            "object_id": property_url,
+            "object_type": "listing",
+            "recommendation": str(candidate.get("recommendation") or candidate.get("tag") or "").strip(),
+            "fit_score": candidate.get("fit_score") or candidate.get("score") or "",
+            "confidence": candidate.get("confidence") or "",
+            "match_reasons_json": match_reasons,
+            "mismatch_reasons_json": mismatch_reasons,
+            "unknowns_json": list(facts.get("unknowns_json") or candidate.get("unknowns_json") or []),
+        }
     feedback_payload = {
         "person_id": preference_person_id,
         "profile_href": f"/app/properties" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
@@ -4059,7 +4094,7 @@ def property_research_packet(
         "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
         "property_title": display_title,
         "property_facts": facts,
-        "assessment": assessment or candidate,
+        "assessment": feedback_assessment,
         "investment_context": investment_rows + investment_risk_rows,
         "followup_rows": followup_rows,
         "magic_fit_scene": latest_magic_fit_scene,

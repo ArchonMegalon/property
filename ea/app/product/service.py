@@ -11603,6 +11603,23 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
     return str(reason or "").strip()
 
 
+def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: str = "") -> str:
+    normalized_reason = str(reason or "").strip().lower()
+    if normalized_reason not in {
+        "fit_below_threshold",
+        "provider_export_missing",
+        "listing_360_media_missing",
+        "pure_360_assets_unavailable",
+        "floorplan_assets_unavailable",
+        "gallery_assets_unavailable",
+        "property_tour_execution_failed",
+        "crezlo_property_tour_not_configured",
+    }:
+        return ""
+    normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+    return "skipped" if normalized_kind == "flythrough" else "blocked"
+
+
 def _google_send_error_detail(exc: Exception) -> str:
     detail = str(exc or "").strip()
     reader = getattr(exc, "read", None)
@@ -31292,6 +31309,17 @@ class ProductService:
                     status_value = followup_resolution
             elif followup_status == "pending":
                 status_value = "processing" if normalized_kind == "tour" else "queued"
+        terminal_status_from_reason = _property_visual_terminal_status_for_reason(
+            request_kind=normalized_kind,
+            reason=reason or blocked_reason,
+        )
+        if (
+            terminal_status_from_reason
+            and not ready_url
+            and status_value in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+        ):
+            status_value = terminal_status_from_reason
+            eta_minutes = ""
         repair_active = bool(repair_queued_at or repair_started_at)
         repair_queued = False
         if (
@@ -31401,6 +31429,30 @@ class ProductService:
                 )
             eta_label = "refreshing"
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
+
+        if status_value in {"blocked", "failed", "skipped", "not_applicable"} and not ready_url:
+            state_prefix = "flythrough" if normalized_kind == "flythrough" else "tour"
+            terminal_updated_at = _now_iso()
+            visual_state = {
+                f"{state_prefix}_status": status_value,
+                f"{state_prefix}_eta_minutes": "",
+                f"{state_prefix}_progress_pct": "0",
+                f"{state_prefix}_status_updated_at": terminal_updated_at,
+            }
+            if normalized_kind == "flythrough":
+                visual_state["flythrough_reason"] = reason
+            else:
+                visual_state["blocked_reason"] = blocked_reason or reason
+            if any(str(matched_candidate.get(key) or "").strip() != str(value or "").strip() for key, value in visual_state.items()):
+                with contextlib.suppress(Exception):
+                    self._persist_property_search_visual_state(
+                        principal_id=normalized_principal,
+                        run_id=normalized_run_id,
+                        candidate_ref=normalized_candidate_ref,
+                        source_ref=source_ref_value,
+                        property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
+                        visual_state=visual_state,
+                    )
 
         return {
             "generated_at": _now_iso(),

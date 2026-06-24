@@ -14230,6 +14230,12 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
         }
 
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+    persisted_visual_states: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted_visual_states.append(dict(kwargs.get("visual_state") or {})),
+    )
     monkeypatch.setattr(
         ProductService,
         "_latest_property_tour_followup",
@@ -14276,6 +14282,10 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
     assert response["status_label"] == "Walkthrough unavailable"
     assert response["status_detail"] == "More source material is still needed before this walkthrough can be built."
     assert response["blocked_reason"] == ""
+    assert persisted_visual_states
+    assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
+    assert persisted_visual_states[-1]["flythrough_eta_minutes"] == ""
+    assert persisted_visual_states[-1]["flythrough_progress_pct"] == "0"
 
 
 def test_property_visual_eta_uses_rendering_transition_time(monkeypatch) -> None:

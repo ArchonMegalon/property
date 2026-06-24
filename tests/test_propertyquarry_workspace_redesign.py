@@ -11539,6 +11539,74 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert '>Open 3D tour</a>' not in rendered_html
 
 
+def test_property_research_packet_terminal_walkthrough_reason_is_not_rendered_as_queued(monkeypatch) -> None:
+    principal_id = "pq-research-packet-terminal-walkthrough"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Terminal walkthrough loft",
+        "summary": "EUR 1,450 · 61 m² · 1060 Wien",
+        "property_url": "https://immobilien.derstandard.at/detail/15180116",
+        "source_ref": "property-scout:immobilien.derstandard.at:15180116",
+        "tour_status": "blocked",
+        "blocked_reason": "property_tour_execution_failed",
+        "tour_url": "",
+        "flythrough_status": "queued",
+        "flythrough_reason": "fit_below_threshold",
+        "flythrough_url": "",
+        "property_facts": {
+            "price_eur": 1450.0,
+            "area_m2": 61.0,
+            "postal_name": "1060 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "DER STANDARD Immobilien",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "DER STANDARD Immobilien",
+        }
+    )
+    packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-terminal-walkthrough"}, headers={"host": "propertyquarry.com"})
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+
+    assert "Walkthrough queued" not in rendered_html
+    assert "Walkthrough unavailable" in rendered_html
+    assert "More source material is still needed before this walkthrough can be built." in rendered_html
+    assert 'data-pw-visual-state="skipped"' in rendered_html
+    assert 'disabled aria-disabled="true"' in rendered_html
+    assert "fit_below_threshold" not in rendered_html
+
+
 def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(monkeypatch) -> None:
     principal_id = "pq-research-packet-hosted-tour-ready"
     client = build_property_client(principal_id=principal_id)

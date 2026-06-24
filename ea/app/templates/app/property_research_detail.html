@@ -1701,13 +1701,13 @@
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
     {% for action in visual_actions.items %}
-      {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] and visual_status.active is none %}
+      {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] and visual_status.active is none %}
         {% set visual_status.active = action %}
       {% endif %}
     {% endfor %}
     {% if visual_status.active is none %}
       {% for action in research_actions if action.get('kind') %}
-        {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] and visual_status.active is none %}
+        {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] and visual_status.active is none %}
           {% set visual_status.active = action %}
         {% endif %}
       {% endfor %}
@@ -1849,11 +1849,12 @@
             aria-label="{{ action.get('label') or 'Open visual review' }}"
           >{{ action.get('label') }}</a>
           {% else %}
+          {% set action_state = (action.get('state') or 'idle')|lower %}
           <button
             class="console-action prd-visual-hero-action"
             type="button"
             data-pw-visual-request="{{ action.get('kind') }}"
-            data-pw-visual-state="{{ action.get('state') or 'idle' }}"
+            data-pw-visual-state="{{ action_state }}"
             data-property-url="{{ action.get('property_url') }}"
             data-source-ref="{{ research_source_ref or '' }}"
             data-run-id="{{ research_run_id or '' }}"
@@ -1861,7 +1862,8 @@
             data-pw-visual-progress="{{ action.get('progress_pct') or 0 }}"
             data-pw-visual-eta="{{ action.get('eta_label') or '' }}"
             data-pw-visual-detail="{{ action.get('status_detail') or '' }}"
-            data-pw-visual-poll-seconds="{% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
+            data-pw-visual-poll-seconds="{% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
+            {% if action_state in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] %}disabled aria-disabled="true"{% endif %}
             aria-label="{{ action.get('label') or 'Request visual review' }}"
           >{{ action.get('label') }}</button>
           {% endif %}
@@ -2287,6 +2289,7 @@
   const visualRailProgressNode = document.querySelector('[data-prd-visual-progress]');
   const visualRequestButtons = Array.from(document.querySelectorAll('[data-pw-visual-request]'));
   const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];
+  const visualTerminalStates = ['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'];
   let visualPollTimer = 0;
   document.querySelectorAll('img[data-prd-hero-image]').forEach((image) => {
     const frame = image.closest('[data-object-media-stage]');
@@ -2338,9 +2341,10 @@
       button.removeAttribute('data-pw-visual-href');
     }
     const isWaiting = visualPendingStates.includes(nextState);
-    button.disabled = isWaiting;
+    const isTerminal = visualTerminalStates.includes(nextState);
+    button.disabled = isWaiting || isTerminal;
     button.classList.toggle('is-processing', isWaiting);
-    if (isWaiting) {
+    if (isWaiting || isTerminal) {
       button.setAttribute('aria-disabled', 'true');
     } else {
       button.removeAttribute('aria-disabled');
@@ -2473,6 +2477,12 @@
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'Walkthrough request is already in progress for this home.';
         return;
       }
+      if (visualTerminalStates.includes(currentState)) {
+        if (visualRequestStatusNode) {
+          visualRequestStatusNode.textContent = String(button.getAttribute('data-pw-visual-detail') || button.getAttribute('title') || 'More source material is still needed before this visual can be built.').trim();
+        }
+        return;
+      }
       if (!propertyUrl) {
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = 'No listing URL is available for this home.';
         return;
@@ -2522,7 +2532,7 @@
         if (visualRequestStatusNode) visualRequestStatusNode.textContent = error instanceof Error ? error.message : 'Could not request the visual.';
       } finally {
         const currentState = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
-        button.disabled = visualPendingStates.includes(currentState);
+        button.disabled = visualPendingStates.includes(currentState) || visualTerminalStates.includes(currentState);
         if (!requestSucceeded && !String(button.getAttribute('data-pw-visual-href') || '').trim()) {
           button.textContent = original;
         }

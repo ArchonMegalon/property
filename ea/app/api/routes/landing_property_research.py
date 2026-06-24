@@ -24,6 +24,8 @@ from app.product.service import (
     _property_investment_research_snapshot,
     _property_money_amount_label,
     _property_visual_eta_label,
+    _property_visual_terminal_status_for_reason,
+    _property_visual_unavailable_detail,
 )
 from app.product import property_tour_hosting
 from app.services.property_market_catalog import supported_currency_codes
@@ -629,6 +631,12 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     status = str(candidate.get("tour_status") or "").strip().lower()
+    terminal_status = _property_visual_terminal_status_for_reason(
+        request_kind="tour",
+        reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip(),
+    )
+    if terminal_status and not tour_url and status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
+        status = terminal_status
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
     requested_at = str(candidate.get("tour_requested_at") or "").strip()
     status_updated_at = str(candidate.get("tour_status_updated_at") or "").strip()
@@ -654,6 +662,18 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         candidate.get("flythrough_url")
     )
     walkthrough_ready = bool(verified_walkthrough_href)
+    walkthrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
+    walkthrough_reason = str(candidate.get("flythrough_reason") or "").strip()
+    terminal_walkthrough_status = _property_visual_terminal_status_for_reason(
+        request_kind="flythrough",
+        reason=walkthrough_reason,
+    )
+    if (
+        terminal_walkthrough_status
+        and not walkthrough_ready
+        and walkthrough_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+    ):
+        walkthrough_status = terminal_walkthrough_status
     vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
     vendor_tour_provider_label = _property_visual_provider_label(vendor_tour_provider) if vendor_tour_provider else ""
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
@@ -720,8 +740,17 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "walkthrough_status_detail": (
             f"{walkthrough_provider_label} rendered walkthrough is ready on this page."
             if walkthrough_ready and walkthrough_provider_label
-            else ("Walkthrough is ready on this page." if walkthrough_ready else "")
+            else (
+                "Walkthrough is ready on this page."
+                if walkthrough_ready
+                else (
+                    _property_visual_unavailable_detail(request_kind="flythrough", reason=walkthrough_reason)
+                    if walkthrough_status in {"blocked", "failed", "skipped", "not_applicable"}
+                    else ""
+                )
+            )
         ),
+        "walkthrough_status": walkthrough_status,
     }
 
 
