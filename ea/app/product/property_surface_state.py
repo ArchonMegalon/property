@@ -72,7 +72,7 @@ def property_mode_visibility_label(
 def _property_search_ranked_candidates_from_sources(
     sources: list[dict[str, object]],
     *,
-    limit: int = 50,
+    limit: int | None = None,
 ) -> list[dict[str, object]]:
     ranked_candidates: list[dict[str, object]] = []
     seen_keys: set[str] = set()
@@ -101,7 +101,9 @@ def _property_search_ranked_candidates_from_sources(
     ranked_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
     for index, candidate_row in enumerate(ranked_candidates, start=1):
         candidate_row.setdefault("rank", index)
-    return ranked_candidates[:limit]
+    if limit and limit > 0:
+        return ranked_candidates[:limit]
+    return ranked_candidates
 
 
 def _property_summary_held_back_total(summary: dict[str, object]) -> int:

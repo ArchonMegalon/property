@@ -7362,6 +7362,14 @@ def test_property_search_run_status_api_synthesizes_ranked_candidates_from_sourc
     principal_id = "exec-property-search-status-api-synth"
     os.environ["EA_API_TOKEN"] = ""
     client = build_property_client(principal_id=principal_id)
+    top_candidates = [
+        {
+            "title": f"Altbau near U6 #{index}",
+            "property_url": f"https://www.immobilienscout24.de/expose/altbau-u6-{index}",
+            "fit_score": 200 - index,
+        }
+        for index in range(60)
+    ]
 
     def _fake_status(self, *, principal_id: str, run_id: str):
         assert principal_id == "exec-property-search-status-api-synth"
@@ -7378,13 +7386,7 @@ def test_property_search_run_status_api_synthesizes_ranked_candidates_from_sourc
                     {
                         "source_label": "ImmoScout24 Germany",
                         "status": "processed",
-                        "top_candidates": [
-                            {
-                                "title": "Altbau near U6",
-                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
-                                "fit_score": 92,
-                            }
-                        ],
+                        "top_candidates": top_candidates,
                     }
                 ],
             },
@@ -7401,8 +7403,10 @@ def test_property_search_run_status_api_synthesizes_ranked_candidates_from_sourc
     assert int(payload["summary"].get("filtered_total") or 0) == 0
     assert int(payload["summary"].get("filtered_low_fit_total") or 0) == 7
     ranked = [dict(row) for row in list(payload["summary"].get("ranked_candidates") or []) if isinstance(row, dict)]
-    assert len(ranked) == 1
-    assert ranked[0]["title"] == "Altbau near U6"
+    assert len(ranked) == 60
+    assert ranked[0]["title"] == "Altbau near U6 #0"
+    assert ranked[-1]["title"] == "Altbau near U6 #59"
+    assert ranked[-1]["rank"] == 60
 
 
 def test_property_search_run_status_api_accepts_lightweight_query(monkeypatch) -> None:

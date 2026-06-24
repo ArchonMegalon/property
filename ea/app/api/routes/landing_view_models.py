@@ -2744,7 +2744,7 @@ def app_section_payload(
         for index, candidate_row in enumerate(merged_ranked, start=1):
             candidate_row["rank"] = index
         if merged_ranked:
-            property_summary["ranked_candidates"] = merged_ranked[:50]
+            property_summary["ranked_candidates"] = merged_ranked
             property_run["summary"] = property_summary
     property_country_label = str(property_state.get("country_label") or "Market")
     property_language_label = str(property_state.get("language_label") or "Deutsch")
@@ -3206,10 +3206,10 @@ def app_section_payload(
                 candidate_row.setdefault("route_evidence", _property_candidate_route_evidence(candidate_row, property_preferences))
                 if not str(candidate_row.get("packet_url") or "").strip():
                     candidate_row["packet_url"] = _packet_url_for_candidate(
-                        candidate_row,
-                        source_label=str(candidate_row.get("source_label") or "Source"),
-                    )
-            property_summary["ranked_candidates"] = ranked_candidates[:50]
+                    candidate_row,
+                    source_label=str(candidate_row.get("source_label") or "Source"),
+                )
+            property_summary["ranked_candidates"] = ranked_candidates
             property_run["summary"] = property_summary
 
     property_source_rows = build_property_source_rows(property_summary=property_summary)

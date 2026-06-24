@@ -2639,6 +2639,41 @@ def test_property_surface_state_normalizes_search_run_snapshot() -> None:
     assert snapshot["active_search_agent_id"] == "agent-1"
 
 
+def test_property_surface_state_derives_all_ranked_candidates_from_sources_without_truncation() -> None:
+    top_candidates = [
+        {
+            "candidate_ref": f"cand-{index}",
+            "title": f"Ranked {index}",
+            "property_url": f"https://example.test/listing/{index}",
+            "fit_score": 200 - index,
+        }
+        for index in range(60)
+    ]
+    snapshot = property_surface_state.normalize_property_search_run_snapshot(
+        {
+            "run_id": "run-uncapped",
+            "summary": {
+                "status": "completed",
+                "sources": [{"source_label": "Willhaben", "top_candidates": top_candidates}],
+            },
+        }
+    )
+
+    ranked = [dict(row) for row in list(snapshot["summary"].get("ranked_candidates") or []) if isinstance(row, dict)]
+    assert len(ranked) == 60
+    assert ranked[0]["candidate_ref"] == "cand-0"
+    assert ranked[-1]["candidate_ref"] == "cand-59"
+    assert ranked[-1]["rank"] == 60
+
+
+def test_property_decision_workbench_template_does_not_slice_ranked_candidates() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    template = template_path.read_text(encoding="utf-8")
+
+    assert "ranked_candidates[:20]" not in template
+    assert "{% for candidate in ranked_candidates %}" in template
+
+
 def test_property_surface_state_builds_billing_truth_snapshot() -> None:
     snapshot = property_surface_state.build_property_billing_truth_snapshot(
         commercial={

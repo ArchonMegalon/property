@@ -305,7 +305,7 @@ def _property_search_run_status_payload(
             for index, candidate in enumerate(synthesized, start=1):
                 candidate.setdefault("rank", index)
             if synthesized:
-                summary["ranked_candidates"] = synthesized[:50]
+                summary["ranked_candidates"] = synthesized
         ranked_candidates = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
         for index, candidate in enumerate(ranked_candidates, start=1):
             candidate_ref = str(candidate.get("candidate_ref") or "").strip()

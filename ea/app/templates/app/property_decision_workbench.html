@@ -7523,7 +7523,7 @@
                 </tr>
               </thead>
               <tbody>
-                {% for candidate in ranked_candidates[:20] %}
+                {% for candidate in ranked_candidates %}
                 <tr>
                   <td>{{ candidate.get('rank') or loop.index }}</td>
                   <td>
