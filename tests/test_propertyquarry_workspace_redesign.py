@@ -840,6 +840,21 @@ def test_propertyquarry_provider_sign_in_errors_use_live_service_language() -> N
     assert "verify the Google OAuth configuration and callback setup on this host." in google.text
 
 
+def test_propertyquarry_email_link_unavailable_uses_live_service_language() -> None:
+    client = build_property_client(principal_id="pq-email-link-unavailable")
+    client.headers.pop("X-EA-Principal-ID", None)
+
+    response = client.get(
+        "/sign-in?link_error=workspace_sign_in_email_delivery_not_configured&link_status=failed",
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    assert "Email sign-in links are temporarily unavailable." in response.text
+    assert "Use an existing invite, access link, or connected identity while email delivery is unavailable." in response.text
+    assert "Email return links are not enabled on this deployment yet." not in response.text
+
+
 def test_propertyquarry_sign_in_offers_id_austria_only_for_austrian_requests(monkeypatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_ID", "https://propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_ID_AUSTRIA_CLIENT_SECRET", "id-austria-secret")
