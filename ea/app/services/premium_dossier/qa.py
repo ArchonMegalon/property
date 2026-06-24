@@ -70,20 +70,31 @@ def _png_visual_metrics(png_bytes: bytes) -> tuple[float, float, float]:
     try:
         from PIL import Image
 
+        def _count_nonwhite(image: "Image.Image") -> tuple[int, int]:
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                return 0, 0
+            pixels = image.load()
+            total = width * height
+            nonwhite = 0
+            for y in range(height):
+                for x in range(width):
+                    r, g, b = pixels[x, y]
+                    if (r + g + b) < 740:
+                        nonwhite += 1
+            return nonwhite, total
+
         with Image.open(BytesIO(png_bytes)) as image:
             rgb = image.convert("RGB")
             width, height = rgb.size
-            pixels = list(rgb.getdata())
-            total = max(1, len(pixels))
-            nonwhite = sum(1 for (r, g, b) in pixels if (r + g + b) < 740)
+            nonwhite, total = _count_nonwhite(rgb)
+            total = max(1, total)
             top_height = max(1, int(height * 0.45))
-            top_pixels = list(rgb.crop((0, 0, width, top_height)).getdata())
-            top_total = max(1, len(top_pixels))
-            top_nonwhite = sum(1 for (r, g, b) in top_pixels if (r + g + b) < 740)
+            top_nonwhite, top_total = _count_nonwhite(rgb.crop((0, 0, width, top_height)))
+            top_total = max(1, top_total)
             footer_height = max(1, int(height * 0.08))
-            footer_pixels = list(rgb.crop((0, max(0, height - footer_height), width, height)).getdata())
-            footer_total = max(1, len(footer_pixels))
-            footer_nonwhite = sum(1 for (r, g, b) in footer_pixels if (r + g + b) < 740)
+            footer_nonwhite, footer_total = _count_nonwhite(rgb.crop((0, max(0, height - footer_height), width, height)))
+            footer_total = max(1, footer_total)
             return round(nonwhite / total, 4), round(top_nonwhite / top_total, 4), round(footer_nonwhite / footer_total, 4)
     except Exception:
         return 0.0, 0.0, 0.0
