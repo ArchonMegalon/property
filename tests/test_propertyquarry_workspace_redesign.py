@@ -5882,7 +5882,7 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Paste shared page link" in body
     assert "Copy response endpoint" in body
     assert "Which property pages can safely leave your account" in body
-    assert 'href="/app/account">Account</a>' in body
+    assert 'href="/app/account{{ packet_query_suffix or \'\' }}">Account</a>' in body
     assert 'href="/app/profile">Preferences</a>' not in body
     assert "https://packets.propertyquarry.com/p/..." not in body
     assert "Copy response URL" not in body
@@ -10671,6 +10671,8 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
     assert "Open billing" in account.text
+    account_with_run = client.get("/app/account", params={"run_id": "run-account-billing"}, headers={"host": "propertyquarry.com"})
+    assert 'href="/app/billing?run_id=run-account-billing"' in account_with_run.text
     assert 'id="connected-services"' in account.text
     assert 'id="settings"' in account.text
     assert "Connections and privacy" in account.text
