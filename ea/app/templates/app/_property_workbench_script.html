@@ -3,6 +3,11 @@
     if (!root) return;
     const initialSurface = String(root.getAttribute('data-pqx-surface') || '').trim().toLowerCase();
     const shortlistSurface = initialSurface === 'shortlist';
+    if (shortlistSurface) {
+      root.querySelectorAll('[data-pqx-filtered-open]').forEach((node) => {
+        node.removeAttribute('data-pqx-filtered-open');
+      });
+    }
     const payloadNode = root.querySelector('[data-property-workbench-json]');
     const metaNode = root.querySelector('[data-property-workspace-meta]');
     const data = JSON.parse(payloadNode?.textContent || '{}');
@@ -23,9 +28,9 @@
       if (!url) return false;
       try {
         const parsed = new URL(url, window.location.origin);
-        return /\/tours\/[^/]+\/control\/(matterport|3dvista)\/?$/i.test(parsed.pathname);
+        return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr)\/?$/i.test(parsed.pathname);
       } catch (_error) {
-        return /\/tours\/[^/]+\/control\/(matterport|3dvista)\/?$/i.test(url.split(/[?#]/)[0] || '');
+        return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr)\/?$/i.test(url.split(/[?#]/)[0] || '');
       }
     };
     const hostedTourProviderFromProof = (...values) => {
@@ -1933,17 +1938,13 @@
         const flythroughEta = String(flythrough.eta_label || '').trim();
         const flythroughTooltip = [flythroughDetail, flythroughEta ? `ETA ${flythroughEta}` : ''].filter(Boolean).join(' · ');
         const flythroughProgress = Math.max(0, Math.min(100, Number(flythrough.progress_pct || (flythroughPending ? 18 : (flythroughUrl ? 100 : 0))) || 0));
-        const facts = [
+        const factChips = [
           layout ? `<span class="pqx-result-fact">${escapeHtml(layout)}</span>` : '',
           tourUrl
-            ? (shortlistSurface
-              ? `<span class="pqx-result-fact" title="${escapeHtml(tourDetail || '3D tour ready')}">360 ready</span>`
-              : `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="${escapeHtml(tourDetail || '3D tour ready')}">360 ready</a>`)
+            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(tourUrl)}" title="${escapeHtml(tourDetail || '3D tour ready')}" aria-label="3D tour ready">360 ready</a>`
             : '',
           flythroughUrl
-            ? (shortlistSurface
-              ? `<span class="pqx-result-fact" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}">Walkthrough ready</span>`
-              : `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}" aria-label="${escapeHtml(flythroughDetail || 'Walkthrough ready')}">Walkthrough ready</a>`)
+            ? `<a class="pqx-result-fact pqx-result-tour-link" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughDetail || 'Walkthrough ready')}" aria-label="Walkthrough ready">Walkthrough ready</a>`
             : '',
         ].filter(Boolean).join('');
         const actions = [
@@ -1965,7 +1966,7 @@
                 <span class="pqx-result-summary">
                   <span class="pqx-result-kicker"><span class="pqx-rank">#${escapeHtml(candidate?.rank || index + 1)}</span>${location ? `<span>${escapeHtml(location)}</span>` : ''}</span>
                   <span class="pqx-result-title">${escapeHtml(title)}</span>
-                  <span class="pqx-result-facts">${facts}</span>
+                  <span class="pqx-result-facts">${factChips}</span>
                   <span class="pqx-note">${escapeHtml(fitSummary)}</span>
                 </span>
               </span>

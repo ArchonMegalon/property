@@ -5043,6 +5043,11 @@
     html[data-pq-theme="dark"] .pqx-thumb-pin::after {
       background: var(--pq-panel);
     }
+    html[data-pq-theme="dark"] .pqx-thumb {
+      background: linear-gradient(135deg, color-mix(in srgb, var(--pq-paper) 88%, #26332f), var(--pq-panel));
+      color: var(--pq-muted);
+      border-color: var(--pq-line);
+    }
     html[data-pq-theme="dark"] .pqx-automation-delete:hover,
     html[data-pq-theme="dark"] .pqx-automation-delete:focus-visible {
       background: rgba(217, 119, 107, 0.13);
@@ -5627,13 +5632,48 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
       .pqx-topbar {
-        position: static;
+        position: sticky;
+        top: 0;
+        z-index: 42;
         grid-template-columns: 1fr;
-        gap: 8px;
-        padding: 10px;
+        grid-template-areas:
+          "brand"
+          "nav"
+          "actions";
+        gap: 5px;
+        margin: 0 -10px 8px;
+        padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 7px;
+        border-color: color-mix(in srgb, var(--pq-line) 86%, transparent);
+        border-radius: 0 0 18px 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(255, 253, 248, 0.9)),
+          var(--pq-paper);
+        box-shadow: 0 14px 30px rgba(41, 37, 30, 0.09);
+        backdrop-filter: blur(18px);
       }
       .pqx-primary-nav {
+        display: flex;
+        width: 100%;
+        justify-content: flex-start;
+        gap: 6px;
+        margin: 0;
+        padding: 0 2px 2px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+      .pqx-primary-nav::-webkit-scrollbar {
         display: none;
+      }
+      .pqx-primary-nav :is(a, span) {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
+        min-height: 30px;
+        padding: 0 9px;
+        border-radius: 999px;
+        font-size: 11.5px;
       }
       .pqx-brand {
         gap: 8px;
@@ -5646,6 +5686,7 @@
         display: none;
       }
       .pqx-top-actions {
+        grid-area: actions;
         justify-content: flex-end;
         gap: 6px;
       }
@@ -5782,8 +5823,20 @@
       }
       .pqx-mobile-switch {
         display: flex;
-        padding: 6px;
-        margin-bottom: 8px;
+        position: sticky;
+        top: calc(82px + env(safe-area-inset-top, 0px));
+        padding: 5px;
+        margin: 0 0 10px;
+        border-radius: 999px;
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 243, 238, 0.9)),
+          var(--pq-paper);
+        box-shadow: 0 10px 24px rgba(41, 37, 30, 0.08);
+      }
+      .pqx-mobile-switch .pqx-mode-button {
+        min-height: 34px;
+        border-radius: 999px;
+        font-size: 12px;
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch,
       .pqx-shell[data-pqx-surface="account"] .pqx-mobile-switch,
@@ -5835,6 +5888,20 @@
       }
       .pqx-bottom-nav {
         display: grid;
+        left: 10px;
+        right: 10px;
+        bottom: max(10px, env(safe-area-inset-bottom, 0px));
+        padding: 6px;
+        border-radius: 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 243, 238, 0.92)),
+          var(--pq-paper);
+        box-shadow: 0 18px 42px rgba(41, 37, 30, 0.16);
+      }
+      .pqx-bottom-nav .pqx-mode-button {
+        min-height: 38px;
+        border-radius: 14px;
+        font-size: 12px;
       }
       .pqx-run-hero {
         gap: 14px;
@@ -6042,7 +6109,10 @@
       .pqx-result {
         grid-template-columns: minmax(0, 1fr);
         align-items: start;
-        padding: 12px;
+        gap: 12px;
+        padding: 13px;
+        border-radius: 16px;
+        box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
       }
       .pqx-result-media {
         grid-template-columns: minmax(0, 1fr);
@@ -6061,6 +6131,19 @@
       }
       .pqx-result-actions {
         justify-content: flex-start;
+      }
+      .pqx-result-title {
+        font-size: 1.02rem;
+        line-height: 1.13;
+      }
+      .pqx-result-facts {
+        gap: 6px;
+      }
+      .pqx-result-fact,
+      .pqx-result-open,
+      .pqx-progress-button {
+        min-height: 32px;
+        padding-inline: 10px;
       }
       .pqx-score-bts-head,
       .pqx-score-bts-grid {
@@ -6265,7 +6348,7 @@
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
     <header class="pqx-topbar" data-property-research-topnav>
-      <a class="pqx-brand" href="/app/properties{{ topnav_query_suffix }}" aria-label="PropertyQuarry search">
+      <a class="pqx-brand" href="/?home=1" aria-label="PropertyQuarry public home">
         <span class="pqx-mark">PQ</span>
         <span>
           <strong>PropertyQuarry</strong>
@@ -6585,6 +6668,14 @@
                   {% if previous.get('sent_total') %}<span><b>{{ previous.get('sent_total') }}</b> sent</span>{% endif %}
                   {% if previous.get('top_fit_score') %}<span>best <b>{{ previous.get('top_fit_score') }}</b></span>{% endif %}
                   {% if previous.get('held_back_total') %}
+                  {% if surface_mode == 'shortlist' %}
+                  <span
+                    class="pqx-filtered-trigger"
+                    title="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
+                    aria-label="Filtered means matches were found but stayed outside the shortlist because of your current rules, missing evidence, or alert limits."
+                    data-tooltip-trigger
+                  ><b>{{ previous.get('held_back_total') }}</b> filtered <span aria-hidden="true">?</span></span>
+                  {% else %}
                   <button
                     type="button"
                     class="pqx-filtered-trigger"
@@ -6593,6 +6684,7 @@
                     data-tooltip-trigger
                     data-pqx-filtered-open
                   ><b>{{ previous.get('held_back_total') }}</b> filtered <span aria-hidden="true">?</span></button>
+                  {% endif %}
                   {% endif %}
                 </div>
                 {% if previous.get('status_note') %}<div class="pqx-note">{{ previous.get('status_note') }}</div>{% endif %}
@@ -6883,7 +6975,7 @@
                   <div class="pqx-advanced-panel-grid">
                     {% set keyword_groups = [
                       {'key': 'home_basics', 'label': 'Home basics', 'note': 'Shape, comfort, access, and building signals.'},
-                      {'key': 'daily_life', 'label': 'Daily life', 'note': 'Errands, transit, culture, and family backup.'},
+                      {'key': 'daily_life', 'label': 'Daily life', 'note': 'Errands, transit, culture, schools, childcare, and family backup.'},
                       {'key': 'risk_evidence', 'label': 'Risk and evidence', 'note': 'Checks that should affect confidence before deciding.'}
                     ] %}
                     {% for group in keyword_groups %}
@@ -6923,17 +7015,7 @@
                           {% endif %}
                         </label>
                         {% endfor %}
-                      </div>
-                    </details>
-                    {% endif %}
-                    {% endfor %}
-                    {% if field.get('school_preference_options') %}
-                    <details class="pqx-choice-groupbox" data-what-matters-group="schools" open>
-                      <summary class="pqx-what-matters-group-summary">
-                        <span class="pqx-choice-groupbox-legend">Schools and childcare</span>
-                        <span class="pqx-what-matters-group-note">Pick the broad need first; related detail choices appear underneath.</span>
-                      </summary>
-                      <div class="pqx-pref-list">
+                        {% if group.get('key') == 'daily_life' and field.get('school_preference_options') %}
                         {% for option in field.get('school_preference_options') or [] %}
                         <label
                           class="pqx-pref-row pqx-school-priority-row"
@@ -6957,9 +7039,11 @@
                           </select>
                         </label>
                         {% endfor %}
+                        {% endif %}
                       </div>
                     </details>
                     {% endif %}
+                    {% endfor %}
                   </div>
                 </section>
                 {% elif field.type == 'checkbox_group' %}
@@ -7348,11 +7432,11 @@
               </button>
             </div>
           {% endif %}
-          {% if not soft_only_empty_state %}
+          {% if not soft_only_empty_state and surface_mode != 'shortlist' %}
           {{ suppression_panel(workbench.get('suppression_rows') or [], workbench.get('counterfactual_rows') or [], run_summary.get('filtered_total') or run_summary.get('held_back_total') or None) }}
           {% endif %}
           </div>
-          {% if not soft_only_empty_state %}
+          {% if not soft_only_empty_state and surface_mode != 'shortlist' %}
           {{ filtered_recovery_dialog(workbench.get('counterfactual_rows') or [], workbench.get('suppression_rows') or []) }}
           {% endif %}
           {% if not ranked_candidates %}

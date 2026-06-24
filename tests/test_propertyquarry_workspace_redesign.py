@@ -1867,11 +1867,10 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "Home basics" in section_html
     assert "Daily life" in section_html
     assert "Risk and evidence" in section_html
-    assert "Schools and childcare" in section_html
     assert 'data-what-matters-group="home_basics"' in section_html
     assert 'data-what-matters-group="daily_life"' in section_html
     assert 'data-what-matters-group="risk_evidence"' in section_html
-    assert 'data-what-matters-group="schools"' in section_html
+    assert 'data-what-matters-group="schools"' not in section_html
     assert '<select name="keyword_preference__lift"' in section_html
     assert '<select name="keyword_preference__barrier-free"' in section_html
     assert '<select name="keyword_distance__playground nearby"' in section_html
@@ -1884,6 +1883,14 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '<select name="school_preference__kindergarten"' in section_html
     assert '<select name="school_preference__volksschule"' in section_html
     assert '<select name="school_preference__gymnasium"' in section_html
+    daily_life_html = re.search(
+        r'<details[^>]*data-what-matters-group="daily_life"[^>]*>(?P<section>.*?)</details>',
+        section_html,
+        re.DOTALL,
+    )
+    assert daily_life_html, "Daily life group should render"
+    assert '<select name="school_preference__kindergarten"' in daily_life_html.group("section")
+    assert '<select name="keyword_distance__playground nearby"' in daily_life_html.group("section")
     assert 'data-school-parent-value="kindergarten"' in section_html
     assert 'data-school-parent-value="volksschule"' in section_html
     assert 'data-school-dependent-row' in section_html
@@ -6427,7 +6434,8 @@ def test_property_decision_workbench_uses_shared_research_shell_contract() -> No
     body = template_path.read_text(encoding="utf-8")
 
     assert 'data-property-research-topnav' in body
-    assert 'href="/app/properties{{ topnav_query_suffix }}" aria-label="PropertyQuarry search"' in body
+    assert 'href="/?home=1" aria-label="PropertyQuarry public home"' in body
+    assert 'href="/app/properties{{ topnav_query_suffix }}">Search</a>' in body
     assert '<span class="pqx-brand-copy">Research desk</span>' in body
     assert 'href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>' in body
     assert 'href="/app/properties{{ topnav_query_suffix }}">Edit search</a>' in body
@@ -7331,6 +7339,36 @@ def test_property_search_posture_summary_hides_child_rows_when_parent_toggles_ar
     assert "Eigenmittel ceiling" not in labels
     assert "Application window" not in labels
     assert "Auction legal review" not in labels
+
+
+def test_property_search_posture_summary_omits_neutral_property_type() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Summary Hygiene"}, "channels": {}},
+        property_state={
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "property_type": ["any"],
+            },
+            "property_type_label": "Any type",
+            "commercial": {},
+            "preference_bundle": {},
+        },
+    )
+
+    search_posture_card = next(
+        card
+        for card in list(payload.get("primary_cards") or [])
+        if str(card.get("eyebrow") or "").strip() == "Search brief"
+    )
+    labels = {
+        str(item.get("title") or "").strip()
+        for item in list(search_posture_card.get("items") or [])
+        if isinstance(item, dict)
+    }
+
+    assert "Property type" not in labels
 
 
 def test_property_search_posture_summary_uses_selected_market_currency() -> None:

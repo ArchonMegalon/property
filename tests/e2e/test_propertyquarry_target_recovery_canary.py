@@ -118,6 +118,7 @@ class RecoveryReport:
     event_count: int
     synthesized_brief: dict[str, object]
     provider_volatility: bool = False
+    variant: str = "targeted"
 
 
 def _manifest_path() -> Path:
@@ -299,7 +300,44 @@ def _rank_threshold() -> int:
         return 5
 
 
-def _synthesize_search_preferences(case: TargetListing, *, loosen_level: int = 0) -> dict[str, object]:
+def _target_provider_matrix_enabled() -> bool:
+    return str(os.environ.get("PROPERTYQUARRY_TARGET_PROVIDER_MATRIX") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "enabled",
+        "full",
+    }
+
+
+def _default_soft_filter_preferences(case: TargetListing) -> dict[str, object]:
+    preferences: dict[str, object] = {
+        "max_distance_to_library_m": 500,
+        "max_distance_to_library_importance": "nice_to_have",
+        "max_distance_to_playground_m": 500,
+        "max_distance_to_playground_importance": "nice_to_have",
+        "max_distance_to_shopping_center_m": 500,
+        "max_distance_to_shopping_center_importance": "avoid",
+        "max_distance_to_supermarket_m": 300,
+        "max_distance_to_supermarket_importance": "nice_to_have",
+        "prefer_good_air_quality": True,
+        "prefer_low_crime_area": True,
+        "require_parking_pressure_check": True,
+    }
+    if str(case.country_code or "").strip().upper() != "AT":
+        preferences.pop("max_distance_to_playground_m", None)
+        preferences.pop("max_distance_to_playground_importance", None)
+    return preferences
+
+
+def _synthesize_search_preferences(
+    case: TargetListing,
+    *,
+    loosen_level: int = 0,
+    soft_filters: bool = True,
+    default_soft_filters: bool = False,
+) -> dict[str, object]:
     if not case.country_code or not case.listing_mode or not case.property_type or not case.location_query:
         raise AssertionError(f"{case.provider or case.title}: manifest entry is missing required target facts")
     selected_platforms = list(case.selected_platforms or ((case.provider,) if case.provider else ()))
@@ -351,8 +389,11 @@ def _synthesize_search_preferences(case: TargetListing, *, loosen_level: int = 0
             preferences["min_rooms"] = rounded_rooms
     if loosen_level >= 3:
         preferences["property_type"] = "any"
-    for key, value in case.soft_preferences.items():
-        preferences[str(key)] = value
+    if soft_filters:
+        if default_soft_filters:
+            preferences.update(_default_soft_filter_preferences(case))
+        for key, value in case.soft_preferences.items():
+            preferences[str(key)] = value
     return preferences
 
 
@@ -372,13 +413,14 @@ def _watch_url(run_id: str) -> str:
     return f"/app/properties?run_id={urllib.parse.quote(run_id, safe='')}"
 
 
-def _print_watch_banner(case: TargetListing, principal: PrincipalContext, run_id: str) -> None:
+def _print_watch_banner(case: TargetListing, principal: PrincipalContext, run_id: str, *, variant: str = "targeted") -> None:
     sys.stderr.write(
         "\n".join(
             [
                 "",
                 f"[target-recovery] principal={principal.principal_id}",
                 f"[target-recovery] provider={case.provider}",
+                f"[target-recovery] variant={variant}",
                 f"[target-recovery] target={case.title}",
                 f"[target-recovery] run_id={run_id}",
                 f"[target-recovery] watch={_watch_url(run_id)}",
@@ -609,8 +651,8 @@ def _write_report(tmp_path: Path, report: RecoveryReport) -> None:
     target.write_text(json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _case_key(case: TargetListing) -> str:
-    basis = f"{case.country_code}-{case.provider}-{case.title}".lower()
+def _case_key(case: TargetListing, *, variant: str = "targeted") -> str:
+    basis = f"{case.country_code}-{case.provider}-{variant}-{case.title}".lower()
     cleaned = "".join(char if char.isalnum() else "-" for char in basis)
     while "--" in cleaned:
         cleaned = cleaned.replace("--", "-")
@@ -650,18 +692,70 @@ def _ordered_probe_candidates(urls: list[str], *, seed_basis: str) -> list[tuple
 
 
 def _country_codes() -> tuple[str, ...]:
-    raw = str(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_COUNTRIES") or "AT").strip()
+    raw = str(
+        os.environ.get("PROPERTYQUARRY_TARGET_PROVIDER_MATRIX_COUNTRIES")
+        or os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_COUNTRIES")
+        or ""
+    ).strip()
+    if not raw and _target_provider_matrix_enabled():
+        return tuple(
+            sorted(
+                {
+                    str(spec.country_code or "").strip().upper()
+                    for spec in PROVIDERS
+                    if str(spec.country_code or "").strip() and bool(spec.search_ready)
+                }
+            )
+        )
+    if not raw:
+        raw = "AT"
     values = tuple(str(item or "").strip().upper() for item in raw.split(",") if str(item or "").strip())
     return values or ("AT",)
 
 
 def _provider_include_filter() -> set[str]:
-    raw = str(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_PROVIDERS") or "").strip()
+    raw = str(
+        os.environ.get("PROPERTYQUARRY_TARGET_PROVIDER_MATRIX_PROVIDERS")
+        or os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_PROVIDERS")
+        or ""
+    ).strip()
     return {
         str(item or "").strip().lower()
         for item in raw.split(",")
         if str(item or "").strip()
     }
+
+
+def _target_recovery_variants() -> tuple[str, ...]:
+    raw = str(
+        os.environ.get("PROPERTYQUARRY_TARGET_PROVIDER_MATRIX_VARIANTS")
+        or os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_VARIANTS")
+        or ""
+    ).strip()
+    if raw:
+        values = tuple(
+            value
+            for value in (
+                str(item or "").strip().lower()
+                for item in raw.split(",")
+                if str(item or "").strip()
+            )
+            if value in {"targeted", "strict", "soft"}
+        )
+        if values:
+            return tuple(dict.fromkeys(values))
+    if _target_provider_matrix_enabled():
+        return ("strict", "soft")
+    return ("targeted",)
+
+
+def _variant_soft_filter_mode(variant: str) -> tuple[bool, bool]:
+    normalized = str(variant or "").strip().lower()
+    if normalized == "strict":
+        return False, False
+    if normalized == "soft":
+        return True, True
+    return True, False
 
 
 def _provider_specs() -> list[PropertyProviderSpec]:
@@ -1016,9 +1110,11 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
     service = ProductService(client.app.state.container)
     successful_case_total = 0
     volatility_skipped_total = 0
+    variants = _target_recovery_variants()
 
-    for case in cases:
+    for case, variant in [(case, variant) for case in cases for variant in variants]:
         final_report: RecoveryReport | None = None
+        soft_filters, default_soft_filters = _variant_soft_filter_mode(variant)
         rank_threshold = _rank_threshold()
         max_attempts = 5
         for attempt_index in range(max_attempts):
@@ -1027,7 +1123,12 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 for task in _list_repair_tasks(client)
                 if str(task.get("human_task_id") or "").strip()
             }
-            brief = _synthesize_search_preferences(case, loosen_level=attempt_index)
+            brief = _synthesize_search_preferences(
+                case,
+                loosen_level=attempt_index,
+                soft_filters=soft_filters,
+                default_soft_filters=default_soft_filters,
+            )
             _assert_brief_satisfies_target(case, brief)
             stored = client.post("/v1/onboarding/property-search/preferences", json=brief)
             assert stored.status_code == 200, stored.text
@@ -1045,7 +1146,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
             started_body = started.json()
             run_id = str(started_body.get("run_id") or "").strip()
             assert run_id, f"{case.title}: run_id missing from start response"
-            _print_watch_banner(case, principal, run_id)
+            _print_watch_banner(case, principal, run_id, variant=variant)
 
             last_status: dict[str, object] = {}
             first_target_match = IdentityMatch(matched=False)
@@ -1117,7 +1218,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                         )
 
             final_report = RecoveryReport(
-                case_key=_case_key(case),
+                case_key=_case_key(case, variant=variant),
                 principal_id=principal.principal_id,
                 run_id=run_id,
                 watch_url=_watch_url(run_id),
@@ -1138,6 +1239,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 source_count=len(_source_rows(last_status)),
                 event_count=len(list(last_status.get("events") or [])),
                 synthesized_brief=brief,
+                variant=variant,
             )
             _write_report(tmp_path, final_report)
 
@@ -1199,6 +1301,63 @@ def test_provider_pick_window_size_scales_from_probe_limit(monkeypatch: pytest.M
     monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PROBE_LIMIT", "5")
     assert _provider_pick_window_size(40) == 12
     assert _provider_pick_window_size(7) == 7
+
+
+def test_target_provider_matrix_expands_to_all_search_ready_countries(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_PROVIDER_MATRIX", "1")
+    monkeypatch.delenv("PROPERTYQUARRY_TARGET_PROVIDER_MATRIX_COUNTRIES", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_TARGET_RECOVERY_COUNTRIES", raising=False)
+    countries = _country_codes()
+    expected = tuple(
+        sorted(
+            {
+                str(spec.country_code or "").strip().upper()
+                for spec in PROVIDERS
+                if str(spec.country_code or "").strip() and bool(spec.search_ready)
+            }
+        )
+    )
+    assert countries == expected
+    assert _target_recovery_variants() == ("strict", "soft")
+
+
+def test_target_provider_matrix_synthesizes_strict_and_soft_briefs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_PROVIDER_MATRIX", "1")
+    case = TargetListing(
+        provider="willhaben",
+        country_code="AT",
+        canonical_url="https://www.willhaben.at/iad/object?adId=123",
+        title="Target flat",
+        listing_mode="rent",
+        property_type="apartment",
+        location_query="1020 Vienna",
+        price_eur=1500.0,
+        area_m2=80.0,
+        rooms=3.0,
+        selected_platforms=("willhaben",),
+        soft_preferences={"max_distance_to_theatre_m": 700, "max_distance_to_theatre_importance": "nice_to_have"},
+    )
+    strict_soft_filters, strict_default_soft_filters = _variant_soft_filter_mode("strict")
+    soft_soft_filters, soft_default_soft_filters = _variant_soft_filter_mode("soft")
+
+    strict = _synthesize_search_preferences(
+        case,
+        soft_filters=strict_soft_filters,
+        default_soft_filters=strict_default_soft_filters,
+    )
+    soft = _synthesize_search_preferences(
+        case,
+        soft_filters=soft_soft_filters,
+        default_soft_filters=soft_default_soft_filters,
+    )
+
+    assert strict["selected_platforms"] == ["willhaben"]
+    assert soft["selected_platforms"] == ["willhaben"]
+    assert "max_distance_to_theatre_m" not in strict
+    assert "max_distance_to_library_m" not in strict
+    assert soft["max_distance_to_theatre_m"] == 700
+    assert soft["max_distance_to_library_importance"] == "nice_to_have"
+    assert soft["max_distance_to_shopping_center_importance"] == "avoid"
 
 
 def test_preview_probe_usable_rejects_provider_label_junk_target() -> None:

@@ -148,6 +148,18 @@ _PUBLIC_TOUR_PUBLIC_PDF_PRIVACY_CLASSES = frozenset(
         "public_floorplan_pdf",
     }
 )
+_PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES = frozenset(
+    {
+        "pano2vr_export_public",
+        "public_pano2vr_export",
+    }
+)
+_PUBLIC_TOUR_PANO2VR_ENTRY_ROLES = frozenset(
+    {
+        "pano2vr_entry",
+        "virtual_tour_entry",
+    }
+)
 _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS = frozenset(
     {
         ".conf",
@@ -290,6 +302,9 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "video_render_provider",
         "video_coverage_proof",
         "walkable_scene",
+        "pano2vr_entry_relpath",
+        "pano2vr_export_entry_relpath",
+        "pano2vr_export_root_relpath",
         "tour_privacy_mode",
         "privacy_mode",
     }
@@ -374,13 +389,18 @@ def public_tour_asset_path_is_public(
     if not safe_relpath:
         return False
     suffix = PurePosixPath(safe_relpath).suffix.lower()
+    normalized_privacy = str(privacy_class or "").strip().lower()
+    normalized_role = str(role or "").strip().lower().replace("-", "_")
+    if suffix in {".htm", ".html"}:
+        return (
+            normalized_privacy in _PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES
+            and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
+        )
     if suffix in _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS:
         return False
     if suffix not in _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS:
         return False
     if suffix == ".pdf" or "pdf" in str(mime_type or "").strip().lower():
-        normalized_privacy = str(privacy_class or "").strip().lower()
-        normalized_role = str(role or "").strip().lower().replace("-", "_")
         return normalized_privacy in _PUBLIC_TOUR_PUBLIC_PDF_PRIVACY_CLASSES and normalized_role in {
             "floorplan",
             "floor_plan",
@@ -410,6 +430,13 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             refs.add(relpath)
 
     _add(payload.get("video_relpath"))
+    for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
+        _add(
+            payload.get(key),
+            privacy_class="pano2vr_export_public",
+            role="pano2vr_entry",
+            mime_type="text/html",
+        )
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -473,6 +500,13 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
             row["mime_type"] = str(mime_type).strip()
 
     _record(payload.get("video_relpath"), role="video")
+    for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
+        _record(
+            payload.get(key),
+            privacy_class="pano2vr_export_public",
+            role="pano2vr_entry",
+            mime_type="text/html",
+        )
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -727,6 +761,15 @@ def redacted_public_tour_payload(
             )
             continue
         if key == "video_relpath":
+            relpath = public_tour_safe_asset_relpath(payload.get(key))
+            if not relpath or relpath not in public_tour_allowed_asset_paths(payload):
+                continue
+            if expose_asset_relpaths:
+                rendered[key] = relpath
+            else:
+                rendered[key.replace("_relpath", "_url")] = public_tour_file_url(slug, relpath)
+            continue
+        if key in {"pano2vr_entry_relpath", "pano2vr_export_entry_relpath"}:
             relpath = public_tour_safe_asset_relpath(payload.get(key))
             if not relpath or relpath not in public_tour_allowed_asset_paths(payload):
                 continue

@@ -2770,7 +2770,11 @@ def app_section_payload(
     search_goal_options = [dict(option) for option in list(property_state.get("search_goal_options") or []) if isinstance(option, dict)]
     investment_strategy_options = [dict(option) for option in list(property_state.get("investment_strategy_options") or []) if isinstance(option, dict)]
     investment_research_mode_options = [dict(option) for option in list(property_state.get("investment_research_mode_options") or []) if isinstance(option, dict)]
-    property_type_options = [dict(option) for option in list(property_state.get("property_type_options") or []) if isinstance(option, dict)]
+    property_type_options = [
+        dict(option)
+        for option in list(property_state.get("property_type_options") or [])
+        if isinstance(option, dict) and str(option.get("value") or "").strip().lower() != "any"
+    ]
     selected_platforms = {
         str(value or "").strip()
         for value in (property_state.get("selected_platforms") or [])

@@ -127,6 +127,7 @@ from app.product.property_tour_hosting import (
     _hosted_property_tour_asset_suffix,
     _hosted_property_tour_has_3dvista_export as _hosting_has_3dvista_export,
     _hosted_property_tour_has_matterport_export as _hosting_has_matterport_export,
+    _hosted_property_tour_has_pano2vr_export as _hosting_has_pano2vr_export,
     _hosted_property_tour_payload_for_url,
     _hosted_property_tour_direct_360_url,
     _hosted_property_tour_preview_image_url,
@@ -15034,6 +15035,7 @@ def _property_3d_viewer_links_exit_gate(
     required = {
         "matterport": ("Matterport Control", "/control/matterport"),
         "3dvista": ("3DVista Control", "/control/3dvista"),
+        "pano2vr": ("Pano2VR Control", "/control/pano2vr"),
     }
     checked: dict[str, dict[str, object]] = {}
     metrics: dict[str, object] = {"checked": checked, "legacy_removed": False}
@@ -15101,7 +15103,7 @@ def _property_3d_viewer_links_exit_gate(
                 return False, f"{key}_viewer_resolved_to_hosting_panel", metrics
             if bool(row["contains_legacy_viewer"]):
                 return False, f"{key}_viewer_legacy_viewer_present", metrics
-            if key in {"matterport", "3dvista"}:
+            if key in {"matterport", "3dvista", "pano2vr"}:
                 if bool(row["contains_cube_fallback_viewer"]):
                     return False, f"{key}_viewer_is_propertyquarry_cube_fallback", metrics
                 if not bool(row["contains_iframe"]):
@@ -15324,12 +15326,18 @@ def _hosted_property_tour_has_3dvista_export(tour_url: str) -> bool:
     return _hosting_has_3dvista_export(tour_url)
 
 
+def _hosted_property_tour_has_pano2vr_export(tour_url: str) -> bool:
+    return _hosting_has_pano2vr_export(tour_url)
+
+
 def _hosted_property_tour_provider_export_keys(tour_url: str) -> tuple[str, ...]:
     keys: list[str] = []
     if _hosted_property_tour_has_matterport_export(tour_url):
         keys.append("matterport")
     if _hosted_property_tour_has_3dvista_export(tour_url):
         keys.append("3dvista")
+    if _hosted_property_tour_has_pano2vr_export(tour_url):
+        keys.append("pano2vr")
     return tuple(keys)
 
 
@@ -15346,6 +15354,10 @@ def _property_tour_compare_links(tour_url: str) -> dict[str, str]:
         threedvista_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="3dvista"))
         if threedvista_url:
             links["3dvista"] = threedvista_url
+    if _hosted_property_tour_has_pano2vr_export(normalized):
+        pano2vr_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="pano2vr"))
+        if pano2vr_url:
+            links["pano2vr"] = pano2vr_url
     return links
 
 
@@ -15367,6 +15379,10 @@ def _property_3d_provider_rule_exit_gate(
         "3dvista": "3dvista",
         "3d_vista": "3dvista",
         "three_d_vista": "3dvista",
+        "panorama": "pano2vr",
+        "pano2vr": "pano2vr",
+        "pano_2_vr": "pano2vr",
+        "pano-2-vr": "pano2vr",
     }
     if expected_providers is None:
         expected = list(_hosted_property_tour_provider_export_keys(normalized))
@@ -15382,6 +15398,10 @@ def _property_3d_provider_rule_exit_gate(
         str(manifest.get(key) or "").strip()
         for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath")
     )
+    declared_pano2vr_export = any(
+        str(manifest.get(key) or "").strip()
+        for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath")
+    )
     metrics["expected_providers"] = list(expected)
     metrics["available_links"] = dict(links)
     metrics["selected_links"] = {provider: links[provider] for provider in expected if links.get(provider)}
@@ -15393,9 +15413,16 @@ def _property_3d_provider_rule_exit_gate(
             return False, "matterport_export_missing_for_rule", metrics
         if provider == "3dvista" and not (_hosted_property_tour_has_3dvista_export(normalized) or declared_3dvista_export):
             return False, "3dvista_export_missing_for_rule", metrics
+        if provider == "pano2vr" and not (_hosted_property_tour_has_pano2vr_export(normalized) or declared_pano2vr_export):
+            return False, "pano2vr_export_missing_for_rule", metrics
         link = str(
             links.get(provider)
-            or (_property_tour_control_link(normalized, viewer=provider) if provider == "3dvista" and declared_3dvista_export else "")
+            or (
+                _property_tour_control_link(normalized, viewer=provider)
+                if provider in {"3dvista", "pano2vr"}
+                and (declared_3dvista_export if provider == "3dvista" else declared_pano2vr_export)
+                else ""
+            )
         ).strip()
         if link and provider not in metrics["selected_links"]:
             metrics["selected_links"] = {**dict(metrics.get("selected_links") or {}), provider: link}
@@ -28144,7 +28171,7 @@ class ProductService:
         elif fit_score > 0:
             summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
         summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
-        summary_lines.append("Matterport and 3DVista buttons appear only when a real provider export exists. Open Walkthrough starts the verified video immediately.")
+        summary_lines.append("Matterport, 3DVista, and Pano2VR buttons appear only when a real provider export exists. Open Walkthrough starts the verified video immediately.")
         url_buttons: list[list[tuple[str, str]]] = []
         first_row: list[tuple[str, str]] = []
         deep_flythrough_url = ""
@@ -28230,8 +28257,12 @@ class ProductService:
                 first_row.append(("Open Matterport", compare_links["matterport"]))
             if compare_links.get("3dvista"):
                 first_row.append(("Open 3DVista", compare_links["3dvista"]))
+            if compare_links.get("pano2vr"):
+                first_row.append(("Open Pano2VR", compare_links["pano2vr"]))
         if first_row:
             url_buttons.append(first_row[:2])
+            if len(first_row) > 2:
+                url_buttons.append(first_row[2:4])
         second_row: list[tuple[str, str]] = []
         if video_url:
             deep_flythrough_url = _telegram_safe_url_button_target(video_url)
@@ -28328,6 +28359,7 @@ class ProductService:
             "fit_score": float(fit_score or 0.0),
             "direct_matterport_url": compare_links.get("matterport", ""),
             "direct_3dvista_url": compare_links.get("3dvista", ""),
+            "direct_pano2vr_url": compare_links.get("pano2vr", ""),
             "direct_3d_control_url": "",
             "direct_flythrough_url": deep_flythrough_url,
             "provider_rule_gate_status": "passed",
@@ -28728,8 +28760,12 @@ class ProductService:
             first_row.append(("Open Matterport", compare_links["matterport"]))
         if compare_links.get("3dvista"):
             first_row.append(("Open 3DVista", compare_links["3dvista"]))
+        if compare_links.get("pano2vr"):
+            first_row.append(("Open Pano2VR", compare_links["pano2vr"]))
         if first_row:
             url_buttons.append(first_row[:2])
+            if len(first_row) > 2:
+                url_buttons.append(first_row[2:4])
         second_row: list[tuple[str, str]] = []
         if direct_flythrough_url:
             second_row.append(("Open Walkthrough", direct_flythrough_url))
@@ -28737,6 +28773,7 @@ class ProductService:
             url_buttons.append(second_row[:2])
         direct_matterport_url = str(compare_links.get("matterport") or "").strip()
         direct_3dvista_url = str(compare_links.get("3dvista") or "").strip()
+        direct_pano2vr_url = str(compare_links.get("pano2vr") or "").strip()
         try:
             self._record_product_event(
                 principal_id=principal_id,
@@ -28748,6 +28785,7 @@ class ProductService:
                     "delivery_pdf_path": pdf_path,
                     "direct_matterport_url": direct_matterport_url,
                     "direct_3dvista_url": direct_3dvista_url,
+                    "direct_pano2vr_url": direct_pano2vr_url,
                     "direct_flythrough_url": direct_flythrough_url,
                 },
                 source_id=resolved_source_ref,
@@ -28799,6 +28837,7 @@ class ProductService:
             "flythrough_url": video_url,
             "direct_matterport_url": direct_matterport_url,
             "direct_3dvista_url": direct_3dvista_url,
+            "direct_pano2vr_url": direct_pano2vr_url,
             "direct_flythrough_url": direct_flythrough_url,
             "direct_3d_control_url": "",
             "provider_rule_gate_status": "passed",

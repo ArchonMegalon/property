@@ -73,6 +73,26 @@ _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS = (
     "*.3dvista.com",
     "360.kalandra.at",
 )
+_PANO2VR_EXPORT_ALLOWED_EXTENSIONS = frozenset(
+    {
+        ".css",
+        ".gif",
+        ".htm",
+        ".html",
+        ".jpeg",
+        ".jpg",
+        ".js",
+        ".m4v",
+        ".mjs",
+        ".mov",
+        ".mp4",
+        ".png",
+        ".svg",
+        ".webm",
+        ".webp",
+        ".xml",
+    }
+)
 log = logging.getLogger(__name__)
 
 
@@ -407,6 +427,35 @@ def _asset_file(slug: str, asset_path: str) -> Path:
                 raise HTTPException(status_code=404, detail="tour_file_not_found")
         except OSError as exc:
             raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
+    return candidate
+
+
+def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
+    payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    entry_relpath = _pano2vr_entry_relpath(payload)
+    safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    bundle_dir = _tour_bundle_dir(slug)
+    if not entry_relpath or not safe_relpath or bundle_dir is None:
+        raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
+    suffix = PurePosixPath(safe_relpath).suffix.lower()
+    if suffix not in _PANO2VR_EXPORT_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
+    export_root = _pano2vr_export_root_relpath(payload)
+    if export_root:
+        allowed = safe_relpath == entry_relpath or safe_relpath.startswith(f"{export_root}/")
+    else:
+        allowed = safe_relpath == entry_relpath
+    if not allowed:
+        raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
+    candidate = (bundle_dir / safe_relpath).resolve()
+    resolved_bundle = bundle_dir.resolve()
+    if candidate == resolved_bundle or resolved_bundle not in candidate.parents:
+        raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
     return candidate
 
 
@@ -1350,6 +1399,100 @@ def _public_tour_payload_needs_defensive_redaction(payload: dict[str, object]) -
     return False
 
 
+def _pano2vr_entry_relpath(payload: dict[str, object]) -> str:
+    for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
+        relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
+        if relpath:
+            return relpath
+    return ""
+
+
+def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
+    for key in ("pano2vr_export_root_relpath", "pano2vr_root_relpath"):
+        relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
+        if relpath:
+            return relpath.rstrip("/")
+    entry_relpath = _pano2vr_entry_relpath(payload)
+    if not entry_relpath:
+        return ""
+    parent = str(PurePosixPath(entry_relpath).parent)
+    return "" if parent == "." else parent.rstrip("/")
+
+
+def _pano2vr_control_url(slug: str, payload: dict[str, object]) -> str:
+    return f"/tours/{html.escape(slug)}/control/pano2vr" if slug and _pano2vr_entry_relpath(payload) else ""
+
+
+def _tour_spatial_review_experience(
+    payload: dict[str, object],
+    *,
+    slug: str,
+    matterport_url: str = "",
+    three_d_vista_url: str = "",
+    pano2vr_url: str = "",
+    video_url: str = "",
+) -> dict[str, str]:
+    video_provider = str(
+        payload.get("video_provider")
+        or payload.get("video_provider_key")
+        or payload.get("video_render_provider")
+        or ""
+    ).strip().lower()
+    if matterport_url:
+        return {
+            "mode": "spatial",
+            "provider": "matterport",
+            "provenance": "Verified Spatial Capture",
+            "summary": "Matterport is available as a verified provider control. PropertyQuarry keeps the decision frame around the source tour.",
+            "primary_label": "Open Matterport",
+            "primary_href": matterport_url,
+        }
+    if three_d_vista_url:
+        return {
+            "mode": "panorama",
+            "provider": "3dvista",
+            "provenance": "Verified Virtual Tour",
+            "summary": "3DVista is available as a verified hosted or self-hosted virtual-tour export.",
+            "primary_label": "Open 3DVista",
+            "primary_href": three_d_vista_url,
+        }
+    if pano2vr_url:
+        return {
+            "mode": "panorama",
+            "provider": "pano2vr",
+            "provenance": "Prepared Panorama Tour",
+            "summary": "Pano2VR is available as a prepared self-hosted panorama export inside the PropertyQuarry tour shell.",
+            "primary_label": "Open Pano2VR",
+            "primary_href": pano2vr_url,
+        }
+    if _krpano_license_runtime_config() and isinstance(payload.get("walkable_scene"), dict) and slug:
+        return {
+            "mode": "panorama",
+            "provider": "krpano",
+            "provenance": "Prepared Panorama Tour",
+            "summary": "krpano is configured as the licensed branded viewer shell for this PropertyQuarry-hosted walkthrough.",
+            "primary_label": "Open krpano",
+            "primary_href": f"/tours/{html.escape(slug)}/control/krpano",
+        }
+    if video_url and video_provider:
+        return {
+            "mode": "walkthrough",
+            "provider": video_provider,
+            "provenance": "Rendered Walkthrough",
+            "summary": "This is a rendered walkthrough asset. It supports remote review, but it is not a verified navigable 3D capture.",
+            "primary_label": "Open Fly-through",
+            "primary_href": video_url,
+        }
+    return {
+        "mode": "pending",
+        "provider": "propertyquarry",
+        "provenance": "Tour Pending",
+        "summary": "No verified 3D, prepared panorama, or approved rendered walkthrough is available yet.",
+        "primary_label": "Request real 3D tour",
+        "primary_href": "#",
+    }
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
     if _public_tour_payload_needs_defensive_redaction(payload):
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
@@ -1384,9 +1527,17 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             ).strip()
         ):
             three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
+    pano2vr_url = _pano2vr_control_url(slug, payload)
     early_scene_strategy = str(payload.get("scene_strategy") or "").strip()
-    if early_scene_strategy == "pure_360_cube" and (matterport_url or three_d_vista_url):
+    if early_scene_strategy == "pure_360_cube" and (matterport_url or three_d_vista_url or pano2vr_url):
         safe_title = html.escape(str(payload.get("display_title") or payload.get("title") or payload.get("slug") or "Property tour").strip())
+        spatial_review = _tour_spatial_review_experience(
+            payload,
+            slug=slug,
+            matterport_url=matterport_url,
+            three_d_vista_url=three_d_vista_url,
+            pano2vr_url=pano2vr_url,
+        )
         return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -1397,20 +1548,24 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <style>
       html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       body {{ display: grid; place-items: center; padding: 24px; }}
-      main {{ width: min(720px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
+      main {{ width: min(760px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
       h1 {{ margin: 0 0 10px; font-size: 24px; letter-spacing: 0; }}
       p {{ margin: 0 0 16px; color: rgba(247,241,230,.78); line-height: 1.45; }}
+      .eyebrow {{ margin-bottom: 10px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgba(247,241,230,.68); }}
       .actions {{ display: flex; flex-wrap: wrap; gap: 10px; }}
       a {{ color: #111; background: #f7f1e6; border-radius: 8px; padding: 11px 13px; text-decoration: none; font-weight: 700; }}
     </style>
   </head>
   <body>
-    <main>
+    <main data-spatial-review-mode="{html.escape(spatial_review["mode"])}" data-spatial-review-provider="{html.escape(spatial_review["provider"])}">
+      <div class="eyebrow">PropertyQuarry Spatial Review · {html.escape(spatial_review["provenance"])}</div>
       <h1>{safe_title}</h1>
+      <p>{html.escape(spatial_review["summary"])}</p>
       <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
       <div class="actions">
         {f'<a href="{matterport_url}">Open Matterport</a>' if matterport_url else ''}
         {f'<a href="{three_d_vista_url}">Open 3DVista</a>' if three_d_vista_url else ''}
+        {f'<a href="{pano2vr_url}">Open Pano2VR</a>' if pano2vr_url else ''}
       </div>
     </main>
   </body>
@@ -1463,6 +1618,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         video_url = ""
         if video_allowed:
             video_url = existing_video_url or (f"/tours/files/{html.escape(slug)}/{html.escape(video_relpath)}" if slug and video_relpath else "")
+        spatial_review = _tour_spatial_review_experience(
+            payload,
+            slug=slug,
+            matterport_url=matterport_url,
+            three_d_vista_url=three_d_vista_url,
+            pano2vr_url=pano2vr_url,
+            video_url=video_url,
+        )
         return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -1473,21 +1636,25 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <style>
       html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       body {{ display: grid; place-items: center; padding: 24px; }}
-      main {{ width: min(720px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
+      main {{ width: min(760px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
       h1 {{ margin: 0 0 10px; font-size: 24px; letter-spacing: 0; }}
       p {{ margin: 0 0 16px; color: rgba(247,241,230,.78); line-height: 1.45; }}
+      .eyebrow {{ margin-bottom: 10px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: rgba(247,241,230,.68); }}
       .actions {{ display: flex; flex-wrap: wrap; gap: 10px; }}
       a {{ color: #111; background: #f7f1e6; border-radius: 8px; padding: 11px 13px; text-decoration: none; font-weight: 700; }}
       a.secondary {{ color: #f7f1e6; background: transparent; border: 1px solid rgba(255,255,255,.28); }}
     </style>
   </head>
   <body>
-    <main>
+    <main data-spatial-review-mode="{html.escape(spatial_review["mode"])}" data-spatial-review-provider="{html.escape(spatial_review["provider"])}">
+      <div class="eyebrow">PropertyQuarry Spatial Review · {html.escape(spatial_review["provenance"])}</div>
       <h1>{safe_title}</h1>
+      <p>{html.escape(spatial_review["summary"])}</p>
       <p>This bundle exposes only validated media controls. The generated 3D cube fallback has been removed.</p>
       <div class="actions">
         {f'<a href="{matterport_url}">Open Matterport</a>' if matterport_url else ''}
         {f'<a href="{three_d_vista_url}">Open 3DVista</a>' if three_d_vista_url else ''}
+        {f'<a href="{pano2vr_url}">Open Pano2VR</a>' if pano2vr_url else ''}
         {f'<a class="secondary" href="{video_url}">Open Fly-through</a>' if video_url else ''}
       </div>
     </main>
@@ -4605,6 +4772,18 @@ def public_tour_file(slug: str, asset_path: str):
     )
 
 
+@router.get("/tours/pano2vr/{slug}/{asset_path:path}")
+@router.head("/tours/pano2vr/{slug}/{asset_path:path}")
+def public_tour_pano2vr_file(slug: str, asset_path: str):
+    file_path = _pano2vr_export_file(slug, asset_path)
+    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers=_public_tour_security_headers(cache_control="public, max-age=86400"),
+    )
+
+
 def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> str:
     forced_mode = str(viewer_mode or "").strip().lower()
     if forced_mode == "marzipano":
@@ -4613,11 +4792,22 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> 
         return _tour_control_matterport_html(payload)
     if forced_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
+    if forced_mode in {"pano2vr", "pano_2_vr"}:
+        return _tour_control_pano2vr_html(payload)
+    if forced_mode == "krpano":
+        license_config = _krpano_license_runtime_config()
+        if not license_config:
+            raise HTTPException(status_code=404, detail="tour_control_krpano_license_missing")
+        return _tour_control_walkable_html(payload, provider_label="krpano Licensed Viewer", license_config=license_config)
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "marzipano":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
     if control_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
+    if control_mode in {"pano2vr", "pano_2_vr"}:
+        return _tour_control_pano2vr_html(payload)
+    if _pano2vr_entry_relpath(payload):
+        return _tour_control_pano2vr_html(payload)
     if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
         if str(os.getenv("PROPERTYQUARRY_ENABLE_INTERNAL_WALKABLE_CONTROL") or "").strip() == "1":
             return _tour_control_walkable_html(payload)
@@ -4627,6 +4817,17 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> 
     if str(payload.get("scene_strategy") or "").strip() == "pure_360_cube":
         raise HTTPException(status_code=404, detail="tour_control_cube_viewer_removed")
     raise HTTPException(status_code=404, detail="tour_control_provider_export_missing")
+
+
+def _krpano_license_runtime_config() -> dict[str, str]:
+    domain = str(os.getenv("KRPANO_LICENSE_DOMAIN") or "").strip()
+    key = str(os.getenv("KRPANO_LICENSE_KEY") or "").strip()
+    if not domain or not key:
+        return {}
+    return {
+        "domain": domain,
+        "key": key,
+    }
 
 
 def _safe_3dvista_external_url(value: object) -> str:
@@ -4725,13 +4926,34 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
     raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
 
 
-def _tour_control_walkable_html(payload: dict[str, object], *, provider_label: str = "Interactive Viewing") -> str:
+def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
+    title = html.escape(str(payload.get("display_title") or payload.get("title") or "Pano2VR tour control").strip())
+    slug = str(payload.get("slug") or "").strip()
+    entry_relpath = _pano2vr_entry_relpath(payload)
+    if not slug or not entry_relpath:
+        raise HTTPException(status_code=404, detail="tour_control_pano2vr_export_missing")
+    iframe_src = f"/tours/pano2vr/{urllib.parse.quote(slug, safe='')}/{urllib.parse.quote(entry_relpath, safe='/')}"
+    return _tour_control_external_iframe_html(title=title, iframe_src=iframe_src, badge="Pano2VR Control")
+
+
+def _tour_control_walkable_html(
+    payload: dict[str, object],
+    *,
+    provider_label: str = "Interactive Viewing",
+    license_config: dict[str, str] | None = None,
+) -> str:
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D walk control").strip())
     safe_provider_label = html.escape(str(provider_label or "Interactive Viewing").strip())
     walkable_scene = payload.get("walkable_scene") if isinstance(payload.get("walkable_scene"), dict) else {}
     if not walkable_scene:
         raise HTTPException(status_code=404, detail="tour_control_walkable_scene_missing")
     data_json = html.escape(json.dumps(walkable_scene, ensure_ascii=False), quote=False)
+    normalized_license = license_config or {}
+    license_enabled = bool(str(normalized_license.get("domain") or "").strip() and str(normalized_license.get("key") or "").strip())
+    license_domain = html.escape(str(normalized_license.get("domain") or "").strip())
+    license_json = html.escape(json.dumps({"domain": str(normalized_license.get("domain") or "").strip()}, ensure_ascii=False), quote=False) if license_enabled else ""
+    license_badge = f'<div class="panel license"><strong>krpano license</strong><span>Registered for {license_domain}</span></div>' if license_enabled else ""
+    viewer_name = "krpano" if license_enabled and "krpano" in safe_provider_label.lower() else "walkable"
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -4760,10 +4982,10 @@ def _tour_control_walkable_html(payload: dict[str, object], *, provider_label: s
       }}
     </style>
   </head>
-  <body>
+  <body data-viewer="{viewer_name}">
     <div id="viewer"></div>
     <img id="magicfit-view" alt="">
-    <div class="hud"><div class="panel"><strong>{safe_provider_label}</strong><span>Walk with WASD or arrows. Drag to look around. Room buttons jump inside rooms.</span></div></div>
+    <div class="hud"><div class="panel"><strong>{safe_provider_label}</strong><span>Walk with WASD or arrows. Drag to look around. Room buttons jump inside rooms.</span></div>{license_badge}</div>
     <div class="rooms" id="rooms"></div>
     <div class="move-pad">
       <button class="blank" tabindex="-1"></button><button data-hold="forward">W</button><button class="blank" tabindex="-1"></button>
@@ -4771,10 +4993,13 @@ def _tour_control_walkable_html(payload: dict[str, object], *, provider_label: s
     </div>
     <div class="turn-pad"><button data-hold="turn-left">Turn left</button><button data-hold="turn-right">Turn right</button></div>
     <script id="walkable-data" type="application/json">{data_json}</script>
+    {f'<script id="krpano-license" type="application/json">{license_json}</script>' if license_enabled else ''}
     <script type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"}}}}</script>
     <script type="module">
       import * as THREE from 'three';
       const spec = JSON.parse(document.getElementById('walkable-data').textContent || '{{}}');
+      const krpanoLicense = document.getElementById('krpano-license');
+      if (krpanoLicense) window.__PROPERTYQUARRY_KRPANO_LICENSE__ = JSON.parse(krpanoLicense.textContent || '{{}}');
       const rooms = Array.isArray(spec.rooms) ? spec.rooms : [];
       const stops = Array.isArray(spec.route) ? spec.route : [];
       const magicfitImages = Array.isArray(spec.magicfit_scene_images) ? spec.magicfit_scene_images : [];
@@ -4886,7 +5111,11 @@ def public_tour_control(slug: str) -> HTMLResponse:
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-    rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=False)
+    control_mode = str(payload.get("control_mode") or "").strip().lower()
+    rendered_payload = _redacted_public_tour_payload(
+        payload,
+        expose_asset_relpaths=control_mode in {"pano2vr", "pano_2_vr"} or bool(_pano2vr_entry_relpath(payload)),
+    )
     return HTMLResponse(_tour_control_html(rendered_payload), headers=_public_tour_security_headers())
 
 
@@ -4904,7 +5133,10 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
             _tour_html(rendered_payload, hostname=request_hostname(request), path=request_path(request)),
             headers=_public_tour_security_headers(),
         )
-    rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=False)
+    rendered_payload = _redacted_public_tour_payload(
+        payload,
+        expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},
+    )
     return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
 
 

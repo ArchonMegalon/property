@@ -151,15 +151,11 @@
               {% if brief.get('search_goal') == 'investment' and candidate.get('investment', {}).get('market_delta_display') %}
               <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('market_delta_display') }}</span>
               {% endif %}
-              {% if tour.get('url') and shortlist_compact_actions %}
-              <span class="pqx-result-fact" title="{{ tour.get('detail') or '3D tour ready' }}">360 ready</span>
-              {% elif tour.get('url') %}
-              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="{{ tour.get('detail') or '3D tour ready' }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') }}">360 ready</a>
+              {% if tour.get('url') %}
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="3D tour ready" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') }}">360 ready</a>
               {% endif %}
-              {% if walkthrough.get('url') and shortlist_compact_actions %}
-              <span class="pqx-result-fact" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}">Walkthrough ready</span>
-              {% elif walkthrough.get('url') %}
-              <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}" aria-label="{{ walkthrough.get('detail') or 'Walkthrough ready' }}">Walkthrough ready</a>
+              {% if walkthrough.get('url') %}
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}" aria-label="Walkthrough ready">Walkthrough ready</a>
               {% endif %}
               {% if tour_provider_label and tour.get('url') %}
               <span class="pqx-result-fact">{{ tour_provider_label }}</span>

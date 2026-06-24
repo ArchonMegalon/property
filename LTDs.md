@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-03-18
+Updated: 2026-06-24
 
 ## Workspace Integration Tier Guide
 
@@ -28,6 +28,8 @@ Updated: 2026-03-18
 | `Deftform` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Newly tracked account with shared local credentials; plan/tier and structured verification are still pending. |
 | `hedy.ai` | `LTD account` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Credentials are stored locally for later browser-driven account access or structured verification; no active runtime lane is wired yet. |
 | `Internxt Cloud Storage` | `100TB` | `1 account` | `Owned` |  | `Tier 3` | None | Storage service not currently wired into the workspace. |
+| `krpano` | `Domain license` | `1 license` | `Owned` |  | `Tier 2` | Local `.env` license slot for `propertyquarry.com` plus PropertyQuarry 3D-tour viewer lane candidate | Domain-registered `propertyquarry.com` license is now seeded locally. Candidate use is self-hosted panorama/virtual-tour presentation inside PropertyQuarry when a real Matterport, 3DVista, or governed hosted walkable export needs a branded viewer/control layer. Promote to Tier 1 after the active runtime env reads the license, the viewer path is exercised against a PropertyQuarry tour bundle, and branded/domain behavior is verified end to end. |
+| `Pano2VR` | `LTD account / license key` | `1 account / 1 license` | `Owned` |  | `Tier 2` | Local `.env` account and license slots for PropertyQuarry 3D-tour export/viewer work | User-reported account `the.girscheles@gmail.com` and wrapped license key are now normalized and seeded locally. Candidate use is PropertyQuarry-hosted panorama/tour export preparation, skinning, hotspot authoring, and branded self-hosted virtual-tour presentation when a governed walkthrough needs a controllable export layer. Promote to Tier 1 after account verification, export/runtime proof, branded output validation, and first approved PropertyQuarry tour receipt. |
 
 ## AppSumo LTDs
 
@@ -78,7 +80,7 @@ Updated: 2026-03-18
 
 ## Summary
 
-- `54` total LTD products tracked
+- `56` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -118,6 +120,8 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Crezlo Tours` |  | `missing` | `manual_inventory` |  | License Tier 4 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `Dadan` | `the.girscheles@gmail.com` | `manual_seeded` | `user_report + local_credentials_expected + local_dry_run_contracts` | 2026-06-10T00:00:00Z | Tier 4 was reported by the user with the usual shared credentials. PropertyQuarry now has disabled-by-default Dadan request/webhook plumbing and dry-run contracts. Live account verification, API-key proof, export/embed behavior, privacy/retention settings, watermark/commercial-use checks, and first owner-reviewed workflow proof are still pending. |
 | `3DVista` | `the.girscheles@gmail.com` | `manual_seeded` | `user_report + local_credentials_expected + local_viewer_contracts` | 2026-06-10T00:00:00Z | 3DVista VT Pro was reported by the user with the usual shared credentials. PropertyQuarry now emits both Matterport and 3DVista public control links for every property and supports 3DVista hosted URLs plus self-hosted VT Pro export entry paths. Live login, plan, white-label behavior, export format, and first approved production tour proof are still pending. |
+| `krpano` | `propertyquarry.com` | `manual_seeded` | `user_report + local_env` | 2026-06-24T00:00:00Z | The domain-registered `propertyquarry.com` license key is now seeded locally in `.env` after whitespace normalization from the wrapped paste format. Runtime consumption and live hosted-viewer proof are still pending. |
+| `Pano2VR` | `the.girscheles@gmail.com` | `manual_seeded` | `user_report + local_env` | 2026-06-24T00:00:00Z | The account email, shared password, and wrapped license key are now seeded locally in `.env` after whitespace normalization. Account verification, export capability capture, branded viewer behavior, and first approved PropertyQuarry tour proof are still pending. |
 | `Documentation.AI` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-22T00:00:00Z | Tier 3 is confirmed manually and local credentials are now seeded for AI-ready docs, `llms.txt`, cited assistant answers, and private operator-doc planning; no structured BrowserAct account-detail verification run is recorded yet. |
 | `First Book ai` |  | `missing` | `manual_inventory` |  | License Tier 5 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `FineTuning.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-22T00:00:00Z | Tier 3 and shared credentials were seeded manually; sonic cue/media-factory verification and any future API-key capture are still pending. |

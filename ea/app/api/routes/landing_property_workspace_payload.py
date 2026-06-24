@@ -336,6 +336,7 @@ def property_workspace_payload(
                 for candidate in [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]:
                     if not _property_candidate_is_rankable(candidate):
                         continue
+                    candidate["_active_run_ranked"] = True
                     candidate.setdefault("source_label", source_label)
                     synthesized_candidates.append(candidate)
             synthesized_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)

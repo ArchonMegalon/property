@@ -36,8 +36,9 @@ def build_property_market_summary_items(
         row_item("Country", property_country_label, "Market"),
         row_item("Browser language", property_language_label, "Research"),
         row_item("Search goal", property_search_goal_label, "Goal"),
-        row_item("Property type", property_type_label, "Type"),
     ]
+    if str(property_type_label or "").strip().lower() not in {"", "any", "any type"}:
+        items.append(row_item("Property type", property_type_label, "Type"))
     if not property_is_investment_search:
         items.insert(3, row_item("Search mode", property_listing_mode_label, "Mode"))
     if property_is_investment_search and show_investment_underwriting_controls:

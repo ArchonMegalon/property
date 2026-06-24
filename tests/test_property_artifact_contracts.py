@@ -10,6 +10,8 @@ def test_property_artifact_provider_matrix_covers_owned_delivery_lanes() -> None
     for required in (
         "matterport",
         "3dvista",
+        "krpano",
+        "pano2vr",
         "magicfit",
         "onemin",
         "jogg",
@@ -24,6 +26,12 @@ def test_property_artifact_provider_matrix_covers_owned_delivery_lanes() -> None
     assert "cube" not in " ".join(lane.allowed_use.lower() for lane in lanes.values())
     assert "cube fallback" in lanes["matterport"].forbidden_use.lower()
     assert "No name-only route" in lanes["3dvista"].forbidden_use
+    assert lanes["krpano"].role == "3D Viewer"
+    assert "licensed" in lanes["krpano"].allowed_use.lower()
+    assert "invalid license" in lanes["krpano"].fail_closed_rule.lower()
+    assert lanes["pano2vr"].role == "3D Viewer"
+    assert "self-hosted" in lanes["pano2vr"].allowed_use.lower()
+    assert "invalid export path" in lanes["pano2vr"].fail_closed_rule.lower()
     assert lanes["magicfit"].role == "Video"
     assert "continuous-shot" in lanes["magicfit"].fail_closed_rule.lower()
     assert "public-safe" in lanes["neuronwriter"].privacy_posture

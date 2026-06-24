@@ -1,3 +1,34 @@
+    const {
+      checkedValues,
+      fieldValue,
+      integerValue,
+      maxResultsPerSourceValue,
+      browserLanguageCode,
+      browserCountryCode,
+      shouldApplyBrowserDefaults,
+      locationFromIpAddress,
+      setCheckboxValues,
+      matchLocationValue,
+      matchRegionValue,
+      applyPreferenceProfileToForm,
+      initPreferenceManager,
+      renderCheckboxOptions,
+      setCheckboxGroupStatus,
+      applyCheckboxSelection,
+      revealSelectedProviderGroups,
+      selectAllCheckboxValues,
+      clearAllCheckboxValues,
+      syncSelectAllButtons,
+      bindRangeOutputs,
+      bindTooltips,
+      readableErrorDetail,
+      responseErrorMessage,
+      collectPayload,
+      syncSchoolStageVariantVisibility,
+      syncWhatMattersMobileGroups,
+      syncFieldWrapVisibility,
+      syncMarketAwareFields,
+    } = (() => {
     const checkedValues = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((node) => String(node.value || '').trim()).filter(Boolean);
     const fieldValue = (form, name) => String(form.querySelector(`[name="${name}"]`)?.value || '').trim();
     const integerValue = (form, name) => {
@@ -134,7 +165,7 @@
         }
       });
     };
-    const syncKeywordDistanceSelects = (form) => {
+    const briefSyncKeywordDistanceSelects = (form) => {
       const activeGroups = new Map();
       form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
         const preferenceSelect = row.querySelector('[data-keyword-preference-select]');
@@ -158,7 +189,7 @@
       });
       syncWhatMattersMobileGroups(form);
     };
-    const syncSchoolPreferenceFields = (form) => {
+    const briefSyncSchoolPreferenceFields = (form) => {
       const selectedStages = [];
       let strongest = 'any';
       form?.querySelectorAll('[data-school-preference-select]').forEach((node) => {
@@ -202,7 +233,7 @@
         if (parentRow) parentRow.dataset.schoolFamilyActive = parentEnabled ? 'true' : 'false';
         if (!parentEnabled && detailSelect instanceof HTMLSelectElement) detailSelect.value = 'any';
       });
-      syncSchoolPreferenceFields(form);
+      briefSyncSchoolPreferenceFields(form);
     };
     const selectedPropertyTypes = (form) => {
       const values = checkedValues(form, 'property_type').map((item) => String(item || '').trim().toLowerCase()).filter(Boolean);
@@ -232,7 +263,7 @@
           if (distanceSelect) distanceSelect.value = '500';
         }
       });
-      syncKeywordDistanceSelects(form);
+      briefSyncKeywordDistanceSelects(form);
       const minRoomsField = form?.querySelector('[data-property-field-name="min_rooms"]');
       if (minRoomsField) {
         if (landOnly) {
@@ -871,7 +902,7 @@
       const customKeywords = fieldValue(form, 'custom_keywords');
       const keywordSelections = keywordPreferenceValues(form);
       const keywordDistances = keywordDistanceValues(form);
-      syncSchoolPreferenceFields(form);
+      briefSyncSchoolPreferenceFields(form);
       const playgroundPreference = nearbyPreferenceConfig(keywordSelections.map['playground nearby'], keywordDistances['playground nearby'], 500);
       const libraryPreference = nearbyPreferenceConfig(keywordSelections.map['library nearby'], keywordDistances['library nearby'], 500);
       const zooPreference = nearbyPreferenceConfig(keywordSelections.map['zoo nearby'], keywordDistances['zoo nearby'], 1000);
@@ -1247,3 +1278,35 @@
         });
       });
     };
+    return {
+      checkedValues,
+      fieldValue,
+      integerValue,
+      maxResultsPerSourceValue,
+      browserLanguageCode,
+      browserCountryCode,
+      shouldApplyBrowserDefaults,
+      locationFromIpAddress,
+      setCheckboxValues,
+      matchLocationValue,
+      matchRegionValue,
+      applyPreferenceProfileToForm,
+      initPreferenceManager,
+      renderCheckboxOptions,
+      setCheckboxGroupStatus,
+      applyCheckboxSelection,
+      revealSelectedProviderGroups,
+      selectAllCheckboxValues,
+      clearAllCheckboxValues,
+      syncSelectAllButtons,
+      bindRangeOutputs,
+      bindTooltips,
+      readableErrorDetail,
+      responseErrorMessage,
+      collectPayload,
+      syncSchoolStageVariantVisibility,
+      syncWhatMattersMobileGroups,
+      syncFieldWrapVisibility,
+      syncMarketAwareFields,
+    };
+    })();

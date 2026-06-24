@@ -35,6 +35,8 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR=_completion/brilliant_directories",
         "MATTERPORT_API_KEY=",
         "PROPERTYQUARRY_MATTERPORT_LIVE_SMOKE=0",
+        "PROPERTYQUARRY_TARGET_PROVIDER_MATRIX=0",
+        "PROPERTYQUARRY_TARGET_PROVIDER_MATRIX_VARIANTS=strict,soft",
         "THREEDVISTA_LOGIN_EMAIL=",
         "THREEDVISTA_LICENSE_EMAIL=",
         "PROPERTYQUARRY_3DVISTA_EXPORT_ROOT=",

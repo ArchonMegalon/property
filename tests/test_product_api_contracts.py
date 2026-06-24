@@ -24439,6 +24439,48 @@ def test_public_tour_control_rejects_removed_legacy_viewer() -> None:
     assert exc_info.value.detail == "tour_control_legacy_viewer_removed"
 
 
+def test_public_tour_control_krpano_requires_license(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_tours
+
+    monkeypatch.delenv("KRPANO_LICENSE_DOMAIN", raising=False)
+    monkeypatch.delenv("KRPANO_LICENSE_KEY", raising=False)
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "krpano-license-missing",
+                "display_title": "krpano License Missing",
+                "walkable_scene": {"rooms": []},
+            },
+            viewer_mode="krpano",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_krpano_license_missing"
+
+
+def test_public_tour_control_krpano_embeds_license_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_tours
+
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "demo-license")
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "krpano-licensed-tour",
+            "display_title": "krpano Licensed Tour",
+            "walkable_scene": {"rooms": [], "route": []},
+        },
+        viewer_mode="krpano",
+    )
+
+    assert 'data-viewer="krpano"' in html
+    assert "krpano Licensed Viewer" in html
+    assert "Registered for propertyquarry.com" in html
+    assert 'id="krpano-license"' in html
+    assert 'window.__PROPERTYQUARRY_KRPANO_LICENSE__' in html
+
+
 def test_public_tour_landing_hides_magicfit_without_route_coverage_proof() -> None:
     from app.api.routes import public_tours
 
@@ -24586,6 +24628,155 @@ def test_public_tour_control_rejects_internal_walkable_by_default(monkeypatch) -
     assert exc_info.value.detail == "tour_control_provider_export_missing"
 
 
+def test_public_tour_control_krpano_route_requires_license(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    slug = "krpano-route-license-missing"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "walkable_scene": {"rooms": [], "route": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.delenv("KRPANO_LICENSE_DOMAIN", raising=False)
+    monkeypatch.delenv("KRPANO_LICENSE_KEY", raising=False)
+
+    client = build_product_client(principal_id="public-tour-krpano-license-missing")
+    response = client.get(f"/tours/{slug}/control/krpano")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "tour_control_krpano_license_missing"
+
+
+def test_public_tour_control_krpano_route_renders_licensed_viewer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    slug = "krpano-route-licensed"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Licensed Walkable Tour",
+                "walkable_scene": {"rooms": [], "route": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "demo-license")
+
+    client = build_product_client(principal_id="public-tour-krpano-licensed")
+    response = client.get(f"/tours/{slug}/control/krpano")
+
+    assert response.status_code == 200
+    assert 'data-viewer="krpano"' in response.text
+    assert "krpano Licensed Viewer" in response.text
+    assert "Registered for propertyquarry.com" in response.text
+
+
+def test_public_tour_control_pano2vr_requires_declared_entry() -> None:
+    from app.api.routes import public_tours
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "missing-pano2vr-entry",
+                "display_title": "Missing Pano2VR Entry",
+            },
+            viewer_mode="pano2vr",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_pano2vr_export_missing"
+
+
+def test_public_tour_control_pano2vr_embeds_export_entry() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "pano2vr-control-tour",
+            "display_title": "Pano2VR Control Tour",
+            "pano2vr_entry_relpath": "pano2vr/index.html",
+        },
+        viewer_mode="pano2vr",
+    )
+
+    assert "Pano2VR Control" in html
+    assert '<iframe src="/tours/pano2vr/pano2vr-control-tour/pano2vr/index.html"' in html
+
+
+def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    slug = "pano2vr-route-export"
+    bundle_dir = tmp_path / slug
+    export_dir = bundle_dir / "pano2vr"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.html").write_text(
+        "<!doctype html><title>Pano2VR</title><script src='pano2vr_player.js'></script>",
+        encoding="utf-8",
+    )
+    (export_dir / "pano2vr_player.js").write_text("window.PANO2VR = true;", encoding="utf-8")
+    (bundle_dir / "other").mkdir()
+    (bundle_dir / "other" / "index.html").write_text("<!doctype html><title>Other</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Pano2VR Route Export",
+                "pano2vr_entry_relpath": "pano2vr/index.html",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-pano2vr")
+    default_control_response = client.get(f"/tours/{slug}/control")
+    control_response = client.get(f"/tours/{slug}/control/pano2vr")
+    entry_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/index.html")
+    script_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/pano2vr_player.js")
+    other_response = client.get(f"/tours/pano2vr/{slug}/other/index.html")
+    private_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/private.json")
+
+    assert default_control_response.status_code == 200
+    assert "Pano2VR Control" in default_control_response.text
+    assert control_response.status_code == 200
+    assert "Pano2VR Control" in control_response.text
+    assert f"/tours/pano2vr/{slug}/pano2vr/index.html" in control_response.text
+    assert entry_response.status_code == 200
+    assert "Pano2VR" in entry_response.text
+    assert script_response.status_code == 200
+    assert "PANO2VR" in script_response.text
+    assert other_response.status_code == 404
+    assert private_response.status_code == 404
+
+
+def test_public_tour_landing_links_pano2vr_spatial_review_for_cube_payload() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_html(
+        {
+            "slug": "pano2vr-spatial-review",
+            "display_title": "Pano2VR Spatial Review",
+            "scene_strategy": "pure_360_cube",
+            "pano2vr_entry_relpath": "pano2vr/index.html",
+        }
+    )
+
+    assert "PropertyQuarry Spatial Review" in html
+    assert "Prepared Panorama Tour" in html
+    assert "Open Pano2VR" in html
+    assert "/tours/pano2vr-spatial-review/control/pano2vr" in html
+
+
 def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatch, tmp_path: Path) -> None:
     slug = "demo-tour"
     bundle_dir = tmp_path / slug
@@ -24610,6 +24801,29 @@ def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatc
         "matterport": "https://propertyquarry.com/tours/demo-tour/control/matterport",
         "3dvista": "https://propertyquarry.com/tours/demo-tour/control/3dvista",
     }
+
+
+def test_property_tour_compare_links_offer_pano2vr_only_when_entry_exists(monkeypatch, tmp_path: Path) -> None:
+    slug = "pano2vr-demo-tour"
+    bundle_dir = tmp_path / slug
+    export_dir = bundle_dir / "pano2vr"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.html").write_text("<!doctype html><title>Pano2VR</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "pano2vr_entry_relpath": "pano2vr/index.html"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    tour_url = f"https://propertyquarry.com/tours/{slug}"
+
+    assert product_service._property_tour_compare_links(tour_url) == {
+        "pano2vr": f"https://propertyquarry.com/tours/{slug}/control/pano2vr",
+    }
+    assert product_service._hosted_property_tour_provider_export_keys(tour_url) == ("pano2vr",)
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == (
+        f"https://propertyquarry.com/tours/{slug}/control/pano2vr"
+    )
 
 
 def test_property_tour_compare_links_omits_fake_provider_exports(monkeypatch, tmp_path: Path) -> None:

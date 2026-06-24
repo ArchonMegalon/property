@@ -9,7 +9,7 @@ import shutil
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from app.product.projections import compact_text
@@ -360,12 +360,14 @@ def _hosted_property_tour_control_url(tour_url: object, *, viewer: str = "") -> 
     viewer_slug = str(viewer or "").strip().lower()
     if viewer_slug == "metaport":
         viewer_slug = "matterport"
-    if viewer_slug not in {"", "matterport", "3dvista"}:
+    if viewer_slug in {"pano_2_vr", "pano-2-vr"}:
+        viewer_slug = "pano2vr"
+    if viewer_slug not in {"", "matterport", "3dvista", "pano2vr"}:
         viewer_slug = ""
     try:
         parsed = urllib.parse.urlparse(normalized)
         path = str(parsed.path or "").rstrip("/")
-        if path.endswith("/control/matterport") or path.endswith("/control/3dvista"):
+        if any(path.endswith(f"/control/{mode}") for mode in ("matterport", "3dvista", "pano2vr")):
             path = path.rsplit("/control/", 1)[0]
         elif path.endswith("/control"):
             path = path[: -len("/control")]
@@ -405,6 +407,27 @@ def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
     return False
 
 
+def _hosted_property_tour_has_pano2vr_export(tour_url: object) -> bool:
+    payload = _hosted_property_tour_payload_for_url(tour_url)
+    slug = _hosted_property_tour_slug_from_url(tour_url)
+    if not payload or not slug:
+        return False
+    bundle_dir = (_public_tour_dir() / slug).resolve()
+    for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
+        raw_relpath = str(payload.get(key) or "").strip().replace("\\", "/")
+        if not raw_relpath or raw_relpath.startswith("/") or "://" in raw_relpath or "\x00" in raw_relpath:
+            continue
+        relpath = PurePosixPath(raw_relpath)
+        if any(part in {"", ".", ".."} for part in relpath.parts):
+            continue
+        if relpath.suffix.lower() not in {".htm", ".html"}:
+            continue
+        entry_path = (bundle_dir / "/".join(relpath.parts)).resolve()
+        if bundle_dir in entry_path.parents and entry_path.exists() and entry_path.is_file():
+            return True
+    return False
+
+
 def _hosted_property_tour_verified_provider(tour_url: object) -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
@@ -419,6 +442,8 @@ def _hosted_property_tour_verified_provider(tour_url: object) -> str:
         return "matterport"
     if _hosted_property_tour_has_3dvista_export(normalized_url):
         return "3dvista"
+    if _hosted_property_tour_has_pano2vr_export(normalized_url):
+        return "pano2vr"
     return ""
 
 

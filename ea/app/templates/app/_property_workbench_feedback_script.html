@@ -1,3 +1,4 @@
+    const { applyResearchTaskSnapshot } = (() => {
     const clearNode = (node) => {
       while (node?.firstChild) node.removeChild(node.firstChild);
     };
@@ -1089,3 +1090,5 @@
     });
     const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
     if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });
+    return { applyResearchTaskSnapshot };
+    })();

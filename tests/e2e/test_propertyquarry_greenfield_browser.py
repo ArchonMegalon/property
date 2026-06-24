@@ -936,9 +936,10 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "360 ready" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
-        page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
-        assert "/app/shortlist" in page.url
-        assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
+        page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
+        assert "/app/research/" in page.url
+        assert "run_id=run-42" in page.url
+        assert page.locator("body", has_text="Altbau near U6").is_visible()
     finally:
         context.close()
 
@@ -1196,10 +1197,8 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert mobile_dock.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        assert "/app/shortlist" in page.url
+        assert "/app/research/" in page.url
         assert "run_id=run-42" in page.url
-        assert "candidate=" in page.url
-        assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
         assert page.locator("body", has_text="Family flat near Tiergarten").is_visible()
     finally:
         context.close()
@@ -3355,7 +3354,9 @@ def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
     try:
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
+        form = page.locator('[data-console-form-variant="property_search"]').first
+        form.wait_for(state="visible")
+        expect(form).to_have_attribute("data-property-active-step", "search")
         page.locator('[data-property-step-trigger="what"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'what'")
 
@@ -3413,7 +3414,9 @@ def test_propertyquarry_mobile_provider_family_controls_select_and_clear_cleanly
     try:
         response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
-        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
+        form = page.locator('[data-console-form-variant="property_search"]').first
+        form.wait_for(state="visible")
+        expect(form).to_have_attribute("data-property-active-step", "search")
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
         _assert_no_horizontal_overflow(page)
@@ -3694,11 +3697,10 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Open property").is_visible()
         assert page.locator("body", has_text="360 ready").is_visible()
-        page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
-        assert "/app/shortlist" in page.url
-        assert page.locator("[data-workbench-row][aria-selected='true']", has_text="Altbau near U6").is_visible()
-        assert urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("candidate", [""])[0]
-        assert page.locator("body", has_text="Open property").is_visible()
+        page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
+        assert "/app/research/" in page.url
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0] == run_id
+        assert page.locator("body", has_text="Altbau near U6").is_visible()
     finally:
         context.close()
 
@@ -3719,7 +3721,6 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         best_match.wait_for()
         expect(best_match.get_by_role("link", name="3D tour ready")).to_be_visible()
         expect(best_match.get_by_role("link", name="Open 3D tour")).to_have_count(0)
-        best_match.click()
         open_360 = best_match.get_by_role("link", name="3D tour ready")
         tour_url = str(open_360.get_attribute("href") or "").strip()
         assert tour_url.endswith("/tours/altbau-u6/control/matterport")
@@ -3817,8 +3818,12 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         assert visual_requests == []
 
         family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
-        family_row.click()
-        request_button = family_row.get_by_role("button", name="Request walkthrough")
+        packet_href = str(family_row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        request_button = page.get_by_role("button", name="Request walkthrough")
         expect(request_button).to_be_visible()
         request_button.click()
         page.wait_for_timeout(750)
@@ -3882,7 +3887,12 @@ def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser
         listing_only_row.wait_for(timeout=5000)
         assert visual_requests == []
 
-        request_button = listing_only_row.get_by_role("button", name="Request walkthrough")
+        packet_href = str(listing_only_row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        request_button = page.get_by_role("button", name="Request walkthrough")
         expect(request_button).to_be_visible()
         assert str(request_button.get_attribute("data-property-url") or "").endswith("/listing-url-only-loft")
         request_button.click()

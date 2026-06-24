@@ -71,3 +71,4 @@ state/fastestvpn-proxy-pool/
 state/public_property_tours/
 state/property_investment_external_cache.json
 state/property_investment_external_cache.json.lock
+state/*.db

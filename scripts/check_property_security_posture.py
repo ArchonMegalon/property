@@ -120,7 +120,17 @@ def main() -> int:
         failures.append("public tour feedback must not silently swallow persistence failures")
     if '"status": "not_captured"' not in public_tours:
         failures.append("public tour feedback must report persistence failures honestly")
-    if "_redacted_public_tour_payload(payload, expose_asset_relpaths=False)" not in public_tours:
+    public_tour_payload_match = re.search(
+        r"def public_tour_payload\(slug: str\).*?(?=\n\n@router\.)",
+        public_tours,
+        flags=re.DOTALL,
+    )
+    public_tour_payload_body = public_tour_payload_match.group(0) if public_tour_payload_match else ""
+    if (
+        "_redacted_public_tour_payload(" not in public_tour_payload_body
+        or "expose_asset_relpaths=False" not in public_tour_payload_body
+        or "include_external_tour_urls=False" not in public_tour_payload_body
+    ):
         failures.append("public tour JSON must use the redacted public payload builder")
     if "_PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS" not in public_tours or "_public_tour_manifest(payload)" not in public_tours or "safe_relpath not in manifest" not in public_tours:
         failures.append("public tour file serving must use a manifest-backed asset allowlist with denied sidecar extensions")

@@ -1506,6 +1506,7 @@ def test_operator_admin_providers_page_surfaces_codex_governance() -> None:
     assert "Allowed engines and fail-closed lanes" in providers.text
     assert "Matterport" in providers.text
     assert "3DVista" in providers.text
+    assert "krpano" in providers.text
     assert "MagicFit" in providers.text
     assert "Dadan" in providers.text
     assert "NeuronWriter" in providers.text
