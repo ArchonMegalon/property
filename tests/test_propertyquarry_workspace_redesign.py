@@ -3939,6 +3939,39 @@ def test_property_lookup_candidate_falls_back_to_shortlist_candidates_from_conte
     assert found["property_url"] == "https://example.com/listing/1"
 
 
+def test_property_shortlist_candidates_from_context_keeps_candidates_beyond_fifth_source_slot() -> None:
+    top_candidates = [
+        {
+            "candidate_ref": f"cand-{index}",
+            "title": f"Vienna apartment {index}",
+            "property_url": f"https://example.com/listing/{index}",
+            "source_ref": f"property-scout:{index}",
+            "review_url": "",
+            "property_facts": {},
+        }
+        for index in range(7)
+    ]
+    property_context = {
+        "run": {
+            "run_id": "run-uncapped-context",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Buy | Vienna",
+                        "top_candidates": top_candidates,
+                    }
+                ],
+            },
+        }
+    }
+
+    candidates = landing_property_research._property_shortlist_candidates_from_context(property_context)
+
+    assert len(candidates) == 7
+    assert candidates[-1]["candidate_ref"] == "cand-6"
+    assert candidates[-1]["packet_url"].endswith("/app/research/cand-6?run_id=run-uncapped-context")
+
+
 def test_property_lookup_candidate_prefers_stable_candidate_ref_over_recomputed_hash() -> None:
     property_context = {
         "run": {

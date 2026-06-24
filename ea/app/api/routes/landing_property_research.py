@@ -282,7 +282,7 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
             continue
         source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
         for key in ("top_candidates", "research_candidates"):
-            for candidate in list(source.get(key) or [])[:5]:
+            for candidate in list(source.get(key) or []):
                 if not isinstance(candidate, dict):
                     continue
                 _append_candidate(dict(candidate), source_label)
