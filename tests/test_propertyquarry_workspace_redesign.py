@@ -5479,7 +5479,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Return and costs" in packet.text
     assert "Gross yield" in packet.text
     assert "Expected monthly rent" in packet.text
-    assert "Decision support" in packet.text
+    assert "Compare" in packet.text
+    assert "Decision support" not in packet.text
+    assert "The next-best properties from this run" not in packet.text
     assert "Candidate" in packet.text
     assert "Layout" in packet.text
     assert "Family flat near Tiergarten" in packet.text
