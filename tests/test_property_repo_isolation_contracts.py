@@ -78,6 +78,7 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "tests/e2e/test_propertyquarry_public_tour_browser.py",
         "scripts/check_property_release_hygiene.py",
         "scripts/check_property_public_tour_manifest_contract.py",
+        "scripts/verify_property_tour_controls.py",
         "scripts/check_property_surface_accessibility.py",
         "scripts/propertyquarry_authenticated_performance_smoke.py",
     ):
