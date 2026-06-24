@@ -8893,6 +8893,9 @@ def test_public_tour_renders_shortlist_compare_cards(
     assert "Strong Doebling listing" in page.text
     assert "High-fit property alert with 360 media and preferred district match." in page.text
     assert "Another high-fit property alert with lift and bike access." in page.text
+    assert "Open ranked property" in page.text
+    assert "Review ranked alternative" in page.text
+    assert "compare against shortlist" not in page.text
     assert "pure_360_cube" not in page.text
     assert "3D fallback blocked" not in page.text
 

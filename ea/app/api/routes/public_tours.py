@@ -1069,14 +1069,14 @@ def _shortlist_metric_display(metric_key: str, value: object, *, currency_code: 
 
 def _shortlist_metric_delta(metric_key: str, *, baseline: object, candidate: object, currency_code: object = "EUR") -> tuple[str, str]:
     if candidate is None or baseline is None:
-        return "No comparison", "neutral"
+        return "No ranking delta", "neutral"
     if metric_key.endswith("_m") or metric_key in {"total_rent_eur", "area_sqm", "rooms"}:
         if not isinstance(baseline, (int, float)) or not isinstance(candidate, (int, float)):
-            return "No comparison", "neutral"
+            return "No ranking delta", "neutral"
         base_value = float(baseline)
         cand_value = float(candidate)
         if base_value == 0:
-            return "No comparison", "neutral"
+            return "No ranking delta", "neutral"
         difference = cand_value - base_value
         if abs(difference) < 0.0001:
             return "No change", "neutral"
@@ -1105,7 +1105,19 @@ def _shortlist_metric_delta(metric_key: str, *, baseline: object, candidate: obj
         return "Same", "neutral"
     if candidate_text:
         return "Different", "neutral"
-    return "No comparison", "neutral"
+    return "No ranking delta", "neutral"
+
+
+def _public_shortlist_action_label(value: object) -> str:
+    text = str(value or "").strip()
+    lowered = text.lower()
+    if lowered == "compare against shortlist":
+        return "Review ranked alternative"
+    if lowered == "review property alert":
+        return "Open ranked property"
+    if lowered in {"review", "open", "open property"}:
+        return "Open ranked property"
+    return text or "Review ranking"
 
 
 def _live_property_feedback_context(
@@ -2187,7 +2199,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         comparison_panel = (
             '<section class="panel">'
             '<div class="eyebrow">Fit Pattern</div>'
-            '<h2>How this property compares to the current brief</h2>'
+            '<h2>How this property fits the current brief</h2>'
             '<div class="summary-grid" style="margin-top:0;">'
             '<div class="summary-card"><h3>Supports the brief</h3><ul>'
             f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No strong positive pattern match is clear yet.</li>"}'
@@ -2230,7 +2242,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                     f'{int(round(float(card.get("score") or 0.0))):d}/100</div>'
                     f'<p class="sub">{html.escape(str(card.get("why_now") or "No ranking note stored.").strip())}</p>'
                     f'<a class="chip compare-chip" href="{html.escape(str(card.get("listing_url") or "#").strip())}"'
-                    f'{"" if str(card.get("listing_url") or "").strip() else " aria-disabled=\"true\""}>{html.escape(str(card.get("recommended_action") or "review").strip())}</a>'
+                    f'{"" if str(card.get("listing_url") or "").strip() else " aria-disabled=\"true\""}>{html.escape(_public_shortlist_action_label(card.get("recommended_action")))}</a>'
                     '</div>'
                 )
                 for card in shortlist_rows[:3]
@@ -3018,6 +3030,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             f'<span>Fit {int(round(float(row.get("score") or 0.0))):d}/100</span>'
             f'<strong>{html.escape(str(row.get("title") or "Property").strip())}</strong>'
             f'<p>{html.escape(str(row.get("why_now") or "No ranking note stored.").strip())}</p>'
+            f'<p><b>{html.escape(_public_shortlist_action_label(row.get("recommended_action")))}</b></p>'
             f'<p><span class="shortlist-delta-better">shortlist upside</span> <span class="shortlist-delta-worse">shortlist trade-off</span></p>'
             + ''.join(
                 f'<p><b>{html.escape(label)}:</b> {html.escape(_shortlist_metric_display(key, dict(row.get("metrics") or {}).get(key)))}</p>'
@@ -3972,6 +3985,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             '<div class="kv">'
             f'<b>{html.escape(str(row.get("title") or "Property").strip())}</b>'
             f'{html.escape(str(row.get("why_now") or row.get("score_label") or "No ranking note stored.").strip())}'
+            f' · {html.escape(_public_shortlist_action_label(row.get("recommended_action")))}'
             '</div>'
         )
         for row in legacy_shortlist_rows[:3]
