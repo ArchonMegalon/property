@@ -62,6 +62,7 @@ That topology starts only `propertyquarry-api`, `propertyquarry-scheduler`, and 
 It builds `ea/Dockerfile.property`, which omits Docker CLI tooling and runs the app process as the non-root `ea` user.
 
 `make deploy` uses `scripts/deploy_propertyquarry.sh`, which preflights the required prod credentials, checks `EA_HOST_PORT` before rebuilding, starts `docker-compose.property.yml`, waits for the API, scheduler, and DB containers, and probes readiness plus the authenticated app boundary.
+It also runs the public route smoke, authenticated route smoke, and the authenticated provider-catalog smoke against the deployed runtime before reporting success.
 If `8090` is already occupied, set another host port before deploying:
 
 ```bash

@@ -395,4 +395,17 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_li
   exit 1
 fi
 
+provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
+if ! EA_API_TOKEN="${api_token}" \
+  PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
+  PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
+  PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+  PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
+  --base-url "${base_url}" \
+  --write "${provider_smoke_receipt}" >/dev/null; then
+  echo "PropertyQuarry provider catalog smoke failed." >&2
+  cat "${provider_smoke_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+
 echo "ok: PropertyQuarry deployed at ${base_url}"
