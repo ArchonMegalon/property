@@ -4251,14 +4251,39 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
         "_hosted_property_tour_verified_open_url",
         lambda _url: "https://propertyquarry.com/tours/ready-tour/control/matterport",
     )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "matterport",
+    )
     ready_payload = landing_property_research._property_tour_media_payload(
-        {"tour_url": "https://propertyquarry.com/tours/ready-tour"}
+        {
+            "tour_url": "https://propertyquarry.com/tours/ready-tour",
+            "flythrough_provider": "magicfit",
+            "flythrough_url": "https://propertyquarry.com/tours/files/ready-tour/walkthrough.mp4",
+        }
     )
     assert ready_payload["has_live_viewer"] is True
     assert ready_payload["hosted_ready"] is True
     assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
     assert ready_payload["primary_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
-    assert ready_payload["primary_label"] == "Open 3D tour"
+    assert ready_payload["primary_label"] == "Open Matterport"
+    assert ready_payload["status_label"] == "Matterport ready"
+    assert ready_payload["status_detail"] == "Matterport control is live inside the hosted PropertyQuarry tour."
+    assert ready_payload["walkthrough_status_detail"] == "Magicfit rendered walkthrough is ready on this page."
+
+
+def test_property_research_media_uses_provider_specific_vendor_360_copy(monkeypatch) -> None:
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "vendor_tour_url": "https://viewer.3dvista.com/share/sample-tour",
+            "review_url": "https://propertyquarry.com/app/research/vendor-tour-copy",
+        }
+    )
+
+    assert payload["status_label"] == "3DVista source ready"
+    assert payload["status_detail"] == "3DVista source is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
+    assert payload["primary_label"] == "Open 3DVista"
 
 
 def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(monkeypatch) -> None:
@@ -10126,6 +10151,11 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
         "_hosted_property_tour_verified_open_url",
         lambda _url: hosted_href,
     )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "matterport",
+    )
 
     packet_ref = landing_property_research._property_candidate_ref(
         {
@@ -10140,7 +10170,8 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
-    assert '>Open 3D tour</a>' in rendered_html
+    assert '>Open Matterport</a>' in rendered_html
+    assert "Matterport control is live inside the hosted PropertyQuarry tour." in rendered_html
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
 
@@ -10158,6 +10189,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
         "tour_status": "ready",
         "tour_url": "https://propertyquarry.com/tours/walkthrough-ready-loft",
         "flythrough_status": "ready",
+        "flythrough_provider": "magicfit",
         "flythrough_url": "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1",
         "property_facts": {
             "price_eur": 2650.0,
@@ -10197,6 +10229,11 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
         "_hosted_property_tour_verified_open_url",
         lambda _url: hosted_href,
     )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "matterport",
+    )
 
     packet_ref = landing_property_research._property_candidate_ref(
         {
@@ -10214,9 +10251,9 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
     assert 'href="https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&amp;autoplay=1"' in rendered_html
-    assert '>Open 3D tour</a>' in rendered_html
+    assert '>Open Matterport</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
-    assert "Walkthrough is ready on this page." in rendered_html
+    assert "Magicfit rendered walkthrough is ready on this page." in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
     assert 'data-pw-visual-request="flythrough"' not in rendered_html
 

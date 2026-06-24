@@ -604,6 +604,23 @@ def _property_hosted_tour_ready(tour_url: str) -> bool:
     return bool(property_tour_hosting._hosted_property_tour_verified_open_url(tour_url))
 
 
+def _property_visual_provider_label(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    label_map = {
+        "matterport": "Matterport",
+        "3dvista": "3DVista",
+        "threedvista": "3DVista",
+        "three_d_vista": "3DVista",
+        "magicfit": "Magicfit",
+        "ea_one_manager_onemin_i2v": "Magicfit",
+        "onemin_i2v": "Magicfit",
+        "poppy_ai": "Poppy AI",
+    }
+    if normalized in label_map:
+        return label_map[normalized]
+    return str(value or "").strip().replace("_", " ").title()
+
+
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
     tour_url = str(candidate.get("tour_url") or "").strip()
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
@@ -627,19 +644,34 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     )
     hosted_tour_ready = _property_hosted_tour_ready(tour_url)
     verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if hosted_tour_ready else ""
+    verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
+    verified_tour_provider_label = _property_visual_provider_label(verified_tour_provider) if verified_tour_provider else ""
     embed_href = verified_tour_href if hosted_tour_ready else ""
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
         candidate.get("flythrough_url")
     )
+    walkthrough_ready = bool(verified_walkthrough_href or str(candidate.get("flythrough_url") or "").strip())
+    vendor_tour_provider = property_tour_hosting._property_tour_provider_host_kind(vendor_tour_url) if vendor_tour_url else ""
+    vendor_tour_provider_label = _property_visual_provider_label(vendor_tour_provider) if vendor_tour_provider else ""
+    walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
+    walkthrough_provider_label = _property_visual_provider_label(walkthrough_provider) if walkthrough_provider else ""
     if hosted_tour_ready:
-        status_label = "Live 360 ready"
-        status_detail = "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
+        status_label = f"{verified_tour_provider_label} ready" if verified_tour_provider_label else "Live 360 ready"
+        status_detail = (
+            f"{verified_tour_provider_label} control is live inside the hosted PropertyQuarry tour."
+            if verified_tour_provider_label
+            else "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
+        )
     elif tour_url:
         status_label = "360 needs rebuild"
         status_detail = "The hosted tour link is not backed by usable viewer assets yet. Request a rebuild from this page."
     elif vendor_tour_url:
-        status_label = "Source 360 available"
-        status_detail = "The source 360 is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
+        status_label = f"{vendor_tour_provider_label} source ready" if vendor_tour_provider_label else "Source 360 available"
+        status_detail = (
+            f"{vendor_tour_provider_label} source is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
+            if vendor_tour_provider_label
+            else "The source 360 is available, but this page keeps it as an external action instead of embedding a brittle vendor viewer."
+        )
     elif status in {"queued", "pending"}:
         status_label = "360 queued"
         status_detail = (
@@ -669,15 +701,24 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started"}),
         "primary_href": verified_tour_href if hosted_tour_ready else (vendor_tour_url or review_url),
         "primary_label": (
-            "Open 3D tour"
+            (f"Open {verified_tour_provider_label}" if verified_tour_provider_label else "Open 3D tour")
             if hosted_tour_ready
-            else ("Open source 360" if vendor_tour_url else ("Open property page" if review_url else ""))
+            else ((f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open source 360") if vendor_tour_url else ("Open property page" if review_url else ""))
         ),
         "secondary_href": review_url,
         "secondary_label": "Open property page" if review_url else "",
         "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
-        "tertiary_label": "Open source 360" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "tertiary_label": (f"Open {vendor_tour_provider_label}" if vendor_tour_provider_label else "Open source 360") if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "walkthrough_href": verified_walkthrough_href,
+        "provider_label": verified_tour_provider_label or vendor_tour_provider_label,
+        "provider_key": verified_tour_provider or vendor_tour_provider,
+        "walkthrough_provider_label": walkthrough_provider_label,
+        "walkthrough_provider_key": walkthrough_provider,
+        "walkthrough_status_detail": (
+            f"{walkthrough_provider_label} rendered walkthrough is ready on this page."
+            if walkthrough_ready and walkthrough_provider_label
+            else ("Walkthrough is ready on this page." if walkthrough_ready else "")
+        ),
     }
 
 

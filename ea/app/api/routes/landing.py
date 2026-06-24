@@ -3921,7 +3921,7 @@ def property_research_packet(
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
     if hosted_tour_ready and tour_action_href:
-        hero_actions.append({"href": tour_action_href, "label": "Open 3D tour", "external": False})
+        hero_actions.append({"href": tour_action_href, "label": str(research_media.get("primary_label") or "Open 3D tour").strip(), "external": False})
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
@@ -3942,13 +3942,13 @@ def property_research_packet(
         hero_actions.append({"href": str(candidate.get("packet_url") or review_url or "").strip(), "label": "Copy page link", "copy": True})
     visual_status_line = ""
     if flythrough_url:
-        visual_status_line = "Walkthrough is ready on this page."
+        visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is ready on this page.").strip()
     elif flythrough_status in {"queued", "pending"}:
         visual_status_line = "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
         visual_status_line = "Walkthrough rendering."
     elif hosted_tour_ready and tour_url:
-        visual_status_line = "3D tour ready."
+        visual_status_line = str(research_media.get("status_detail") or "3D tour ready.").strip()
     elif tour_url and not hosted_tour_ready:
         visual_status_line = "Hosted viewer unavailable."
     elif tour_status in {"queued", "pending"}:
