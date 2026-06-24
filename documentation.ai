@@ -1,6 +1,6 @@
 # PropertyQuarry Gold Board Scope
 
-Updated: 2026-06-24
+Updated: 2026-06-25
 
 This file records the active whole-product goal and the documentation.ai audit scope. It is not a credential store and must not contain provider passwords, license keys, API keys, OAuth secrets, session cookies, or private customer data.
 
@@ -17,6 +17,8 @@ PropertyQuarry must become a polished premium product across the complete custom
 - Price, availability, address, fees, rooms, area, and source status are confirmed automatically when provider evidence exists; vague examples such as "price needs to be confirmed" are not acceptable as final product copy.
 - Google or any external login provider implicitly creates the account on first successful authentication.
 - Notifications, billing, presentation, search, saved shortlist, and account recovery feel coherent and production-grade.
+- Billing explicitly includes Brilliant Directories as a governed white-label account/payment handoff lane while PropertyQuarry remains the source of truth for plan, invoice, entitlement, access, refund, failed-payment, and cancellation state.
+- The documentation.ai audit is part of the gold-board release gate: branch authority, deployment privilege, reproducibility, auth/RBAC, CI gates, public-network posture, and documentation separation must be fixed or explicitly dispositioned before a gold claim.
 - Rybbit instrumentation is included where it helps prove conversion, search completion, tour/walkthrough usage, billing, and support loops.
 - Self-healing jobs detect stale provider data, broken hosted tour shells, missing walkthrough assets, stuck render jobs, and missing research packets, then queue repairs with visible status.
 - Targeted e2e tests cover every active provider with and without soft filters.
