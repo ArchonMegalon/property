@@ -2601,6 +2601,7 @@
           const enabled = state !== 'any' && distanceSelect instanceof HTMLSelectElement;
           row.dataset.preferenceState = state;
           row.dataset.keywordDistanceEnabled = enabled ? 'true' : 'false';
+          row.dataset.distanceControlActive = enabled ? 'true' : 'false';
           row.classList.toggle('is-active', enabled);
           row.classList.toggle('is-avoid', state === 'avoid');
           row.classList.toggle('is-hard', state === 'must_have');
@@ -2609,9 +2610,27 @@
           if (group) activeGroups.set(group, Boolean(activeGroups.get(group) || enabled));
         });
         form?.querySelectorAll('[data-what-matters-group]').forEach((group) => {
-          group.dataset.activeDistanceRows = activeGroups.get(group) ? 'true' : 'false';
+          const active = Boolean(activeGroups.get(group));
+          group.dataset.activeDistanceRows = active ? 'true' : 'false';
+          group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';
         });
         if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form);
+      };
+      const scrollMobileDistanceRowIntoView = (row) => {
+        if (!row || !window.matchMedia('(max-width: 760px)').matches) return;
+        const group = row.closest('[data-what-matters-group]');
+        if (group) {
+          group.open = true;
+          group.dataset.activeDistanceRows = 'true';
+          group.dataset.mobileDistanceControlActive = 'true';
+        }
+        window.requestAnimationFrame(() => {
+          row.scrollIntoView({
+            block: 'center',
+            inline: 'nearest',
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+          });
+        });
       };
       const syncSchoolPreferenceFields = () => {
         const selectedStages = [];
@@ -3160,6 +3179,8 @@
         }
         if (target instanceof HTMLSelectElement && target.hasAttribute('data-keyword-preference-select')) {
           syncKeywordDistanceSelects(form);
+          const row = target.closest('[data-keyword-priority-row]');
+          if (row?.dataset.keywordDistanceEnabled === 'true') scrollMobileDistanceRowIntoView(row);
         }
         if (target instanceof HTMLSelectElement && target.hasAttribute('data-school-preference-select')) {
           syncSchoolPreferenceDetailRows();

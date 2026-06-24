@@ -1910,15 +1910,28 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
     assert ">Neutral</option>" in section_html
     assert '.pqx-what-matters-panel .pqx-choice-groupbox {\n      grid-column: 1 / -1;' in html
+    assert '.pqx-what-matters-panel .pqx-choice-groupbox[data-mobile-distance-control-active="true"]' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));' in html
     assert '.pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div' in html
+    assert 'padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));' in html
     assert "overflow-wrap: break-word;" in html
     assert ".pqx-what-matters-panel .pqx-school-priority-row {" in html
     template_source = (
         Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     ).read_text(encoding="utf-8")
+    workbench_script_source = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html"
+    ).read_text(encoding="utf-8")
+    brief_script_source = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_brief_script.html"
+    ).read_text(encoding="utf-8")
     assert "field.get('school_preference_options')" in template_source
+    assert "row.dataset.distanceControlActive = enabled ? 'true' : 'false';" in workbench_script_source
+    assert "row.dataset.distanceControlActive = enabled ? 'true' : 'false';" in brief_script_source
+    assert "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in workbench_script_source
+    assert "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in brief_script_source
+    assert "scrollMobileDistanceRowIntoView(row)" in workbench_script_source
     assert 'type="checkbox"' not in section_html
     assert 'data-property-advanced-panel="children"' not in html
     assert 'data-property-advanced-panel="location_research"' not in html

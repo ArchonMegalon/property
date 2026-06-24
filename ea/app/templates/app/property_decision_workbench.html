@@ -2646,6 +2646,10 @@
       border-color: rgba(189, 139, 47, 0.38);
       background: linear-gradient(180deg, rgba(255, 253, 248, 0.88), rgba(252, 248, 239, 0.78));
       box-shadow: 0 10px 22px rgba(65, 49, 26, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+      overflow: visible;
+    }
+    .pqx-what-matters-panel .pqx-choice-groupbox[data-mobile-distance-control-active="true"] {
+      overflow: visible;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox-legend {
       display: block;
@@ -2749,6 +2753,7 @@
       row-gap: 5px;
       align-items: center;
       transform: translateY(-1px);
+      z-index: 2;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div {
       grid-column: 1 / 2;
@@ -2884,7 +2889,13 @@
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open][data-active-distance-rows="true"] .pqx-pref-list {
         max-height: none;
         overflow: visible;
-        padding-bottom: 4px;
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+        scroll-padding-bottom: 28px;
+      }
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][data-mobile-distance-control-active="true"] .pqx-pref-list {
+        max-height: none;
+        overflow: visible;
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
         scroll-padding-bottom: 0;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list::-webkit-scrollbar {
