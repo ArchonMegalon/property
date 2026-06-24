@@ -1518,9 +1518,6 @@ def build_property_research_packet_snapshot(
     energy_rows: list[dict[str, object]],
     missing_rows: list[dict[str, object]],
     decision_rows: list[dict[str, object]],
-    compare_rows: list[dict[str, object]],
-    compare_table_rows: list[object],
-    compare_headers: list[str],
     official_evidence_rows: list[dict[str, object]],
     official_posture_rows: list[dict[str, object]],
     future_research_rows: list[dict[str, object]],
@@ -1571,14 +1568,6 @@ def build_property_research_packet_snapshot(
         research_energy_rows=[dict(row) for row in list(energy_rows or []) if isinstance(row, dict)],
         research_missing_rows=[dict(row) for row in list(missing_rows or []) if isinstance(row, dict)],
         research_decision_rows=[dict(row) for row in list(decision_rows or []) if isinstance(row, dict)],
-        research_compare_rows=[dict(row) for row in list(compare_rows or []) if isinstance(row, dict)],
-        research_compare_table_rows=[
-            [dict(cell) if isinstance(cell, dict) else cell for cell in row]
-            if isinstance(row, (list, tuple))
-            else (dict(row) if isinstance(row, dict) else row)
-            for row in list(compare_table_rows or [])
-        ],
-        research_compare_headers=[str(row).strip() for row in list(compare_headers or []) if str(row).strip()],
         research_official_evidence_rows=[dict(row) for row in list(official_evidence_rows or []) if isinstance(row, dict)],
         research_official_posture_rows=[dict(row) for row in list(official_posture_rows or []) if isinstance(row, dict)],
         research_future_research_rows=[dict(row) for row in list(future_research_rows or []) if isinstance(row, dict)],
