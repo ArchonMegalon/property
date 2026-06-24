@@ -4215,6 +4215,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert ".pq-mobile-nav {\n    display: none !important;\n  }" not in body
     assert "grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.55fr);" in body
     assert ".pq-shell[data-property-app-shell] .pq-rail" in body
+    assert ".prd-top-context {\n      display: flex;\n      justify-content: flex-end;\n      grid-column: 2;\n    }" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
     assert "min-height: clamp(300px, 42vh, 460px);" in body
     assert "min-height: clamp(320px, 44vh, 500px);" in body
