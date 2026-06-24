@@ -1283,7 +1283,6 @@
   {% set brand_home_href = '/?home=1' if brand.key == 'propertyquarry' else (brand.app_home or '/app/properties') %}
   {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account', 'settings'] %}
   {% if property_app_nav %}
-  {% set mobile_nav = namespace(items=[]) %}
   {% set shell_nav_key = 'account' if current_nav == 'settings' else current_nav %}
   {% set active_shell_label = namespace(value=('Account' if current_nav == 'settings' else current_nav|replace('_', ' ')|title)) %}
   {% set run_query = request.url.query %}
@@ -1293,11 +1292,15 @@
       {% if shell_nav_key == item.key %}
         {% set active_shell_label.value = item.label %}
       {% endif %}
-      {% if mobile_nav.items|length < 6 %}
-        {% set mobile_nav.items = mobile_nav.items + [item] %}
-      {% endif %}
     {% endfor %}
   {% endfor %}
+  {% set mobile_nav = namespace(items=(
+    {'href': '/app/search' ~ query_suffix, 'label': 'Search', 'key': 'search'},
+    {'href': '/app/shortlist' ~ query_suffix, 'label': 'Shortlist', 'key': 'shortlist'},
+    {'href': '/app/research' ~ query_suffix, 'label': 'Research', 'key': 'research'},
+    {'href': '/app/agents' ~ query_suffix, 'label': 'Saved searches', 'key': 'agents'},
+    {'href': '/app/account' ~ query_suffix, 'label': 'Account', 'key': 'account'},
+  )) %}
   <div class="pq-shell" data-property-app-shell>
     <aside class="pq-rail">
       <div class="pq-rail-brand">

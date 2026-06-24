@@ -4280,6 +4280,8 @@ def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatc
     assert packet.status_code == 200
     assert 'data-property-mobile-dock' in packet.text
     assert 'aria-label="PropertyQuarry mobile navigation"' in packet.text
+    assert 'class="active" href="/app/research?run_id=run-mobile-dock"' in packet.text
+    assert ">Research<" in packet.text
     assert ".pq-mobile-nav {\n    display: none !important;\n  }" not in packet.text
 
 
