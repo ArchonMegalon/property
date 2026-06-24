@@ -222,10 +222,10 @@ PUBLIC_TRUST_PAGES = {
         "nav": "terms",
         "title": "Terms",
         "kicker": "Product terms",
-        "summary": "Use PropertyQuarry as a research and decision-support tool. Verify property facts with official documents, the provider, and an in-person review.",
+        "summary": "Use PropertyQuarry as a property research tool. Verify property facts with official documents, the provider, and an in-person review.",
         "band": (
             {
-                "title": "Decision support",
+                "title": "Research aids",
                 "body": "Scores, summaries, tours, and investment views are research aids. They are not legal, financial, valuation, or survey advice.",
             },
             {
@@ -296,7 +296,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Market boundaries",
                 "title": "Jurisdiction and provider boundaries",
-                "body": "PropertyQuarry is a property research and decision-support product. Provider content, public data, generated media, and investment views stay bound to their source, observation date, and disclosure limits.",
+                "body": "PropertyQuarry is a property research product. Provider content, public data, generated media, and investment views stay bound to their source, observation date, and disclosure limits.",
                 "items": (
                     "Generated tours and summaries are screening aids, not measured surveys.",
                     "Scores rank fit against the current brief; they are not legal, financial, valuation, or safety advice.",

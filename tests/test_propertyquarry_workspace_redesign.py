@@ -4539,6 +4539,9 @@ def test_public_trust_pages_render_and_footer_links_are_customer_facing() -> Non
         assert "provider keeps failing" not in page.text.lower()
         assert "Provider failures" not in page.text
         assert "delivery lanes" not in page.text
+    terms = client.get("/terms")
+    assert "Decision support" not in terms.text
+    assert "decision-support" not in terms.text
 
     integrations = client.get("/integrations")
     assert integrations.status_code == 200
