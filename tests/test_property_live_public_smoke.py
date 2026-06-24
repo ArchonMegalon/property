@@ -56,6 +56,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
         "https://propertyquarry.com/sign-in": (
             'PropertyQuarry Use a saved session, email link, or connected identity. '
+            "Any provider below reopens the same account or creates it automatically on first use. "
             '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
         ),
         "https://propertyquarry.com/manifest.webmanifest": (

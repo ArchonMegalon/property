@@ -795,6 +795,7 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Identity-only." not in sign_in.text
     assert "Use a saved session, email link, or connected identity." in sign_in.text
     assert "First-time provider sign-in also creates the account automatically." in sign_in.text
+    assert "Any provider below reopens the same account or creates it automatically on first use." in sign_in.text
     assert "auth-provider-icon" in sign_in.text
     assert "Private hardware sign-in lane for approved devices." in sign_in.text
     assert ">Restricted<" in sign_in.text
