@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `efa9ddee82fbc8363e683ccff380c5c358280ae3` |
+| Runtime commit SHA | `c1ea70d4fc620ed99df2ac8cc4dfc6942b978442` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for visual-state self-healing, deploy-probe, mobile What Matters, mobile navigation, notification routing, and billing handoff recovery candidate |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for visual-state self-healing, deploy-probe, mobile What Matters, mobile navigation, notification routing, billing handoff recovery, and Rybbit analytics privacy candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `efa9dde` passed:
+The candidate at `c1ea70d` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -30,6 +30,8 @@ The candidate at `efa9dde` passed:
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'account_and_billing_templates_keep_controls_minimal or account_lifecycle_controls'`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'billing_surface_stays_compact or billing_surface_embeds_white_label_commercial_lane or billing_surface_keeps_local_board'`
 - `PYTHONPATH=ea pytest -q tests/test_brilliant_directories_integration.py -k 'billing_handoff or receipt_records_billing'`
+- `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'public_ctas_and_selected_review_panel_expose_rybbit_events or base_console_never_identifies_rybbit_principals'`
+- `PYTHONPATH=ea pytest -q tests/test_public_rybbit.py`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'what_matters_as_comboboxes'`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'settings_subpages_keep_property_shell_and_mobile_dock or shell_uses_the_new_surface_navigation'`
 - `PYTHONPATH=ea pytest -q tests/test_property_packet_publications.py`
@@ -49,6 +51,7 @@ The candidate at `efa9dde` passed:
 - Authenticated origin smoke for the user-referenced research detail route returned `200` in `0.812s`; the script-stripped visible page rendered `Walkthrough unavailable`, did not render visible `Walkthrough queued`, did not expose `fit_below_threshold`, and disabled the skipped walkthrough action with a blank ETA.
 - Additional authenticated origin smoke after the gold-board scope deploy returned `200` in `4.657s` with the same visible terminal state. Treat this as another reason the route still needs browser/performance-budget receipts before gold.
 - Authenticated mobile-origin smoke for `/app/billing` returned `200`, rendered `Plan and payments`, `White-label account lane`, `Local billing is active`, and `external account lane is not enabled`, hid `Brilliant Directories`/`brilliantdirectories`, and included the mobile dock.
+- Authenticated origin smoke for `/app/search` after Rybbit analytics sanitization rendered `pq.property.opened`, `pq.tour.opened`, and `pq.flythrough.opened`, did not render `data-rybbit-prop-candidate`, did not render old `data-rybbit-event="property_*"` app event names, and did not render `saved_search_id` analytics payloads.
 
 Observed route timings after the latest deploy:
 
@@ -77,6 +80,7 @@ The previous billing payload carried roughly 16.6 MB of account/form state and t
 - Licensed krpano walkable control has a current origin receipt, but verified Matterport, 3DVista, Pano2VR, and MagicFit walkthrough readiness still require complete current-HEAD receipts.
 - The user-referenced research detail route now renders an honest unavailable/skipped visual state, but still has no live 360 source or playable walkthrough for that listing.
 - Brilliant Directories billing is in the active gold goal only as a governed handoff; the local billing surface now shows fail-closed account-lane recovery, but signature verification, replay protection, receipt logging, local entitlement reconciliation, and PropertyQuarry-owned plan/invoice/access truth remain release blockers before any webhook-driven or handoff-driven state change.
+- Rybbit app analytics now use taxonomy-style app events and strip candidate identifiers from app Rybbit attributes, but wider conversion/support-loop analytics still need end-to-end dashboard receipts before gold.
 - The documentation.ai whole-project audit P0/P1 findings remain in scope: runtime privilege, branch/deployment authority, reproducible builds, durable RBAC/session hardening, CI/security/accessibility/visual gates, public-network posture, documentation separation, and current-HEAD release evidence.
 - The public domain should be re-smoked through Cloudflare after each deploy, not only through local origin.
 
