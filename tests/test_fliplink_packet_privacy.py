@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
-from app.services.fliplink.pdf_renderer import _claim_bound_dossier_sections, render_property_packet_pdf
+from app.services.fliplink.pdf_renderer import _claim_bound_dossier_sections, render_property_packet_pdf, render_property_packet_pdf_legacy
 from app.services.fliplink.privacy import redact_property_packet
 from app.services.premium_dossier.models import PremiumDossierRenderResult
 from app.services.premium_dossier.qa import _extract_pdf_text
@@ -460,7 +460,7 @@ def test_fliplink_pdf_appendix_mode_renders_compact_telegram_appendix(tmp_path: 
     assert "COMPARISON SNAPSHOT" not in appendix_text
 
 
-def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
+def test_fliplink_pdf_omits_comparison_snapshot_from_rendered_dossier(tmp_path: Path) -> None:
     source = {
         **_source_payload(),
         "comparison_rows": [
@@ -494,7 +494,7 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert len(redacted.payload["comparison_rows"]) == 2
     assert redacted.payload["comparison_rows"][0]["title"].startswith("Pärchenhit")
 
-    rendered = render_property_packet_pdf(
+    rendered = render_property_packet_pdf_legacy(
         artifact_root=tmp_path,
         publication_id="pub_compare",
         principal_id="owner-1",
@@ -509,10 +509,12 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     assert rendered["redacted_payload"]["comparison_rows"][0]["title"].startswith("Pärchenhit")
     assert any(item in rendered["receipt"]["visual_elements"] for item in ("hero_cover", "cover"))
     assert any(item in rendered["receipt"]["visual_elements"] for item in ("tour_spread", "section_cards"))
+    assert "comparison_snapshot" not in rendered["receipt"]["visual_elements"]
     assert rendered["receipt"]["media_link_count"] == 2
     assert rendered["receipt"]["embedded_media_refs"] == {"floorplans": 1, "photos": 1}
     assert "propertyquarry" in pdf_text.replace(" ", "").casefold()
     assert "Media appendix" not in pdf_text
+    assert "Vergleichsbild" not in pdf_text
     assert "v5_agency_dossier_pdf" not in pdf_text
     assert "flipbook_3d" not in pdf_text
     assert "packets.propertyquarry.com/assets/floorplan.pdf" not in pdf_text
@@ -520,7 +522,7 @@ def test_fliplink_pdf_can_render_comparison_snapshot(tmp_path: Path) -> None:
     normalized_pdf_text = pdf_text.replace(" ", "").casefold()
     assert "executivedecision" in normalized_pdf_text or rendered["receipt"]["renderer_version"] == "v7_agency_comparison_dossier_pdf"
     assert "Open 3D reconstruction" in pdf_text
-    assert "Pärchenhit" in pdf_text
+    assert "Pärchenhit" not in pdf_text
     assert "Floorplan" in pdf_text
 
 
@@ -549,7 +551,7 @@ def test_fliplink_pdf_renders_listing_media_and_fact_json_shapes(tmp_path: Path)
         ],
     }
 
-    rendered = render_property_packet_pdf(
+    rendered = render_property_packet_pdf_legacy(
         artifact_root=tmp_path,
         publication_id="pub_json_shapes",
         principal_id="owner-1",

@@ -2070,55 +2070,6 @@ def _visual_pdf(
         pages.append({"ops": ops, "images": []})
         page_number += 1
 
-    if comparison_rows:
-        ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
-        _draw_text(ops, "Vergleichsbild", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
-        _draw_wrapped(
-            ops,
-            "Diese Vergleichsseite stellt die führende Option den naheliegendsten Alternativen gegenüber, damit die Auswahl wie eine echte Empfehlung und nicht wie eine lose Link-Sammlung wirkt.",
-            x=MARGIN_X,
-            y=764,
-            width_chars=86,
-            size=9.6,
-            leading=12,
-            fill=(0.35, 0.37, 0.35),
-        )
-        card_width = (CARD_WIDTH - 24) / 3.0
-        base_x = MARGIN_X
-        card_top = 710.0
-        for index, row in enumerate(comparison_rows[:3]):
-            x = base_x + index * (card_width + 12)
-            card_height = 518
-            fill = (0.97, 0.98, 0.96) if index == 0 else (1.0, 0.995, 0.97)
-            accent = (0.15, 0.38, 0.30) if index == 0 else (0.74, 0.55, 0.18)
-            _draw_rect(ops, x, card_top - card_height, card_width, card_height, fill=fill)
-            _draw_rect(ops, x, card_top - card_height, card_width, 18, fill=accent)
-            _draw_text(ops, "Führende Option" if index == 0 else f"Alternative {index}", x=x + 14, y=card_top - 36, size=8.7, font="F2", fill=(0.30, 0.36, 0.32))
-            title_y = _draw_wrapped(ops, row.get("title"), x=x + 14, y=card_top - 56, width_chars=22, size=11.5, leading=13.5, font="F2", fill=(0.12, 0.14, 0.13))
-            stat_y = title_y - 8
-            for stat in (
-                row.get("price") or "",
-                f"{row.get('rooms')} Zimmer" if row.get("rooms") else "",
-                f"{row.get('area')} m2" if row.get("area") else "",
-                row.get("recommendation") or "",
-            ):
-                if stat:
-                    _draw_text(ops, stat, x=x + 14, y=stat_y, size=8.8, font="F2", fill=(0.30, 0.36, 0.32))
-                    stat_y -= 13
-            _draw_text(ops, "Warum diese Option vorne liegt" if index == 0 else "Warum sie zurückliegt", x=x + 14, y=stat_y - 8, size=9.4, font="F2", fill=(0.15, 0.38, 0.30))
-            _draw_wrapped(
-                ops,
-                _localize_compare_reason(row.get("compare_reason")) or "Für diese Vergleichszeile liegt noch keine präzise Begründung vor.",
-                x=x + 14,
-                y=stat_y - 26,
-                width_chars=22,
-                size=8.8,
-                leading=10.8,
-                fill=(0.18, 0.19, 0.18),
-            )
-        pages.append({"ops": ops, "images": []})
-        page_number += 1
-
     if floorplan_image is not None:
         ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
         _draw_text(ops, "Grundriss", x=MARGIN_X, y=786, size=18, font="F2", fill=(0.15, 0.38, 0.30))
@@ -2410,10 +2361,8 @@ def render_property_packet_pdf_legacy(
     receipt_path = target_dir / f"{_safe_token(publication_id)}.receipt.json"
     pdf_path.write_bytes(pdf_bytes)
     visual_elements = ["cover", "metric_cards", "section_cards", "privacy_footer"]
-    if _comparison_rows(redaction.payload.get("comparison_rows")):
-        visual_elements.insert(1, "comparison_snapshot")
     if media_counts.get("floorplans"):
-        visual_elements.insert(2 if "comparison_snapshot" in visual_elements else 1, "floorplan_sheet")
+        visual_elements.insert(1, "floorplan_sheet")
     if media_counts.get("photos"):
         visual_elements.insert(3, "photo_gallery")
     if isinstance(redaction.payload.get("diorama_scene"), dict):
