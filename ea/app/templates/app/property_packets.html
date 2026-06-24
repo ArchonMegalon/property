@@ -353,7 +353,7 @@
 <body>
   <main class="pq-pack-shell" data-property-packets-dashboard>
     <header class="pq-pack-topbar" data-property-research-topnav>
-      <a class="pq-pack-brand" href="/app/properties">
+      <a class="pq-pack-brand" href="/app/properties{{ packet_query_suffix or '' }}">
         <span class="pq-pack-mark">PQ</span>
         <span><strong>PropertyQuarry</strong><span>{{ workspace_label }}</span></span>
       </a>

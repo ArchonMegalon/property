@@ -4193,11 +4193,12 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
     assert 'data-property-research-topnav' in body
-    assert "<span>Decision desk</span>" in body
+    assert "<span>Research desk</span>" in body
     assert "<span>Research</span>" not in body
     assert "--prd-gold: #b88a2b;" in body
     assert "var(--prd-gold-line)" in body
     assert "var(--prd-gold-soft)" in body
+    assert 'href="/app/properties{{ research_query_suffix }}"' in body
     assert "{'href': '/app/properties' ~ research_query_suffix, 'label': 'Search', 'key': 'search'}" in body
     assert "{'href': '/app/shortlist' ~ research_query_suffix, 'label': 'Shortlist', 'key': 'shortlist'}" in body
     assert "{'href': '/app/agents' ~ research_query_suffix, 'label': 'Saved searches', 'key': 'agents'}" in body
@@ -4220,6 +4221,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in body
     assert "grid-template-columns: 84px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
+    assert 'data-prd-visual-card="{{ visual_card.get(\'key\') }}"' in body
     assert "prd-hero-gallery" in body
     assert ".prd-hero-gallery .prd-gallery-label" in body
     assert "-webkit-line-clamp: 3;" in body
@@ -10152,8 +10154,8 @@ def test_property_research_packet_prefers_ready_ranked_visual_state_over_stale_s
     assert "No hosted 3D tour yet" not in visible_text
     assert "property_tour_execution_failed" not in visible_text
     assert 'aria-label="Account navigation"' in packet.text
-    assert 'href="/app/account#search-defaults"' in packet.text
-    assert 'href="/app/account#connected-services"' in packet.text
+    assert 'href="/app/account?run_id=run-ranked-visual#search-defaults"' in packet.text
+    assert 'href="/app/account?run_id=run-ranked-visual#connected-services"' in packet.text
 
 
 def test_property_research_packet_renders_request_actions_when_hosted_tour_is_not_ready(monkeypatch) -> None:
@@ -10298,6 +10300,7 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open Matterport</a>' in rendered_html
     assert "Matterport control is live inside the hosted PropertyQuarry tour." in rendered_html
+    assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
 
@@ -10380,6 +10383,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     assert '>Open Matterport</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
     assert "Magicfit rendered walkthrough is ready on this page." in rendered_html
+    assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
     assert 'data-pw-visual-request="flythrough"' not in rendered_html
 
@@ -10780,6 +10784,8 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'href="/app/settings/access"' in account.text
     assert "Shared pages" in account.text
     assert 'href="/app/properties/packets"' in account.text
+    account_with_run = client.get("/app/account", params={"run_id": "run-account-shares"}, headers={"host": "propertyquarry.com"})
+    assert 'href="/app/properties/packets?run_id=run-account-shares"' in account_with_run.text
     assert "Connections and privacy" in account.text
     assert 'href="/app/settings/google"' in account.text
     assert 'href="/how-it-works"' in account.text

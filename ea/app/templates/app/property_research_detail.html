@@ -128,6 +128,12 @@
     gap: 10px;
     min-width: 0;
   }
+  .prd-top-context {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
   .prd-run-chip {
     display: inline-flex;
     align-items: center;
@@ -470,15 +476,61 @@
     gap: 8px;
     min-width: 0;
   }
+  .prd-visual-heading {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .prd-visual-heading .prd-kicker {
+    margin-bottom: 0;
+  }
+  .prd-visual-heading .prd-copy {
+    font-size: 12px;
+  }
   .prd-visual-toolbar .prd-status-badge {
     min-height: 22px;
     padding: 0 8px;
     font-size: 10px;
     letter-spacing: 0.04em;
   }
-  .prd-visual-toolbar .prd-actions {
-    flex: 1 1 auto;
-    justify-content: flex-end;
+  .prd-visual-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .prd-visual-card {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--line) 84%, var(--prd-gold) 16%);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--panel) 92%, var(--panel-2) 8%);
+  }
+  .prd-visual-card-header {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .prd-visual-card-header strong {
+    font-size: 0.93rem;
+    line-height: 1.15;
+  }
+  .prd-visual-card-header span {
+    color: var(--text-soft);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .prd-visual-card-copy {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .prd-visual-card .prd-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
   .prd-visual-toolbar .prd-actions .console-action {
     min-height: 28px;
@@ -1213,6 +1265,19 @@
       margin: 0 -4px;
       padding-bottom: 1px;
     }
+    .prd-primary-nav a,
+    .prd-primary-nav span {
+      min-height: 34px;
+      padding: 0 10px;
+      font-size: 0.8rem;
+    }
+    .prd-top-context {
+      display: flex;
+      flex-wrap: wrap;
+    }
+    .prd-top-context .prd-run-chip {
+      max-width: none;
+    }
     .prd-shell {
       width: calc(100vw - 24px);
       padding: 14px 0 28px;
@@ -1358,13 +1423,17 @@
       gap: 8px;
       padding: 8px;
     }
+    .prd-visual-grid {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .prd-visual-card {
+      padding: 10px;
+      gap: 8px;
+    }
     .prd-visual-toolbar {
       align-items: stretch;
       flex-direction: column;
-    }
-    .prd-visual-toolbar .prd-actions {
-      width: 100%;
-      justify-content: stretch;
     }
     .prd-status-badge {
       min-height: 24px;
@@ -1471,11 +1540,11 @@
   {'href': '/app/account' ~ research_query_suffix, 'label': 'Account', 'key': 'account'},
 ) %}
 <header class="prd-topbar pqx-topbar" data-property-research-topnav>
-  <a class="prd-brand" href="/?home=1" aria-label="PropertyQuarry home">
+  <a class="prd-brand" href="/app/properties{{ research_query_suffix }}" aria-label="PropertyQuarry search">
     <span class="prd-brand-mark">PQ</span>
     <span class="prd-brand-copy">
       <strong>PropertyQuarry</strong>
-      <span>Decision desk</span>
+      <span>Research desk</span>
     </span>
   </a>
   <nav class="prd-primary-nav" aria-label="PropertyQuarry sections">
@@ -1487,6 +1556,11 @@
       {% endif %}
     {% endfor %}
   </nav>
+  <div class="prd-top-context">
+    {% if research_run_id %}
+    <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}">Run {{ research_run_id }}</a>
+    {% endif %}
+  </div>
   <div class="prd-top-actions">
     {% if research_run_id %}
     <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}">Run {{ research_run_id }}</a>
@@ -1568,8 +1642,17 @@
     {% set visual_actions = namespace(items=[]) %}
     {% for action in research_actions %}
       {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough'] %}
+      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough'] or 'matterport' in action_label or '3dvista' in action_label or 'source 360' in action_label %}
         {% set visual_actions.items = visual_actions.items + [action] %}
+      {% endif %}
+    {% endfor %}
+    {% set primary_visual_actions = namespace(items=[]) %}
+    {% for action in visual_actions.items %}
+      {% set action_label = (action.get('label') or '')|lower %}
+      {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'source 360' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or 'Hosted viewer', 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the verified tour or rebuild it from this page.', 'action': action}] %}
+      {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': research_media.get('walkthrough_provider_label') or 'Rendered walkthrough', 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
       {% endif %}
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
@@ -1588,12 +1671,25 @@
     {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
     <section class="prd-visual-console" aria-label="Visual review controls">
       <div class="prd-visual-toolbar">
+        <div class="prd-visual-heading">
+          <div class="prd-kicker">Visual review</div>
+          <p class="prd-copy">Keep the 3D tour and the walkthrough in one place instead of repeating media actions through the page.</p>
+        </div>
         {% if research_media.get('show_status_line') %}
         <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
         {% endif %}
-        {% if visual_actions.items %}
-        <div class="prd-actions prd-media-actions" aria-label="Media requests">
-          {% for action in visual_actions.items %}
+      </div>
+      {% if primary_visual_actions.items %}
+      <div class="prd-visual-grid">
+        {% for visual_card in primary_visual_actions.items %}
+        {% set action = visual_card.get('action') or {} %}
+        <article class="prd-visual-card" data-prd-visual-card="{{ visual_card.get('key') }}">
+          <div class="prd-visual-card-header">
+            <span>{{ visual_card.get('eyebrow') }}</span>
+            <strong>{{ visual_card.get('title') }}</strong>
+          </div>
+          <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
+          <div class="prd-actions prd-media-actions" aria-label="Media requests">
           {% if action.get('href') %}
           <a
             class="console-action prd-visual-hero-action"
@@ -1618,10 +1714,11 @@
             aria-label="{{ action.get('label') or 'Request visual review' }}"
           >{{ action.get('label') }}</button>
           {% endif %}
-          {% endfor %}
-        </div>
-        {% endif %}
+          </div>
+        </article>
+        {% endfor %}
       </div>
+      {% endif %}
       <div
         class="prd-visual-rail{% if visual_status.active or research_visual_status_line %} is-active{% endif %}"
         data-prd-visual-rail
@@ -1646,6 +1743,13 @@
     {% endif %}
 
     <section class="prd-headline">
+      {% set headline_actions = namespace(items=[]) %}
+      {% for action in research_actions %}
+        {% set action_label = (action.get('label') or '')|lower %}
+        {% if action.get('copy') or (action.get('href') and action_label not in ['open 3d tour', 'open walkthrough']) %}
+          {% set headline_actions.items = headline_actions.items + [action] %}
+        {% endif %}
+      {% endfor %}
       <section class="prd-panel prd-headline-panel">
         <div class="prd-kicker">Property details</div>
         {% if research_source_label %}<div class="prd-copy">{{ research_source_label }}</div>{% endif %}
@@ -1656,8 +1760,9 @@
           {% if research_rooms %}<span class="prd-chip">{{ research_rooms }}</span>{% endif %}
           {% if research_location %}<span class="prd-chip">{{ research_location }}</span>{% endif %}
         </div>
+        {% if headline_actions.items %}
         <div class="prd-actions" style="margin-top:10px;">
-          {% for action in research_actions %}
+          {% for action in headline_actions.items %}
             {% if action.get('href') and action.get('copy') %}
             <button class="console-action" type="button" data-prd-copy-link="{{ action.get('href') }}">Copy share link</button>
             {% elif action.get('href') %}
@@ -1665,6 +1770,7 @@
             {% endif %}
           {% endfor %}
         </div>
+        {% endif %}
       </section>
 
       <aside class="prd-summary-stack">

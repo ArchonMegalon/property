@@ -1,4 +1,6 @@
 {% set account_cards = (primary_cards or []) + (secondary_cards or []) %}
+{% set account_run_id = request.query_params.get('run_id') if request is defined and request.query_params is defined else '' %}
+{% set query_suffix = ('?run_id=' ~ (account_run_id|urlencode)) if account_run_id else '' %}
 {% set profile_card = namespace(value={}) %}
 {% set plan_card = namespace(value={}) %}
 {% set public_card = namespace(value={}) %}
@@ -190,7 +192,7 @@
       </div>
       <div class="pqx-account-card-actions">
         <a class="pqx-link-button" href="/app/settings/access">Access links</a>
-        <a class="pqx-link-button" href="/app/properties/packets">Shared pages</a>
+        <a class="pqx-link-button" href="/app/properties/packets{{ query_suffix }}">Shared pages</a>
       </div>
     </section>
 
