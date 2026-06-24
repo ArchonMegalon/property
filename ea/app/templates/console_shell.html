@@ -1127,9 +1127,16 @@
             </select>
             {% elif field.type == 'range' %}
             <span class="console-range-head">
-              <span class="console-range-value" data-range-value-for="{{ field.name }}">{{ field.value or field.min or '1' }}{{ field.suffix or '' }}</span>
+              <span class="console-range-value" data-range-value-for="{{ field.name }}">{{ field.get('display_value') or field.value or field.min or '1' }}{{ '' if field.get('display_value') else (field.suffix or '') }}</span>
               {% if field.tooltip %}<button type="button" class="console-range-help" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" aria-expanded="false" data-tooltip-trigger>?</button>{% endif %}
             </span>
+            {% if field.get('display_only') %}
+            <span class="console-range-scale" aria-label="{{ field.label }}">
+              <span>{{ field.get('display_value') or field.value or field.min or '1' }}{{ '' if field.get('display_value') else (field.suffix or '') }}</span>
+              <span data-current-plan-cap>{{ field.get('display_note') or 'Current plan includes this limit.' }}</span>
+              <span>{{ field.get('scale_max_label') or field.visual_max or field.max or '' }}</span>
+            </span>
+            {% else %}
             <input
               type="range"
               name="{{ field.name }}"
@@ -1149,6 +1156,7 @@
               <span data-current-plan-cap>Plan cap {{ field.selectable_max or field.max }}</span>
               <span>{{ field.visual_max }}</span>
             </span>
+            {% endif %}
             {% endif %}
             {% if field.upgrade_hint %}<span class="console-range-upgrade">{{ field.upgrade_hint }}</span>{% endif %}
             {% elif field.name == 'property_type' and (field.get('options') or []) %}

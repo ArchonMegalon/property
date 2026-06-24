@@ -1185,6 +1185,9 @@ def test_propertyquarry_agent_search_form_uses_visible_unlimited_provider_cap() 
 
     assert max_results_field["selectable_max"] == "10"
     assert max_results_field["value"] == "10"
+    assert max_results_field["display_value"] == "All ranked"
+    assert max_results_field["display_only"] is True
+    assert max_results_field["display_note"] == "Agent includes all ranked results per provider in every run."
     assert max_results_field["upgrade_hint"] == ""
 
 
@@ -1216,6 +1219,31 @@ def test_propertyquarry_agent_search_brief_summary_uses_all_ranked_provider_copy
     )
 
     assert result_cap_row["detail"] == "All ranked"
+
+
+def test_propertyquarry_agent_search_surface_hides_capped_provider_results_slider() -> None:
+    client = build_property_client(principal_id="exec-property-agent-unlimited-search")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+    client.app.state.container.onboarding.upsert_property_search_preferences(
+        principal_id="exec-property-agent-unlimited-search",
+        property_search_preferences_json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+
+    page = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200, page.text
+    assert 'data-range-control="max_results_per_source"' not in page.text
+    assert 'type="range" name="max_results_per_source"' not in page.text
+    assert "Agent includes all ranked results per provider in every run." in page.text
+    assert ">All ranked</span>" in page.text
 
 
 def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:

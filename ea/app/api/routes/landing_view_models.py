@@ -4628,6 +4628,7 @@ def app_section_payload(
                 "name": "max_results_per_source",
                 "label": "Max results per provider",
                 "value": str(property_results_value),
+                "display_value": "All ranked" if property_plan_has_unlimited_results else str(property_results_value),
                 "min": "1",
                 "max": str(property_visible_max_results_per_source),
                 "selectable_max": str(property_plan_max_results),
@@ -4635,6 +4636,12 @@ def app_section_payload(
                 "range_step": "1",
                 "format": "count",
                 "suffix": "",
+                "display_only": property_plan_has_unlimited_results,
+                "display_note": (
+                    "Agent includes all ranked results per provider in every run."
+                    if property_plan_has_unlimited_results
+                    else ""
+                ),
                 "upgrade_hint": _property_upgrade_hint(
                     "max_results_per_source",
                     property_plan_max_results,
