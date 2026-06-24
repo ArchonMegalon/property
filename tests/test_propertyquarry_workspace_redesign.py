@@ -4223,6 +4223,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "grid-template-columns: 84px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert 'data-prd-visual-card="{{ visual_card.get(\'key\') }}"' in body
+    assert 'href="{{ research_feedback.get(\'profile_href\') or (\'/app/search\' ~ research_query_suffix) }}">Open search brief</a>' in body
     assert "prd-hero-gallery" in body
     assert ".prd-hero-gallery .prd-gallery-label" in body
     assert "-webkit-line-clamp: 3;" in body
@@ -5661,6 +5662,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-object-feedback-save' in packet.text
     assert "Save answer" in packet.text
     assert "Open search brief" in packet.text
+    assert 'href="/app/properties?run_id=run-42"' in packet.text
     assert "rgba(18, 23, 34" not in packet.text
     assert "rgba(15, 19, 26" not in packet.text
     assert "background: var(--panel);" in packet.text
