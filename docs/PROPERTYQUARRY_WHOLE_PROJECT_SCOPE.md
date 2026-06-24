@@ -70,6 +70,39 @@ The active gold board also includes these non-negotiable extensions:
 - The current release manifest lives in `docs/PROPERTYQUARRY_RELEASE_MANIFEST.md`; it must be updated for every pushed/deployed candidate and must state whether the deployed artifact is gold, working-candidate, or blocked.
 - Mobile phone UI is a first-class release surface across search, shortlist, research, billing, account, alerts, settings, authentication, and public conversion pages. A desktop-only pass is incomplete.
 
+## Documentation.AI Audit Intake
+
+The documentation.ai whole-project audit is now part of the active gold board. Treat it as release evidence, not commentary.
+
+P0 items that block a gold claim:
+
+- Establish one authoritative release manifest with repository, branch, commit SHA, deployment endpoint, public origin, artifact set, and release label.
+- Reconcile public branch, local branch, deployed commit, and receipt commit before regenerating or relying on new release receipts.
+- Keep host-level Docker control out of default public runtime containers; Docker socket, host workspace mounts, and root runtime privileges belong only in explicit operator profiles.
+- Make builds reproducible with locked dependencies, pinned browser/runtime artifacts, pinned base images, dependency audit, container scan, and SBOM evidence.
+- Replace config-derived operator privilege with durable workspace membership, role assignment, scoped grants, session revocation, issuer/audience checks, key versioning, and security-event receipts.
+- Keep loopback no-auth and principal-header overrides disabled for production.
+
+P1 items that remain active until fixed or explicitly scoped out:
+
+- Split deployment profiles so core PropertyQuarry runtime, provider labs, media workers, experimental integrations, and operator tooling do not share one attack surface.
+- Add hard CI gates for type/lint, security scanning, dependency/container audit, visual regression, accessibility, coverage, release freshness, and markdown-link validity.
+- Remove public host-port exposure from production defaults; ingress should run through the authenticated proxy or tunnel with trusted-proxy configuration.
+- Separate customer/product documentation from operator/provider/internal mechanics.
+- Add responsive visual stability, keyboard, screen-reader, high-zoom, empty/error/loading, large-data, and mobile usability proof for first-value journeys.
+
+## Brilliant Directories Billing Goal
+
+Brilliant Directories billing is included only as a governed premium billing support lane. The gold goal is not to move billing authority into Brilliant Directories; it is to make the customer-facing billing surface feel premium while PropertyQuarry remains source of truth.
+
+Required behavior before promotion:
+
+- PropertyQuarry owns account identity, plan, invoice display, entitlement checks, refunds, cancellation, renewal, failed-payment recovery, support state, and agent-tier unlimited behavior.
+- Brilliant Directories may expose only an HTTPS allowlisted white-label checkout or account-management handoff and signed advisory webhook notifications.
+- Webhooks must have signature verification, replay protection, receipt logging, idempotency, and local entitlement reconciliation before they can affect any user-visible billing or access state.
+- Every billing state must have a mobile-safe local fallback that keeps the user on PropertyQuarry when the handoff is unavailable, unsigned, replayed, misconfigured, or returns a non-allowlisted URL.
+- Billing receipts must avoid credentials, payment secrets, raw webhook bodies with private data, and provider-owned customer truth.
+
 ### Current Additional Execution Goal (active)
 
 For this pass, the additional objective is:
