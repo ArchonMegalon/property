@@ -1905,15 +1905,15 @@ def _property_console_context(
                     principal_id=principal_id,
                     candidate=candidate,
                 )
-                for candidate in ranked_candidates[:20]
-            ] + ranked_candidates[20:]
+                for candidate in ranked_candidates
+            ]
         else:
             sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
-            for source in sources[:8]:
+            for source in sources:
                 source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
                 candidates = [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]
                 enriched_candidates: list[dict[str, object]] = []
-                for candidate in candidates[:3]:
+                for candidate in candidates:
                     candidate.setdefault("source_label", source_label)
                     enriched_candidates.append(
                         _property_enrich_candidate_feedback(

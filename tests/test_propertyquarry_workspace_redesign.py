@@ -3133,6 +3133,77 @@ def test_property_console_context_shortlist_skips_feedback_hydration_for_termina
     assert seen == []
 
 
+def test_property_console_context_shortlist_preserves_all_source_candidates_while_run_is_active(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-shortlist-feedback-active")
+    seen: list[str] = []
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8):
+            return []
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str):
+            return {
+                "run_id": run_id,
+                "status": "running",
+                "summary": {
+                    "status": "running",
+                    "ranked_candidates": [],
+                    "sources": [
+                        {
+                            "source_label": f"Source {index}",
+                            "top_candidates": [
+                                {
+                                    "candidate_ref": f"source-{index}-cand-{candidate_index}",
+                                    "title": f"Source {index} Candidate {candidate_index}",
+                                }
+                                for candidate_index in range(4)
+                            ],
+                        }
+                        for index in range(12)
+                    ],
+                },
+            }
+
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {}
+
+        def property_feedback_learning_summary(self, *, principal_id: str, person_id: str = "self", domain: str = "willhaben"):
+            return {}
+
+    class _PacketService:
+        def feedback_summary(self, *, principal_id: str, property_ref: str):
+            seen.append(property_ref)
+            return {"clusters": [property_ref]}
+
+        def list_structured_feedback(self, *, principal_id: str, property_ref: str):
+            return [{"property_ref": property_ref}]
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+    monkeypatch.setattr(landing_routes, "build_fliplink_packet_service", lambda container: _PacketService())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-shortlist-feedback-active",
+        status={"property_search_preferences": {"country_code": "AT"}},
+        run_id="run-1",
+        surface_mode="shortlist",
+    )
+
+    sources = [dict(row) for row in list(context["run"]["summary"].get("sources") or []) if isinstance(row, dict)]
+    assert len(sources) == 12
+    assert all(len(list(source.get("top_candidates") or [])) == 4 for source in sources)
+    flattened = [
+        dict(candidate)
+        for source in sources
+        for candidate in list(source.get("top_candidates") or [])
+        if isinstance(candidate, dict)
+    ]
+    assert len(flattened) == 48
+    assert all(candidate.get("feedback_summary") == {"clusters": [candidate["candidate_ref"]]} for candidate in flattened)
+    assert all(candidate.get("feedback_rows") == [{"property_ref": candidate["candidate_ref"]}] for candidate in flattened)
+    assert len(seen) == 48
+
+
 def test_property_console_context_skips_recent_run_hydration_for_explicit_shortlist_run(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-shortlist-no-recent-runs")
 
