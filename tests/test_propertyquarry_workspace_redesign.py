@@ -9101,6 +9101,42 @@ def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:
     ]
 
 
+def test_property_shortlist_panel_keeps_all_cards_without_hidden_cap() -> None:
+    def _priority_reason(match_reasons: list[str], mismatch_reasons: list[str], fit_summary: str) -> str:
+        if match_reasons:
+            return match_reasons[0]
+        if mismatch_reasons:
+            return mismatch_reasons[0]
+        return fit_summary
+
+    ranked_candidates = [
+        {
+            "candidate_ref": f"cand-{index}",
+            "title": f"Vienna candidate {index}",
+            "fit_summary": "Ranked for direct review.",
+            "recommendation": "shortlist",
+            "review_url": f"https://propertyquarry.com/app/research/cand-{index}",
+            "property_url": f"https://example.test/source/{index}",
+        }
+        for index in range(60)
+    ]
+
+    rows, cards = landing_property_shortlist_panel.build_property_shortlist_panel(
+        property_summary={"ranked_candidates": ranked_candidates},
+        property_preferences={},
+        active_run_id="run-uncapped",
+        wants_run_views=True,
+        clean_candidate_copy=landing_view_models._clean_property_candidate_copy,
+        candidate_priority_reason=_priority_reason,
+        property_candidate_ref=landing_view_models._property_candidate_ref,
+    )
+
+    assert len(rows) == 8
+    assert len(cards) == 60
+    assert cards[0]["title"] == "Vienna candidate 0"
+    assert cards[-1]["title"] == "Vienna candidate 59"
+
+
 def test_property_shortlist_panel_omits_open_listing_when_external_listing_url_missing() -> None:
     def _priority_reason(match_reasons: list[str], mismatch_reasons: list[str], fit_summary: str) -> str:
         if match_reasons:

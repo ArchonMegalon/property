@@ -249,4 +249,4 @@ def build_property_shortlist_panel(
                 ],
             }
         )
-    return property_shortlist_rows[:8], property_shortlist_cards[:50]
+    return property_shortlist_rows[:8], property_shortlist_cards
