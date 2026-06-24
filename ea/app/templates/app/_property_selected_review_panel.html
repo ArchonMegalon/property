@@ -37,11 +37,17 @@
       {% set selected_flythrough_pending = selected_flythrough_status in ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'] %}
       {% set selected_tour_progress = selected_tour.get('progress_pct') or (18 if selected_tour_pending else (100 if selected_tour.get('url') else 0)) %}
       {% set selected_flythrough_progress = selected_flythrough.get('progress_pct') or (18 if selected_flythrough_pending else (100 if selected_flythrough.get('url') else 0)) %}
+      {% set selected_tour_provider_label = selected_tour.get('provider_label') or '' %}
+      {% set selected_flythrough_provider_label = selected_flythrough.get('provider_label') or '' %}
       {% set selected_visual_status = '' %}
       {% if selected_tour_pending %}
-        {% set selected_visual_status = (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
+        {% set selected_visual_status = (selected_tour.get('status_detail') or selected_tour.get('detail') or selected_tour.get('label') or '3D tour is building.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') %}
       {% elif selected_flythrough_pending %}
-        {% set selected_visual_status = (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
+        {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
+      {% elif selected_tour.get('status') == 'blocked' %}
+        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or '3D tour is not ready yet.' %}
+      {% elif selected_flythrough.get('status') == 'blocked' %}
+        {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'Walkthrough is not ready yet.' %}
       {% elif not selected_tour.get('url') and not selected_flythrough.get('url') %}
         {% set selected_visual_status = 'Request visuals only when this home is worth a deeper review.' %}
       {% endif %}
@@ -65,6 +71,24 @@
         <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="property_share_home" data-rybbit-prop-candidate="{{ selected.get('candidate_ref') }}">Share this home</button>
         <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="property_share_results">Share results</button>
       </div>
+      {% if selected_tour.get('url') or selected_tour_pending or selected_tour.get('status') == 'blocked' or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough.get('status') == 'blocked' %}
+      <div class="pqx-result-facts" aria-label="Visual delivery status">
+        {% if selected_tour.get('url') %}
+        <span class="pqx-result-fact">{{ selected_tour_provider_label or '3D tour' }} live</span>
+        {% elif selected_tour_pending %}
+        <span class="pqx-result-fact">{{ selected_tour.get('recovery_label') or '3D tour processing' }}</span>
+        {% elif selected_tour.get('status') == 'blocked' %}
+        <span class="pqx-result-fact warn">{{ selected_tour.get('recovery_label') or '3D tour unavailable' }}</span>
+        {% endif %}
+        {% if selected_flythrough.get('url') %}
+        <span class="pqx-result-fact">{{ selected_flythrough_provider_label or 'Walkthrough' }} ready</span>
+        {% elif selected_flythrough_pending %}
+        <span class="pqx-result-fact">{{ selected_flythrough.get('recovery_label') or 'Walkthrough processing' }}</span>
+        {% elif selected_flythrough.get('status') == 'blocked' %}
+        <span class="pqx-result-fact warn">{{ selected_flythrough.get('recovery_label') or 'Walkthrough unavailable' }}</span>
+        {% endif %}
+      </div>
+      {% endif %}
       <div class="pqx-decision-status" data-pw-visual-request-status>{{ selected_visual_status }}</div>
     </div>
   </div>

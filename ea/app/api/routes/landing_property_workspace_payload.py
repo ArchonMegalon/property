@@ -1255,7 +1255,23 @@ def property_workspace_payload(
             rows.append({"title": "No new deltas yet", "detail": "The visible timeline will summarize what changed after the first decision, packet event, or follow-up update.", "tag": "Waiting"})
         return rows
 
-    def _tour_payload(candidate: dict[str, object]) -> dict[str, str]:
+    def _visual_provider_label(value: object) -> str:
+        normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        label_map = {
+            "matterport": "Matterport",
+            "3dvista": "3DVista",
+            "threedvista": "3DVista",
+            "three_d_vista": "3DVista",
+            "magicfit": "Magicfit",
+            "ea_one_manager_onemin_i2v": "Magicfit",
+            "onemin_i2v": "Magicfit",
+            "poppy_ai": "Poppy AI",
+        }
+        if normalized in label_map:
+            return label_map[normalized]
+        return str(value or "").strip().replace("_", " ").title()
+
+    def _tour_payload(candidate: dict[str, object]) -> dict[str, object]:
         tour_url = str(candidate.get("tour_url") or "").strip()
         provider_tour_url = str(
             candidate.get("source_virtual_tour_url")
@@ -1270,15 +1286,36 @@ def property_workspace_payload(
             provider_tour_url = ""
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
+        provider_key = ""
+        provider_label = ""
         if tour_url:
             try:
                 from app.product import property_tour_hosting
 
                 verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)  # type: ignore[attr-defined]
+                provider_key = property_tour_hosting._hosted_property_tour_verified_provider(tour_url)  # type: ignore[attr-defined]
             except Exception:
                 verified_tour_url = ""
+                provider_key = ""
+            provider_label = _visual_provider_label(provider_key) if provider_key else "Hosted 3D tour"
             if verified_tour_url:
-                return {"status": "ready", "label": "360 ready", "url": verified_tour_url, "embed_url": verified_tour_url, "eta_label": ""}
+                status_detail = (
+                    f"{provider_label} control is live inside the hosted tour."
+                    if provider_key in {"matterport", "3dvista"}
+                    else "Hosted 3D tour is live."
+                )
+                return {
+                    "status": "ready",
+                    "label": "360 ready",
+                    "url": verified_tour_url,
+                    "embed_url": verified_tour_url,
+                    "eta_label": "",
+                    "provider_label": provider_label,
+                    "provider_key": provider_key,
+                    "status_detail": status_detail,
+                    "recovery_label": "",
+                    "control_label": f"Open {provider_label}" if provider_key in {"matterport", "3dvista"} else "Open hosted tour",
+                }
             try:
                 branded_tour_url = property_tour_hosting._is_branded_public_tour_url(tour_url)  # type: ignore[attr-defined]
             except Exception:
@@ -1290,6 +1327,11 @@ def property_workspace_payload(
                     "url": tour_url,
                     "embed_url": "",
                     "eta_label": "Open hosted tour",
+                    "provider_label": provider_label,
+                    "provider_key": provider_key,
+                    "status_detail": "Hosted 3D tour is published and ready to open.",
+                    "recovery_label": "",
+                    "control_label": "Open hosted tour",
                 }
             return {
                 "status": "blocked",
@@ -1297,30 +1339,104 @@ def property_workspace_payload(
                 "url": "",
                 "embed_url": "",
                 "eta_label": "A real hosted 3D tour is not available for this listing yet.",
+                "provider_label": provider_label,
+                "provider_key": provider_key,
+                "status_detail": "A hosted tour link exists, but no verified Matterport or 3DVista control is available yet.",
+                "recovery_label": "Verification or repair needed",
+                "control_label": "",
             }
         if provider_tour_url:
+            try:
+                from app.product import property_tour_hosting
+
+                provider_key = property_tour_hosting._property_tour_provider_host_kind(provider_tour_url)  # type: ignore[attr-defined]
+            except Exception:
+                provider_key = ""
+            provider_label = _visual_provider_label(provider_key) if provider_key else "Provider 360"
             return {
                 "status": "ready",
                 "label": "360 ready",
                 "url": provider_tour_url,
                 "embed_url": provider_tour_url,
                 "eta_label": "Provider 360",
+                "provider_label": provider_label,
+                "provider_key": provider_key,
+                "status_detail": f"{provider_label} source is live from the listing provider.",
+                "recovery_label": "",
+                "control_label": f"Open {provider_label}" if provider_key else "Open provider 360",
             }
         if status in {"queued", "pending"}:
-            return {"status": "queued", "label": "360 queued", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '10'} min"}
+            return {
+                "status": "queued",
+                "label": "360 queued",
+                "url": "",
+                "embed_url": "",
+                "eta_label": f"about {eta_minutes or '10'} min",
+                "provider_label": "",
+                "provider_key": "",
+                "status_detail": "3D tour request is queued behind the current media prep lane.",
+                "recovery_label": "",
+                "control_label": "",
+            }
         if status in {"processing", "running", "in_progress", "started", "rendering"}:
-            return {"status": "processing", "label": "360 rendering", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '5'} min"}
+            return {
+                "status": "processing",
+                "label": "360 rendering",
+                "url": "",
+                "embed_url": "",
+                "eta_label": f"about {eta_minutes or '5'} min",
+                "provider_label": "",
+                "provider_key": "",
+                "status_detail": "PropertyQuarry is still rendering and verifying the hosted 3D control.",
+                "recovery_label": "",
+                "control_label": "",
+            }
         if status == "repairing":
-            return {"status": "processing", "label": "360 repair running", "url": "", "embed_url": "", "eta_label": "refreshing"}
+            return {
+                "status": "processing",
+                "label": "360 repair running",
+                "url": "",
+                "embed_url": "",
+                "eta_label": "refreshing",
+                "provider_label": "",
+                "provider_key": "",
+                "status_detail": "PropertyQuarry detected a degraded tour and restarted the hosting lane.",
+                "recovery_label": "Self-healing repair",
+                "control_label": "",
+            }
         if status in {"blocked", "failed", "skipped", "not_applicable"}:
-            return {"status": "blocked", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
-        return {"status": "missing", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
+            return {
+                "status": "blocked",
+                "label": "360 unavailable",
+                "url": "",
+                "embed_url": "",
+                "eta_label": _tour_source_gap_detail(candidate),
+                "provider_label": "",
+                "provider_key": "",
+                "status_detail": _tour_source_gap_detail(candidate),
+                "recovery_label": "Waiting for stronger source media",
+                "control_label": "",
+            }
+        gap_detail = _tour_source_gap_detail(candidate)
+        return {
+            "status": "missing",
+            "label": "360 unavailable",
+            "url": "",
+            "embed_url": "",
+            "eta_label": gap_detail,
+            "provider_label": "",
+            "provider_key": "",
+            "status_detail": gap_detail,
+            "recovery_label": "",
+            "control_label": "",
+        }
 
     def _flythrough_payload(candidate: dict[str, object]) -> dict[str, object]:
         flythrough_url = str(candidate.get("flythrough_url") or "").strip()
         status = str(candidate.get("flythrough_status") or "").strip().lower()
         reason = str(candidate.get("flythrough_reason") or "").strip()
         provider = str(candidate.get("flythrough_provider") or "").strip()
+        provider_label = _visual_provider_label(provider) if provider else ""
         try:
             from app.product import property_tour_hosting
 
@@ -1335,9 +1451,13 @@ def property_workspace_payload(
                 "status": "ready",
                 "label": "Open walkthrough",
                 "url": open_url,
-                "detail": provider.replace("_", " ").title() if provider else "Walkthrough ready",
+                "detail": f"{provider_label} rendered walkthrough ready" if provider_label else "Walkthrough ready",
                 "progress_pct": 100,
                 "eta_label": "",
+                "provider_label": provider_label,
+                "provider_key": provider,
+                "status_detail": f"{provider_label} render is published and ready to review." if provider_label else "Walkthrough is published and ready to review.",
+                "recovery_label": "",
             }
         if status in {"queued", "pending"}:
             return {
@@ -1347,6 +1467,10 @@ def property_workspace_payload(
                 "detail": "Queued after your request.",
                 "progress_pct": 18,
                 "eta_label": "about 10 min",
+                "provider_label": provider_label,
+                "provider_key": provider,
+                "status_detail": f"{provider_label} render is queued behind the current visual batch." if provider_label else "Walkthrough is queued behind the current visual batch.",
+                "recovery_label": "",
             }
         if status in {"processing", "running", "in_progress", "started", "rendering"}:
             return {
@@ -1356,6 +1480,10 @@ def property_workspace_payload(
                 "detail": "Rendering after your request.",
                 "progress_pct": 64,
                 "eta_label": "about 5 min",
+                "provider_label": provider_label,
+                "provider_key": provider,
+                "status_detail": f"{provider_label} render is still processing." if provider_label else "Walkthrough render is still processing.",
+                "recovery_label": "",
             }
         if status == "repairing":
             return {
@@ -1365,6 +1493,10 @@ def property_workspace_payload(
                 "detail": "The request stalled, so PropertyQuarry restarted the background render.",
                 "progress_pct": 72,
                 "eta_label": "refreshing",
+                "provider_label": provider_label,
+                "provider_key": provider,
+                "status_detail": f"{provider_label} render stalled, so PropertyQuarry restarted it." if provider_label else "The walkthrough render stalled, so PropertyQuarry restarted it.",
+                "recovery_label": "Self-healing repair",
             }
         if status in {"blocked", "failed", "skipped", "not_applicable"}:
             return {
@@ -1374,8 +1506,23 @@ def property_workspace_payload(
                 "detail": reason or "Source material was not strong enough to render a walkthrough.",
                 "progress_pct": 0,
                 "eta_label": "",
+                "provider_label": provider_label,
+                "provider_key": provider,
+                "status_detail": reason or "Source material was not strong enough to render a walkthrough.",
+                "recovery_label": "Waiting for stronger source media",
             }
-        return {"status": "missing", "label": "", "url": "", "detail": "", "progress_pct": 0, "eta_label": ""}
+        return {
+            "status": "missing",
+            "label": "",
+            "url": "",
+            "detail": "",
+            "progress_pct": 0,
+            "eta_label": "",
+            "provider_label": provider_label,
+            "provider_key": provider,
+            "status_detail": "",
+            "recovery_label": "",
+        }
 
     def _fit_score_value(candidate: dict[str, object], facts: dict[str, object]) -> int:
         assessment = dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {}
@@ -2272,6 +2419,21 @@ def property_workspace_payload(
         )
         for row in property_delivery_governance_rows(sorted(delivery_channel_keys))
     ]
+    delivery_route_label = (
+        str((selected_agent or {}).get("notification_label") or "").strip()
+        or str(property_search_agent.get("notification_label") or "").strip()
+        or "No alert route saved yet"
+    )
+    delivery_cap_label = (
+        str((selected_agent or {}).get("delivery_label") or "").strip()
+        or str(property_search_agent.get("delivery_label") or "").strip()
+        or "Set a daily or weekly cap"
+    )
+    delivery_recovery_label = (
+        str(repair_truth_rows[0].get("detail") or "").strip()
+        if repair_truth_rows
+        else "If a tour, walkthrough, or provider lane degrades, the next run keeps the recovery note visible here."
+    )
     alerts_rows = list(recent_matches_card.get("items") or []) + [
         row_item(
             str(event.get("step") or "Run update").replace("_", " ").strip().title(),
@@ -2281,6 +2443,22 @@ def property_workspace_payload(
         for event in run_events[-4:]
         if isinstance(event, dict)
     ]
+    alerts_rows.insert(
+        0,
+        row_item(
+            "Alert routing",
+            f"{delivery_route_label} | {delivery_cap_label}. Recovery stays visible when delivery or media lanes need another pass.",
+            "Routing",
+        ),
+    )
+    alerts_rows.insert(
+        1,
+        row_item(
+            "Recovery lane",
+            delivery_recovery_label,
+            "Self-healing" if repair_truth_rows else "Watching",
+        ),
+    )
     if not alerts_rows:
         alerts_rows = [
             row_item(
@@ -2301,7 +2479,7 @@ def property_workspace_payload(
     payment_status_detail = (
         "Available"
         if bool(property_state.get("billing_checkout_enabled"))
-        else ("Included with the current plan" if has_active_paid_plan else "Checkout not active yet")
+        else ("Included with the current plan" if has_active_paid_plan else "Payment lane not active yet")
     )
     payment_status_tag = (
         "Ready"
@@ -2333,7 +2511,7 @@ def property_workspace_payload(
     if pending_plan_key and pending_order_id:
         billing_rows.append(
             row_item(
-                "Checkout pending",
+                "Payment pending",
                 f"{pending_plan_key.title()} checkout is waiting for payment confirmation.",
                 "Pending",
             )
@@ -2415,7 +2593,7 @@ def property_workspace_payload(
         billing_upgrade_rows = [
             row_item(
                 "No live upgrade catalog available",
-                "Checkout metadata is not loaded yet. The current plan still governs portals, shortlist density, and research depth.",
+                "Payment metadata is not loaded yet. The current plan still governs portals, shortlist density, and research depth.",
                 "Catalog",
             )
         ]
@@ -2497,7 +2675,7 @@ def property_workspace_payload(
         billing_history_rows.append(
             row_item(
                 "No payment history yet",
-                "Checkout events will appear here after a payment, cancellation, refund, or failed attempt.",
+                "Payment events will appear here after a payment, cancellation, refund, or failed attempt.",
                 "History",
             )
         )
@@ -2745,14 +2923,14 @@ def property_workspace_payload(
             "summary": "Track what has already been delivered and which run events are preparing the next outbound property page.",
             "hero_kicker": "Alerts",
             "hero_title": "See what has been sent and what is about to leave.",
-            "hero_summary": "Alerts are product output, not hidden queue state. Keep hosted matches, property pages, and run updates visible in one lane.",
+            "hero_summary": "Alerts are product output, not hidden queue state. Keep hosted matches, routing, recovery notes, and run updates visible in one lane.",
             "hero_actions": hero_actions["alerts"],
             "hero_highlights": hero_highlights["alerts"],
             "primary_cards": [
                 {
                     "eyebrow": "Client alerts",
                     "title": "Recent outbound property follow-ups",
-                    "body": "Hosted pages, property briefs, and run updates that mattered enough to notify the client.",
+                    "body": "Hosted pages, property briefs, routing truth, and run updates that mattered enough to notify the client.",
                     "items": alerts_rows,
                 }
             ],
@@ -2917,7 +3095,7 @@ def property_workspace_payload(
                                 (
                                     "Review limits before the next upgrade."
                                     if bool(property_state.get("billing_checkout_enabled"))
-                                    else ("Current access is already active." if has_active_paid_plan else "Checkout is not enabled for this workspace yet.")
+                                    else ("Current access is already active." if has_active_paid_plan else "Payments are not enabled for this workspace yet.")
                                 ),
                                 "Decision",
                             ),

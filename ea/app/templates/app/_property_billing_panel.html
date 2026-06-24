@@ -13,6 +13,7 @@
     <div>
       <div class="pqx-small">Billing</div>
       <h2>Plan and payments</h2>
+      <div class="pqx-note">Keep plan state, upgrade decisions, and payment recovery visible without mixing them into the search workflow.</div>
     </div>
   </div>
 
@@ -25,6 +26,24 @@
     </section>
     {% endfor %}
   </div>
+
+  {% if checkout_card.value.get('items') %}
+  {% set payment_rows = checkout_card.value.get('items') or [] %}
+  {% set payment_status = payment_rows[0] if payment_rows else {} %}
+  {% set payment_followup = payment_rows[1] if payment_rows|length > 1 else {} %}
+  <div class="pqx-note" style="margin:14px 0 0;">
+    {% if payment_status.get('tag') == 'Ready' %}
+    Payment updates are ready. Plan changes can happen without losing the current search context.
+    {% elif payment_status.get('tag') == 'Active' %}
+    Current access is already active. Use this page to compare tiers, confirm coverage, and spot the latest payment state.
+    {% elif payment_status.get('tag') == 'Pending' %}
+    A payment change is still settling. PropertyQuarry keeps the current plan visible until the provider confirms the new state.
+    {% else %}
+    Billing is visible even when checkout is not ready, so plan state can be verified before the next run.
+    {% endif %}
+    {% if payment_followup.get('detail') %} {{ payment_followup.get('detail') }}{% endif %}
+  </div>
+  {% endif %}
 
   <div class="pqx-billing-grid">
     {% for card in [checkout_card.value, upgrade_card.value, history_card.value] if card %}

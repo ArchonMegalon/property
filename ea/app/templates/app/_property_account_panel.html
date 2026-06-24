@@ -34,6 +34,7 @@
     <div>
       <div class="pqx-small">Account</div>
       <h2>Account</h2>
+      <div class="pqx-note">Keep search defaults, notifications, trust settings, and shared access in one controlled lane.</div>
     </div>
   </div>
 
@@ -43,7 +44,7 @@
       <div>
         <span class="pqx-small">Saved defaults</span>
         <h2>{{ profile_card.value.get('title') or 'Search defaults' }}</h2>
-        <p>Search defaults.</p>
+        <p>Keep the next brief narrow, repeatable, and ready for a faster rerun.</p>
         {% if profile_items %}
         <div class="pqx-pref-list" style="margin-top:10px; gap:6px;">
           {% for item in profile_items[:3] %}
@@ -65,8 +66,28 @@
       <div>
         <span class="pqx-small">Alerts</span>
         <h2>Notifications</h2>
-        <p>Strong matches go to every selected channel. Direct follow-up and near-miss prompts stay Telegram-only when Telegram is saved as primary.</p>
+        <p>Choose where strong matches land first, then define the primary channel that carries the tighter follow-up loop.</p>
+        <div class="pqx-pref-list" style="margin:12px 0 14px; gap:6px;">
+          <div class="pqx-pref-row" style="padding:7px 0;">
+            <div>
+              <strong>Selected channels</strong>
+              <small>{{ (selected_notification_channels or ['email'])|map('title')|join(' · ') if selected_notification_channels else 'Email only' }}</small>
+            </div>
+            <span class="pqx-pill">{{ (selected_notification_channels|length) if selected_notification_channels else 1 }} active</span>
+          </div>
+          <div class="pqx-pref-row" style="padding:7px 0;">
+            <div>
+              <strong>Primary route</strong>
+              <small>{{ preferred_notification_channel|title if preferred_notification_channel else 'Not set yet' }}</small>
+            </div>
+            <span class="pqx-pill">{{ 'Priority' if preferred_notification_channel else 'Needs choice' }}</span>
+          </div>
+        </div>
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
+          <div class="pqx-account-channel-detail">
+            <strong>Destination mix</strong>
+            <span>Strong matches and watch hits can land in more than one place.</span>
+          </div>
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
               <input type="checkbox" name="notification_channels" value="email"{% if 'email' in selected_notification_channels %} checked{% endif %}>
@@ -80,6 +101,10 @@
               <input type="checkbox" name="notification_channels" value="whatsapp"{% if 'whatsapp' in selected_notification_channels %} checked{% endif %}>
               <span>WhatsApp</span>
             </label>
+          </div>
+          <div class="pqx-account-channel-detail">
+            <strong>Primary response lane</strong>
+            <span>The primary channel sets where the tighter prompt loop and direct follow-up should feel native.</span>
           </div>
           <div class="pqx-account-channel-options" role="radiogroup" aria-label="Primary PropertyQuarry alert channel">
             <label class="pqx-account-channel-option">
@@ -114,9 +139,9 @@
           <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
             <label for="whatsappAiSupportPhone">WhatsApp number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
-            <span id="whatsappAiSupportCopy">Needed when WhatsApp is selected for strong matches or AI support.</span>
+            <span id="whatsappAiSupportCopy">Needed when WhatsApp is selected for strong matches, operator handoff notices, or AI support.</span>
           </div>
-          <button class="pqx-link-button primary" type="submit">Save</button>
+          <button class="pqx-link-button primary" type="submit">Save notification routing</button>
         </form>
       </div>
     </section>
@@ -126,6 +151,7 @@
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_value }}</h2>
         <p>{{ plan_detail or 'Plan and payments.' }}</p>
+        <div class="pqx-note">Billing stays separate from alerts so account routing and plan state stay easy to reason about.</div>
       </div>
       <a class="pqx-link-button" href="/app/billing">Open billing</a>
     </section>

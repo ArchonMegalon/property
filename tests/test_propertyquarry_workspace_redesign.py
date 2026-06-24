@@ -156,7 +156,7 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert "Signal later" not in account
     assert "PropertyQuarry bot <small>Telegram</small>" not in account
     assert "<h2>Notifications</h2>" in account
-    assert ">Save</button>" in account
+    assert ">Save notification routing</button>" in account
 
     assert "<h2>Plan and payments</h2>" in billing
     assert ">Open</a>" not in billing
@@ -3938,8 +3938,63 @@ def test_property_workspace_payload_keeps_visual_requests_active_across_reload_s
     results = list(payload["decision_workbench"]["results"] or [])
     assert results[0]["tour"]["status"] == "processing"
     assert results[0]["tour"]["label"] == "360 rendering"
+    assert "verifying the hosted 3D control" in results[0]["tour"]["status_detail"]
     assert results[1]["flythrough"]["status"] == "processing"
     assert results[1]["flythrough"]["label"] == "Walkthrough repair running"
+    assert results[1]["flythrough"]["recovery_label"] == "Self-healing repair"
+
+
+def test_property_workspace_payload_exposes_visual_provider_labels_for_ready_delivery() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-visual-provider-labels",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-provider-visuals",
+                            "title": "Provider visual delivery",
+                            "property_url": "https://example.test/provider-visuals",
+                            "source_virtual_tour_url": "https://my.matterport.com/show/?m=abc123",
+                            "flythrough_status": "ready",
+                            "flythrough_provider": "magicfit",
+                            "flythrough_url": "https://propertyquarry.com/tours/provider-visuals/files/provider-visuals/walkthrough.mp4",
+                            "fit_score": 82,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_display": "EUR 2,100",
+                                "area_m2": 74,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+    assert result["tour"]["provider_label"] == "Matterport"
+    assert "Matterport source is live" in result["tour"]["status_detail"]
+    assert result["flythrough"]["provider_label"] == "Magicfit"
+    assert "Magicfit rendered walkthrough ready" in result["flythrough"]["detail"]
 
 
 def test_property_workspace_payload_uses_market_timezone_when_account_has_no_timezone() -> None:
@@ -5638,6 +5693,14 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Share page" in body
     assert "Share packet" not in body
     assert "Household reactions" in body
+    assert 'aria-label="PropertyQuarry sections"' in body
+    assert 'href="/app/properties">Search</a>' in body
+    assert 'href="/app/shortlist">Shortlist</a>' in body
+    assert '<span class="is-active" aria-current="page">Research</span>' in body
+    assert 'href="/app/agents">Saved searches</a>' in body
+    assert 'href="/app/alerts">Alerts</a>' in body
+    assert 'href="/app/billing">Billing</a>' in body
+    assert 'href="/app/account">Account</a>' in body
     assert "Packet posture" not in body
 
 
@@ -10307,7 +10370,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Automation and reports" not in account.text
     assert "Recurring intelligence leaving this account" not in account.text
     assert "Delivery lane" not in account.text
-    assert 'href="/app/search' in account.text
+    assert 'href="/app/properties' in account.text
     assert "Operating posture" not in account.text
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
@@ -10426,8 +10489,9 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Notifications" in account.text
-    assert "Strong matches go to every selected channel. Direct follow-up and near-miss prompts stay Telegram-only when Telegram is saved as primary." in account.text
-    assert "Near-miss follow-up prompts stay Telegram-only and run only when Telegram is selected and saved as the primary channel." in account.text
+    assert "Choose where strong matches land first, then define the primary channel that carries the tighter follow-up loop." in account.text
+    assert "Destination mix" in account.text
+    assert "Primary response lane" in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'type="checkbox" name="notification_channels" value="email"' in account.text
     assert 'type="checkbox" name="notification_channels" value="telegram"' in account.text
@@ -10443,7 +10507,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'data-channel-detail="whatsapp"' in account.text
     assert '.pqx-account-channel-form:has(input[name="notification_channels"][value="whatsapp"]:checked)' in account.text
     assert "WhatsApp number" in account.text
-    assert "Needed when WhatsApp is selected for strong matches or AI support." in account.text
+    assert "Needed when WhatsApp is selected for strong matches, operator handoff notices, or AI support." in account.text
     assert "Used only for PropertyQuarry AI support." not in account.text
     assert "Save alerts and AI support number" not in account.text
     assert 'name="whatsapp_ai_support_phone"' in account.text
@@ -10872,9 +10936,22 @@ def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     assert ">Search<" in response.text
     assert ">Run<" not in response.text
     assert ">Shortlist<" in response.text
+    assert ">Research<" in response.text
     assert ">Saved searches<" in response.text
     assert ">Automation<" not in response.text
     assert ">Account<" in response.text
-    assert 'href="/app/research"' not in response.text
-    assert ">Alerts<" not in response.text
+    assert 'href="/app/research"' in response.text
+    assert ">Alerts<" in response.text
     assert ">Billing<" in response.text
+
+
+def test_property_alerts_surface_exposes_routing_and_recovery_language() -> None:
+    payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+    template_source = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    assert "Alerts are product output, not hidden queue state. Keep hosted matches, routing, recovery notes, and run updates visible in one lane." in payload_source
+    assert "Hosted pages, property briefs, routing truth, and run updates that mattered enough to notify the client." in payload_source
+    assert "Alert routing" in payload_source
+    assert "Recovery lane" in payload_source
+    assert "Recovery stays visible when delivery or media lanes need another pass." in payload_source
+    assert "Sent property pages, routing truth, recovery notes, and active run updates." in template_source

@@ -11,7 +11,7 @@
     <div>
       <div class="pqx-small">Saved searches</div>
       <h2>Saved searches</h2>
-      <div class="pqx-note">Recurring briefs, alert caps, recent runs.</div>
+      <div class="pqx-note">Recurring briefs, alert caps, reruns, and the recovery lane when a search or delivery needs another pass.</div>
     </div>
     <div class="pqx-actions">
       <span class="pqx-pill">{{ active_total }} active</span>
@@ -58,6 +58,16 @@
         <div class="pqx-automation-rhythm">
           <span>{{ agent.get('run_label') or 'Waiting for first run' }}</span>
           <span>{{ agent.get('delivery_label') or 'Alerts not set' }}</span>
+        </div>
+        <div class="pqx-note" style="margin-top:8px;">
+          {% if agent.get('enabled') %}
+          This brief can rerun without rebuilding the search profile.
+          {% else %}
+          Paused briefs keep their defaults and can be resumed without rebuilding the search profile.
+          {% endif %}
+          {% if agent.get('delivery_label') %}
+          {{ ' ' }}{{ agent.get('delivery_label') }}.
+          {% endif %}
         </div>
         <div class="pqx-automation-actions">
           <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}">Run</button>

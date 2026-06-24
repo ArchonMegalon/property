@@ -36,6 +36,7 @@
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
 {% set empty_outcome = workbench.get('empty_outcome') or {} %}
 {% set score_methodology = workbench.get('score_methodology') or {} %}
+{% set topnav_query_suffix = ('?run_id=' ~ ((run.get('run_id') or '')|urlencode)) if run.get('run_id') else '' %}
 {% macro suppression_panel(rows, actions=[], total_override=None) -%}
 {% if rows %}
 {% set trigger_rows = actions if actions else rows %}
@@ -6360,17 +6361,27 @@
         {% if surface_mode in ['properties', 'search'] %}
         <span class="is-active" aria-current="page">Search</span>
         {% else %}
-        <a href="/app/search">Search</a>
+        <a href="/app/properties{{ topnav_query_suffix }}">Search</a>
         {% endif %}
         {% if surface_mode == 'shortlist' %}
         <span class="is-active" aria-current="page">Shortlist</span>
         {% else %}
-        <a href="/app/shortlist">Shortlist</a>
+        <a href="/app/shortlist{{ topnav_query_suffix }}">Shortlist</a>
+        {% endif %}
+        {% if surface_mode == 'research' %}
+        <span class="is-active" aria-current="page">Research</span>
+        {% else %}
+        <a href="/app/research{{ topnav_query_suffix }}">Research</a>
         {% endif %}
         {% if surface_mode == 'agents' %}
         <span class="is-active" aria-current="page">Saved searches</span>
         {% else %}
-        <a href="/app/agents">Saved searches</a>
+        <a href="/app/agents{{ topnav_query_suffix }}">Saved searches</a>
+        {% endif %}
+        {% if surface_mode == 'alerts' %}
+        <span class="is-active" aria-current="page">Alerts</span>
+        {% else %}
+        <a href="/app/alerts{{ topnav_query_suffix }}">Alerts</a>
         {% endif %}
         {% if surface_mode == 'billing' %}
         <span class="is-active" aria-current="page">Billing</span>
@@ -6730,7 +6741,7 @@
                 {% if surface_mode == 'agents' %}
                 Edit saved searches, start a fresh sweep, and open recent outcomes.
                 {% elif surface_mode == 'alerts' %}
-                Sent property pages, delivery rules, and active run updates.
+                Sent property pages, routing truth, recovery notes, and active run updates.
                 {% elif surface_mode == 'billing' %}
                 Plan and checkout.
                 {% elif surface_mode == 'account' %}

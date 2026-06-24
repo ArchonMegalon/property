@@ -74,6 +74,14 @@
       {% set walkthrough_progress = walkthrough.get('progress_pct') or (18 if walkthrough_pending else (100 if walkthrough.get('url') else 0)) %}
       {% set walkthrough_label = walkthrough.get('label') or ('Walkthrough ready' if walkthrough.get('url') else ('Walkthrough queued' if walkthrough_pending else 'Request walkthrough')) %}
       {% set walkthrough_tooltip = (walkthrough.get('detail') or ('Walkthrough ready' if walkthrough.get('url') else 'Request a walkthrough when the listing deserves deeper screening.')) ~ ((' · ETA ' ~ walkthrough.get('eta_label')) if walkthrough.get('eta_label') else '') %}
+      {% set tour_provider_label = tour.get('provider_label') or '' %}
+      {% set walkthrough_provider_label = walkthrough.get('provider_label') or '' %}
+      {% set visual_delivery_note = '' %}
+      {% if tour.get('status_detail') and (tour.get('url') or tour_pending or tour_status == 'blocked') %}
+      {% set visual_delivery_note = tour.get('status_detail') %}
+      {% elif walkthrough.get('status_detail') and (walkthrough.get('url') or walkthrough_pending or walkthrough_status == 'blocked') %}
+      {% set visual_delivery_note = walkthrough.get('status_detail') %}
+      {% endif %}
       <span class="pqx-result-main">
         <span class="pqx-result-media{% if not primary_preview_url %} no-thumb{% endif %}">
           {% if primary_preview_url %}
@@ -126,6 +134,12 @@
               {% if walkthrough.get('url') %}
               <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}" aria-label="{{ walkthrough.get('detail') or 'Walkthrough ready' }}">Walkthrough ready</a>
               {% endif %}
+              {% if tour_provider_label and tour.get('url') %}
+              <span class="pqx-result-fact">{{ tour_provider_label }}</span>
+              {% endif %}
+              {% if walkthrough_provider_label and walkthrough.get('url') %}
+              <span class="pqx-result-fact">{{ walkthrough_provider_label }}</span>
+              {% endif %}
             </span>
           </span>
         </span>
@@ -143,6 +157,9 @@
         <span class="pqx-result-secondary">{{ candidate.get('investment', {}).get('underwriting_summary') }}</span>
         {% elif secondary_price %}
         <span class="pqx-result-secondary">{{ secondary_price }}</span>
+        {% endif %}
+        {% if visual_delivery_note %}
+        <span class="pqx-result-secondary">{{ visual_delivery_note }}</span>
         {% endif %}
         <span class="pqx-result-actions">
           {% if candidate.get('map_url') and not shortlist_compact_actions %}

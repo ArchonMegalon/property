@@ -53,9 +53,9 @@
     a { color: var(--pq-blue); text-decoration: underline; text-underline-offset: 2px; }
     .pq-pack-shell { min-height: 100vh; padding: clamp(18px, 4vw, 42px); }
     .pq-pack-topbar {
-      display: flex;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
       align-items: center;
-      justify-content: space-between;
       gap: 16px;
       margin-bottom: 22px;
     }
@@ -73,7 +73,39 @@
     }
     .pq-pack-brand strong, .pq-pack-brand span { display: block; }
     .pq-pack-brand span { color: var(--pq-muted); font-size: 13px; }
-    .pq-pack-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .pq-pack-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+    }
+    .pq-pack-nav :is(a, span) {
+      border: 1px solid var(--pq-border);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--pq-card) 72%, transparent);
+      color: var(--pq-muted);
+      min-height: 38px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .pq-pack-nav a:hover,
+    .pq-pack-nav a:focus-visible {
+      color: var(--pq-ink);
+      border-color: color-mix(in srgb, var(--pq-gold) 46%, var(--pq-border));
+      outline: none;
+    }
+    .pq-pack-nav .is-active {
+      color: var(--pq-ink);
+      border-color: color-mix(in srgb, var(--pq-gold) 58%, var(--pq-border));
+      background: color-mix(in srgb, var(--pq-mark-bg) 82%, white 18%);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pq-gold) 22%, transparent);
+    }
+    .pq-pack-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
     .pq-pack-button {
       border: 1px solid var(--pq-border);
       border-radius: 8px;
@@ -255,6 +287,7 @@
     @media (max-width: 760px) {
       .pq-pack-shell { padding: 14px; }
       .pq-pack-topbar, .pq-pack-hero, .pq-pack-feedback, .pq-pack-card { grid-template-columns: minmax(0, 1fr); display: grid; }
+      .pq-pack-nav { justify-content: flex-start; }
       .pq-pack-actions, .pq-pack-button { width: 100%; }
       .pq-pack-inline .pq-pack-button { width: auto; flex: 1 1 142px; }
       .pq-pack-stat-grid, .pq-pack-summary-grid { grid-template-columns: minmax(0, 1fr); }
@@ -270,8 +303,17 @@
         <span class="pq-pack-mark">PQ</span>
         <span><strong>PropertyQuarry</strong><span>{{ workspace_label }}</span></span>
       </a>
+      <nav class="pq-pack-nav" aria-label="PropertyQuarry sections">
+        <a href="/app/properties">Search</a>
+        <a href="/app/shortlist">Shortlist</a>
+        <span class="is-active" aria-current="page">Research</span>
+        <a href="/app/agents">Saved searches</a>
+        <a href="/app/alerts">Alerts</a>
+        <a href="/app/billing">Billing</a>
+        <a href="/app/account">Account</a>
+      </nav>
       <nav class="pq-pack-actions">
-        <a class="pq-pack-button" href="/app/properties">Run</a>
+        <a class="pq-pack-button" href="/app/properties">Open run</a>
         <a class="pq-pack-button" href="/app/account">Account</a>
       </nav>
     </header>
