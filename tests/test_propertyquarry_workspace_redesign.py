@@ -3473,6 +3473,47 @@ def test_property_console_context_shortlist_preserves_all_source_candidates_whil
     assert len(seen) == 48
 
 
+def test_property_candidate_feedback_skips_empty_feedback_summary_hydration() -> None:
+    calls: list[tuple[str, str]] = []
+
+    class _PacketService:
+        def feedback_summary(self, *, principal_id: str, property_ref: str):
+            calls.append(("summary", property_ref))
+            return {
+                "property_ref": property_ref,
+                "counts": {},
+                "recent_feedback": [],
+                "clusters": [],
+                "risk_signal_candidates": [],
+                "household_review": {"stakeholders": []},
+                "decision_state_counts": {},
+            }
+
+        def list_structured_feedback(self, *, principal_id: str, property_ref: str):
+            calls.append(("structured", property_ref))
+            raise AssertionError("empty feedback summaries must not hydrate structured rows")
+
+    enriched = landing_routes._property_enrich_candidate_feedback(
+        packet_service=_PacketService(),
+        principal_id="owner",
+        candidate={
+            "candidate_ref": "candidate-1",
+            "property_ref": "listing:1",
+            "listing_id": "source-1",
+            "property_url": "https://example.test/listing/1",
+        },
+    )
+
+    assert enriched["feedback_summary"] == {}
+    assert enriched["feedback_rows"] == []
+    assert calls == [
+        ("summary", "candidate-1"),
+        ("summary", "listing:1"),
+        ("summary", "source-1"),
+        ("summary", "https://example.test/listing/1"),
+    ]
+
+
 def test_property_console_context_skips_recent_run_hydration_for_explicit_shortlist_run(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-shortlist-no-recent-runs")
 

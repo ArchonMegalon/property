@@ -92,6 +92,48 @@ class FlipLinkPacketService:
         self._repo = repo
         self._artifact_root = artifact_root
         self._orchestrator = orchestrator
+        self._event_read_cache: dict[tuple[str, str, str, int], list[dict[str, object]]] = {}
+        self._publication_read_cache: dict[tuple[str, int], list[dict[str, object]]] = {}
+        self._structured_feedback_read_cache: dict[
+            tuple[str, str, str, str, str],
+            list[dict[str, object]],
+        ] = {}
+
+    def _cached_repo_events(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str | None = None,
+        event_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        key = (
+            str(principal_id or "").strip(),
+            str(publication_id or "").strip(),
+            str(event_type or "").strip(),
+            max(1, min(int(limit or 100), 500)),
+        )
+        cached = self._event_read_cache.get(key)
+        if cached is None:
+            cached = [
+                dict(row)
+                for row in self._repo.list_events(
+                    principal_id=key[0],
+                    publication_id=key[1] or None,
+                    event_type=key[2] or None,
+                    limit=key[3],
+                )
+            ]
+            self._event_read_cache[key] = cached
+        return [dict(row) for row in cached]
+
+    def _cached_repo_publications(self, *, principal_id: str, limit: int = 100) -> list[dict[str, object]]:
+        key = (str(principal_id or "").strip(), max(1, min(int(limit or 100), 500)))
+        cached = self._publication_read_cache.get(key)
+        if cached is None:
+            cached = [dict(row) for row in self._repo.list_publications(principal_id=key[0], limit=key[1])]
+            self._publication_read_cache[key] = cached
+        return [dict(row) for row in cached]
 
     def capacity_status(self, *, principal_id: str) -> dict[str, object]:
         settings = fliplink_settings_from_env()
@@ -1113,7 +1155,7 @@ class FlipLinkPacketService:
         return [dict(event.get("payload_json") or {}) for event in rows]
 
     def _feedback_events(self, *, principal_id: str, publication_id: str | None = None) -> list[dict[str, object]]:
-        rows = self._repo.list_events(
+        rows = self._cached_repo_events(
             principal_id=principal_id,
             publication_id=publication_id,
             event_type="property_feedback_entry_recorded",
@@ -1359,10 +1401,20 @@ class FlipLinkPacketService:
         publication_id: str = "",
         category: str = "",
     ) -> list[dict[str, object]]:
+        cache_key = (
+            str(principal_id or "").strip(),
+            str(property_ref or "").strip(),
+            str(stakeholder_id or "").strip(),
+            str(publication_id or "").strip(),
+            str(category or "").strip(),
+        )
+        cached = self._structured_feedback_read_cache.get(cache_key)
+        if cached is not None:
+            return [dict(row) for row in cached]
         rows = self._feedback_events(principal_id=principal_id, publication_id=publication_id or None)
         status_events = [
             row
-            for row in self._repo.list_events(principal_id=principal_id, limit=4000, event_type="property_feedback_followup_updated")
+            for row in self._cached_repo_events(principal_id=principal_id, limit=4000, event_type="property_feedback_followup_updated")
         ]
         latest_status_by_feedback: dict[str, dict[str, object]] = {}
         for row in status_events:
@@ -1385,6 +1437,7 @@ class FlipLinkPacketService:
                 enriched["followup_status"] = str(status_payload.get("followup_status") or enriched.get("followup_status") or "").strip()
                 enriched["followup_note"] = str(status_payload.get("note") or "").strip()
             out.append(enriched)
+        self._structured_feedback_read_cache[cache_key] = [dict(row) for row in out]
         return out
 
     def property_household_alignment(self, *, principal_id: str, property_ref: str) -> dict[str, object]:
@@ -1913,11 +1966,11 @@ class FlipLinkPacketService:
         return out[:100]
 
     def property_timeline(self, *, principal_id: str, property_ref: str) -> list[dict[str, object]]:
-        rows = self._repo.list_events(principal_id=principal_id, limit=4000)
+        rows = self._cached_repo_events(principal_id=principal_id, limit=4000)
         out: list[dict[str, object]] = []
         publication_ids = {
             str(row.get("publication_id") or "")
-            for row in self._repo.list_publications(principal_id=principal_id, limit=500)
+            for row in self._cached_repo_publications(principal_id=principal_id, limit=500)
             if str(row.get("property_ref") or "") == str(property_ref or "").strip()
         }
         for row in rows:

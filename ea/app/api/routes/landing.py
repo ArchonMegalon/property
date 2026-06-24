@@ -897,6 +897,32 @@ def _property_feedback_reference_candidates(candidate_ref: str, candidate: dict[
     return tuple(refs)
 
 
+def _property_feedback_summary_has_signal(summary: dict[str, object]) -> bool:
+    counts = dict(summary.get("counts") or {}) if isinstance(summary.get("counts"), dict) else {}
+    decision_states = (
+        dict(summary.get("decision_state_counts") or {})
+        if isinstance(summary.get("decision_state_counts"), dict)
+        else {}
+    )
+    household_review = dict(summary.get("household_review") or {}) if isinstance(summary.get("household_review"), dict) else {}
+    if any(int(value or 0) > 0 for value in counts.values() if isinstance(value, (int, float)) or str(value or "").isdigit()):
+        return True
+    if any(int(value or 0) > 0 for value in decision_states.values() if isinstance(value, (int, float)) or str(value or "").isdigit()):
+        return True
+    for key in ("recent_feedback", "clusters", "risk_signal_candidates"):
+        if list(summary.get(key) or []):
+            return True
+    if list(household_review.get("stakeholders") or []):
+        return True
+    for key in ("dealbreaker_count", "open_questions_count", "disagreement_count", "household_alignment_score"):
+        try:
+            if int(summary.get(key) or 0) > 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 
 def _property_lookup_candidate_across_runs(
     product: Any,
@@ -2045,11 +2071,13 @@ def _property_enrich_candidate_feedback(
             summary_candidate = dict(packet_service.feedback_summary(principal_id=principal_id, property_ref=feedback_ref))
         except Exception:
             summary_candidate = {}
+        if not _property_feedback_summary_has_signal(summary_candidate):
+            continue
         try:
             rows_candidate = list(packet_service.list_structured_feedback(principal_id=principal_id, property_ref=feedback_ref))
         except Exception:
             rows_candidate = []
-        if summary_candidate and not feedback_summary:
+        if not feedback_summary:
             feedback_summary = summary_candidate
         if rows_candidate and not feedback_rows:
             feedback_rows = rows_candidate
@@ -3620,6 +3648,8 @@ def property_research_packet(
             summary_candidate = dict(packet_service.feedback_summary(principal_id=context.principal_id, property_ref=feedback_ref))
         except Exception:
             summary_candidate = {}
+        if not _property_feedback_summary_has_signal(summary_candidate):
+            continue
         try:
             timeline_candidate = list(packet_service.property_timeline(principal_id=context.principal_id, property_ref=feedback_ref))
         except Exception:
@@ -3628,7 +3658,7 @@ def property_research_packet(
             feedback_rows_candidate = list(packet_service.list_structured_feedback(principal_id=context.principal_id, property_ref=feedback_ref))
         except Exception:
             feedback_rows_candidate = []
-        if summary_candidate and not feedback_summary:
+        if not feedback_summary:
             feedback_summary = summary_candidate
         if timeline_candidate and not property_timeline_rows:
             property_timeline_rows = timeline_candidate

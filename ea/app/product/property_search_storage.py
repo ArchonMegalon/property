@@ -223,6 +223,40 @@ def _property_search_run_primary_key_columns(cur) -> tuple[str, ...]:  # type: i
     return tuple(str(row[0]) for row in cur.fetchall())
 
 
+def _property_search_run_table_exists(cur) -> bool:  # type: ignore[no-untyped-def]
+    cur.execute("SELECT to_regclass('property_search_runs')")
+    row = cur.fetchone()
+    return bool(row and row[0])
+
+
+def _property_search_run_column_names(cur) -> set[str]:  # type: ignore[no-untyped-def]
+    cur.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'property_search_runs'
+        """
+    )
+    return {str(row[0]) for row in cur.fetchall() if row and row[0]}
+
+
+def _property_search_run_index_exists(cur, index_name: str) -> bool:  # type: ignore[no-untyped-def]
+    cur.execute(
+        """
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = current_schema()
+          AND c.relkind = 'i'
+          AND c.relname = %s
+        LIMIT 1
+        """,
+        (str(index_name or "").strip(),),
+    )
+    return bool(cur.fetchone())
+
+
 def _ensure_property_search_run_primary_key(cur) -> None:  # type: ignore[no-untyped-def]
     desired_columns = ("principal_id", "run_id")
     if _property_search_run_primary_key_columns(cur) == desired_columns:
@@ -261,45 +295,71 @@ def _ensure_property_search_run_schema() -> None:
             return
         with _property_search_run_connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS property_search_runs (
-                        principal_id TEXT NOT NULL,
-                        run_id TEXT NOT NULL,
-                        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                        status TEXT,
-                        compact_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                        created_at TIMESTAMPTZ NOT NULL,
-                        updated_at TIMESTAMPTZ NOT NULL,
-                        PRIMARY KEY (principal_id, run_id)
+                table_existed = _property_search_run_table_exists(cur)
+                existing_columns = _property_search_run_column_names(cur) if table_existed else set()
+                needs_compact_backfill = (
+                    table_existed
+                    and (
+                        "status" not in existing_columns
+                        or "compact_json" not in existing_columns
                     )
-                    """
                 )
-                cur.execute("ALTER TABLE property_search_runs ADD COLUMN IF NOT EXISTS status TEXT")
-                cur.execute("ALTER TABLE property_search_runs ADD COLUMN IF NOT EXISTS compact_json JSONB NOT NULL DEFAULT '{}'::jsonb")
+                if not table_existed:
+                    cur.execute(
+                        """
+                        CREATE TABLE property_search_runs (
+                            principal_id TEXT NOT NULL,
+                            run_id TEXT NOT NULL,
+                            payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            status TEXT,
+                            compact_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            created_at TIMESTAMPTZ NOT NULL,
+                            updated_at TIMESTAMPTZ NOT NULL,
+                            PRIMARY KEY (principal_id, run_id)
+                        )
+                        """
+                    )
+                    existing_columns = {
+                        "principal_id",
+                        "run_id",
+                        "payload_json",
+                        "status",
+                        "compact_json",
+                        "created_at",
+                        "updated_at",
+                    }
+                if "status" not in existing_columns:
+                    cur.execute("ALTER TABLE property_search_runs ADD COLUMN status TEXT")
+                    existing_columns.add("status")
+                if "compact_json" not in existing_columns:
+                    cur.execute("ALTER TABLE property_search_runs ADD COLUMN compact_json JSONB NOT NULL DEFAULT '{}'::jsonb")
+                    existing_columns.add("compact_json")
                 _ensure_property_search_run_primary_key(cur)
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_property_search_runs_updated
-                    ON property_search_runs(updated_at DESC)
-                    """
-                )
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_property_search_runs_principal_updated
-                    ON property_search_runs(principal_id, updated_at DESC)
-                    """
-                )
-                cur.execute(
-                    f"""
-                    UPDATE property_search_runs
-                    SET status = COALESCE(status, payload_json->>'status', payload_json#>>'{{summary,status}}'),
-                        compact_json = {_compact_property_search_run_json_sql()}
-                    WHERE compact_json = '{{}}'::jsonb
-                       OR compact_json IS NULL
-                       OR status IS NULL
-                    """
-                )
+                if not _property_search_run_index_exists(cur, "idx_property_search_runs_updated"):
+                    cur.execute(
+                        """
+                        CREATE INDEX idx_property_search_runs_updated
+                        ON property_search_runs(updated_at DESC)
+                        """
+                    )
+                if not _property_search_run_index_exists(cur, "idx_property_search_runs_principal_updated"):
+                    cur.execute(
+                        """
+                        CREATE INDEX idx_property_search_runs_principal_updated
+                        ON property_search_runs(principal_id, updated_at DESC)
+                        """
+                    )
+                if needs_compact_backfill:
+                    cur.execute(
+                        f"""
+                        UPDATE property_search_runs
+                        SET status = COALESCE(status, payload_json->>'status', payload_json#>>'{{summary,status}}'),
+                            compact_json = {_compact_property_search_run_json_sql()}
+                        WHERE compact_json = '{{}}'::jsonb
+                           OR compact_json IS NULL
+                           OR status IS NULL
+                        """
+                    )
         _PROPERTY_SEARCH_RUN_SCHEMA_READY = True
 
 

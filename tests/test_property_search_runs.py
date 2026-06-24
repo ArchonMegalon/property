@@ -10932,6 +10932,75 @@ def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
     assert "DELETE FROM property_search_runs WHERE updated_at < %s" not in source
 
 
+def test_property_search_run_schema_ready_does_not_backfill_existing_compact_columns(monkeypatch: pytest.MonkeyPatch) -> None:
+    executed_sql: list[str] = []
+
+    class _Cursor:
+        def __init__(self) -> None:
+            self.last_params: tuple[object, ...] = ()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):  # noqa: ANN001
+            return False
+
+        def execute(self, sql: str, params=None):  # noqa: ANN001
+            self.last_params = tuple(params or ())
+            executed_sql.append(" ".join(str(sql).split()))
+
+        def fetchone(self):
+            if not executed_sql:
+                return None
+            last_sql = executed_sql[-1]
+            if "to_regclass('property_search_runs')" in last_sql:
+                return ("property_search_runs",)
+            if "FROM pg_class c" in last_sql and self.last_params in (
+                ("idx_property_search_runs_updated",),
+                ("idx_property_search_runs_principal_updated",),
+            ):
+                return (1,)
+            return None
+
+        def fetchall(self):
+            if not executed_sql:
+                return []
+            last_sql = executed_sql[-1]
+            if "information_schema.columns" in last_sql:
+                return [
+                    ("principal_id",),
+                    ("run_id",),
+                    ("payload_json",),
+                    ("status",),
+                    ("compact_json",),
+                    ("created_at",),
+                    ("updated_at",),
+                ]
+            if "FROM pg_index" in last_sql:
+                return [("principal_id",), ("run_id",)]
+            return []
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):  # noqa: ANN001
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+    monkeypatch.setattr(property_search_storage, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
+    monkeypatch.setattr(property_search_storage, "_property_search_run_connect", lambda: _Connection())
+
+    property_search_storage._ensure_property_search_run_schema()  # type: ignore[attr-defined]
+
+    assert not any(sql.startswith("UPDATE property_search_runs SET") for sql in executed_sql)
+    assert not any(sql.startswith("ALTER TABLE property_search_runs ADD COLUMN") for sql in executed_sql)
+    assert not any(sql.startswith("CREATE INDEX idx_property_search_runs_") for sql in executed_sql)
+
+
 def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
     if not db_url:
