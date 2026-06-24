@@ -163,7 +163,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
     assert "Checkout pending" not in pricing.text
-    assert "Request access." in pricing.text
+    assert "Open account, then activate from billing." in pricing.text
     assert re.search(r'<span class="active" aria-current="page">Pricing</span>', pricing.text)
     assert re.search(r'<a href="/pricing"[^>]*>Pricing</a>', pricing.text) is None
 

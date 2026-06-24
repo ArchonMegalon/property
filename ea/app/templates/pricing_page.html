@@ -132,8 +132,8 @@
         <a class="btn primary" href="/register" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
         <span class="tier-provider">Secure checkout.</span>
         {% else %}
-        <a class="btn ghost" href="/register" data-analytics-event="pricing_open_{{ plan.plan_key }}" data-rybbit-event="pricing_open_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Join waitlist</a>
-        <span class="tier-provider">Request access.</span>
+        <a class="btn ghost" href="/register" data-analytics-event="pricing_account_{{ plan.plan_key }}" data-rybbit-event="pricing_create_account_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Create account</a>
+        <span class="tier-provider">Open account, then activate from billing.</span>
         {% endif %}
       </div>
     </section>

@@ -938,8 +938,8 @@ def test_brilliant_directories_pricing_stays_propertyquarry_white_label(
 
     assert response.status_code == 200
     assert "Start free" in response.text
-    assert "Join waitlist" in response.text
-    assert "Request access." in response.text
+    assert "Create account" in response.text
+    assert "Open account, then activate from billing." in response.text
     assert "directory.example" not in response.text
     assert "Brilliant Directories" not in response.text
     assert "brilliantdirectories" not in response.text.lower()

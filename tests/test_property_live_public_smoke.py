@@ -36,7 +36,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
             'href="/how-it-works/score" Hard filters decide eligibility. '
             "You choose what is shared Account data stays editable"
         ),
-        "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Request access.",
+        "https://propertyquarry.com/pricing": "PropertyQuarry Pricing Start free Create account Open account, then activate from billing.",
         "https://propertyquarry.com/directory": (
             'PropertyQuarry directory <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
             "Directory coming soon"
