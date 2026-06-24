@@ -2158,6 +2158,17 @@ class OnboardingService(AssistantOnboardingService):
     ) -> dict[str, object]:
         raw = dict(value or {})
         base = dict(fallback or {})
+        commercial_source = (
+            dict(raw.get("property_commercial") or {})
+            if isinstance(raw.get("property_commercial"), dict)
+            else (
+                dict(base.get("property_commercial") or {})
+                if isinstance(base.get("property_commercial"), dict)
+                else {}
+            )
+        )
+        commercial_snapshot = property_commercial_snapshot({"property_commercial": commercial_source} if commercial_source else {})
+        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
         country_code = normalize_country_code(raw.get("country_code") or base.get("country_code"))
         region_code = str(raw.get("region_code") or base.get("region_code") or "").strip().lower()
         location_query = str(raw.get("location_query") or base.get("location_query") or "").strip()
@@ -2219,6 +2230,8 @@ class OnboardingService(AssistantOnboardingService):
         )
         if not preferences_json:
             preferences_json = OnboardingService._search_agent_preferences_payload(base)
+        if plan_key == "agent":
+            preferences_json.pop("max_results_per_source", None)
         preferences_json.update(
             {
                 "country_code": country_code,
