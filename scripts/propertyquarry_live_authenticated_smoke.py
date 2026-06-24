@@ -232,6 +232,13 @@ def build_live_authenticated_smoke_receipt(
 
 
 def main() -> int:
+    if len(os.sys.argv) > 1 and os.sys.argv[1] in {"--help", "-h"}:
+        print(
+            "Usage:\n"
+            "  python3 scripts/propertyquarry_live_authenticated_smoke.py [--base-url <url>] [--principal-id <id>]\n\n"
+            "Smokes the authenticated PropertyQuarry runtime surfaces using EA_API_TOKEN."
+        )
+        return 0
     parser = argparse.ArgumentParser(description="PropertyQuarry authenticated live runtime smoke.")
     parser.add_argument("--base-url", default=_env_value("PROPERTYQUARRY_LIVE_SMOKE_BASE_URL") or "http://localhost:8097")
     parser.add_argument("--principal-id", default=_env_value("PROPERTYQUARRY_LIVE_SMOKE_PRINCIPAL_ID") or _env_value("EA_PRINCIPAL_ID") or "cf-email:tibor.girschele@gmail.com")

@@ -124,6 +124,35 @@ def test_readme_documents_hardened_deploy_and_port_override() -> None:
     assert "POSTGRES_PASSWORD" in readme
     assert "EA_SIGNING_SECRET" in readme
     assert "EA_API_TOKEN or Cloudflare Access" in readme
+    assert "PROPERTYQUARRY_RUNTIME_GATES=1" in readme
+    assert "PROPERTYQUARRY_LIVE_SMOKE_BASE_URL=http://localhost:8097" in readme
+
+
+def test_runtime_hard_exit_gates_can_extend_into_propertyquarry_live_runtime() -> None:
+    script = _read("scripts/runtime_hard_exit_gates.sh")
+    smoke_help = _read("scripts/smoke_help.sh")
+
+    for required in (
+        "PROPERTYQUARRY_RUNTIME_GATES=1",
+        "PROPERTYQUARRY_LIVE_SMOKE_BASE_URL",
+        "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID",
+        "scripts/propertyquarry_live_public_smoke.py",
+        "scripts/propertyquarry_live_authenticated_smoke.py",
+        "scripts/property_live_provider_smoke.py",
+        "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1",
+        "PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0",
+        "verify_pocket_audio_archive.py failed, continuing because Pocket archive backfill is outside the PropertyQuarry runtime lane",
+        "EA_API_TOKEN is not set; skipping authenticated/provider PropertyQuarry runtime smokes",
+    ):
+        assert required in script
+
+    for required in (
+        "scripts/deploy_propertyquarry.sh",
+        "scripts/propertyquarry_live_public_smoke.py",
+        "scripts/propertyquarry_live_authenticated_smoke.py",
+        "scripts/property_live_provider_smoke.py",
+    ):
+        assert required in smoke_help
 
 
 def test_property_dockerfile_allowlists_runtime_scripts() -> None:

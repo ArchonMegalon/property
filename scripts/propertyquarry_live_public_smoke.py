@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import time
 import urllib.error
@@ -565,6 +566,13 @@ def build_live_public_smoke_receipt(
 
 
 def main() -> int:
+    if len(os.sys.argv) > 1 and os.sys.argv[1] in {"--help", "-h"}:
+        print(
+            "Usage:\n"
+            "  python3 scripts/propertyquarry_live_public_smoke.py [--base-url <url>] [--route <path>]...\n\n"
+            "Smokes the public PropertyQuarry deployment without mutating data."
+        )
+        return 0
     parser = argparse.ArgumentParser(description="Smoke the public PropertyQuarry deployment without mutating data.")
     parser.add_argument("--base-url", default="https://propertyquarry.com")
     parser.add_argument("--route", action="append", default=[], help="Route to smoke. Defaults to core public routes.")

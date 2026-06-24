@@ -49,6 +49,17 @@ Operator parity and release gate shortcuts:
 
 These hard-exit and LTD verifier scripts remain part of the operator contract even while this repo defaults to the PropertyQuarry product surface.
 
+For a standalone PropertyQuarry runtime, you can extend the runtime-only hard-exit bundle with live product probes:
+
+```bash
+PROPERTYQUARRY_RUNTIME_GATES=1 \
+EA_API_TOKEN=... \
+PROPERTYQUARRY_LIVE_SMOKE_BASE_URL=http://localhost:8097 \
+make runtime-hard-exit-gates
+```
+
+That optional branch runs the public runtime smoke plus the authenticated and provider-catalog smokes against the deployed PropertyQuarry service.
+
 ## Run it
 
 ```bash

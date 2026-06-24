@@ -4,11 +4,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
+
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(EA_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_ROOT))
 
 from app.services.property_market_catalog import default_platforms_for_country, provider_options
 
@@ -167,6 +175,13 @@ def build_live_provider_smoke_receipt(
 
 
 def main() -> int:
+    if len(os.sys.argv) > 1 and os.sys.argv[1] in {"--help", "-h"}:
+        print(
+            "Usage:\n"
+            "  python3 scripts/property_live_provider_smoke.py [--base-url <url>] [--country <code>]...\n\n"
+            "Builds the PropertyQuarry provider smoke receipt in skipped, dry-run, or live runtime mode."
+        )
+        return 0
     parser = argparse.ArgumentParser(description="PropertyQuarry live provider smoke receipt.")
     parser.add_argument("--country", action="append", default=[], help="Country code to include. Defaults to AT and CR.")
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")

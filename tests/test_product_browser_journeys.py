@@ -477,11 +477,13 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
     assert sign_in.status_code == 200
     assert "Sign in to PropertyQuarry" in sign_in.text
     assert "property search" in sign_in.text.lower()
+    assert "First-time provider sign-in also creates the account automatically." in sign_in.text
 
     register = client.get("/register", headers={"host": "propertyquarry.com"})
     assert register.status_code == 200
     assert "Start an account that finds and ranks the right properties." in register.text
     assert "Create the account and start the first search." in register.text
+    assert "Google sign-in also works as first account creation later." in register.text
 
 
 def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() -> None:

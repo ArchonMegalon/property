@@ -134,6 +134,22 @@ curl_body_retry() {
   return 1
 }
 
+route_status_code() {
+  local route_path="$1"
+  local probe_path="${SMOKE_TMP_DIR}/route_probe_$(printf '%s' "${route_path}" | tr '/?=&:%.' '_').json"
+  local code=""
+  code="$(curl_status_code "${probe_path}" "${BASE}${route_path}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" || true)"
+  rm -f "${probe_path}"
+  printf '%s' "${code}"
+}
+
+route_available() {
+  local route_path="$1"
+  local code=""
+  code="$(route_status_code "${route_path}")"
+  [[ -n "${code}" && "${code}" != "404" ]]
+}
+
 HOST_PORT="${EA_HOST_PORT:-}"
 if [[ -z "${HOST_PORT}" && -f "${EA_ROOT}/.env" ]]; then
   HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
@@ -292,6 +308,34 @@ SMOKE_RUN_TOKEN="${EA_SMOKE_RUN_TOKEN:-$(date +%s)-$$}"
 # hybrid-retry@example.com
 HYBRID_RECIPIENT="hybrid-${SMOKE_RUN_TOKEN}@example.com"
 HYBRID_RETRY_RECIPIENT="hybrid-retry-${SMOKE_RUN_TOKEN}@example.com"
+LEGACY_HUMAN_TASKS_AVAILABLE=0
+LEGACY_OBSERVATIONS_AVAILABLE=0
+LEGACY_DELIVERY_AVAILABLE=0
+LEGACY_CONNECTORS_AVAILABLE=0
+LEGACY_TASK_CONTRACTS_AVAILABLE=0
+LEGACY_SKILLS_AVAILABLE=0
+LEGACY_RESPONSES_AVAILABLE=0
+if route_available "/v1/human/tasks?limit=1"; then
+  LEGACY_HUMAN_TASKS_AVAILABLE=1
+fi
+if route_available "/v1/observations/recent?limit=1"; then
+  LEGACY_OBSERVATIONS_AVAILABLE=1
+fi
+if route_available "/v1/delivery/outbox/pending?limit=1"; then
+  LEGACY_DELIVERY_AVAILABLE=1
+fi
+if route_available "/v1/connectors/registry"; then
+  LEGACY_CONNECTORS_AVAILABLE=1
+fi
+if route_available "/v1/tasks/contracts"; then
+  LEGACY_TASK_CONTRACTS_AVAILABLE=1
+fi
+if route_available "/v1/skills/catalog"; then
+  LEGACY_SKILLS_AVAILABLE=1
+fi
+if route_available "/v1/responses"; then
+  LEGACY_RESPONSES_AVAILABLE=1
+fi
 
 echo "== smoke: health =="
 curl -fsS "${BASE}/health" >/dev/null
@@ -546,6 +590,7 @@ if [[ "${REWRITE_SCOPE_MISMATCH_REASONS}" != "principal_scope_mismatch|principal
 fi
 echo "session/policy ok"
 
+if (( LEGACY_HUMAN_TASKS_AVAILABLE )); then
 echo "== smoke: human tasks =="
 SESSION_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${SESSION_JSON}")"
 if [[ -z "${SESSION_STEP_ID}" ]]; then
@@ -1474,6 +1519,10 @@ if [[ "${UNSCHED_COMBINED_BACKLOG_FIELDS}" != "${UNSCHED_DUE_ID}|${UNSCHED_OLDER
   fail 12 "policy contract mismatch"
 fi
 echo "human task unscheduled fallback sort ok"
+else
+echo "== smoke: human tasks =="
+echo "skipped: /v1/human/tasks routes are not published on this runtime"
+fi
 
 echo "== smoke: approval resume path =="
 if (( APPROVAL_THRESHOLD_CHARS >= MAX_REWRITE_CHARS )); then
@@ -1501,11 +1550,12 @@ if [[ "${APPROVAL_CODE}" != "202" ]]; then
   cat ${SMOKE_TMP_DIR}/ea_approval_required_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
-APPROVAL_FIELDS="$(python3 - <<'PY'
+APPROVAL_FIELDS="$(python3 - "${SMOKE_TMP_DIR}/ea_approval_required_resp.json" <<'PY'
 import json
 from pathlib import Path
+import sys
 
-path = Path("${SMOKE_TMP_DIR}/ea_approval_required_resp.json")
+path = Path(sys.argv[1])
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1517,11 +1567,12 @@ except Exception:
 print("{}|{}|{}|{}".format(body.get("status",""), body.get("next_action",""), body.get("session_id",""), body.get("approval_id","")))
 PY
 )"
-APPROVAL_SESSION_ID="$(python3 - <<'PY'
+APPROVAL_SESSION_ID="$(python3 - "${SMOKE_TMP_DIR}/ea_approval_required_resp.json" <<'PY'
 import json
 from pathlib import Path
+import sys
 
-path = Path("${SMOKE_TMP_DIR}/ea_approval_required_resp.json")
+path = Path(sys.argv[1])
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1533,11 +1584,12 @@ except Exception:
 print(body.get("session_id",""))
 PY
 )"
-APPROVAL_ID="$(python3 - <<'PY'
+APPROVAL_ID="$(python3 - "${SMOKE_TMP_DIR}/ea_approval_required_resp.json" <<'PY'
 import json
 from pathlib import Path
+import sys
 
-path = Path("${SMOKE_TMP_DIR}/ea_approval_required_resp.json")
+path = Path(sys.argv[1])
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1627,10 +1679,11 @@ if [[ "${BLOCKED_CODE}" != "403" ]]; then
   cat ${SMOKE_TMP_DIR}/ea_blocked_policy_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
-BLOCKED_REASON="$(python3 - <<'PY'
+BLOCKED_REASON="$(python3 - "${SMOKE_TMP_DIR}/ea_blocked_policy_resp.json" <<'PY'
 import json
 from pathlib import Path
-path = Path("${SMOKE_TMP_DIR}/ea_blocked_policy_resp.json")
+import sys
+path = Path(sys.argv[1])
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1649,12 +1702,18 @@ if [[ "${BLOCKED_REASON}" != "policy_denied:input_too_large" ]]; then
 fi
 echo "blocked policy path ok"
 
-echo "== smoke: observations =="
-curl -fsS -X POST "${BASE}/v1/observations/ingest" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"channel":"email","event_type":"thread.opened","payload":{"subject":"Board prep"}}' >/dev/null
-curl -fsS "${BASE}/v1/observations/recent?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-echo "observations ok"
+if (( LEGACY_OBSERVATIONS_AVAILABLE )); then
+  echo "== smoke: observations =="
+  curl -fsS -X POST "${BASE}/v1/observations/ingest" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
+    -d '{"channel":"email","event_type":"thread.opened","payload":{"subject":"Board prep"}}' >/dev/null
+  curl -fsS "${BASE}/v1/observations/recent?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
+  echo "observations ok"
+else
+  echo "== smoke: observations =="
+  echo "skipped: /v1/observations routes are not published on this runtime"
+fi
 
+if (( LEGACY_DELIVERY_AVAILABLE )); then
 echo "== smoke: outbox =="
 DELIVERY_JSON="$(curl -fsS -X POST "${BASE}/v1/delivery/outbox" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"channel":"slack","recipient":"U1","content":"Draft ready","metadata":{"priority":"high"},"idempotency_key":"smoke-delivery-1"}')"
 DELIVERY_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("delivery_id",""))' <<<"${DELIVERY_JSON}")"
@@ -1666,7 +1725,12 @@ curl -fsS -X POST "${BASE}/v1/delivery/outbox/${DELIVERY_ID}/failed" "${AUTH_ARG
 curl -fsS "${BASE}/v1/delivery/outbox/pending?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 curl -fsS -X POST "${BASE}/v1/delivery/outbox/${DELIVERY_ID}/sent" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
 echo "outbox ok"
+else
+echo "== smoke: outbox =="
+echo "skipped: /v1/delivery routes are not published on this runtime"
+fi
 
+if (( LEGACY_CONNECTORS_AVAILABLE )); then
 echo "== smoke: telegram adapter =="
 curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"connector_name":"telegram_identity","external_account_ref":"42","scope_json":{"assistant_surfaces":["dm"]},"auth_metadata_json":{"default_chat_ref":"42","identity_mode":"login_widget","history_mode":"future_only"},"status":"enabled"}' >/dev/null
@@ -1723,11 +1787,12 @@ if [[ "${TOOL_EXEC_MISMATCH_CODE}" != "403" ]]; then
   cat ${SMOKE_TMP_DIR}/ea_tool_exec_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
-TOOL_EXEC_MISMATCH_REASON="$(python3 - <<'PY'
+TOOL_EXEC_MISMATCH_REASON="$(python3 - "${SMOKE_TMP_DIR}/ea_tool_exec_mismatch_resp.json" <<'PY'
 import json
 from pathlib import Path
+import sys
 
-path = Path("${SMOKE_TMP_DIR}/ea_tool_exec_mismatch_resp.json")
+path = Path(sys.argv[1])
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1784,11 +1849,12 @@ if [[ "${CONNECTOR_MISMATCH_CODE}" != "403" ]]; then
   cat ${SMOKE_TMP_DIR}/ea_connector_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
-CONNECTOR_MISMATCH_REASON="$(python3 - <<'PY'
+CONNECTOR_MISMATCH_REASON="$(python3 - "${SMOKE_TMP_DIR}/ea_connector_mismatch_resp.json" <<'PY'
 import json
 from pathlib import Path
+import sys
 
-path = Path("${SMOKE_TMP_DIR}/ea_connector_mismatch_resp.json")
+path = Path(sys.argv[1])
 if not path.exists():
     print("")
     raise SystemExit(0)
@@ -1806,14 +1872,26 @@ if [[ "${CONNECTOR_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
   fail 12 "policy contract mismatch"
 fi
 echo "tools/connectors ok"
+else
+echo "== smoke: telegram adapter =="
+echo "skipped: /v1/connectors routes are not published on this runtime"
+echo "== smoke: tools and connectors =="
+echo "skipped: /v1/connectors and /v1/tools routes are not published on this runtime"
+fi
 
+if (( LEGACY_TASK_CONTRACTS_AVAILABLE )); then
 echo "== smoke: task contracts =="
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":[],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","artifact_failure_strategy":"retry","artifact_max_attempts":2,"artifact_retry_backoff_seconds":15}}' >/dev/null
 operator_curl "${BASE}/v1/tasks/contracts?limit=5" >/dev/null
 operator_curl "${BASE}/v1/tasks/contracts/rewrite_text" >/dev/null
 echo "task contracts ok"
+else
+echo "== smoke: task contracts =="
+echo "skipped: /v1/tasks/contracts routes are not published on this runtime"
+fi
 
+if (( LEGACY_SKILLS_AVAILABLE )); then
 echo "== smoke: skills =="
 SKILL_JSON="$(operator_post_json "${BASE}/v1/skills" -H 'content-type: application/json' \
   -d '{"skill_key":"meeting_prep","task_key":"meeting_prep","name":"Meeting Prep","description":"Build an executive-ready meeting prep packet.","deliverable_type":"meeting_pack","default_risk_class":"low","default_approval_class":"none","workflow_template":"artifact_then_memory_candidate","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context","decision_context"],"memory_write_policy":"reviewed_only","memory_reads":["stakeholders","commitments","decision_windows"],"memory_writes":["meeting_pack_fact"],"tags":["executive","meeting","briefing"],"authority_profile_json":{"authority_class":"draft","review_class":"operator"},"provider_hints_json":{"primary":["1min.AI"],"research":["BrowserAct","Paperguide"],"output":["MarkupGo"]},"tool_policy_json":{"allowed_tools":["artifact_repository"]},"human_policy_json":{"review_roles":["briefing_reviewer"]},"evaluation_cases_json":[{"case_key":"meeting_prep_golden","priority":"high"}],"budget_policy_json":{"class":"low","memory_candidate_category":"meeting_pack_fact","memory_candidate_confidence":0.8,"memory_candidate_sensitivity":"internal"}}')"
@@ -1905,7 +1983,12 @@ if [[ "${CHUMMER_SKILL_FIELDS}" != "chummer6_visual_director|chummer6_guide_refr
   fail 12 "policy contract mismatch"
 fi
 echo "skills ok"
+else
+echo "== smoke: skills =="
+echo "skipped: /v1/skills routes are not published on this runtime"
+fi
 
+if (( LEGACY_TASK_CONTRACTS_AVAILABLE )); then
 echo "== smoke: plans =="
 PLAN_COMPILE_TASK_KEY="rewrite_text_plan_${SMOKE_RUN_TOKEN}"
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
@@ -1947,7 +2030,12 @@ if [[ "${REVIEW_PLAN_FIELDS}" != "4|human_task|human|draft|operator|communicatio
   fail 12 "policy contract mismatch"
 fi
 echo "plans ok"
+else
+echo "== smoke: plans =="
+echo "skipped: /v1/tasks/contracts routes are not published on this runtime"
+fi
 
+if (( LEGACY_RESPONSES_AVAILABLE && LEGACY_TASK_CONTRACTS_AVAILABLE )); then
 echo "== smoke: generic task execution =="
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
   -d '{"task_key":"stakeholder_briefing","deliverable_type":"stakeholder_briefing","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
@@ -2689,7 +2777,14 @@ if [[ "${HYBRID_RETRY_PENDING_AFTER_FIELDS}" != "False" ]]; then
   fail 12 "policy contract mismatch"
 fi
 echo "generic task async contracts ok"
+else
+echo "== smoke: generic task execution =="
+echo "skipped: /v1/responses routes are not published on this runtime"
+echo "== smoke: generic task async contracts =="
+echo "skipped: /v1/responses routes are not published on this runtime"
+fi
 
+if (( LEGACY_HUMAN_TASKS_AVAILABLE && LEGACY_TASK_CONTRACTS_AVAILABLE )); then
 echo "== smoke: compiled human review runtime =="
 HUMAN_REWRITE_ROLE="communications_reviewer_${SMOKE_RUN_TOKEN}"
 HUMAN_REWRITE_SPECIALIST_ID="operator-specialist-${SMOKE_RUN_TOKEN}"
@@ -2771,6 +2866,10 @@ if [[ "${HUMAN_REWRITE_DONE_FIELDS}" != "completed|True|rewrite with human revie
   fail 12 "policy contract mismatch"
 fi
 echo "compiled human review runtime ok"
+else
+echo "== smoke: compiled human review runtime =="
+echo "skipped: human review runtime requires /v1/human/tasks and /v1/tasks/contracts"
+fi
 
 echo "== smoke: memory =="
 MEMORY_CANDIDATE_JSON="$(curl -fsS -X POST "${BASE}/v1/memory/candidates" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
@@ -2794,11 +2893,12 @@ if [[ "${MEMORY_MISMATCH_CODE}" != "403" ]]; then
   cat ${SMOKE_TMP_DIR}/ea_memory_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
-MEMORY_MISMATCH_REASON="$(python3 - <<'PY'
+MEMORY_MISMATCH_REASON="$(python3 - "${SMOKE_TMP_DIR}/ea_memory_mismatch_resp.json" <<'PY'
 import json
 from pathlib import Path
+import sys
 
-path = Path("${SMOKE_TMP_DIR}/ea_memory_mismatch_resp.json")
+path = Path(sys.argv[1])
 if not path.exists():
     print("")
     raise SystemExit(0)

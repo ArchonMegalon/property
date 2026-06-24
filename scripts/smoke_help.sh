@@ -44,6 +44,10 @@ SCRIPTS=(
   scripts/operator_summary.sh
   scripts/support_bundle.sh
   scripts/archive_tasks.sh
+  scripts/deploy_propertyquarry.sh
+  scripts/propertyquarry_live_public_smoke.py
+  scripts/propertyquarry_live_authenticated_smoke.py
+  scripts/property_live_provider_smoke.py
   scripts/bootstrap_payfunnels_propertyquarry.py
   scripts/bootstrap_emailit_propertyquarry.py
   scripts/verify_release_assets.sh

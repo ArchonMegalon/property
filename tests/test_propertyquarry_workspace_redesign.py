@@ -794,6 +794,7 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Identity only" not in sign_in.text
     assert "Identity-only." not in sign_in.text
     assert "Use a saved session, email link, or connected identity." in sign_in.text
+    assert "First-time provider sign-in also creates the account automatically." in sign_in.text
     assert "auth-provider-icon" in sign_in.text
     assert "first useful memo" not in page.text
     assert 'data-milestone="commitments"' not in page.text

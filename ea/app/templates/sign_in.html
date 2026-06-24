@@ -234,7 +234,7 @@
   <section class="access-panel">
     <div class="kicker">Sign in</div>
     <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-    <p class="lead">Use a saved session, email link, or connected identity. First-time provider sign-in can start the account implicitly.</p>
+    <p class="lead">Use a saved session, email link, or connected identity. First-time provider sign-in also creates the account automatically.</p>
     <div class="cta-row">
       {% if public_signed_in %}
       <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
@@ -257,7 +257,7 @@
         <span class="auth-provider-icon" aria-hidden="true">G</span>
         <span>
           <strong>Google</strong>
-          <p>Saved Google account</p>
+          <p>Saved or first-time Google account</p>
         </span>
         <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
       </div>
@@ -267,7 +267,7 @@
         <span class="auth-provider-icon" aria-hidden="true">f</span>
         <span>
           <strong>Facebook</strong>
-          <p>Saved Facebook identity</p>
+          <p>Saved or first-time Facebook identity</p>
         </span>
         <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
       </div>
@@ -277,7 +277,7 @@
         <span class="auth-provider-icon" aria-hidden="true">ID</span>
         <span>
           <strong>ID Austria</strong>
-          <p>Verified Austrian identity</p>
+          <p>Saved or first-time verified Austrian identity</p>
         </span>
         <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
       </div>
@@ -298,7 +298,7 @@
     {% if sign_in_connected_provider %}
     <div class="access-feedback" data-sign-in-provider-connected>
       <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>
-      <p class="copy">Use the email link for this account.</p>
+      <p class="copy">Open the account now, or use the email link for the same account.</p>
       <div class="cta-row">
         <button class="btn primary" type="button" data-focus-sign-in-email>Use email link</button>
       </div>
