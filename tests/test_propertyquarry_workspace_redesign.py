@@ -5922,6 +5922,9 @@ def test_property_decision_workbench_uses_shared_research_shell_contract() -> No
     assert 'href="/app/properties{{ topnav_query_suffix }}">Edit search</a>' in body
     assert 'href="/app/properties{{ topnav_query_suffix }}">{{ row.get(\'action_label\') or \'Adjust search\' }}</a>' in body
     assert 'href="/app/properties{{ topnav_query_suffix }}">Review what matters</a>' in body
+    assert 'href="/app/search">New search</a>' in body
+    assert 'href="/app/agents{{ topnav_query_suffix }}">Saved searches</a>' in body
+    assert 'href="/app/properties{{ topnav_query_suffix }}">' in body
     assert "Decision desk" not in body
 
 
@@ -5931,6 +5934,16 @@ def test_property_results_list_keeps_adjust_search_in_active_run() -> None:
 
     assert "{% set results_query_suffix = ('?run_id=' ~ ((run.get('run_id') or '')|urlencode)) if run.get('run_id') else '' %}" in body
     assert 'href="/app/properties{{ results_query_suffix }}">Adjust search</a>' in body
+
+
+def test_property_search_agents_panel_uses_search_entry_for_fresh_starts() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_search_agents_panel.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert 'href="/app/search">New search</a>' in body
+    assert 'href="/app/search">Create saved search</a>' in body
+    assert 'href="/app/properties">New search</a>' not in body
+    assert 'href="/app/properties">Create saved search</a>' not in body
 
 
 def test_property_object_detail_feedback_script_avoids_magicfit_preview_innerhtml() -> None:

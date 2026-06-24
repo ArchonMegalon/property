@@ -6465,7 +6465,7 @@
         {% if run_active and run.get('run_id') %}
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
         {% elif run_terminal_no_results %}
-        <a class="pqx-link-button primary" href="/app/properties">New search</a>
+        <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% endif %}
         {% if account_nav %}
         <details class="pqx-account-menu">
@@ -6637,8 +6637,8 @@
               <strong>{% if dashboard_agents %}Search · Run · Shortlist{% else %}Create the first search brief{% endif %}</strong>
             </div>
             <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/properties">New search</a>
-              <a class="pqx-link-button subtle" href="/app/agents">Saved searches</a>
+              <a class="pqx-link-button primary" href="/app/search">New search</a>
+              <a class="pqx-link-button subtle" href="/app/agents{{ topnav_query_suffix }}">Saved searches</a>
             </div>
             {% endif %}
           </div>
@@ -7393,7 +7393,7 @@
             </div>
             {% endif %}
             <div class="pqx-actions">
-              <a class="pqx-link-button primary" href="/app/properties">New search</a>
+              <a class="pqx-link-button primary" href="/app/search">New search</a>
             </div>
           </div>
         </aside>
@@ -7424,7 +7424,7 @@
           <div data-pqx-counterfactuals>
           {% if soft_only_empty_state and not ranked_candidates %}
           <div class="pqx-suppression-grid" style="margin-bottom:12px;">
-            <a class="pqx-suppression-item" href="/app/properties">
+            <a class="pqx-suppression-item" href="/app/properties{{ topnav_query_suffix }}">
               <strong>Lower shortlist score</strong>
               <span class="pqx-note">{{ soft_demoted_total }} reviewed homes are still available once the shortlist bar moves down.</span>
               <span class="pqx-suppression-action">Adjust score</span>
