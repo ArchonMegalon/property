@@ -2054,37 +2054,32 @@
     </section>
 
     <aside class="prd-side-stack">
-      <section class="prd-panel">
-        <div class="prd-kicker">Next move</div>
-        <h2>What to do next</h2>
-        <div class="prd-key-points">
-          {% for row in research_decision_rows[:3] %}
-          <div class="prd-key-point">
-            <strong>{{ row.get('title') }}</strong>
-            <span>{{ row.get('detail') }}</span>
-          </div>
-          {% endfor %}
-        </div>
-        {% if research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings')) %}
-        <div class="prd-key-points" style="margin-top:14px;">
-          <div class="prd-key-point">
-            <strong>Questions worth asking next</strong>
-            <span>
-              {% if research_neuronwriter.get('questions') %}
-              {{ (research_neuronwriter.get('questions') or [])[:3]|join(' · ') }}
-              {% else %}
-              {{ (research_neuronwriter.get('headings') or [])[:3]|join(' · ') }}
-              {% endif %}
-            </span>
-          </div>
-        </div>
-        {% endif %}
-      </section>
-
       <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
-      <div class="prd-kicker">Record the outcome</div>
-      <h2>Save your decision</h2>
-      <p class="object-copy">Pick the real next step so later shortlists stay aligned.</p>
+      <div class="prd-kicker">Decision</div>
+      <h2>Save this property decision</h2>
+      <p class="object-copy">Keep the next move, reasoning, and follow-up in one place.</p>
+      <div class="prd-key-points" style="margin-top:14px;">
+        {% for row in research_decision_rows[:3] %}
+        <div class="prd-key-point">
+          <strong>{{ row.get('title') }}</strong>
+          <span>{{ row.get('detail') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% if research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings')) %}
+      <div class="prd-key-points" style="margin-top:14px;">
+        <div class="prd-key-point">
+          <strong>Questions worth asking next</strong>
+          <span>
+            {% if research_neuronwriter.get('questions') %}
+            {{ (research_neuronwriter.get('questions') or [])[:3]|join(' · ') }}
+            {% else %}
+            {{ (research_neuronwriter.get('headings') or [])[:3]|join(' · ') }}
+            {% endif %}
+          </span>
+        </div>
+      </div>
+      {% endif %}
       <div class="object-feedback-row" aria-label="Property feedback reaction">
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
@@ -2142,7 +2137,7 @@
       <details class="prd-collapse" style="margin-top:8px;">
         <summary>
           <span>
-            <span class="prd-kicker">Extra tools</span>
+            <span class="prd-kicker">Optional tools</span>
             <strong>Question helper and furnished preview</strong>
           </span>
           <span class="prd-tag">Opt-in</span>

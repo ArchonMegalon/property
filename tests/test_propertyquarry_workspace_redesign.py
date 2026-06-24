@@ -5627,7 +5627,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Library" in packet.text
     assert "Underground" in packet.text
     assert "Current read" in packet.text
-    assert "What to do next" in packet.text
+    assert "Save this property decision" in packet.text
+    assert "What to do next" not in packet.text
     assert "Evidence added" in packet.text
     assert "Manual clearance required" in packet.text
     assert "Luftmessnetz: aktuelle Messdaten Wien" in packet.text
@@ -5653,7 +5654,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Viewing requested" in packet.text
     assert "Request missing documents" in packet.text
     assert "Offer candidate" in packet.text
-    assert "Extra tools" in packet.text
+    assert "Optional tools" in packet.text
     assert "Open question helper" in packet.text
     assert "Ask agent next" not in packet.text
     assert "Tracked follow-up" in packet.text

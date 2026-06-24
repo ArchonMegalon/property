@@ -1532,7 +1532,7 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
 
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
         assert page.locator("body", has_text="Current read").is_visible()
-        assert page.locator("body", has_text="Record the outcome").is_visible()
+        assert page.locator("body", has_text="Save this property decision").is_visible()
     finally:
         context.close()
 
