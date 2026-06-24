@@ -43,7 +43,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         ),
         "https://propertyquarry.com/directory/profile/sample": (
             'PropertyQuarry <meta name="robots" content="noindex, follow, noarchive, nosnippet"> '
-            "Profile details stay on PropertyQuarry Reviewed public profile details will appear here once this section is ready. Back to directory Contact support."
+            "Profile details stay on PropertyQuarry Reviewed public profile details are not available right now. Back to directory Contact support."
         ),
         "https://propertyquarry.com/privacy": "PropertyQuarry Privacy Public tours should use a narrow public manifest",
         "https://propertyquarry.com/terms": "PropertyQuarry Terms Generated or embedded tours help screening",
