@@ -123,11 +123,18 @@ from app.product.property_tour_hosting import (
     _embedded_live_360_source_url,
     _existing_hosted_property_tour_payload,
     _existing_hosted_property_tour_url,
+    _hosted_property_tour_control_url,
     _hosted_property_tour_asset_suffix,
+    _hosted_property_tour_has_3dvista_export as _hosting_has_3dvista_export,
+    _hosted_property_tour_has_matterport_export as _hosting_has_matterport_export,
+    _hosted_property_tour_payload_for_url,
     _hosted_property_tour_direct_360_url,
     _hosted_property_tour_preview_image_url,
     _hosted_property_tour_public_base_url,
     _hosted_property_tour_slug,
+    _hosted_property_tour_verified_open_url,
+    _hosted_property_tour_walkthrough_asset_url,
+    _published_walkthrough_asset_url,
     _hosted_public_tour_asset_url,
     _is_branded_public_tour_url,
     _is_crezlo_tour_host,
@@ -992,8 +999,20 @@ def _property_search_review_open_timeout_seconds() -> float:
 
 
 def _property_search_run_is_stale(state: dict[str, object]) -> bool:
+    liveness_state = dict(state)
+    event_times: list[datetime] = []
+    for event in list(liveness_state.get("events") or []):
+        if not isinstance(event, dict):
+            continue
+        parsed_event_at = _parse_utcish(str(event.get("at") or ""))
+        if parsed_event_at is not None:
+            event_times.append(parsed_event_at)
+    latest_event_at = max(event_times) if event_times else None
+    row_updated_at = _parse_utcish(str(liveness_state.get("updated_at") or ""))
+    if latest_event_at is not None and (row_updated_at is None or latest_event_at < row_updated_at):
+        liveness_state["updated_at"] = latest_event_at.isoformat()
     return _state_property_search_run_is_stale(
-        state,
+        liveness_state,
         terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
         parse_utcish=_parse_utcish,
         stale_seconds=_property_search_run_stale_seconds(),
@@ -2167,7 +2186,6 @@ def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool
     return bool(
         facts.get("has_360")
         or source_virtual_tour_url
-        or _property_facts_have_floorplan(facts)
     )
 
 
@@ -2304,17 +2322,14 @@ def _property_visual_eta_label(
 
 def _normalize_property_flythrough_result(result: dict[str, object] | None) -> dict[str, object]:
     payload = dict(result or {})
-    video_url = str(payload.get("video_url") or payload.get("flythrough_url") or "").strip()
-    flythrough_url = str(payload.get("flythrough_url") or "").strip()
-    tour_url = str(payload.get("tour_url") or "").strip()
-    if not flythrough_url and tour_url:
-        flythrough_url = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
-    elif not flythrough_url:
-        flythrough_url = video_url
-    if flythrough_url:
-        payload["flythrough_url"] = flythrough_url
+    published_video_url = _published_walkthrough_asset_url(payload.get("video_url") or payload.get("flythrough_url"))
+    if published_video_url:
+        payload["video_url"] = published_video_url
+        payload["flythrough_url"] = published_video_url
+    else:
+        payload.pop("flythrough_url", None)
     status = str(payload.get("status") or "").strip().lower()
-    if video_url and status not in {"rendered", "existing", "ready"}:
+    if published_video_url and status not in {"rendered", "existing", "ready"}:
         payload["status"] = "rendered"
         payload.setdefault("reason", "")
     return payload
@@ -6473,7 +6488,13 @@ def _property_search_adjacent_area_radius_m(preferences: dict[str, object] | Non
         unit_value = 0.0
     unit = str(packet.get("adjacent_area_radius_unit") or "m").strip().lower()
     multiplier = 1000 if unit == "km" else 1
-    return max(0, int(round(unit_value * multiplier)))
+    radius_m = max(0, int(round(unit_value * multiplier)))
+    if radius_m > 0:
+        return radius_m
+    raw_preferences = packet.get("raw_preferences")
+    if isinstance(raw_preferences, dict):
+        return _property_search_adjacent_area_radius_m(raw_preferences)
+    return 0
 
 
 def _property_search_adjacent_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
@@ -7172,7 +7193,7 @@ def _property_candidate_display_facts(payload: dict[str, object]) -> dict[str, o
     if isinstance(payload.get("property_facts_json"), dict):
         top_level_facts = {**top_level_facts, **dict(payload.get("property_facts_json") or {})}
     snapshot = dict(top_level_facts.get("listing_research_snapshot") or {}) if isinstance(top_level_facts.get("listing_research_snapshot"), dict) else {}
-    merged = {**snapshot, **top_level_facts}
+    merged = {**top_level_facts, **snapshot}
 
     def _normalized(value: object) -> str:
         return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
@@ -7329,6 +7350,34 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
         )
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
+    def _candidate_conflicts_source_scope(candidate: dict[str, object], source: dict[str, object]) -> bool:
+        source_scope_hints = _property_exact_source_scope_location_hints(
+            source_url=str(source.get("source_url") or source.get("url") or "").strip(),
+            source_label=str(
+                source.get("source_scope_label")
+                or source.get("source_label")
+                or source.get("label")
+                or source.get("platform")
+                or ""
+            ).strip(),
+        )
+        source_scope_codes = {
+            _property_postal_code_core(code)
+            for code in re.findall(r"\b\d{4,5}\b", " ".join(source_scope_hints))
+        }
+        source_scope_codes.discard("")
+        if not source_scope_codes:
+            return False
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        listing_codes = _property_listing_observed_postal_codes(
+            title=str(candidate.get("title") or candidate.get("listing_title") or "").strip(),
+            summary=str(candidate.get("summary") or candidate.get("fit_summary") or "").strip(),
+            property_facts=facts,
+        )
+        if not listing_codes:
+            return False
+        return not any(code in source_scope_codes for code in listing_codes)
+
     def _merge_candidate_rows(current: dict[str, object], incoming: dict[str, object]) -> dict[str, object]:
         merged = dict(current)
         merged_facts = dict(current.get("property_facts") or {}) if isinstance(current.get("property_facts"), dict) else {}
@@ -7377,6 +7426,8 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
                 if not isinstance(candidate, dict):
                     continue
                 if not _candidate_is_rankable(candidate):
+                    continue
+                if _candidate_conflicts_source_scope(candidate, source):
                     continue
                 row = dict(candidate)
                 row.setdefault("source_label", source_label)
@@ -11495,6 +11546,32 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
     }
 
 
+def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") -> str:
+    normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+    normalized_reason = str(reason or "").strip().lower()
+    if normalized_reason in {
+        "",
+        "none",
+        "null",
+        "blocked",
+        "failed",
+        "skipped",
+        "not_applicable",
+        "fit_below_threshold",
+        "provider_export_missing",
+        "listing_360_media_missing",
+        "pure_360_assets_unavailable",
+        "floorplan_assets_unavailable",
+        "gallery_assets_unavailable",
+        "property_tour_execution_failed",
+        "crezlo_property_tour_not_configured",
+    }:
+        if normalized_kind == "flythrough":
+            return "More source material is still needed before this walkthrough can be built."
+        return "More source material is still needed before this 3D tour can be built."
+    return str(reason or "").strip()
+
+
 def _google_send_error_detail(exc: Exception) -> str:
     detail = str(exc or "").strip()
     reader = getattr(exc, "read", None)
@@ -13106,7 +13183,7 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
     return {
         "slug": slug,
         "video_url": public_video_url,
-        "flythrough_url": str(payload.get("flythrough_url") or _property_tour_deep_link(normalized_url, pane="flythrough-pane", autoplay=True)).strip(),
+        "flythrough_url": _hosted_property_tour_walkthrough_asset_url(normalized_url),
         "video_file_path": str(local_video_path),
         "audio_probe_ref": str(local_video_path),
         "provider_key": video_provider,
@@ -13201,7 +13278,7 @@ def _update_hosted_property_tour_magicfit_video_manifest(
         payload["covered_route_labels"] = normalized_route_labels
         payload["room_visit_plan"] = normalized_route_labels
         payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
-    payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
+    payload["flythrough_url"] = _hosted_public_tour_asset_url(tour_url, slug=slug, asset_relpath=normalized_video_relpath)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
@@ -13248,7 +13325,7 @@ def _update_hosted_property_tour_video_manifest(
         payload["covered_route_labels"] = normalized_route_labels
         payload["room_visit_plan"] = normalized_route_labels
         payload["video_coverage_proof"] = "boundary_verified_frame_continuation"
-    payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
+    payload["flythrough_url"] = _hosted_public_tour_asset_url(tour_url, slug=slug, asset_relpath=normalized_video_relpath)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
@@ -15207,68 +15284,19 @@ def _property_tour_deep_link(tour_url: str, *, pane: str, autoplay: bool = False
 
 
 def _property_tour_control_link(tour_url: str, *, viewer: str = "") -> str:
-    normalized = str(tour_url or "").strip()
-    if not normalized:
-        return ""
-    viewer_slug = str(viewer or "").strip().lower()
-    if viewer_slug in {"metaport"}:
-        viewer_slug = "matterport"
-    if viewer_slug not in {"", "matterport", "3dvista"}:
-        viewer_slug = ""
-    try:
-        parsed = urllib.parse.urlparse(normalized)
-        path = str(parsed.path or "").rstrip("/")
-        if path.endswith("/control/matterport") or path.endswith("/control/3dvista"):
-            path = path.rsplit("/control/", 1)[0]
-        elif path.endswith("/control"):
-            path = path[: -len("/control")]
-        if viewer_slug:
-            path = f"{path}/control/{viewer_slug}"
-        else:
-            path = f"{path}/control"
-        return urllib.parse.urlunparse(parsed._replace(path=path, query="", fragment=""))
-    except Exception:
-        base = normalized.rstrip("/")
-        return f"{base}/control/{viewer_slug}" if viewer_slug else f"{base}/control"
+    return _hosted_property_tour_control_url(tour_url, viewer=viewer)
 
 
 def _hosted_property_tour_manifest(tour_url: str) -> dict[str, object]:
-    _slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
-    if bundle_dir is None:
-        return {}
-    manifest_path = bundle_dir / "tour.json"
-    if not manifest_path.exists() or not manifest_path.is_file():
-        return {}
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return dict(payload) if isinstance(payload, dict) else {}
+    return _hosted_property_tour_payload_for_url(tour_url)
 
 
 def _hosted_property_tour_has_matterport_export(tour_url: str) -> bool:
-    payload = _hosted_property_tour_manifest(tour_url)
-    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
-        value = str(payload.get(key) or "").strip()
-        if not value:
-            continue
-        if _property_tour_provider_host_kind(value) == "matterport":
-            return True
-    return False
+    return _hosting_has_matterport_export(tour_url)
 
 
 def _hosted_property_tour_has_3dvista_export(tour_url: str) -> bool:
-    payload = _hosted_property_tour_manifest(tour_url)
-    for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
-        value = str(payload.get(key) or "").strip()
-        if not value:
-            continue
-        if _property_tour_provider_host_kind(value) == "3dvista":
-            return True
-    for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
-        if str(payload.get(key) or "").strip():
-            return True
-    return False
+    return _hosting_has_3dvista_export(tour_url)
 
 
 def _hosted_property_tour_provider_export_keys(tour_url: str) -> tuple[str, ...]:
@@ -15324,6 +15352,11 @@ def _property_3d_provider_rule_exit_gate(
             if provider and provider not in expected:
                 expected.append(provider)
     links = _property_tour_compare_links(normalized)
+    manifest = _hosted_property_tour_manifest(normalized)
+    declared_3dvista_export = any(
+        str(manifest.get(key) or "").strip()
+        for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath")
+    )
     metrics["expected_providers"] = list(expected)
     metrics["available_links"] = dict(links)
     metrics["selected_links"] = {provider: links[provider] for provider in expected if links.get(provider)}
@@ -15333,9 +15366,16 @@ def _property_3d_provider_rule_exit_gate(
     for provider in expected:
         if provider == "matterport" and not _hosted_property_tour_has_matterport_export(normalized):
             return False, "matterport_export_missing_for_rule", metrics
-        if provider == "3dvista" and not _hosted_property_tour_has_3dvista_export(normalized):
+        if provider == "3dvista" and not (_hosted_property_tour_has_3dvista_export(normalized) or declared_3dvista_export):
             return False, "3dvista_export_missing_for_rule", metrics
-        link = str(links.get(provider) or "").strip()
+        link = str(
+            links.get(provider)
+            or (_property_tour_control_link(normalized, viewer=provider) if provider == "3dvista" and declared_3dvista_export else "")
+        ).strip()
+        if link and provider not in metrics["selected_links"]:
+            metrics["selected_links"] = {**dict(metrics.get("selected_links") or {}), provider: link}
+        if link and provider not in metrics["available_links"]:
+            metrics["available_links"] = {**dict(metrics.get("available_links") or {}), provider: link}
         metrics[f"{provider}_link"] = link
         if not link:
             return False, f"{provider}_control_link_missing_for_rule", metrics
@@ -22926,6 +22966,9 @@ class ProductService:
         personal_fit_assessment: dict[str, object] | None = None,
         preference_person_id: str = "self",
         tour_url: str = "",
+        requested_location_hints: tuple[str, ...] = (),
+        requested_country_code: str = "",
+        requested_region_code: str = "",
     ) -> dict[str, object]:
         current_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
         current_location_hints = _property_search_location_hints(current_preferences)
@@ -22933,13 +22976,32 @@ class ProductService:
             source_url="",
             source_label=str(counterparty or source_ref or external_id or "").strip(),
         )
+        explicit_requested_location_hints = tuple(
+            str(item or "").strip()
+            for item in list(requested_location_hints or ())
+            if str(item or "").strip()
+        )
         current_hint_postal_codes = set(re.findall(r"\b\d{4,5}\b", " ".join(current_location_hints)))
-        if current_hint_postal_codes:
+        if explicit_requested_location_hints:
+            location_hints = explicit_requested_location_hints
+        elif current_hint_postal_codes:
             location_hints = current_location_hints
         elif current_location_hints:
             location_hints = tuple(dict.fromkeys((*current_location_hints, *source_scope_location_hints)))
         else:
             location_hints = source_scope_location_hints
+        search_area_preferences = dict(current_preferences)
+        if requested_country_code:
+            search_area_preferences["country_code"] = str(requested_country_code or "").strip()
+        if requested_region_code:
+            search_area_preferences["region_code"] = str(requested_region_code or "").strip()
+        search_area_source_spec = {
+            "country_code": str(
+                requested_country_code
+                or current_preferences.get("country_code")
+                or ""
+            ).strip()
+        }
         first_candidate = _property_select_notification_candidate(
             candidate_properties,
             property_url=property_url,
@@ -22969,14 +23031,14 @@ class ProductService:
             listing_mode=listing_mode,
             property_url=candidate_property_url,
         )
-        if location_hints and not _property_candidate_matches_requested_location(
+        if location_hints and not _property_candidate_matches_search_area(
             location_hints=location_hints,
+            request_preferences=search_area_preferences,
+            source_spec=search_area_source_spec,
             property_url=candidate_property_url,
             title=candidate_title,
             summary=candidate_summary,
             property_facts=candidate_facts,
-            country_code=str(current_preferences.get("country_code") or "").strip(),
-            region_code=str(current_preferences.get("region_code") or "").strip(),
         ):
             candidate_location_evidence_kind = _property_candidate_notification_location_evidence_kind(
                 property_url=candidate_property_url,
@@ -23200,8 +23262,9 @@ class ProductService:
         )
         telegram_suppression_reason = ""
         configured_notification_channels = self._property_configured_notification_channels(principal_id=principal_id)
+        configured_primary_channel = self._property_configured_notification_channel(principal_id=principal_id)
         if configured_notification_channels:
-            payload["preferred_notification_channel"] = configured_notification_channels[0]
+            payload["preferred_notification_channel"] = configured_primary_channel or configured_notification_channels[0]
             payload["selected_notification_channels"] = list(configured_notification_channels)
         notify_email = bool(notify_telegram and "email" in configured_notification_channels)
         telegram_allowed_by_preference, telegram_preference_reason = self._property_notification_channel_allows(
@@ -23382,6 +23445,9 @@ class ProductService:
         personal_fit_assessment: dict[str, object] | None = None,
         preference_person_id: str = "self",
         tour_url: str = "",
+        requested_location_hints: tuple[str, ...] = (),
+        requested_country_code: str = "",
+        requested_region_code: str = "",
     ) -> dict[str, object]:
         result_holder: dict[str, object] = {}
         error_holder: dict[str, BaseException] = {}
@@ -23403,6 +23469,9 @@ class ProductService:
                     personal_fit_assessment=personal_fit_assessment,
                     preference_person_id=preference_person_id,
                     tour_url=tour_url,
+                    requested_location_hints=requested_location_hints,
+                    requested_country_code=requested_country_code,
+                    requested_region_code=requested_region_code,
                 )
             except BaseException as exc:  # noqa: BLE001
                 error_holder["error"] = exc
@@ -23780,6 +23849,9 @@ class ProductService:
                 return self._send_property_scout_filter_near_miss_telegram(**notification_kwargs)
             return self._send_property_scout_hit_telegram(**notification_kwargs)
         if normalized_kind == "near_miss":
+            configured_primary_channel = self._property_configured_notification_channel(principal_id=principal_id)
+            if configured_primary_channel and configured_primary_channel != "telegram":
+                return {"status": "suppressed", "reason": f"preferred_channel_{configured_primary_channel}"}
             allowed_by_preference, preference_reason = self._property_notification_channel_allows(
                 principal_id=principal_id,
                 channel="telegram",
@@ -24486,6 +24558,8 @@ class ProductService:
                 "crezlo_login_password_missing",
                 "crezlo_login_required",
                 "crezlo_worker_missing",
+                "crezlo_api_http_error:404",
+                "workspace not found",
             )
         ):
             return "crezlo_property_tour_not_configured"
@@ -24519,6 +24593,127 @@ class ProductService:
                 continue
             return row
         return None
+
+    def _latest_property_tour_followup(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        request_kind: str = "tour",
+    ) -> HumanTask | None:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
+        if not normalized_principal or not normalized_url:
+            return None
+        database_url = _property_search_run_database_url()
+        if not database_url:
+            latest: HumanTask | None = None
+            for row in self._container.orchestrator.list_human_tasks(
+                principal_id=normalized_principal,
+                status=None,
+                limit=300,
+            ):
+                if str(getattr(row, "task_type", "") or "").strip() != "property_tour_followup":
+                    continue
+                input_json = dict(getattr(row, "input_json", {}) or {})
+                task_url = urllib.parse.urldefrag(str(input_json.get("property_url") or "").strip())[0]
+                if task_url != normalized_url:
+                    continue
+                task_kind = str(input_json.get("request_kind") or "tour").strip().lower() or "tour"
+                if task_kind != normalized_request_kind:
+                    continue
+                if latest is None or str(getattr(row, "updated_at", "") or "") > str(getattr(latest, "updated_at", "") or ""):
+                    latest = row
+            return latest
+        try:
+            import psycopg
+        except Exception:
+            return None
+
+        def _to_iso(value: object) -> str:
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return str(value or "")
+
+        with psycopg.connect(database_url, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
+                           authority_required, why_human, quality_rubric_json, input_json, desired_output_json, priority,
+                           sla_due_at, status, assignment_state, assigned_operator_id, assignment_source, assigned_at,
+                           assigned_by_actor_id, resolution, resume_session_on_return, returned_payload_json,
+                           provenance_json, created_at, updated_at
+                    FROM human_tasks
+                    WHERE principal_id = %s
+                      AND task_type = 'property_tour_followup'
+                      AND input_json ->> 'property_url' = %s
+                      AND COALESCE(input_json ->> 'request_kind', 'tour') = %s
+                    ORDER BY updated_at DESC, created_at DESC, human_task_id DESC
+                    LIMIT 1
+                    """,
+                    (normalized_principal, normalized_url, normalized_request_kind),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        (
+            human_task_id,
+            session_id,
+            step_id,
+            row_principal_id,
+            task_type,
+            role_required,
+            brief,
+            authority_required,
+            why_human,
+            quality_rubric_json,
+            input_json,
+            desired_output_json,
+            priority,
+            sla_due_at,
+            status,
+            assignment_state,
+            assigned_operator_id,
+            assignment_source,
+            assigned_at,
+            assigned_by_actor_id,
+            resolution,
+            resume_session_on_return,
+            returned_payload_json,
+            provenance_json,
+            created_at,
+            updated_at,
+        ) = row
+        return HumanTask(
+            human_task_id=str(human_task_id),
+            session_id=str(session_id),
+            step_id=str(step_id) if step_id else None,
+            principal_id=str(row_principal_id),
+            task_type=str(task_type),
+            role_required=str(role_required),
+            brief=str(brief),
+            authority_required=str(authority_required or ""),
+            why_human=str(why_human or ""),
+            quality_rubric_json=dict(quality_rubric_json or {}),
+            input_json=dict(input_json or {}),
+            desired_output_json=dict(desired_output_json or {}),
+            priority=str(priority),
+            sla_due_at=_to_iso(sla_due_at) if sla_due_at else None,
+            status=str(status),
+            assignment_state=str(assignment_state),
+            assigned_operator_id=str(assigned_operator_id or ""),
+            assignment_source=str(assignment_source or ""),
+            assigned_at=_to_iso(assigned_at) if assigned_at else None,
+            assigned_by_actor_id=str(assigned_by_actor_id or ""),
+            resolution=str(resolution or ""),
+            resume_session_on_return=bool(resume_session_on_return),
+            returned_payload_json=dict(returned_payload_json or {}),
+            provenance_json=dict(provenance_json or {}),
+            created_at=_to_iso(created_at),
+            updated_at=_to_iso(updated_at),
+        )
 
     def _open_property_tour_followup(
         self,
@@ -25384,6 +25579,7 @@ class ProductService:
                     selected_platforms=parent_platforms,
                     property_search_preferences=parent_preferences,
                     max_results_per_source=repair_max_results,
+                    parent_run_id=parent_run_id,
                 )
                 replacement_run_id = str(dict(replacement or {}).get("run_id") or "").strip()
             if parent_state and not replacement_run_id:
@@ -25499,8 +25695,9 @@ class ProductService:
         selected_platforms: tuple[str, ...],
         property_search_preferences: dict[str, object],
         max_results_per_source: int | None,
+        parent_run_id: str = "",
     ) -> dict[str, object]:
-        return self.start_property_search_run(
+        replacement = self.start_property_search_run(
             principal_id=principal_id,
             actor="property_search_repair",
             selected_platforms=tuple(selected_platforms or ()),
@@ -25508,6 +25705,27 @@ class ProductService:
             force_refresh=True,
             max_results_per_source=max_results_per_source,
         )
+        replacement_run_id = str(dict(replacement or {}).get("run_id") or "").strip()
+        normalized_parent_run_id = str(parent_run_id or "").strip()
+        if replacement_run_id and normalized_parent_run_id:
+            with _PROPERTY_SEARCH_RUN_LOCK:
+                replacement_state = _PROPERTY_SEARCH_RUN_REGISTRY.get(replacement_run_id)
+                if isinstance(replacement_state, dict):
+                    replacement_state = dict(replacement_state)
+                    replacement_state["repair_parent_run_id"] = normalized_parent_run_id
+                    replacement_summary = dict(replacement_state.get("summary") or {})
+                    replacement_summary["repair_parent_run_id"] = normalized_parent_run_id
+                    replacement_state["summary"] = replacement_summary
+                    _PROPERTY_SEARCH_RUN_REGISTRY[replacement_run_id] = dict(replacement_state)
+                    persisted_state = dict(replacement_state)
+                else:
+                    persisted_state = {}
+            if persisted_state:
+                try:
+                    _store_property_search_run_record(persisted_state)
+                except Exception:
+                    pass
+        return replacement
 
     def _property_provider_repair_retry_budget_seconds(self) -> int:
         raw_value = str(os.getenv("EA_PROPERTY_PROVIDER_REPAIR_RETRY_BUDGET_SECONDS") or "").strip()
@@ -25899,7 +26117,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -25953,7 +26171,7 @@ class ProductService:
                     external_id=resolved_external_id,
                     recipient_email=resolved_recipient_email,
                 )
-                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                 payload = {
                     "generated_at": generated_at,
                     "status": "created",
@@ -26006,7 +26224,7 @@ class ProductService:
                     external_id=resolved_external_id,
                     recipient_email=resolved_recipient_email,
                 )
-                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                 payload = {
                     "generated_at": generated_at,
                     "status": "created",
@@ -26190,7 +26408,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -26251,7 +26469,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -26295,7 +26513,6 @@ class ProductService:
                 "browseract_connector_unconfigured",
                 "listing_media_missing",
                 "property_tour_execution_failed",
-                "pure_360_assets_unavailable",
                 "floorplan_assets_unavailable",
             }:
                 try:
@@ -26312,7 +26529,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -26442,7 +26659,7 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
             )
             return payload
-        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
         editor_url = _first_non_empty_text(structured_output.get("editor_url"))
         payload = {
             "generated_at": generated_at,
@@ -26915,7 +27132,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -26969,7 +27186,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -27022,7 +27239,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -27164,7 +27381,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -27225,7 +27442,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -27269,7 +27486,6 @@ class ProductService:
                 "browseract_connector_unconfigured",
                 "listing_media_missing",
                 "property_tour_execution_failed",
-                "pure_360_assets_unavailable",
                 "floorplan_assets_unavailable",
             }:
                 try:
@@ -27286,7 +27502,7 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -27416,7 +27632,7 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:{blocked_reason}",
             )
             return payload
-        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
         payload = {
             "generated_at": generated_at,
             "status": "created",
@@ -29734,6 +29950,14 @@ class ProductService:
                             candidate_row["flythrough_progress_pct"] = str(visual_state.get("flythrough_progress_pct") or "").strip()
                         if "flythrough_reason" in visual_state:
                             candidate_row["flythrough_reason"] = str(visual_state.get("flythrough_reason") or "").strip()
+                        if "tour_repair_queued_at" in visual_state:
+                            candidate_row["tour_repair_queued_at"] = str(visual_state.get("tour_repair_queued_at") or "").strip()
+                        if "tour_repair_started_at" in visual_state:
+                            candidate_row["tour_repair_started_at"] = str(visual_state.get("tour_repair_started_at") or "").strip()
+                        if "flythrough_repair_queued_at" in visual_state:
+                            candidate_row["flythrough_repair_queued_at"] = str(visual_state.get("flythrough_repair_queued_at") or "").strip()
+                        if "flythrough_repair_started_at" in visual_state:
+                            candidate_row["flythrough_repair_started_at"] = str(visual_state.get("flythrough_repair_started_at") or "").strip()
                         mutated = True
                     updated_candidates.append(candidate_row)
                 source[key] = updated_candidates
@@ -29813,11 +30037,15 @@ class ProductService:
                 "tour_status_updated_at": str(candidate_row.get("tour_status_updated_at") or "").strip(),
                 "tour_eta_minutes": str(candidate_row.get("tour_eta_minutes") or "").strip(),
                 "tour_progress_pct": str(candidate_row.get("tour_progress_pct") or "").strip(),
+                "tour_repair_queued_at": str(candidate_row.get("tour_repair_queued_at") or "").strip(),
+                "tour_repair_started_at": str(candidate_row.get("tour_repair_started_at") or "").strip(),
                 "flythrough_url": str(candidate_row.get("flythrough_url") or "").strip(),
                 "flythrough_requested_at": str(candidate_row.get("flythrough_requested_at") or "").strip(),
                 "flythrough_status_updated_at": str(candidate_row.get("flythrough_status_updated_at") or "").strip(),
                 "flythrough_eta_minutes": str(candidate_row.get("flythrough_eta_minutes") or "").strip(),
                 "flythrough_progress_pct": str(candidate_row.get("flythrough_progress_pct") or "").strip(),
+                "flythrough_repair_queued_at": str(candidate_row.get("flythrough_repair_queued_at") or "").strip(),
+                "flythrough_repair_started_at": str(candidate_row.get("flythrough_repair_started_at") or "").strip(),
                 "tour_status": str(candidate_row.get("tour_status") or "").strip().lower(),
                 "flythrough_status": str(candidate_row.get("flythrough_status") or "").strip().lower(),
                 "flythrough_reason": str(candidate_row.get("flythrough_reason") or "").strip(),
@@ -29922,22 +30150,58 @@ class ProductService:
                     request_kind=normalized_request_kind,
                     run_id=str(run_id or "").strip(),
                     candidate_ref=str(candidate_ref or "").strip(),
-                    allow_floorplan_only=True,
+                    allow_floorplan_only=False,
                 )
             except Exception:
                 return False
+        repair_queued_at = _now_iso()
+        repair_state_prefix = "flythrough" if normalized_request_kind == "flythrough" else "tour"
+        self._persist_property_search_visual_state(
+            principal_id=normalized_principal,
+            run_id=str(run_id or "").strip(),
+            candidate_ref=str(candidate_ref or "").strip(),
+            source_ref=normalized_source_ref,
+            property_url=normalized_property_url,
+            visual_state={
+                f"{repair_state_prefix}_repair_queued_at": repair_queued_at,
+                f"{repair_state_prefix}_repair_started_at": "",
+            },
+        )
         completed = threading.Event()
 
         def _run_followup_repair() -> None:
             try:
+                self._persist_property_search_visual_state(
+                    principal_id=normalized_principal,
+                    run_id=str(run_id or "").strip(),
+                    candidate_ref=str(candidate_ref or "").strip(),
+                    source_ref=normalized_source_ref,
+                    property_url=normalized_property_url,
+                    visual_state={
+                        f"{repair_state_prefix}_repair_queued_at": repair_queued_at,
+                        f"{repair_state_prefix}_repair_started_at": _now_iso(),
+                    },
+                )
                 self.process_property_tour_followup_tasks(
                     principal_id=normalized_principal,
                     actor="property_visual_status_repair",
                     limit=2,
+                    force_stale=True,
                 )
             except Exception:
                 pass
             finally:
+                self._persist_property_search_visual_state(
+                    principal_id=normalized_principal,
+                    run_id=str(run_id or "").strip(),
+                    candidate_ref=str(candidate_ref or "").strip(),
+                    source_ref=normalized_source_ref,
+                    property_url=normalized_property_url,
+                    visual_state={
+                        f"{repair_state_prefix}_repair_queued_at": "",
+                        f"{repair_state_prefix}_repair_started_at": "",
+                    },
+                )
                 completed.set()
 
         threading.Thread(
@@ -29995,6 +30259,7 @@ class ProductService:
         principal_id: str,
         actor: str,
         limit: int = 10,
+        force_stale: bool = False,
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
@@ -30067,7 +30332,7 @@ class ProductService:
             existing_ready_url = (
                 str(existing_visual_state.get("flythrough_url") or "").strip()
                 if request_kind == "flythrough"
-                else str(existing_visual_state.get("tour_url") or "").strip()
+                else _hosted_property_tour_verified_open_url(existing_visual_state.get("tour_url"))
             )
             existing_requested_at = (
                 str(existing_visual_state.get("flythrough_requested_at") or "").strip()
@@ -30127,10 +30392,14 @@ class ProductService:
                     }
                 )
                 continue
-            if _property_tour_status_is_pending(existing_status) and not self._property_visual_request_is_stale(
-                status=existing_status,
-                requested_at=existing_requested_at,
-                status_updated_at=existing_status_updated_at,
+            if (
+                not bool(force_stale)
+                and _property_tour_status_is_pending(existing_status)
+                and not self._property_visual_request_is_stale(
+                    status=existing_status,
+                    requested_at=existing_requested_at,
+                    status_updated_at=existing_status_updated_at,
+                )
             ):
                 continue
             processing_state = {
@@ -30201,7 +30470,38 @@ class ProductService:
                     suppress_human_followup=True,
                 )
             except Exception as exc:
-                failed_total += 1
+                blocked_reason = self._property_tour_execution_error_reason(exc)
+                blocked_total += 1
+                blocked_state = {"blocked_reason": blocked_reason}
+                if request_kind == "flythrough":
+                    blocked_state.update(
+                        {
+                            "flythrough_status": "blocked",
+                            "flythrough_eta_minutes": "",
+                            "flythrough_requested_at": str(existing_visual_state.get("flythrough_requested_at") or "").strip() or started_at,
+                            "flythrough_status_updated_at": started_at,
+                            "flythrough_progress_pct": "0",
+                            "flythrough_reason": blocked_reason,
+                        }
+                    )
+                else:
+                    blocked_state.update(
+                        {
+                            "tour_status": "blocked",
+                            "tour_eta_minutes": "",
+                            "tour_requested_at": str(existing_visual_state.get("tour_requested_at") or "").strip() or started_at,
+                            "tour_status_updated_at": started_at,
+                            "tour_progress_pct": "0",
+                        }
+                    )
+                self._persist_property_search_visual_state(
+                    principal_id=normalized_principal,
+                    run_id=run_id,
+                    candidate_ref=candidate_ref,
+                    source_ref=source_ref,
+                    property_url=property_url,
+                    visual_state=blocked_state,
+                )
                 self._record_product_event(
                     principal_id=normalized_principal,
                     event_type="property_tour_followup_auto_failed",
@@ -30210,10 +30510,32 @@ class ProductService:
                         "property_url": property_url,
                         "request_kind": request_kind,
                         "source_ref": source_ref,
+                        "blocked_reason": blocked_reason,
                         "error": compact_text(str(exc or "property tour followup auto failed"), fallback="property tour followup auto failed", limit=240),
                     },
                     source_id=source_ref or property_url,
                     dedupe_key=f"{normalized_principal}|{task.human_task_id}|property-tour-followup-auto-failed",
+                )
+                completed = self.complete_handoff(
+                    principal_id=normalized_principal,
+                    handoff_ref=f"human_task:{task.human_task_id}",
+                    operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
+                    actor=actor,
+                    resolution="blocked",
+                )
+                resolved.append(
+                    {
+                        "human_task_id": f"human_task:{task.human_task_id}",
+                        "handoff_ref": f"human_task:{task.human_task_id}",
+                        "property_url": property_url,
+                        "request_kind": request_kind,
+                        "resolution": "blocked",
+                        "status": "blocked",
+                        "status_label": "",
+                        "tour_url": "",
+                        "flythrough_url": "",
+                        "returned": completed is not None,
+                    }
                 )
                 continue
             resolution = str(result.get("status") or "").strip().lower() or "completed"
@@ -30306,9 +30628,6 @@ class ProductService:
         )
         effective_allow_floorplan_only = bool(allow_floorplan_only)
         effective_enforce_360_media = True
-        if has_workbench_context and not auto_deliver:
-            effective_allow_floorplan_only = True
-            effective_enforce_360_media = False
         if (
             has_workbench_context
             and queue_async_request
@@ -30446,6 +30765,25 @@ class ProductService:
         payload["run_id"] = str(run_id or "").strip()
         payload["candidate_ref"] = str(candidate_ref or "").strip()
         payload["source_ref"] = normalized_source_ref
+        verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
+        if verified_tour_url:
+            payload["verified_tour_url"] = verified_tour_url
+        created_without_verified_open = (
+            str(payload.get("status") or "").strip().lower() == "created"
+            and not verified_tour_url
+            and not str(payload.get("blocked_reason") or "").strip()
+        )
+        created_has_creation_receipt = bool(
+            str(payload.get("artifact_id") or "").strip()
+            or str(payload.get("execution_session_id") or "").strip()
+            or str(payload.get("creation_mode") or "").strip()
+            or str(payload.get("upstream_blocked_reason") or "").strip()
+        )
+        if created_without_verified_open and not created_has_creation_receipt:
+            payload["status"] = "blocked"
+            payload["tour_status"] = "blocked"
+            payload["blocked_reason"] = "provider_export_missing"
+            payload["tour_url"] = ""
         title = str(payload.get("title") or normalized_property_url or "Property").strip()
         tour_status = str(payload.get("status") or "").strip().lower()
         flythrough_status = ""
@@ -30466,7 +30804,9 @@ class ProductService:
                     allow_below_threshold=True,
                 ) or {})
                 flythrough_result = _normalize_property_flythrough_result(raw_flythrough_result)
-                flythrough_url = str(flythrough_result.get("flythrough_url") or flythrough_result.get("video_url") or "").strip()
+                flythrough_url = _hosted_property_tour_walkthrough_asset_url(payload.get("tour_url")) or _published_walkthrough_asset_url(
+                    flythrough_result.get("flythrough_url") or flythrough_result.get("video_url") or ""
+                )
                 flythrough_status = str(flythrough_result.get("status") or "").strip().lower()
                 payload["flythrough_url"] = flythrough_url
                 payload["flythrough_status"] = flythrough_status
@@ -30498,7 +30838,10 @@ class ProductService:
                 status_detail = "Queued. It starts after the 3D tour is ready."
         else:
             payload["tour_status"] = tour_status or str(payload.get("tour_status") or "").strip().lower()
-            if str(payload.get("tour_url") or "").strip():
+            verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
+            if verified_tour_url:
+                payload["verified_tour_url"] = verified_tour_url
+            if str(payload.get("tour_url") or verified_tour_url or "").strip():
                 status_label = "3D tour ready"
                 status_detail = "Ready on this page."
             elif payload["tour_status"] in {"queued", "pending"}:
@@ -30720,6 +31063,10 @@ class ProductService:
         source_ref_value = str(matched_candidate.get("source_ref") or normalized_source_ref or normalized_property_url).strip()
         status_value = flythrough_status if normalized_kind == "flythrough" else tour_status
         ready_url = flythrough_url if normalized_kind == "flythrough" else tour_url
+        if normalized_kind == "tour":
+            ready_url = _hosted_property_tour_verified_open_url(tour_url)
+        elif normalized_kind == "flythrough":
+            ready_url = _hosted_property_tour_walkthrough_asset_url(tour_url) or _published_walkthrough_asset_url(flythrough_url)
         eta_minutes = (
             str(matched_candidate.get("flythrough_eta_minutes") or "").strip()
             if normalized_kind == "flythrough"
@@ -30740,9 +31087,69 @@ class ProductService:
             if normalized_kind == "flythrough"
             else blocked_reason
         )
+        repair_queued_at = (
+            str(matched_candidate.get("flythrough_repair_queued_at") or "").strip()
+            if normalized_kind == "flythrough"
+            else str(matched_candidate.get("tour_repair_queued_at") or "").strip()
+        )
+        repair_started_at = (
+            str(matched_candidate.get("flythrough_repair_started_at") or "").strip()
+            if normalized_kind == "flythrough"
+            else str(matched_candidate.get("tour_repair_started_at") or "").strip()
+        )
+        if reason.lower() in {"none", "null"}:
+            reason = ""
+        if blocked_reason.lower() in {"none", "null"}:
+            blocked_reason = ""
+        latest_followup = self._latest_property_tour_followup(
+            principal_id=normalized_principal,
+            property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
+            request_kind=normalized_kind,
+        )
+        if latest_followup is not None:
+            followup_status = str(getattr(latest_followup, "status", "") or "").strip().lower()
+            followup_resolution = str(getattr(latest_followup, "resolution", "") or "").strip().lower()
+            followup_payload = (
+                dict(getattr(latest_followup, "returned_payload_json", {}) or {})
+                if isinstance(getattr(latest_followup, "returned_payload_json", None), dict)
+                else {}
+            )
+            if followup_status in {"returned", "completed"} and followup_resolution:
+                request_status_updated_at = str(getattr(latest_followup, "updated_at", "") or "").strip() or request_status_updated_at
+                followup_reason = str(
+                    followup_payload.get("blocked_reason")
+                    or followup_payload.get("reason")
+                    or followup_payload.get("detail")
+                ).strip()
+                if followup_reason.lower() in {"none", "null"}:
+                    followup_reason = ""
+                if followup_resolution in {"blocked", "failed", "skipped", "not_applicable"}:
+                    status_value = followup_resolution
+                    if followup_reason:
+                        reason = followup_reason
+                        blocked_reason = followup_reason
+                    else:
+                        reason = ""
+                        blocked_reason = ""
+                    eta_minutes = ""
+                elif followup_resolution in {"ready", "sent"}:
+                    followup_tour_url = str(followup_payload.get("tour_url") or "").strip()
+                    followup_flythrough_url = str(followup_payload.get("flythrough_url") or "").strip()
+                    if normalized_kind == "tour" and followup_tour_url:
+                        tour_url = followup_tour_url
+                    if normalized_kind == "flythrough" and followup_flythrough_url:
+                        flythrough_url = followup_flythrough_url
+                    status_value = "ready"
+                    eta_minutes = ""
+                elif followup_resolution in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
+                    status_value = followup_resolution
+            elif followup_status == "pending":
+                status_value = "processing" if normalized_kind == "tour" else "queued"
+        repair_active = bool(repair_queued_at or repair_started_at)
         repair_queued = False
         if (
             not _repair_attempted
+            and not repair_active
             and not ready_url
             and self._property_visual_request_is_stale(
                 status=status_value,
@@ -30791,11 +31198,7 @@ class ProductService:
             )
         elif status_value in {"blocked", "failed", "skipped", "not_applicable"}:
             status_label = "Walkthrough unavailable" if normalized_kind == "flythrough" else "3D tour unavailable"
-            status_detail = reason or (
-                "More source material is still needed before this walkthrough can be built."
-                if normalized_kind == "flythrough"
-                else "More source material is still needed before this 3D tour can be built."
-            )
+            status_detail = _property_visual_unavailable_detail(request_kind=normalized_kind, reason=reason)
         else:
             status_label = "Request walkthrough" if normalized_kind == "flythrough" else "Request 3D tour"
             status_detail = "No media request is open for this home yet."
@@ -30820,6 +31223,18 @@ class ProductService:
                 status_detail = "Still queued. Taking longer than usual."
             elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
                 status_detail = "Still rendering. Taking longer than usual."
+        if repair_active and not ready_url and status_value not in {"blocked", "failed", "skipped", "not_applicable"}:
+            status_value = "repairing"
+            status_label = "Walkthrough repair running" if normalized_kind == "flythrough" else "3D tour repair running"
+            if not repair_started_at:
+                status_label = "Walkthrough repair queued" if normalized_kind == "flythrough" else "3D tour repair queued"
+            status_detail = (
+                "PropertyQuarry is retrying the stalled walkthrough render."
+                if normalized_kind == "flythrough"
+                else "PropertyQuarry is retrying the stalled 3D tour render."
+            )
+            eta_label = "refreshing"
+            progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
         if repair_queued and not ready_url:
             if status_value in {"queued", "pending"}:
                 status_value = "repairing"
@@ -30851,8 +31266,8 @@ class ProductService:
             "request_kind": normalized_kind,
             "run_id": normalized_run_id,
             "candidate_ref": normalized_candidate_ref,
-            "tour_url": tour_url,
-            "flythrough_url": flythrough_url,
+            "tour_url": ready_url if normalized_kind == "tour" else tour_url,
+            "flythrough_url": ready_url if normalized_kind == "flythrough" else _published_walkthrough_asset_url(flythrough_url),
             "tour_status": status_value if normalized_kind == "tour" else tour_status,
             "flythrough_status": status_value if normalized_kind == "flythrough" else flythrough_status,
             "blocked_reason": blocked_reason,
@@ -30860,7 +31275,7 @@ class ProductService:
             "status_detail": status_detail,
             "eta_label": eta_label,
             "progress_pct": progress_pct,
-            "poll_after_seconds": 10 if _property_tour_status_is_pending(status_value) else 0,
+            "poll_after_seconds": 10 if status_value == "repairing" or _property_tour_status_is_pending(status_value) else 0,
             "tour_media_mode": "stored_visual_state",
             "personal_fit_assessment": {},
         }
@@ -31472,6 +31887,125 @@ class ProductService:
             force_refresh=force_refresh,
         )
 
+    def _list_property_search_status_repair_tasks(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 500,
+    ) -> list[HumanTask]:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            return []
+        database_url = _property_search_run_database_url()
+        if not database_url:
+            return [
+                task
+                for task in self._container.orchestrator.list_human_tasks(
+                    principal_id=normalized_principal,
+                    status=None,
+                    limit=limit,
+                )
+                if str(getattr(task, "task_type", "") or "").strip() == "property_provider_repair_ooda"
+            ]
+        try:
+            import psycopg
+        except Exception:
+            return [
+                task
+                for task in self._container.orchestrator.list_human_tasks(
+                    principal_id=normalized_principal,
+                    status=None,
+                    limit=limit,
+                )
+                if str(getattr(task, "task_type", "") or "").strip() == "property_provider_repair_ooda"
+            ]
+
+        def _to_iso(value: object) -> str:
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return str(value or "")
+
+        normalized_limit = max(1, min(500, int(limit or 500)))
+        with psycopg.connect(database_url, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
+                           authority_required, why_human, quality_rubric_json, input_json, desired_output_json, priority,
+                           sla_due_at, status, assignment_state, assigned_operator_id, assignment_source, assigned_at,
+                           assigned_by_actor_id, resolution, resume_session_on_return, returned_payload_json,
+                           provenance_json, created_at, updated_at
+                    FROM human_tasks
+                    WHERE principal_id = %s
+                      AND task_type = 'property_provider_repair_ooda'
+                    ORDER BY created_at DESC, human_task_id DESC
+                    LIMIT %s
+                    """,
+                    (normalized_principal, normalized_limit),
+                )
+                rows = cur.fetchall()
+        tasks: list[HumanTask] = []
+        for row in rows:
+            (
+                human_task_id,
+                session_id,
+                step_id,
+                row_principal_id,
+                task_type,
+                role_required,
+                brief,
+                authority_required,
+                why_human,
+                quality_rubric_json,
+                input_json,
+                desired_output_json,
+                priority,
+                sla_due_at,
+                status,
+                assignment_state,
+                assigned_operator_id,
+                assignment_source,
+                assigned_at,
+                assigned_by_actor_id,
+                resolution,
+                resume_session_on_return,
+                returned_payload_json,
+                provenance_json,
+                created_at,
+                updated_at,
+            ) = row
+            tasks.append(
+                HumanTask(
+                    human_task_id=str(human_task_id),
+                    session_id=str(session_id),
+                    step_id=str(step_id) if step_id else None,
+                    principal_id=str(row_principal_id),
+                    task_type=str(task_type),
+                    role_required=str(role_required),
+                    brief=str(brief),
+                    authority_required=str(authority_required or ""),
+                    why_human=str(why_human or ""),
+                    quality_rubric_json=dict(quality_rubric_json or {}),
+                    input_json=dict(input_json or {}),
+                    desired_output_json=dict(desired_output_json or {}),
+                    priority=str(priority),
+                    sla_due_at=_to_iso(sla_due_at) if sla_due_at else None,
+                    status=str(status),
+                    assignment_state=str(assignment_state),
+                    assigned_operator_id=str(assigned_operator_id or ""),
+                    assignment_source=str(assignment_source or ""),
+                    assigned_at=_to_iso(assigned_at) if assigned_at else None,
+                    assigned_by_actor_id=str(assigned_by_actor_id or ""),
+                    resolution=str(resolution or ""),
+                    resume_session_on_return=bool(resume_session_on_return),
+                    returned_payload_json=dict(returned_payload_json or {}),
+                    provenance_json=dict(provenance_json or {}),
+                    created_at=_to_iso(created_at),
+                    updated_at=_to_iso(updated_at),
+                )
+            )
+        return tasks
+
 
     def get_property_search_run_status(
         self,
@@ -31571,15 +32105,10 @@ class ProductService:
         )
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if sources and status_value not in {"processed", "completed", "completed_partial"}:
-            repair_tasks = [
-                task
-                for task in self._container.orchestrator.list_human_tasks(
-                    principal_id=principal_id,
-                    status=None,
-                    limit=500,
-                )
-                if str(getattr(task, "task_type", "") or "").strip() == "property_provider_repair_ooda"
-            ]
+            repair_tasks = self._list_property_search_status_repair_tasks(
+                principal_id=principal_id,
+                limit=500,
+            )
             latest_repair_by_source_key: dict[str, HumanTask] = {}
 
             def _source_repair_key(source_url: object, source_label: object) -> str:
@@ -31639,10 +32168,19 @@ class ProductService:
             for row in list(summary.get("ranked_candidates") or [])
             if isinstance(row, dict)
         ]
-        if not ranked_candidates and sources:
-            ranked_candidates = _property_search_ranked_candidates_from_sources(sources)
-            if ranked_candidates:
+        if sources:
+            source_candidate_rows = any(
+                list(source.get("top_candidates") or []) or list(source.get("research_candidates") or [])
+                for source in sources
+                if isinstance(source, dict)
+            )
+            if source_candidate_rows:
+                ranked_candidates = _property_search_ranked_candidates_from_sources(sources)
                 summary["ranked_candidates"] = ranked_candidates
+            elif not ranked_candidates:
+                ranked_candidates = _property_search_ranked_candidates_from_sources(sources)
+                if ranked_candidates:
+                    summary["ranked_candidates"] = ranked_candidates
         if sources:
             summary["sources"] = sources
             def _source_positive_int(source: dict[str, object], *keys: str) -> int:
@@ -31953,6 +32491,417 @@ class ProductService:
             "finalized": finalized,
             "emailed": emailed,
             "pending": pending,
+        }
+
+    def _property_search_run_replacement_parent_refs(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        limit: int = 200,
+    ) -> tuple[str, ...]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_principal or not normalized_run_id:
+            return ()
+        try:
+            records = _list_property_search_run_records(
+                limit=max(1, int(limit or 200)),
+                principal_id=normalized_principal,
+                lightweight=True,
+            )
+        except Exception:
+            records = ()
+        parent_run_ids: list[str] = []
+        for row in records:
+            parent_run_id = str(row.get("run_id") or "").strip()
+            if not parent_run_id or parent_run_id == normalized_run_id:
+                continue
+            summary = dict(row.get("summary") or {}) if isinstance(row.get("summary"), dict) else {}
+            if str(summary.get("repair_replacement_run_id") or "").strip() == normalized_run_id:
+                parent_run_ids.append(parent_run_id)
+        return tuple(dict.fromkeys(parent_run_ids))
+
+    def _property_search_run_should_pick_up_execution(self, record: dict[str, object]) -> tuple[bool, tuple[str, ...], str]:
+        state = dict(record or {})
+        status = str(state.get("status") or "").strip().lower()
+        if not status or status in _PROPERTY_SEARCH_TERMINAL_STATUSES or status == "initialization_required":
+            return False, (), ""
+        run_id = str(state.get("run_id") or "").strip()
+        principal_id = str(state.get("principal_id") or "").strip()
+        summary = dict(state.get("summary") or {}) if isinstance(state.get("summary"), dict) else {}
+        parent_refs = tuple(
+            str(value or "").strip()
+            for value in (
+                state.get("repair_parent_run_id"),
+                summary.get("repair_parent_run_id"),
+            )
+            if str(value or "").strip()
+        )
+        if not parent_refs:
+            parent_refs = self._property_search_run_replacement_parent_refs(principal_id=principal_id, run_id=run_id)
+        current_step = str(state.get("current_step") or "").strip().lower()
+        event_steps = [
+            str(event.get("step") or "").strip().lower()
+            for event in list(state.get("events") or [])
+            if isinstance(event, dict)
+        ]
+        if parent_refs:
+            return True, parent_refs, "replacement_run_stale"
+        if current_step in {"queued", "starting"} and not any(
+            step
+            for step in event_steps
+            if step not in {"queued", "starting", "recovery_pickup_started"}
+        ):
+            return True, (), "startup_checkpoint_stale"
+        return False, (), ""
+
+    def _pick_up_property_search_run_execution(
+        self,
+        *,
+        record: dict[str, object],
+        actor: str,
+        reason: str,
+        parent_run_ids: tuple[str, ...] = (),
+    ) -> dict[str, object]:
+        state = dict(record or {})
+        run_id = str(state.get("run_id") or "").strip()
+        principal_id = str(state.get("principal_id") or "").strip()
+        if not run_id or not principal_id:
+            return {"status": "skipped", "reason": "run_identity_missing"}
+        status = str(state.get("status") or "").strip().lower()
+        if status in _PROPERTY_SEARCH_TERMINAL_STATUSES or status == "initialization_required":
+            return {"status": "skipped", "reason": "run_not_active"}
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            current_state = _PROPERTY_SEARCH_RUN_REGISTRY.get(run_id)
+            if not isinstance(current_state, dict) or str(current_state.get("principal_id") or "").strip() != principal_id:
+                _PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+        pickup_started = len(
+            [
+                event
+                for event in list(state.get("events") or [])
+                if isinstance(event, dict) and str(event.get("step") or "").strip() == "recovery_pickup_started"
+            ]
+        )
+        if pickup_started >= 2:
+            return {"status": "skipped", "reason": "pickup_retry_limit_exceeded"}
+        selected_platforms = tuple(
+            str(item or "").strip()
+            for item in list(state.get("selected_platforms") or ())
+            if str(item or "").strip()
+        )
+        preferences = (
+            dict(state.get("property_search_preferences") or {})
+            if isinstance(state.get("property_search_preferences"), dict)
+            else {}
+        )
+        preferences.pop("__property_search_run_id__", None)
+        preferences.pop("__premerged_preferences__", None)
+        preferences["force_refresh"] = True
+        summary = dict(state.get("summary") or {}) if isinstance(state.get("summary"), dict) else {}
+        max_results_value = preferences.get("max_results_per_source") or summary.get("max_results_per_source")
+        try:
+            max_results_per_source = max(1, min(10, int(max_results_value))) if max_results_value else None
+        except Exception:
+            max_results_per_source = None
+        parent_refs = tuple(str(value or "").strip() for value in parent_run_ids if str(value or "").strip())
+        summary_updates: dict[str, object] = {
+            "execution_pickup_status": "started",
+            "execution_pickup_reason": reason,
+            "execution_pickup_attempt": pickup_started + 1,
+        }
+        if parent_refs:
+            summary_updates["repair_parent_run_id"] = parent_refs[0]
+            summary_updates["repair_parent_run_ids"] = list(parent_refs)
+
+        self._record_property_search_run_event(
+            run_id=run_id,
+            principal_id=principal_id,
+            step="recovery_pickup_started",
+            message="Scheduler picked up the stale active search run for live execution.",
+            status="in_progress",
+            steps_delta=0,
+            summary_updates=summary_updates,
+            force_status="in_progress",
+        )
+
+        def _progress(
+            *,
+            step: str,
+            message: str,
+            status: str = "in_progress",
+            steps_delta: int = 1,
+            summary_updates: dict[str, object] | None = None,
+            stages_total_override: int | None = None,
+        ) -> None:
+            self._record_property_search_run_event(
+                run_id=run_id,
+                principal_id=principal_id,
+                step=step,
+                message=message,
+                status=status,
+                steps_delta=steps_delta,
+                summary_updates=summary_updates,
+                force_status=status,
+                stages_total_override=stages_total_override,
+            )
+
+        def _worker() -> None:
+            try:
+                _progress(
+                    step="starting",
+                    message="Resuming property search run after stale execution pickup.",
+                    status="in_progress",
+                    steps_delta=1,
+                )
+                result = self.sync_direct_property_scout(
+                    principal_id=principal_id,
+                    actor=actor,
+                    selected_platforms=selected_platforms,
+                    property_search_preferences={
+                        **dict(preferences or {}),
+                        "__premerged_preferences__": True,
+                        "__property_search_run_id__": run_id,
+                    },
+                    max_results_per_source=max_results_per_source,
+                    force_refresh=True,
+                    progress_callback=_progress,
+                )
+                final_status = str(result.get("status") or "processed").strip().lower() or "processed"
+                if final_status == "noop":
+                    final_status = "processed"
+                result = {
+                    **dict(result or {}),
+                    "execution_pickup_status": "completed",
+                    "execution_pickup_reason": reason,
+                }
+                self._record_property_search_run_event(
+                    run_id=run_id,
+                    principal_id=principal_id,
+                    step="completed",
+                    message=f"Search run completed with status {final_status}.",
+                    status=final_status,
+                    steps_delta=max(0, _PROPERTY_SEARCH_RUN_STAGES),
+                    summary_updates=result,
+                    force_status=final_status,
+                )
+                self._best_effort_propertyquarry_teable_sync(
+                    principal_id=principal_id,
+                    run_id=run_id,
+                    reason="property_search_run_recovery_completed",
+                )
+            except Exception as exc:
+                error_message = compact_text(str(exc or "search run pickup failed"), fallback="search run pickup failed", limit=320)
+                repair_summary_updates: dict[str, object] = {}
+                try:
+                    repair_task = self._open_property_provider_repair_task(
+                        principal_id=principal_id,
+                        property_url=f"propertyquarry://search-run/{run_id}",
+                        title=f"Failed recovered property search run {run_id[:8]}",
+                        source_url=f"propertyquarry://search-run/{run_id}",
+                        source_label=compact_text(
+                            " + ".join(str(platform or "").strip() for platform in selected_platforms if str(platform or "").strip()),
+                            fallback="Recovered property search run",
+                            limit=120,
+                        ),
+                        source_platform=str(next(iter(selected_platforms or ()), "property_search_run") or "property_search_run").strip().lower(),
+                        source_family="property_search_run",
+                        filter_key="run_worker_exception",
+                        diagnostics={
+                            "run_id": run_id,
+                            "failure_class": "run_worker_exception",
+                            "exception_type": exc.__class__.__name__,
+                            "error": error_message,
+                            "recovery_reason": reason,
+                            "repair_parent_run_ids": list(parent_refs),
+                            "selected_platforms": list(selected_platforms or ()),
+                            "country_code": str(preferences.get("country_code") or "").strip(),
+                            "listing_mode": str(preferences.get("listing_mode") or "").strip(),
+                            "location_query": str(preferences.get("location_query") or "").strip(),
+                        },
+                        source_ref=f"property-search-run:{run_id}:pickup-worker-exception",
+                        run_id=run_id,
+                    )
+                    task_status = str(repair_task.get("status") or "").strip().lower()
+                    if repair_task and task_status in {"opened", "existing"}:
+                        human_task_ref = str(repair_task.get("queue_item_ref") or repair_task.get("human_task_id") or "").strip()
+                        repair_summary_updates = {
+                            "repair_status": "repairing",
+                            "repair_status_label": "Repairing",
+                            "repair_step_label": "Repairing failed recovery pickup.",
+                            "provider_repair_task_opened_total": 1 if task_status == "opened" else 0,
+                            "provider_repair_task_existing_total": 1 if task_status == "existing" else 0,
+                            "provider_repair_tasks": [
+                                {
+                                    "status": task_status,
+                                    "filter_key": "run_worker_exception",
+                                    "human_task_id": human_task_ref,
+                                    "queue_item_ref": human_task_ref,
+                                    "source_label": str(repair_task.get("source_label") or "Recovered property search run").strip(),
+                                    "repair_owner": "ea_one_manager",
+                                    "repair_workflow": "ea_provider_ooda",
+                                }
+                            ],
+                            "can_auto_repair": True,
+                        }
+                except Exception as repair_exc:
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="property_search_run_recovery_repair_queue_failed",
+                        payload={
+                            "run_id": run_id,
+                            "reason": reason,
+                            "error": compact_text(str(repair_exc or "repair queue failed"), fallback="repair queue failed", limit=280),
+                            "original_error": error_message,
+                        },
+                        source_id=run_id,
+                        dedupe_key=f"{principal_id}|{run_id}|property-search-run-recovery-repair-queue-failed",
+                    )
+                self._record_property_search_run_event(
+                    run_id=run_id,
+                    principal_id=principal_id,
+                    step="failed",
+                    message=error_message,
+                    status="failed",
+                    steps_delta=0,
+                    summary_updates={
+                        "execution_pickup_status": "failed",
+                        "execution_pickup_reason": reason,
+                        "execution_pickup_error": error_message,
+                        **(
+                            repair_summary_updates
+                            if repair_summary_updates
+                            else {
+                                "repair_status": "degraded",
+                                "repair_status_label": "Repair needed",
+                            }
+                        ),
+                    },
+                    force_status="failed",
+                )
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_search_run_recovery_pickup_failed",
+                    payload={
+                        "run_id": run_id,
+                        "reason": reason,
+                        "error": error_message,
+                    },
+                    source_id=run_id,
+                    dedupe_key=f"{principal_id}|{run_id}|property-search-run-recovery-pickup-failed",
+                )
+
+        threading.Thread(target=_worker, daemon=True, name=f"property-search-pickup-{run_id[:8]}").start()
+        return {
+            "status": "started",
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "reason": reason,
+            "parent_run_ids": list(parent_refs),
+        }
+
+    def reconcile_stale_property_search_runs(
+        self,
+        *,
+        principal_id: str = "",
+        limit: int = 40,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        active_statuses = (
+            "queued",
+            "starting",
+            "started",
+            "running",
+            "processing",
+            "in_progress",
+            "repairing",
+        )
+        records = _list_property_search_run_records(
+            limit=max(int(limit or 0), 1),
+            statuses=active_statuses,
+            principal_id=normalized_principal,
+            admin=not bool(normalized_principal),
+        )
+        scanned = 0
+        stale_total = 0
+        repaired = 0
+        replacement_started = 0
+        errors = 0
+        recovered: list[dict[str, object]] = []
+        for record in records:
+            state_principal = str(record.get("principal_id") or "").strip()
+            run_id = str(record.get("run_id") or "").strip()
+            if not state_principal or not run_id:
+                continue
+            if normalized_principal and state_principal != normalized_principal:
+                continue
+            scanned += 1
+            if not _property_search_run_is_stale(dict(record)):
+                continue
+            stale_total += 1
+            try:
+                should_pick_up, parent_run_ids, pickup_reason = self._property_search_run_should_pick_up_execution(
+                    dict(record)
+                )
+                if should_pick_up:
+                    pickup = self._pick_up_property_search_run_execution(
+                        record=dict(record),
+                        actor="property_search_recovery",
+                        reason=pickup_reason,
+                        parent_run_ids=parent_run_ids,
+                    )
+                    if str(pickup.get("status") or "").strip() == "started":
+                        repaired += 1
+                        recovered.append(
+                            {
+                                "run_id": run_id,
+                                "principal_id": state_principal,
+                                "status": "in_progress",
+                                "repair_status": "",
+                                "replacement_run_id": "",
+                                "execution_pickup_status": "started",
+                                "execution_pickup_reason": pickup_reason,
+                                "parent_run_ids": list(parent_run_ids),
+                            }
+                        )
+                        continue
+                before_summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+                before_replacement = str(before_summary.get("repair_replacement_run_id") or "").strip()
+                snapshot = self.get_property_search_run_status(
+                    principal_id=state_principal,
+                    run_id=run_id,
+                )
+                if not isinstance(snapshot, dict) or not snapshot:
+                    continue
+                after_summary = (
+                    dict(snapshot.get("summary") or {})
+                    if isinstance(snapshot.get("summary"), dict)
+                    else {}
+                )
+                after_replacement = str(after_summary.get("repair_replacement_run_id") or "").strip()
+                if str(after_summary.get("repair_status") or "").strip():
+                    repaired += 1
+                if after_replacement and after_replacement != before_replacement:
+                    replacement_started += 1
+                recovered.append(
+                    {
+                        "run_id": run_id,
+                        "principal_id": state_principal,
+                        "status": str(snapshot.get("status") or "").strip(),
+                        "repair_status": str(after_summary.get("repair_status") or "").strip(),
+                        "replacement_run_id": after_replacement,
+                    }
+                )
+            except Exception:
+                errors += 1
+        return {
+            "generated_at": _now_iso(),
+            "scanned": scanned,
+            "stale_total": stale_total,
+            "repaired": repaired,
+            "replacement_started": replacement_started,
+            "errors": errors,
+            "recovered": recovered[:20],
         }
 
 
@@ -34151,8 +35100,34 @@ class ProductService:
                 )
                 ranked_rows[-1]["adjusted_fit_score"] = adjusted_fit_score
                 score_below_min = adjusted_fit_score < float(min_match_score)
+                recommendation = str(dict(assessment or {}).get("recommendation") or "").strip().lower()
+                predicted_reaction = str(dict(assessment or {}).get("predicted_reaction") or "").strip().lower()
+                mismatch_reasons = [
+                    str(item or "").strip()
+                    for item in list(dict(assessment or {}).get("mismatch_reasons_json") or [])
+                    if str(item or "").strip()
+                ]
+                blocking_constraints = [
+                    str(item or "").strip()
+                    for item in list(dict(assessment or {}).get("blocking_constraints_json") or [])
+                    if str(item or "").strip()
+                ]
+                unknowns = [
+                    str(item or "").strip()
+                    for item in list(dict(assessment or {}).get("unknowns_json") or [])
+                    if str(item or "").strip()
+                ]
+                sparse_provider_fallback = (
+                    assessment_fit_score <= 0.0
+                    and recommendation in {"insufficient_data", "unknown", "needs_more_data"}
+                    and predicted_reaction in {"", "unknown"}
+                    and bool(unknowns)
+                    and not mismatch_reasons
+                    and not blocking_constraints
+                )
                 is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
-                if score_below_min:
+                keep_demoted_review_candidate = score_below_min and recommendation == "review"
+                if score_below_min and not sparse_provider_fallback:
                     if bool(policy.get("notify_top_watch_hit_when_no_good_fit")) and is_watch_fit:
                         candidate_source_ref = (
                             f"property-scout:{str(preview.get('listing_id') or property_url).strip() or property_url}"
@@ -34173,20 +35148,37 @@ class ProductService:
                     ranked_rows[-1]["score_demoted"] = True
                     ranked_rows[-1]["below_match_threshold"] = True
                     ranked_rows[-1]["score_demotion_reason"] = (
-                        f"Below the current {int(min_match_score)}/100 match bar; kept for ranking instead of filtering."
+                        f"Below the current {int(min_match_score)}/100 match bar."
                     )
+                    if keep_demoted_review_candidate:
+                        ranked_rows[-1]["score_demotion_reason"] = (
+                            f"Below the current {int(min_match_score)}/100 match bar; kept for ranking."
+                        )
                     detailed_facts["score_demoted_by_match_threshold"] = True
                     detailed_facts["score_demotion_reason"] = ranked_rows[-1]["score_demotion_reason"]
-                    _report(
-                        step="source_low_fit_demoted",
-                        message=(
-                            f"Demoted candidate below {int(min_match_score)}/100 for {source_label}; "
-                            "kept in ranking."
-                        ),
-                        status="in_progress",
-                        steps_delta=0,
-                        summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
-                    )
+                    if keep_demoted_review_candidate:
+                        _report(
+                            step="source_low_fit_demoted",
+                            message=(
+                                f"Demoted review candidate below {int(min_match_score)}/100 for {source_label}; "
+                                "kept in ranking."
+                            ),
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
+                        )
+                    else:
+                        _report(
+                            step="source_low_fit_filtered",
+                            message=(
+                                f"Filtered candidate below {int(min_match_score)}/100 for {source_label}."
+                            ),
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
+                        )
+                        ranked_rows.pop()
+                        continue
                 if ordinal == 1 or ordinal == enrichment_limit or ordinal % 2 == 0:
                     _report(
                         step="source_ranking",
@@ -34333,6 +35325,7 @@ class ProductService:
                 {
                     "property_url": str(row.get("property_url") or "").strip(),
                     "listing_title": str(row.get("title") or "").strip(),
+                    "summary": str(row.get("summary") or "").strip(),
                     "fit_score": float(row.get("fit_score") or 0.0),
                     "recommendation": str(dict(row.get("assessment") or {}).get("recommendation") or "").strip(),
                     "fit_summary": _property_alert_fit_summary(dict(row.get("assessment") or {})),
@@ -34421,6 +35414,9 @@ class ProductService:
                     personal_fit_assessment=assessment,
                     preference_person_id=source_preference_person_id,
                     tour_url=str(tour_result.get("tour_url") or "").strip(),
+                    requested_location_hints=source_location_hints,
+                    requested_country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                    requested_region_code=str(request_preferences.get("region_code") or "").strip(),
                 )
                 opened_status = str(opened.get("status") or "").strip().lower()
                 if opened_status in {"opened", "existing"}:
@@ -34614,6 +35610,9 @@ class ProductService:
                         personal_fit_assessment=dict(top_watch_candidate.get("assessment") or {}),
                         preference_person_id=source_preference_person_id,
                         tour_url="",
+                        requested_location_hints=source_location_hints,
+                        requested_country_code=str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
+                        requested_region_code=str(request_preferences.get("region_code") or "").strip(),
                     )
                     if str(opened.get("status") or "").strip() == "opened":
                         created_for_source += 1
@@ -36505,7 +37504,7 @@ class ProductService:
         office_loop_summary = (
             "Workspace progress is strong enough to trust the daily flow."
             if office_loop_state == "clear"
-            else "Workspace progress is blocked by a current delivery issue."
+            else "Office-loop proof is blocked by a current memo delivery issue."
             if memo_issue_reason
             else "Workspace progress needs another clean cycle."
             if office_loop_state == "critical"
@@ -38229,7 +39228,8 @@ class ProductService:
                     "public_url": existing_tour_url,
                     "share_url": existing_vendor_tour_url,
                     "crezlo_public_url": existing_vendor_tour_url,
-                }
+                },
+                allow_unverified_branded=True,
             )
             if existing_branded_tour_url:
                 return {
@@ -38295,13 +39295,16 @@ class ProductService:
                 title=title,
                 property_facts=facts,
             )
-            if duration_ok:
+            verified_existing_flythrough_url = _published_walkthrough_asset_url(
+                existing_delivery.get("flythrough_url") or existing_delivery.get("video_url") or ""
+            )
+            if duration_ok and verified_existing_flythrough_url:
                 return {
                     "status": "existing",
                     "provider_key": str(existing_delivery.get("provider_key") or "").strip().lower() or "hosted",
                     "tour_url": renderable_tour_url,
                     "video_url": str(existing_delivery.get("video_url") or "").strip(),
-                    "flythrough_url": str(existing_delivery.get("flythrough_url") or _property_tour_deep_link(renderable_tour_url, pane="flythrough-pane", autoplay=True)).strip(),
+                    "flythrough_url": verified_existing_flythrough_url,
                     "duration_seconds": actual_seconds,
                     "required_duration_seconds": required_seconds,
                     "reason": "",
@@ -38344,8 +39347,17 @@ class ProductService:
         return result
 
     def _property_configured_notification_channel(self, *, principal_id: str) -> str:
-        channels = self._property_configured_notification_channels(principal_id=principal_id)
-        return channels[0] if channels else ""
+        try:
+            state = self._container.onboarding._ensure_state(principal_id)  # noqa: SLF001
+        except Exception:
+            return ""
+        try:
+            preferred_channel = normalize_property_notification_channel(
+                dict(dict(state.channel_preferences_json or {}).get("property_notifications") or {}).get("preferred_channel")
+            )
+        except ValueError:
+            preferred_channel = ""
+        return preferred_channel
 
     def _property_configured_notification_channels(self, *, principal_id: str) -> tuple[str, ...]:
         try:
@@ -38386,9 +39398,15 @@ class ProductService:
             status = self._container.onboarding.status(principal_id=principal_id)
         except Exception:
             return False
+        delivery_preferences = dict(status.get("delivery_preferences") or {})
+        property_notifications = dict(delivery_preferences.get("property_notifications") or {})
         selected = {
             str(item or "").strip().lower()
-            for item in list(status.get("selected_channels") or [])
+            for item in list(
+                property_notifications.get("selected_channels")
+                or status.get("selected_channels")
+                or []
+            )
             if str(item or "").strip()
         }
         return "whatsapp" in selected
@@ -44852,6 +45870,12 @@ class ProductService:
             return None
         found = self._container.orchestrator.fetch_human_task(handoff_ref.split(":", 1)[1], principal_id=principal_id)
         if found is None:
+            target_id = handoff_ref.split(":", 1)[1]
+            for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=500):
+                if str(getattr(row, "human_task_id", "") or "").strip() == target_id:
+                    found = row
+                    break
+        if found is None:
             return None
         return self._handoff_from_human_task(found)
 
@@ -47726,7 +48750,7 @@ class ProductService:
                 "summary": "Open the ranked property brief from a mobile-safe page.",
                 "preview_text": (
                     f"{len(snapshot.brief_items)} brief items, {len(at_risk_commitments)} follow-ups at risk, {len(open_decisions)} open decisions."
-                    + (" 1 item needs a fix action." if memo_blocker_item is not None else "")
+                    + (" 1 memo blocker needs a fix action." if memo_blocker_item is not None else "")
                 ),
                 "items": memo_items,
                 "stats": {

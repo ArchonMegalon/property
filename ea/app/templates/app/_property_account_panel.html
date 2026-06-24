@@ -16,8 +16,11 @@
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
-{% set preferred_notification_channel = property_notifications.get('preferred_channel') or 'email' %}
-{% set selected_notification_channels = property_notifications.get('selected_channels') or [preferred_notification_channel] %}
+{% set preferred_notification_channel = property_notifications.get('preferred_channel') or '' %}
+{% set selected_notification_channels = property_notifications.get('selected_channels') or [] %}
+{% if preferred_notification_channel == 'telegram' and preferred_notification_channel not in selected_notification_channels %}
+  {% set selected_notification_channels = selected_notification_channels + [preferred_notification_channel] %}
+{% endif %}
 {% set account_channels = rendered_account_status.get('channels') or {} %}
 {% set telegram_channel = account_channels.get('telegram') or {} %}
 {% set telegram_bot = property_notifications.get('telegram_bot') or telegram_channel.get('product_bot') or {} %}
@@ -62,7 +65,7 @@
       <div>
         <span class="pqx-small">Alerts</span>
         <h2>Notifications</h2>
-        <p>Choose where strong matches arrive.</p>
+        <p>Strong matches go to every selected channel. Direct follow-up and near-miss prompts stay Telegram-only when Telegram is saved as primary.</p>
         <form class="pqx-account-channel-form" action="/app/api/property/account/notifications" method="post">
           <div class="pqx-account-channel-options" role="group" aria-label="Property alert destinations">
             <label class="pqx-account-channel-option">
@@ -78,20 +81,40 @@
               <span>WhatsApp</span>
             </label>
           </div>
+          <div class="pqx-account-channel-options" role="radiogroup" aria-label="Primary PropertyQuarry alert channel">
+            <label class="pqx-account-channel-option">
+              <input type="radio" name="preferred_channel" value="email"{% if preferred_notification_channel == 'email' %} checked{% endif %}>
+              <span>Email is primary</span>
+            </label>
+            <label class="pqx-account-channel-option" aria-label="Primary PropertyQuarry Telegram bot channel">
+              <input type="radio" name="preferred_channel" value="telegram"{% if preferred_notification_channel == 'telegram' %} checked{% endif %}>
+              <span>Telegram is primary</span>
+            </label>
+            <label class="pqx-account-channel-option">
+              <input type="radio" name="preferred_channel" value="whatsapp"{% if preferred_notification_channel == 'whatsapp' %} checked{% endif %}>
+              <span>WhatsApp is primary</span>
+            </label>
+          </div>
+          <div class="pqx-account-channel-detail">
+            <strong>Delivery preferences</strong>
+            <span>Strong matches and watch hits go to every selected channel.</span>
+            <span>Near-miss follow-up prompts stay Telegram-only and run only when Telegram is selected and saved as the primary channel.</span>
+          </div>
           <div class="pqx-account-channel-detail" data-channel-detail="email">
             <strong>Email</strong>
-            <span>Uses your account email.</span>
+            <span>Uses your account email for strong matches and watch hits.</span>
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="telegram">
             <strong>Telegram</strong>
             <span>{{ telegram_bot_status }}</span>
+            <span>Supports strong matches plus near-miss follow-up prompts when Telegram is primary.</span>
             {% if telegram_bot_handle %}<span>{{ telegram_bot_handle }}</span>{% endif %}
             {% if telegram_bot_connect_url %}<a href="{{ telegram_bot_connect_url }}" target="_blank" rel="noopener">Open bot</a>{% endif %}
           </div>
           <div class="pqx-account-channel-detail" data-channel-detail="whatsapp">
             <label for="whatsappAiSupportPhone">WhatsApp number</label>
             <input id="whatsappAiSupportPhone" type="tel" inputmode="tel" autocomplete="tel" name="whatsapp_ai_support_phone" value="{{ whatsapp_ai_support_phone }}" placeholder="+436641234567" aria-describedby="whatsappAiSupportCopy">
-            <span id="whatsappAiSupportCopy">Needed only when WhatsApp is on.</span>
+            <span id="whatsappAiSupportCopy">Needed when WhatsApp is selected for strong matches or AI support.</span>
           </div>
           <button class="pqx-link-button primary" type="submit">Save</button>
         </form>

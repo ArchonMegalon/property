@@ -6270,36 +6270,43 @@ def _tool_shim_decision(
     payload = _normalize_tool_shim_payload(payload, available_tools=tools)
     decision = str(payload.get("decision") or "").strip().lower()
     if decision == "final":
-        retry_reason = _tool_shim_text_rejection_reason(
-            text=str(payload.get("text") or ""),
-            requires_tool=requires_immediate_tool,
-        )
-        if retry_reason:
-            try:
-                retry_payload, retry_result = _tool_shim_retry_payload(
-                    model=model,
-                    max_output_tokens=max_output_tokens,
-                    shim_messages=shim_messages,
-                    prior_payload=payload,
-                    retry_reason=retry_reason,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                    request_deadline_monotonic=request_deadline_monotonic,
-                )
-            except HTTPException as exc:
-                blocked_decision = _tool_shim_package_planner_blocked_decision(
-                    staged_prompt_text,
-                    history_items,
-                    failure_message=str(exc.detail or exc),
-                )
-                if blocked_decision is not None:
-                    return blocked_decision
-                raise
-            if isinstance(retry_payload, dict):
-                payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
-                result = retry_result
-                decision = str(payload.get("decision") or "").strip().lower()
+        nested_payload = _extract_json_object(_extract_textish(payload.get("text")))
+        if isinstance(nested_payload, dict):
+            normalized_nested_payload = _normalize_tool_shim_payload(nested_payload, available_tools=tools)
+            if str(normalized_nested_payload.get("decision") or "").strip().lower() == "function_call":
+                payload = normalized_nested_payload
+                decision = "function_call"
+        if decision == "final":
+            retry_reason = _tool_shim_text_rejection_reason(
+                text=str(payload.get("text") or ""),
+                requires_tool=requires_immediate_tool,
+            )
+            if retry_reason:
+                try:
+                    retry_payload, retry_result = _tool_shim_retry_payload(
+                        model=model,
+                        max_output_tokens=max_output_tokens,
+                        shim_messages=shim_messages,
+                        prior_payload=payload,
+                        retry_reason=retry_reason,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                    )
+                except HTTPException as exc:
+                    blocked_decision = _tool_shim_package_planner_blocked_decision(
+                        staged_prompt_text,
+                        history_items,
+                        failure_message=str(exc.detail or exc),
+                    )
+                    if blocked_decision is not None:
+                        return blocked_decision
+                    raise
+                if isinstance(retry_payload, dict):
+                    payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
+                    result = retry_result
+                    decision = str(payload.get("decision") or "").strip().lower()
     if decision == "function_call":
         tool_name = str(payload.get("name") or "").strip()
         arguments = payload.get("arguments")

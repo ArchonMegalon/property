@@ -259,7 +259,11 @@ def _is_branded_public_tour_url(value: object) -> bool:
         return not _is_crezlo_tour_host(normalized)
     return False
 
-def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[str, str]:
+def _resolve_property_tour_urls(
+    structured_output: dict[str, object],
+    *,
+    allow_unverified_branded: bool = False,
+) -> tuple[str, str]:
     hosted_url = _first_non_empty_text(structured_output.get("hosted_url"))
     public_url = _first_non_empty_text(structured_output.get("public_url"))
     share_url = _first_non_empty_text(structured_output.get("share_url"))
@@ -287,7 +291,7 @@ def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[s
     ]
     branded_tour_url = ""
     for candidate in branded_candidates:
-        if _hosted_property_tour_verified_open_url(candidate):
+        if allow_unverified_branded or _hosted_property_tour_verified_open_url(candidate):
             branded_tour_url = candidate
             break
     vendor_tour_url = _first_non_empty_text(
@@ -326,14 +330,21 @@ def _hosted_property_tour_slug_from_url(value: object) -> str:
     except Exception:
         return ""
     path_parts = [part for part in str(parsed.path or "").split("/") if part]
-    if len(path_parts) < 2 or path_parts[-2] != "tours":
-        return ""
-    return str(path_parts[-1] or "").strip()
+    for index, part in enumerate(path_parts):
+        if part == "tours" and index + 1 < len(path_parts):
+            return str(path_parts[index + 1] or "").strip()
+    return ""
 
 
 def _hosted_property_tour_payload_for_url(tour_url: object) -> dict[str, object]:
     normalized_url = str(tour_url or "").strip()
-    if not normalized_url or not _is_branded_public_tour_url(normalized_url):
+    if not normalized_url:
+        return {}
+    parsed = urllib.parse.urlparse(normalized_url)
+    if parsed.scheme or parsed.netloc:
+        if not _is_branded_public_tour_url(normalized_url):
+            return {}
+    elif not str(parsed.path or "").startswith("/tours/"):
         return {}
     slug = _hosted_property_tour_slug_from_url(normalized_url)
     if not slug:
@@ -380,8 +391,16 @@ def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
         value = str(payload.get(key) or "").strip()
         if value and _property_tour_provider_host_kind(value) == "3dvista":
             return True
+    slug = _hosted_property_tour_slug_from_url(tour_url)
+    if not slug:
+        return False
+    bundle_dir = (_public_tour_dir() / slug).resolve()
     for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
-        if str(payload.get(key) or "").strip():
+        entry_relpath = str(payload.get(key) or "").strip().lstrip("/")
+        if not entry_relpath:
+            continue
+        entry_path = (bundle_dir / entry_relpath).resolve()
+        if bundle_dir in entry_path.parents and entry_path.exists() and entry_path.is_file():
             return True
     return False
 
@@ -467,10 +486,13 @@ def _published_walkthrough_asset_url(value: object) -> str:
         slug = str(path_parts[2] or "").strip()
         hosted_tour_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, f"/tours/{slug}", "", "", ""))
         if _is_branded_public_tour_url(hosted_tour_url):
+            manifest_payload = _hosted_property_tour_payload_for_url(hosted_tour_url)
             verified_asset_url = _hosted_property_tour_walkthrough_asset_url(hosted_tour_url)
             canonical_candidate_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
-            if not verified_asset_url or canonical_candidate_url != verified_asset_url:
+            if manifest_payload and (not verified_asset_url or canonical_candidate_url != verified_asset_url):
                 return ""
+            if not manifest_payload:
+                return canonical_candidate_url
             return verified_asset_url
     return normalized
 
@@ -1007,6 +1029,8 @@ def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: st
     if not normalized_url or not safe_slug or not safe_relpath:
         return ""
     parsed = urllib.parse.urlparse(normalized_url)
+    if not parsed.scheme and not parsed.netloc and str(parsed.path or "").startswith("/tours/"):
+        return f"/tours/files/{safe_slug}/{safe_relpath}"
     if not parsed.scheme or not parsed.netloc:
         return ""
     return urllib.parse.urlunparse(

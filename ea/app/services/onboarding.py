@@ -1391,25 +1391,26 @@ class OnboardingService(AssistantOnboardingService):
         whatsapp_ai_support_phone = str(preferences.get("whatsapp_ai_support_phone") or "").strip()
         configured_channel = str(preferences.get("preferred_channel") or "").strip().lower()
         raw_selected_channels = preferences.get("selected_channels")
+        preferred_channel = ""
         if configured_channel:
             try:
-                preferred_channel = normalize_property_notification_channel(configured_channel)
+                normalized_preferred_channel = normalize_property_notification_channel(configured_channel)
             except ValueError:
-                preferred_channel = "email"
-        else:
-            preferred_channel = "email"
+                normalized_preferred_channel = ""
+            if normalized_preferred_channel:
+                preferred_channel = normalized_preferred_channel
         try:
             selected_channels = normalize_property_notification_channels(
                 raw_selected_channels,
-                fallback=preferred_channel,
+                fallback=None,
             )
         except ValueError:
-            selected_channels = (preferred_channel,)
-        if preferred_channel not in selected_channels:
-            selected_channels = (preferred_channel, *tuple(channel for channel in selected_channels if channel != preferred_channel))
+            selected_channels = ()
+        if preferred_channel and preferred_channel not in selected_channels:
+            preferred_channel = ""
         return {
             "preferred_channel": preferred_channel,
-            "preferred_label": PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(preferred_channel, "Email"),
+            "preferred_label": PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(preferred_channel, "") if preferred_channel else "",
             "selected_channels": list(selected_channels),
             "selected_labels": [
                 PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(channel, channel.title())

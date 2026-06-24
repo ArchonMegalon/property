@@ -110,6 +110,67 @@ def test_tool_shim_does_not_inject_fleet_status_when_worker_prompt_forbids_it() 
     assert responses._tool_shim_direct_local_fleet_command(prompt) is None
 
 
+def test_tool_shim_unwraps_nested_final_text_function_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import responses
+
+    nested_decision = {
+        "decision": "function_call",
+        "name": "exec_command",
+        "arguments": {"cmd": "pwd && git status --short", "max_output_tokens": 200},
+    }
+    wrapped_decision = {
+        "decision": "final",
+        "text": json.dumps(nested_decision),
+    }
+
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_generate_upstream_text_with_timeout",
+        lambda **kwargs: UpstreamResult(
+            text=json.dumps(wrapped_decision),
+            provider_key="onemin",
+            model="gpt-4.1-nano",
+            provider_key_slot=None,
+            provider_backend="1min",
+            provider_account_name="test",
+            tokens_in=0,
+            tokens_out=0,
+            upstream_model="gpt-4.1-nano",
+            latency_ms=0,
+        ),
+    )
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a command.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cmd": {"type": "string"},
+                        "max_output_tokens": {"type": "integer"},
+                    },
+                    "required": ["cmd"],
+                },
+            }
+        ],
+        history_items=[
+            {
+                "type": "input_text",
+                "text": "Read-only smoke: run pwd and git status --short, then report receipts.",
+            }
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == nested_decision["arguments"]
+
+
 def test_tool_shim_direct_staged_first_command_short_circuits_initial_exec_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

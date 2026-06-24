@@ -180,7 +180,7 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
     if isinstance(candidate.get("property_facts_json"), dict):
         top_level_facts = {**top_level_facts, **dict(candidate.get("property_facts_json") or {})}
     snapshot = dict(top_level_facts.get("listing_research_snapshot") or {}) if isinstance(top_level_facts.get("listing_research_snapshot"), dict) else {}
-    merged = {**snapshot, **top_level_facts}
+    merged = {**top_level_facts, **snapshot}
 
     def _normalized(value: object) -> str:
         return re.sub(r"\s+", " ", str(value or "").strip()).casefold()

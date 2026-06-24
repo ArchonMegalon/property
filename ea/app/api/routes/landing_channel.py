@@ -374,6 +374,8 @@ def app_channel_digest_plain(
         operator_id=str(context.operator_id or "").strip(),
         base_url=_public_base_url(request),
     )
+    if str(digest_key or "").strip().lower() == "memo" and text.startswith("Today digest"):
+        text = text.replace("Today digest", "Morning memo digest", 1)
     if not text:
         raise HTTPException(status_code=404, detail="channel_digest_not_found")
     product.record_surface_event(

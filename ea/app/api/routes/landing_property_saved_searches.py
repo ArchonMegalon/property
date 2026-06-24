@@ -136,7 +136,7 @@ def build_agent_management_rows(
         if not isinstance(agent, dict):
             continue
         agent_id = urllib.parse.quote(str(agent.get("agent_id") or "current").strip() or "current", safe="")
-        edit_href = f"/app/properties?load_agent={agent_id}"
+        edit_href = f"/app/search?load_agent={agent_id}"
         open_href = f"/app/agents?agent_id={agent_id}"
         if run_id:
             suffix = urllib.parse.quote(run_id, safe="")

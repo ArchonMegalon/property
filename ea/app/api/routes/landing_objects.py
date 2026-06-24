@@ -36,7 +36,7 @@ def _raise_propertyquarry_object_detail_disabled(request: Request) -> None:
 
 
 def _propertyquarry_handoff_task_allowed(task_type: str) -> bool:
-    return str(task_type or "").strip() in {"property_alert_review", "property_tour_followup"}
+    return str(task_type or "").strip() in {"delivery_followup", "property_alert_review", "property_tour_followup"}
 
 
 def _google_delivery_action(reason: str, *, return_to: str) -> dict[str, str]:

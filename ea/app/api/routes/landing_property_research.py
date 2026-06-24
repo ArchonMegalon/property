@@ -22,12 +22,10 @@ from app.product.service import (
     _property_investment_location_seed,
     _property_investment_price_eur,
     _property_investment_research_snapshot,
-    _property_tour_control_link,
-    _hosted_property_tour_manifest,
-    _hosted_property_tour_provider_export_keys,
     _property_money_amount_label,
     _property_visual_eta_label,
 )
+from app.product import property_tour_hosting
 from app.services.property_market_catalog import supported_currency_codes
 
 
@@ -603,21 +601,7 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
 
 
 def _property_hosted_tour_ready(tour_url: str) -> bool:
-    normalized = str(tour_url or "").strip()
-    if not normalized:
-        return False
-    try:
-        manifest = _hosted_property_tour_manifest(normalized)
-    except Exception:
-        manifest = {}
-    if not manifest:
-        return False
-    if str(manifest.get("code") or manifest.get("error") or manifest.get("details") or "").strip():
-        return False
-    try:
-        return bool(_hosted_property_tour_provider_export_keys(normalized))
-    except Exception:
-        return False
+    return bool(property_tour_hosting._hosted_property_tour_verified_open_url(tour_url))
 
 
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
@@ -642,7 +626,11 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         status_updated_at=status_updated_at,
     )
     hosted_tour_ready = _property_hosted_tour_ready(tour_url)
-    embed_href = _property_tour_control_link(tour_url) if hosted_tour_ready else ""
+    verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if hosted_tour_ready else ""
+    embed_href = verified_tour_href if hosted_tour_ready else ""
+    verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
+        candidate.get("flythrough_url")
+    )
     if hosted_tour_ready:
         status_label = "Live 360 ready"
         status_detail = "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
@@ -679,24 +667,25 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "has_live_viewer": bool(embed_href),
         "hosted_ready": hosted_tour_ready,
         "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started"}),
-        "primary_href": tour_url if hosted_tour_ready else (vendor_tour_url or review_url),
+        "primary_href": verified_tour_href if hosted_tour_ready else (vendor_tour_url or review_url),
         "primary_label": (
-            "Open 3D reconstruction floor plan"
+            "Open 3D tour"
             if hosted_tour_ready
             else ("Open source 360" if vendor_tour_url else ("Open property page" if review_url else ""))
         ),
         "secondary_href": review_url,
         "secondary_label": "Open property page" if review_url else "",
         "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
-        "tertiary_label": "Vendor 360" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "tertiary_label": "Open source 360" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "walkthrough_href": verified_walkthrough_href,
     }
 
 
 def _property_tour_detail_line(candidate: dict[str, object]) -> str:
     tour_url = str(candidate.get("tour_url") or "").strip()
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
-    if tour_url:
-        return "Open the white-label 3D reconstruction floor plan on PropertyQuarry."
+    if _property_hosted_tour_ready(tour_url):
+        return "Open the verified 3D tour on PropertyQuarry."
     if vendor_tour_url:
         return "A source 360 exists, but the preferred PropertyQuarry-hosted tour is not ready yet."
     return _property_tour_source_gap_detail(candidate)

@@ -25,6 +25,7 @@ import app.api.routes.product_api_delivery as product_api_delivery_routes
 import app.product.property_tour_hosting as property_tour_hosting
 import app.product.service as product_service
 from app.api.routes.workspace_sections import workspace_section_payload
+from app.domain.models import HumanTask
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from app.services.fliplink import build_fliplink_packet_service
@@ -1376,7 +1377,7 @@ def test_property_notification_preference_allows_multiple_selected_channels() ->
     ) == (False, "notification_channel_not_selected")
 
 
-def test_property_account_notifications_route_persists_explicit_primary_for_multiselect() -> None:
+def test_property_account_notifications_route_persists_telegram_primary_for_multiselect() -> None:
     principal_id = "cf-email:notification-route-primary@example.com"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Notification Route Primary", selected_channels=["telegram", "whatsapp"])
@@ -1385,7 +1386,7 @@ def test_property_account_notifications_route_persists_explicit_primary_for_mult
         "/app/api/property/account/notifications",
         data={
             "notification_channels": ["telegram", "whatsapp"],
-            "preferred_channel": "whatsapp",
+            "preferred_channel": "telegram",
             "whatsapp_ai_support_phone": "+43 664 791 6419",
         },
         headers={"host": "propertyquarry.com"},
@@ -1395,15 +1396,15 @@ def test_property_account_notifications_route_persists_explicit_primary_for_mult
     assert response.status_code == 303, response.text
     status = client.app.state.container.onboarding.status(principal_id=principal_id)
     property_notifications = dict(dict(status.get("delivery_preferences") or {}).get("property_notifications") or {})
-    assert property_notifications["preferred_channel"] == "whatsapp"
+    assert property_notifications["preferred_channel"] == "telegram"
     assert property_notifications["selected_channels"] == ["telegram", "whatsapp"]
     assert property_notifications["whatsapp_ai_support_phone"] == "+436647916419"
 
 
-def test_property_account_notifications_route_rejects_multiselect_without_primary() -> None:
-    principal_id = "cf-email:notification-route-missing-primary@example.com"
+def test_property_account_notifications_route_allows_multiselect_without_primary() -> None:
+    principal_id = "cf-email:notification-route-no-primary@example.com"
     client = build_property_client(principal_id=principal_id)
-    start_workspace(client, mode="personal", workspace_name="Notification Route Missing Primary")
+    start_workspace(client, mode="personal", workspace_name="Notification Route No Primary")
 
     response = client.post(
         "/app/api/property/account/notifications",
@@ -1412,24 +1413,112 @@ def test_property_account_notifications_route_rejects_multiselect_without_primar
         follow_redirects=False,
     )
 
-    assert response.status_code == 400, response.text
-    assert "property_notification_primary_required" in response.text
+    assert response.status_code == 303, response.text
+    status = client.app.state.container.onboarding.status(principal_id=principal_id)
+    property_notifications = dict(dict(status.get("delivery_preferences") or {}).get("property_notifications") or {})
+    assert property_notifications["selected_channels"] == ["email", "whatsapp"]
+    assert property_notifications["preferred_channel"] == ""
+    assert product_service.build_product_service(client.app.state.container)._property_configured_notification_channel(  # noqa: SLF001
+        principal_id=principal_id
+    ) == ""
 
 
-def test_property_account_notifications_route_rejects_primary_without_selected_channel() -> None:
-    principal_id = "cf-email:notification-route-primary-not-selected@example.com"
+def test_property_account_notifications_route_accepts_primary_only_as_selected_channel() -> None:
+    principal_id = "cf-email:notification-route-primary-only@example.com"
     client = build_property_client(principal_id=principal_id)
-    start_workspace(client, mode="personal", workspace_name="Notification Route Primary Not Selected")
+    start_workspace(client, mode="personal", workspace_name="Notification Route Primary Only")
 
     response = client.post(
         "/app/api/property/account/notifications",
-        data={"preferred_channel": "whatsapp"},
+        data={"preferred_channel": "telegram"},
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303, response.text
+    status = client.app.state.container.onboarding.status(principal_id=principal_id)
+    property_notifications = dict(dict(status.get("delivery_preferences") or {}).get("property_notifications") or {})
+    assert property_notifications["selected_channels"] == ["telegram"]
+    assert property_notifications["preferred_channel"] == "telegram"
+
+
+def test_property_account_notifications_route_accepts_non_telegram_primary_when_selected() -> None:
+    principal_id = "cf-email:notification-route-primary-whatsapp@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Notification Route Primary WhatsApp")
+
+    response = client.post(
+        "/app/api/property/account/notifications",
+        data={
+            "notification_channels": ["telegram", "whatsapp"],
+            "preferred_channel": "whatsapp",
+        },
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303, response.text
+    status = client.app.state.container.onboarding.status(principal_id=principal_id)
+    property_notifications = dict(dict(status.get("delivery_preferences") or {}).get("property_notifications") or {})
+    assert property_notifications["selected_channels"] == ["telegram", "whatsapp"]
+    assert property_notifications["preferred_channel"] == "whatsapp"
+
+    exported = client.get("/app/api/property/account/export", headers={"host": "propertyquarry.com"})
+    assert exported.status_code == 200
+    assert (
+        exported.json()["delivery_preferences"]["property_notifications"]["preferred_channel"]
+        == "whatsapp"
+    )
+    assert (
+        exported.json()["delivery_preferences"]["property_notifications"]["preferred_label"]
+        == "WhatsApp"
+    )
+
+
+def test_property_account_notifications_route_exports_sole_selected_channel_as_primary() -> None:
+    principal_id = "cf-email:notification-route-primary-sole-whatsapp@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Notification Route Sole WhatsApp")
+
+    response = client.post(
+        "/app/api/property/account/notifications",
+        data={"notification_channels": "whatsapp"},
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303, response.text
+    status = client.app.state.container.onboarding.status(principal_id=principal_id)
+    property_notifications = dict(dict(status.get("delivery_preferences") or {}).get("property_notifications") or {})
+    assert property_notifications["selected_channels"] == ["whatsapp"]
+    assert property_notifications["preferred_channel"] == ""
+
+    exported = client.get("/app/api/property/account/export", headers={"host": "propertyquarry.com"})
+    assert exported.status_code == 200
+    assert (
+        exported.json()["delivery_preferences"]["property_notifications"]["preferred_channel"]
+        == "whatsapp"
+    )
+    assert (
+        exported.json()["delivery_preferences"]["property_notifications"]["preferred_label"]
+        == "WhatsApp"
+    )
+
+
+def test_property_account_notifications_route_rejects_when_no_channels_selected() -> None:
+    principal_id = "cf-email:notification-route-no-channels@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Notification Route No Channels")
+
+    response = client.post(
+        "/app/api/property/account/notifications",
+        data={},
         headers={"host": "propertyquarry.com"},
         follow_redirects=False,
     )
 
     assert response.status_code == 400, response.text
-    assert "property_notification_primary_not_selected" in response.text
+    assert "property_notification_channel_required" in response.text
 
 
 def test_deliver_telegram_property_link_bundle_sends_summary_video_and_dossier(monkeypatch, tmp_path: Path) -> None:
@@ -13502,6 +13591,107 @@ def test_property_visual_request_queue_preserves_original_requested_timestamp(mo
     assert persisted["tour_status_updated_at"] != persisted["tour_requested_at"]
 
 
+def test_request_property_visual_asset_rejects_workbench_floorplan_default(monkeypatch) -> None:
+    principal_id = "property-visual-request-workbench-default"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    captured: dict[str, object] = {}
+
+    def _fake_create_willhaben_property_tour(self, **kwargs: object) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        captured.update(dict(kwargs))
+        return {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Default strict workbench request",
+            "variant_key": "layout_first",
+            "tour_url": "https://propertyquarry.com/tours/strict-workbench",
+            "tour_status": "created",
+            "flythrough_url": "",
+            "flythrough_status": "queued",
+            "status_label": "Open 3D tour",
+            "blocked_reason": "",
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+            "tour_media_mode": "queued_user_request",
+            "human_task_id": "",
+            "delivery_email": "",
+            "delivery_status": "created",
+            "editor_url": "",
+        }
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/workbench-1",
+        request_kind="tour",
+        source_ref="willhaben:workbench-1",
+        run_id="run-workbench-1",
+        candidate_ref="candidate-workbench-1",
+        auto_deliver=False,
+        queue_async_request=False,
+        allow_floorplan_only=False,
+    )
+
+    assert result["status"] == "created"
+    assert captured["allow_floorplan_only"] is False
+    assert captured["enforce_360_media"] is True
+
+
+def test_request_property_visual_asset_keeps_explicit_workbench_floorplan(monkeypatch) -> None:
+    principal_id = "property-visual-request-workbench-floorplan"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    captured: dict[str, object] = {}
+
+    def _fake_create_willhaben_property_tour(self, **kwargs: object) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        captured.update(dict(kwargs))
+        return {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Explicit floorplan workbench request",
+            "variant_key": "layout_first",
+            "tour_url": "https://propertyquarry.com/tours/workbench-2",
+            "tour_status": "created",
+            "flythrough_url": "",
+            "flythrough_status": "queued",
+            "status_label": "Open 3D tour",
+            "blocked_reason": "",
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+            "tour_media_mode": "queued_user_request",
+            "human_task_id": "",
+            "delivery_email": "",
+            "delivery_status": "created",
+            "editor_url": "",
+        }
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/workbench-2",
+        request_kind="tour",
+        source_ref="willhaben:workbench-2",
+        run_id="run-workbench-2",
+        candidate_ref="candidate-workbench-2",
+        auto_deliver=False,
+        queue_async_request=False,
+        allow_floorplan_only=True,
+    )
+
+    assert result["status"] == "created"
+    assert captured["allow_floorplan_only"] is True
+
+
 def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> None:
     principal_id = "property-visual-status-stale-retry"
     client = build_product_client(principal_id=principal_id)
@@ -13535,8 +13725,15 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
 
     repaired: dict[str, object] = {}
 
-    def _fake_process(self, *, principal_id: str, actor: str, limit: int = 10):  # type: ignore[no-untyped-def]
-        repaired.update({"principal_id": principal_id, "actor": actor, "limit": limit})
+    def _fake_process(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 10,
+        force_stale: bool = False,
+    ):
+        repaired.update({"principal_id": principal_id, "actor": actor, "limit": limit, "force_stale": force_stale})
         candidate["tour_status"] = "created"
         candidate["tour_url"] = "https://propertyquarry.com/tours/stale-visual-42"
         candidate["tour_status_updated_at"] = "2026-06-22T10:09:00+00:00"
@@ -13545,6 +13742,7 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
     monkeypatch.setattr(ProductService, "process_property_tour_followup_tasks", _fake_process)
     monkeypatch.setattr(ProductService, "_existing_property_tour_followup", lambda self, **kwargs: object())
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
 
     response = service.get_property_visual_request_status(
         principal_id=principal_id,
@@ -13558,6 +13756,7 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
         "principal_id": principal_id,
         "actor": "property_visual_status_repair",
         "limit": 2,
+        "force_stale": True,
     }
     assert response["status"] == "ready"
     assert response["status_label"] == "Open 3D tour"
@@ -13599,8 +13798,15 @@ def test_property_visual_status_queues_background_repair_when_stale_repair_is_sl
 
     repaired: dict[str, object] = {}
 
-    def _fake_process(self, *, principal_id: str, actor: str, limit: int = 10):  # type: ignore[no-untyped-def]
-        repaired.update({"principal_id": principal_id, "actor": actor, "limit": limit})
+    def _fake_process(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 10,
+        force_stale: bool = False,
+    ):
+        repaired.update({"principal_id": principal_id, "actor": actor, "limit": limit, "force_stale": force_stale})
         time.sleep(0.35)
         candidate["flythrough_status"] = "created"
         candidate["flythrough_url"] = "https://propertyquarry.com/tours/stale-visual-slow-42?pane=flythrough-pane&autoplay=1"
@@ -13623,6 +13829,7 @@ def test_property_visual_status_queues_background_repair_when_stale_repair_is_sl
         "principal_id": principal_id,
         "actor": "property_visual_status_repair",
         "limit": 2,
+        "force_stale": True,
     }
     assert response["status"] == "repairing"
     assert response["flythrough_status"] == "repairing"
@@ -13841,6 +14048,7 @@ def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source
         }
 
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
 
     response = service.get_property_visual_request_status(
         principal_id=principal_id,
@@ -13908,6 +14116,166 @@ def test_property_visual_status_keeps_polling_while_rendering(monkeypatch) -> No
     assert response["eta_label"]
     assert response["progress_pct"] >= 58
     assert response["poll_after_seconds"] == 10
+
+
+def test_property_visual_status_prefers_latest_followup_resolution_over_stale_snapshot(monkeypatch) -> None:
+    principal_id = "property-visual-status-followup-resolution"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    stale_candidate = {
+        "title": "Blocked visual candidate",
+        "property_url": "https://immobilien.derstandard.at/detail/15180116",
+        "source_ref": "property-scout:immobilien.derstandard.at:15180116",
+        "tour_status": "processing",
+        "tour_url": "",
+        "tour_eta_minutes": "10",
+        "tour_requested_at": "2026-06-23T17:23:22+00:00",
+        "tour_status_updated_at": "2026-06-23T19:33:14+00:00",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-status-followup-resolution"
+        return {
+            "run_id": run_id,
+            "updated_at": "2026-06-23T19:33:14+00:00",
+            "summary": {
+                "ranked_candidates": [dict(stale_candidate)],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, **kwargs: HumanTask(
+            human_task_id="human-task-42",
+            session_id="session-42",
+            step_id=None,
+            principal_id=principal_id,
+            task_type="property_tour_followup",
+            role_required="operator",
+            brief="Blocked visual candidate",
+            authority_required="",
+            why_human="",
+            quality_rubric_json={},
+            input_json={},
+            desired_output_json={},
+            priority="high",
+            sla_due_at=None,
+            status="returned",
+            assignment_state="assigned",
+            assigned_operator_id="operator-office",
+            assignment_source="",
+            assigned_at="2026-06-23T19:35:00+00:00",
+            assigned_by_actor_id="test",
+            resolution="blocked",
+            resume_session_on_return=False,
+            returned_payload_json={
+                "blocked_reason": "crezlo_property_tour_not_configured",
+                "reason": "crezlo_property_tour_not_configured",
+            },
+            provenance_json={"source": "test"},
+            created_at="2026-06-23T19:34:00+00:00",
+            updated_at="2026-06-23T19:35:00+00:00",
+        ),
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="property-scout:immobilien.derstandard.at:15180116",
+        candidate_ref="candidate-42",
+        property_url="https://immobilien.derstandard.at/detail/15180116",
+    )
+
+    assert response["status"] == "blocked"
+    assert response["status_label"] == "3D tour unavailable"
+    assert response["blocked_reason"] == "crezlo_property_tour_not_configured"
+    assert response["poll_after_seconds"] == 0
+
+
+def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monkeypatch) -> None:
+    principal_id = "property-visual-status-hide-skip-reason"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    stale_candidate = {
+        "title": "Walkthrough candidate",
+        "property_url": "https://immobilien.derstandard.at/detail/15180116",
+        "source_ref": "property-scout:immobilien.derstandard.at:15180116",
+        "tour_status": "processing",
+        "flythrough_status": "processing",
+        "flythrough_reason": "fit_below_threshold",
+        "tour_url": "",
+        "flythrough_url": "",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-status-hide-skip-reason"
+        return {
+            "run_id": run_id,
+            "updated_at": "2026-06-23T19:33:14+00:00",
+            "summary": {
+                "ranked_candidates": [dict(stale_candidate)],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, **kwargs: HumanTask(
+            human_task_id="human-task-43",
+            session_id="session-43",
+            step_id=None,
+            principal_id=principal_id,
+            task_type="property_tour_followup",
+            role_required="operator",
+            brief="Walkthrough candidate",
+            authority_required="",
+            why_human="",
+            quality_rubric_json={},
+            input_json={},
+            desired_output_json={},
+            priority="high",
+            sla_due_at=None,
+            status="returned",
+            assignment_state="assigned",
+            assigned_operator_id="operator-office",
+            assignment_source="",
+            assigned_at="2026-06-23T19:35:00+00:00",
+            assigned_by_actor_id="test",
+            resolution="skipped",
+            resume_session_on_return=False,
+            returned_payload_json={},
+            provenance_json={"source": "test"},
+            created_at="2026-06-23T19:34:00+00:00",
+            updated_at="2026-06-23T19:35:00+00:00",
+        ),
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="flythrough",
+        source_ref="property-scout:immobilien.derstandard.at:15180116",
+        candidate_ref="candidate-42",
+        property_url="https://immobilien.derstandard.at/detail/15180116",
+    )
+
+    assert response["status"] == "skipped"
+    assert response["status_label"] == "Walkthrough unavailable"
+    assert response["status_detail"] == "More source material is still needed before this walkthrough can be built."
+    assert response["blocked_reason"] == ""
 
 
 def test_property_visual_eta_uses_rendering_transition_time(monkeypatch) -> None:
@@ -14134,6 +14502,73 @@ def test_property_tour_followup_tasks_keep_pending_when_visual_is_still_processi
     assert updated_task.resolution == ""
 
 
+def test_property_tour_followup_tasks_block_terminally_when_visual_request_raises(monkeypatch) -> None:
+    principal_id = "property-tour-followup-terminal-block"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+    persisted_states: list[dict[str, object]] = []
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://immobilien.derstandard.at/detail/15180116",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="https://immobilien.derstandard.at/detail/15180116",
+        external_id="https://immobilien.derstandard.at/detail/15180116",
+        connector_binding_id="",
+        request_kind="tour",
+        run_id="run-terminal-block-1",
+        candidate_ref="candidate-terminal-block-1",
+        allow_floorplan_only=True,
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "tour_status": "processing",
+            "tour_requested_at": "2026-06-23T16:23:14+00:00",
+            "tour_status_updated_at": "2026-06-23T16:23:16+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted_states.append(dict(kwargs.get("visual_state") or {})),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "request_property_visual_asset",
+        lambda self, **kwargs: (_ for _ in ()).throw(RuntimeError("HTTP Error 403: Forbidden")),
+    )
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="property_visual_status_repair",
+        limit=10,
+        force_stale=True,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert result["blocked_total"] == 1
+    assert result["failed_total"] == 0
+    assert persisted_states
+    assert persisted_states[-1]["tour_status"] == "blocked"
+    assert persisted_states[-1]["blocked_reason"] == "property_tour_execution_failed"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "blocked"
+
+
 def test_property_tour_followup_tasks_do_not_rerun_fresh_processing_visual(monkeypatch) -> None:
     principal_id = "property-tour-followup-fresh-processing"
     client = build_product_client(principal_id=principal_id)
@@ -14195,13 +14630,155 @@ def test_property_tour_followup_tasks_do_not_rerun_fresh_processing_visual(monke
     assert updated_task.resolution == ""
 
 
-def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch) -> None:
+def test_property_tour_execution_error_reason_treats_missing_crezlo_workspace_as_configuration(monkeypatch) -> None:
+    principal_id = "property-tour-crezlo-config-error"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    reason = service._property_tour_execution_error_reason(  # noqa: SLF001
+        RuntimeError('crezlo_api_http_error:404:{"success":false,"message":"workspace not found"}')
+    )
+
+    assert reason == "crezlo_property_tour_not_configured"
+
+
+def test_property_tour_followup_force_repair_reissues_fresh_processing_visual(monkeypatch) -> None:
+    principal_id = "property-tour-followup-force-processing"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+    observed: dict[str, object] = {}
+
+    task = service._open_property_tour_followup(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-force-processing-1",
+        title="Demo property",
+        variant_key="layout_first",
+        blocked_reason="user_requested_visual_generation",
+        recipient_email="",
+        source_ref="willhaben:demo-force-processing-1",
+        external_id="demo-force-processing-1",
+        connector_binding_id="binding-1",
+        request_kind="flythrough",
+        run_id="run-force-processing-1",
+        candidate_ref="candidate-force-processing-1",
+        allow_floorplan_only=True,
+    )
+
+    monkeypatch.setattr(
+        ProductService,
+        "_current_property_search_visual_state",
+        lambda self, **kwargs: {
+            "flythrough_status": "processing",
+            "flythrough_requested_at": "2026-06-22T10:00:00+00:00",
+            "flythrough_status_updated_at": "2026-06-22T10:05:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_utcnow",
+        lambda: datetime(2026, 6, 22, 10, 8, tzinfo=timezone.utc),
+    )
+
+    def _fake_request_property_visual_asset(self, **kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        return {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "variant_key": str(kwargs.get("variant_key") or "layout_first"),
+            "request_kind": str(kwargs.get("request_kind") or "tour"),
+            "run_id": str(kwargs.get("run_id") or ""),
+            "candidate_ref": str(kwargs.get("candidate_ref") or ""),
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "tour_url": "",
+            "tour_status": "pending",
+            "flythrough_url": "https://propertyquarry.com/tours/demo-force-processing-1?pane=flythrough-pane",
+            "flythrough_status": "ready",
+            "status_label": "Open walkthrough",
+        }
+
+    monkeypatch.setattr(ProductService, "request_property_visual_asset", _fake_request_property_visual_asset)
+
+    result = service.process_property_tour_followup_tasks(
+        principal_id=principal_id,
+        actor="property_visual_status_repair",
+        limit=10,
+        force_stale=True,
+    )
+
+    assert result["attempted_total"] == 1
+    assert result["resolved_total"] == 1
+    assert observed["request_kind"] == "flythrough"
+    assert observed["queue_async_request"] is False
+    assert observed["suppress_human_followup"] is True
+    assert observed["run_id"] == "run-force-processing-1"
+    assert observed["candidate_ref"] == "candidate-force-processing-1"
+
+    updated_task = client.app.state.container.orchestrator.fetch_human_task(
+        task.human_task_id,
+        principal_id=principal_id,
+    )
+    assert updated_task is not None
+    assert updated_task.status == "returned"
+    assert updated_task.resolution == "ready"
+
+
+def test_request_property_visual_asset_blocks_created_payload_without_verified_open_tour(monkeypatch) -> None:
+    principal_id = "property-tour-created-without-viewer"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        ProductService,
+        "create_willhaben_property_tour",
+        lambda self, **kwargs: {
+            "generated_at": "2026-06-23T19:40:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Demo property",
+            "variant_key": "layout_first",
+            "tour_url": "https://propertyquarry.com/tours/fake-gallery-shell",
+            "vendor_tour_url": "https://vendor.example.com/tours/fake-gallery-shell",
+            "editor_url": "",
+            "delivery_email": "",
+            "delivery_status": "skipped",
+            "blocked_reason": "",
+            "human_task_id": "",
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+        },
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-created-without-viewer",
+        request_kind="tour",
+        source_ref="willhaben:demo-created-without-viewer",
+        external_id="demo-created-without-viewer",
+        actor="test",
+        queue_async_request=False,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["tour_status"] == "blocked"
+    assert result["blocked_reason"] == "provider_export_missing"
+    assert result["tour_url"] == ""
+    assert result["poll_after_seconds"] == 0
+
+
+def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch, tmp_path: Path) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -14244,6 +14821,17 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
     handoff_id = blocked_body["human_task_id"]
 
     send_calls: list[dict[str, object]] = []
+    hosted_tour_dir = tmp_path / "recreated-apartment"
+    hosted_tour_dir.mkdir(parents=True)
+    (hosted_tour_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "recreated-apartment",
+                "matterport_url": "https://my.matterport.com/show/?m=RECREATED1",
+            }
+        ),
+        encoding="utf-8",
+    )
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         assert request.task_key in {
@@ -14257,7 +14845,7 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
             execution_session_id="session-property-tour-recreated-1",
             principal_id=principal_id,
             structured_output_json={
-                "public_url": "https://myexternalbrain.com/tours/recreated-apartment",
+                "public_url": "https://propertyquarry.com/tours/recreated-apartment",
                 "crezlo_public_url": "https://vendor.example.com/tours/recreated-apartment",
                 "editor_url": "https://vendor.example.com/editor/recreated-apartment",
             },
@@ -14292,7 +14880,7 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
     )
     assert events.status_code == 200
     assert any(
-        item["payload"]["tour_url"] == "https://myexternalbrain.com/tours/recreated-apartment"
+        item["payload"]["tour_url"] == "https://propertyquarry.com/tours/recreated-apartment"
         for item in events.json()["items"]
     )
 
@@ -23952,6 +24540,8 @@ def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatc
     slug = "demo-tour"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    (bundle_dir / "3dvista").mkdir()
+    (bundle_dir / "3dvista" / "index.htm").write_text("<!doctype html><title>3DVista</title>", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -23983,6 +24573,20 @@ def test_property_tour_compare_links_omits_fake_provider_exports(monkeypatch, tm
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
     assert product_service._property_tour_compare_links("https://propertyquarry.com/tours/demo-tour") == {}
+
+
+def test_property_tour_compare_links_omit_missing_3dvista_entry_export(monkeypatch, tmp_path: Path) -> None:
+    slug = "missing-3dvista-entry"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "three_d_vista_entry_relpath": "3dvista/index.htm"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert product_service._property_tour_compare_links(f"https://propertyquarry.com/tours/{slug}") == {}
+    assert product_service._hosted_property_tour_provider_export_keys(f"https://propertyquarry.com/tours/{slug}") == ()
 
 
 def test_property_tour_compare_links_rejects_provider_lookalike_exports(monkeypatch, tmp_path: Path) -> None:
@@ -24051,6 +24655,9 @@ def test_hosted_property_tour_verified_open_url_targets_real_provider_lane(monke
 
     assert property_tour_hosting._hosted_property_tour_verified_open_url(f"https://propertyquarry.com/tours/{slug}") == (
         f"https://propertyquarry.com/tours/{slug}/control/matterport"
+    )
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(f"/tours/{slug}") == (
+        f"/tours/{slug}/control/matterport"
     )
 
 

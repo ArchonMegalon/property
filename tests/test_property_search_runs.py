@@ -310,6 +310,49 @@ def test_ranked_candidates_keep_soft_filter_reasons_but_exclude_hard_reasons() -
     assert ranked[0]["rank"] == 1
 
 
+def test_ranked_candidates_exclude_unmarked_postal_conflicts_from_exact_source_scope() -> None:
+    ranked = product_service._property_search_ranked_candidates_from_sources(
+        [
+            {
+                "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "source_scope_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                "source_url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1010+Vienna",
+                "top_candidates": [
+                    {
+                        "source_ref": "outside-scope",
+                        "fit_score": 98,
+                        "ranking_score": 98,
+                        "title": "Terrassenwohnung auf der Hohen Warte, 66 m2, EUR 1.599, (1190 Wien)",
+                        "property_facts": {
+                            "postal_name": "1190 Wien",
+                            "source_scope_location": "1010 Vienna",
+                            "listing_postal_evidence": [
+                                {"postal_code": "1190", "postal_name": "1190 Wien"},
+                            ],
+                        },
+                    },
+                    {
+                        "source_ref": "inside-scope",
+                        "fit_score": 77,
+                        "ranking_score": 77,
+                        "title": "Wohnung mieten in 1010 Wien | 70 m2 | 2 Zimmer",
+                        "property_facts": {
+                            "postal_name": "1010 Wien",
+                            "source_scope_location": "1010 Vienna",
+                            "listing_postal_evidence": [
+                                {"postal_code": "1010", "postal_name": "1010 Wien"},
+                            ],
+                        },
+                    },
+                ],
+            }
+        ]
+    )
+
+    assert [row["source_ref"] for row in ranked] == ["inside-scope"]
+    assert ranked[0]["rank"] == 1
+
+
 def test_ranked_candidates_merge_top_and_research_rows_and_keep_stable_candidate_ref() -> None:
     ranked = product_service._property_search_ranked_candidates_from_sources(
         [
@@ -4347,6 +4390,237 @@ def test_scheduler_property_results_finalize_processes_provider_repair_tasks(mon
     assert summary["repair_deferred_total"] == 2
 
 
+def test_scheduler_property_search_recovery_adopts_stale_in_progress_runs(monkeypatch) -> None:
+    principal_id = "exec-property-search-recovery-scheduler"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Recovery Scheduler Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=lambda *args, **kwargs: None))
+    app_runner = importlib.import_module("app.runner")
+    service = product_service.build_product_service(client.app.state.container)
+    replacement_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_search_repair_replacement_run",
+        lambda self, **kwargs: replacement_calls.append(dict(kwargs)) or {"run_id": "scheduler-stale-repair"},
+    )
+    run_id = "scheduler-stale-run"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "in_progress"
+    state["current_step"] = "source_previewing"
+    state["updated_at"] = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    state["events"] = [
+        {
+            "at": state["updated_at"],
+            "step": "source_previewing",
+            "status": "in_progress",
+            "message": "Reviewing candidate 12 of 19 for Willhaben.",
+        }
+    ]
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+    product_service._store_property_search_run_record(dict(state))
+
+    summary = app_runner._run_scheduler_property_search_recovery(
+        client.app.state.container,
+        SimpleNamespace(exception=lambda *a, **k: None),
+    )
+
+    assert summary["stale_total"] == 1
+    assert summary["repaired"] == 1
+    assert summary["replacement_started"] == 1
+    assert replacement_calls
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    assert status["status"] == "failed"
+    assert status["summary"]["repair_replacement_run_id"] == "scheduler-stale-repair"
+    assert any(event["step"] == "run_repair_queued" for event in status["events"])
+
+
+def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) -> None:
+    principal_id = "exec-property-search-recovery-replacement"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Recovery Replacement Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setattr(ProductService, "_best_effort_propertyquarry_teable_sync", lambda *args, **kwargs: None)
+    replacement_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_search_repair_replacement_run",
+        lambda self, **kwargs: replacement_calls.append(dict(kwargs)) or {"run_id": "unexpected-nested-repair"},
+    )
+    scout_calls: list[dict[str, object]] = []
+
+    def _fake_sync_direct_property_scout(self, **kwargs):
+        scout_calls.append(dict(kwargs))
+        progress_callback = kwargs.get("progress_callback")
+        if progress_callback:
+            progress_callback(
+                step="source_started",
+                message="Checking recovered replacement source.",
+                status="in_progress",
+                steps_delta=1,
+                summary_updates={"sources_total": 1},
+            )
+        return {
+            "status": "processed",
+            "sources_total": 1,
+            "sources": [{"source_label": "Willhaben", "status": "processed"}],
+            "listing_total": 0,
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+    parent_run_id = "scheduler-parent-stale-run"
+    replacement_run_id = "scheduler-replacement-stale-run"
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    parent_state = product_service._new_property_search_run_record(
+        run_id=parent_run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        force_refresh=False,
+    )
+    parent_state["status"] = "failed"
+    parent_state["summary"] = {
+        **dict(parent_state.get("summary") or {}),
+        "repair_replacement_run_id": replacement_run_id,
+        "repair_replacement_status_url": f"/app/api/signals/property/search/run/{replacement_run_id}",
+    }
+    replacement_state = product_service._new_property_search_run_record(
+        run_id=replacement_run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        force_refresh=True,
+    )
+    replacement_state["status"] = "starting"
+    replacement_state["current_step"] = "starting"
+    replacement_state["message"] = "Starting property search run."
+    replacement_state["updated_at"] = stale_timestamp
+    replacement_state["events"] = [
+        {
+            "at": stale_timestamp,
+            "step": "starting",
+            "status": "starting",
+            "message": "Starting property search run.",
+        }
+    ]
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[parent_run_id] = dict(parent_state)
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[replacement_run_id] = dict(replacement_state)
+    product_service._store_property_search_run_record(dict(parent_state))
+    product_service._store_property_search_run_record(dict(replacement_state))
+
+    summary = service.reconcile_stale_property_search_runs(principal_id=principal_id, limit=20)
+
+    assert summary["stale_total"] == 1
+    assert summary["repaired"] == 1
+    assert summary["replacement_started"] == 0
+    assert summary["recovered"][0]["execution_pickup_status"] == "started"
+    for _ in range(60):
+        status = service.get_property_search_run_status(principal_id=principal_id, run_id=replacement_run_id)
+        if status and str(status.get("status") or "") == "processed":
+            break
+        time.sleep(0.02)
+    assert status is not None
+    assert status["status"] == "processed"
+    assert status["summary"]["execution_pickup_status"] == "completed"
+    assert status["summary"]["execution_pickup_reason"] == "replacement_run_stale"
+    assert status["summary"]["repair_parent_run_ids"] == [parent_run_id]
+    assert any(event["step"] == "recovery_pickup_started" for event in status["events"])
+    assert scout_calls
+    assert scout_calls[0]["property_search_preferences"]["__property_search_run_id__"] == replacement_run_id
+    assert replacement_calls == []
+
+
+def test_property_search_recovery_pickup_failure_opens_repair_task(monkeypatch) -> None:
+    principal_id = "exec-property-search-recovery-pickup-failure"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Recovery Pickup Failure Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setattr(ProductService, "_best_effort_propertyquarry_teable_sync", lambda *args, **kwargs: None)
+
+    def _raise_pickup_failure(self, **kwargs):
+        raise RuntimeError("pickup worker crashed before source rows existed")
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _raise_pickup_failure)
+    parent_run_id = "scheduler-parent-pickup-failure"
+    replacement_run_id = "scheduler-replacement-pickup-failure"
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    parent_state = product_service._new_property_search_run_record(
+        run_id=parent_run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        force_refresh=False,
+    )
+    parent_state["status"] = "failed"
+    parent_state["summary"] = {
+        **dict(parent_state.get("summary") or {}),
+        "repair_replacement_run_id": replacement_run_id,
+    }
+    replacement_state = product_service._new_property_search_run_record(
+        run_id=replacement_run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        force_refresh=True,
+    )
+    replacement_state["status"] = "starting"
+    replacement_state["current_step"] = "starting"
+    replacement_state["updated_at"] = stale_timestamp
+    replacement_state["events"] = [
+        {
+            "at": stale_timestamp,
+            "step": "starting",
+            "status": "starting",
+            "message": "Starting property search run.",
+        }
+    ]
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[parent_run_id] = dict(parent_state)
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[replacement_run_id] = dict(replacement_state)
+    product_service._store_property_search_run_record(dict(parent_state))
+    product_service._store_property_search_run_record(dict(replacement_state))
+
+    summary = service.reconcile_stale_property_search_runs(principal_id=principal_id, limit=20)
+
+    assert summary["stale_total"] == 1
+    assert summary["repaired"] == 1
+    for _ in range(60):
+        status = service.get_property_search_run_status(principal_id=principal_id, run_id=replacement_run_id)
+        if status and str(status.get("status") or "") == "failed":
+            break
+        time.sleep(0.02)
+    assert status is not None
+    assert status["status"] == "failed"
+    assert status["summary"]["execution_pickup_status"] == "failed"
+    assert status["summary"]["repair_status"] == "repairing"
+    assert status["summary"]["provider_repair_task_opened_total"] == 1
+    tasks = [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_provider_repair_ooda"
+    ]
+    assert len(tasks) == 1
+    repair_input = dict(tasks[0].input_json or {})
+    assert repair_input["filter_key"] == "run_worker_exception"
+    assert repair_input["run_id"] == replacement_run_id
+    assert repair_input["diagnostics"]["recovery_reason"] == "replacement_run_stale"
+    assert repair_input["diagnostics"]["repair_parent_run_ids"] == [parent_run_id]
+
+
 def test_property_search_run_status_enriches_source_fetch_repairs() -> None:
     principal_id = "exec-property-run-status-repair-enrichment"
     client = build_property_client(principal_id=principal_id)
@@ -6303,6 +6577,100 @@ def test_property_alert_review_suppresses_candidate_outside_selected_district_ev
     assert dict(repair_input["diagnostics"])["location_hints"] == ["1010 Vienna"]
 
 
+def test_property_alert_review_accepts_search_run_candidate_inside_adjacent_area_radius(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-alert-adjacent-radius-gate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Review Adjacent Radius Gate Office")
+    seed_product_state(client, principal_id=principal_id)
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_districts": ["1010 Vienna"],
+            "adjacent_area_radius_m": 200,
+            "selected_platforms": ["willhaben"],
+            "property_search_enabled": True,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    boundary_geojson = {
+        "type": "Polygon",
+        "coordinates": [[
+            [16.3600, 48.2000],
+            [16.3700, 48.2000],
+            [16.3700, 48.2100],
+            [16.3600, 48.2100],
+            [16.3600, 48.2000],
+        ]],
+    }
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_boundary_record",
+        lambda query: {
+            "display_name": query,
+            "geojson": boundary_geojson,
+            "bounds": (16.3600, 48.2000, 16.3700, 48.2100),
+            "lat": 48.2050,
+            "lon": 16.3650,
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_fetch_property_provider_repair_snapshot",
+        lambda self, *, property_url: pytest.fail("adjacent-radius match must not open provider repair"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._open_property_alert_review(
+        principal_id=principal_id,
+        title="Wohnung mieten in 1200 Wien | 70 m² | 3 Zimmer | EUR 1.450",
+        summary="Listing text is outside 1010 but the map point sits just over the selected-area boundary.",
+        source_ref="property-scout:adjacent-radius-1200",
+        external_id="willhaben-adjacent-radius-1200",
+        counterparty="Willhaben | Austria | Rent | 1010 Vienna",
+        account_email="",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1200-brigittenau/adjacent-radius/",
+        actor="test",
+        notify_telegram=False,
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1200-brigittenau/adjacent-radius/",
+                "listing_title": "Wohnung mieten in 1200 Wien | 70 m² | 3 Zimmer | EUR 1.450",
+                "summary": "Helle Wohnung in 1200 Wien, knapp neben dem Suchgebiet.",
+                "property_facts_json": {
+                    "postal_name": "1200 Wien",
+                    "map_lat": 48.2050,
+                    "map_lng": 16.3714,
+                    "source_scope_location": "1010 Vienna",
+                    "source_city": "Vienna",
+                },
+            },
+        ),
+        personal_fit_assessment={"fit_score": 92.0, "recommendation": "shortlist"},
+        preference_person_id="self",
+        requested_location_hints=("1010 Vienna",),
+        requested_country_code="AT",
+        requested_region_code="vienna",
+    )
+
+    assert result["status"] == "opened"
+    assert result.get("reason") != "property_location_conflicts_with_active_search"
+    assert [
+        task
+        for task in client.app.state.container.orchestrator.list_human_tasks(
+            principal_id=principal_id,
+            status=None,
+            limit=20,
+        )
+        if task.task_type == "property_alert_review"
+    ]
+
+
 def test_property_alert_review_suppresses_salzburg_listing_under_vienna_source_scope(monkeypatch) -> None:
     principal_id = "exec-property-alert-salzburg-source-scope"
     client = build_property_client(principal_id=principal_id)
@@ -6694,6 +7062,75 @@ def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_t
     assert ranked[0]["title"] == "Altbau near U6"
 
 
+def test_property_search_run_status_rederives_ranked_candidates_from_source_scope_rows(monkeypatch) -> None:
+    principal_id = "exec-property-search-rerank-source-scope"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"rerank-source-scope-{uuid.uuid4().hex}"
+    source_row = {
+        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+        "source_scope_label": "Willhaben | Austria | Rent | 1010 Vienna",
+        "source_url": "https://www.willhaben.at/iad/immobilien/mietwohnungen?q=1010+Vienna",
+        "status": "processed",
+        "top_candidates": [
+            {
+                "source_ref": "outside-scope",
+                "title": "Terrassenwohnung auf der Hohen Warte, 66 m2, EUR 1.599, (1190 Wien)",
+                "property_url": "https://example.test/1190",
+                "fit_score": 98,
+                "property_facts": {
+                    "postal_name": "1190 Wien",
+                    "source_scope_location": "1010 Vienna",
+                    "listing_postal_evidence": [{"postal_code": "1190", "postal_name": "1190 Wien"}],
+                },
+            },
+            {
+                "source_ref": "inside-scope",
+                "title": "Wohnung mieten in 1010 Wien | 70 m2 | 2 Zimmer",
+                "property_url": "https://example.test/1010",
+                "fit_score": 77,
+                "property_facts": {
+                    "postal_name": "1010 Wien",
+                    "source_scope_location": "1010 Vienna",
+                    "listing_postal_evidence": [{"postal_code": "1010", "postal_name": "1010 Wien"}],
+                },
+            },
+        ],
+    }
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "completed_partial",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["willhaben"],
+            "progress": 100,
+            "current_step": "processed",
+            "message": "Current shortlist is still available.",
+            "summary": {
+                "sources_total": 1,
+                "ranked_candidates": [dict(source_row["top_candidates"][0])],
+                "sources": [source_row],
+            },
+            "events": [],
+            "property_search_preferences": {},
+        }
+    monkeypatch.setattr(service, "persist_property_saved_shortlist_candidates", lambda **kwargs: None)
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    ranked = [
+        dict(row)
+        for row in list(dict(status.get("summary") or {}).get("ranked_candidates") or [])
+        if isinstance(row, dict)
+    ]
+    assert [row["source_ref"] for row in ranked] == ["inside-scope"]
+    assert ranked[0]["rank"] == 1
+
+
 def test_property_search_run_status_skips_provider_repair_task_scan_for_terminal_runs(monkeypatch) -> None:
     principal_id = "exec-property-search-terminal-skip-repairs"
     client = build_property_client(principal_id=principal_id)
@@ -6752,6 +7189,7 @@ def test_property_search_run_status_skips_provider_repair_task_scan_for_terminal
 
 def test_property_search_run_status_api_synthesizes_ranked_candidates_from_source_rows(monkeypatch) -> None:
     principal_id = "exec-property-search-status-api-synth"
+    os.environ["EA_API_TOKEN"] = ""
     client = build_property_client(principal_id=principal_id)
 
     def _fake_status(self, *, principal_id: str, run_id: str):
@@ -6794,6 +7232,39 @@ def test_property_search_run_status_api_synthesizes_ranked_candidates_from_sourc
     ranked = [dict(row) for row in list(payload["summary"].get("ranked_candidates") or []) if isinstance(row, dict)]
     assert len(ranked) == 1
     assert ranked[0]["title"] == "Altbau near U6"
+
+
+def test_property_search_run_status_api_accepts_lightweight_query(monkeypatch) -> None:
+    principal_id = "exec-property-search-status-api-lightweight"
+    os.environ["EA_API_TOKEN"] = ""
+    client = build_property_client(principal_id=principal_id)
+    calls: list[bool] = []
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert principal_id == "exec-property-search-status-api-lightweight"
+        assert run_id == "run-light"
+        calls.append(lightweight)
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "progress": 42,
+            "summary": {"sources_total": 2},
+            "events": [],
+            "selected_platforms": ["willhaben"],
+            "updated_at": "2026-06-23T12:00:00+00:00",
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    response = client.get("/app/api/signals/property/search/run/run-light?lightweight=1")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert calls == [True]
+    assert body["generated_at"] == "2026-06-23T12:00:00+00:00"
+    assert body["summary"]["sources_total"] == 2
 
 
 def test_property_search_run_progress_records_sources_completed_and_eta_summary() -> None:
@@ -6962,6 +7433,9 @@ def test_property_candidate_supports_live_tour_detects_360() -> None:
     assert product_service._property_candidate_supports_live_tour(
         {"property_facts": {"source_virtual_tour_url": "https://example.com/tour"}}
     ) is True
+    assert product_service._property_candidate_supports_live_tour(
+        {"property_facts": {"has_floorplan": True}}
+    ) is False
     assert product_service._property_candidate_supports_live_tour(
         {"property_facts": {"has_360": False}}
     ) is False
@@ -8032,6 +8506,66 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
         if task.task_type == "property_provider_repair_ooda"
     ]
     assert len(tasks_again) == 1
+
+
+def test_property_search_run_status_marks_source_previewing_stale_by_last_progress_event_even_if_repair_updates_row(monkeypatch) -> None:
+    principal_id = "cf-email:stale.source.previewing@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Stale Source Previewing Repair Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
+
+    container = client.app.state.container
+    service = product_service.build_product_service(container)
+    replacement_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_search_repair_replacement_run",
+        lambda self, **kwargs: replacement_calls.append(dict(kwargs)) or {"run_id": "run-source-previewing-stale-repair"},
+    )
+    run_id = "run-source-previewing-stale"
+    stale_event_at = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "in_progress"
+    state["progress"] = 23
+    state["current_step"] = "source_previewing"
+    state["events"] = [
+        {
+            "at": stale_event_at,
+            "step": "source_previewing",
+            "status": "in_progress",
+            "message": "Reviewing candidate 20 of 24 for Willhaben | Austria | Rent | 1010 Vienna.",
+        }
+    ]
+    state["summary"] = {
+        **dict(state.get("summary") or {}),
+        "repair_receipts": [
+            {
+                "at": datetime.now(timezone.utc).isoformat(),
+                "run_id": run_id,
+                "filter_key": "require_floorplan",
+                "resolution": "provider_quarantined_retry_budget_exhausted",
+            }
+        ],
+    }
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert status["status"] == "failed"
+    assert status["summary"]["interrupted"] is True
+    assert status["summary"]["repair_status"] == "repairing"
+    assert status["summary"]["repair_replacement_run_id"] == "run-source-previewing-stale-repair"
+    assert any(event["step"] == "run_interrupted" for event in status["events"])
+    assert any(event["step"] == "run_repair_queued" for event in status["events"])
+    assert replacement_calls
 
 
 def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypatch) -> None:
@@ -9809,6 +10343,126 @@ def test_property_scout_queued_near_miss_respects_nontelegram_channel(monkeypatc
             "counterparty": "Willhaben",
             "property_url": "https://example.test/property",
             "source_ref": "property-scout:near-miss",
+            "preference_person_id": "self",
+            "failed_filter_key": "max_distance_to_supermarket_m",
+            "failed_filter_label": "supermarket distance",
+            "prefilter_score": 84.0,
+        },
+    )
+
+    assert result == {"status": "suppressed", "reason": "preferred_channel_whatsapp"}
+
+
+def test_property_scout_queued_hit_delivers_to_all_selected_channels_with_explicit_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "cf-email:multichannel-primary@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Multichannel Primary")
+    updated = client.post(
+        "/app/api/property/account/notifications",
+        data={
+            "notification_channels": ["email", "whatsapp"],
+            "preferred_channel": "whatsapp",
+            "whatsapp_ai_support_phone": "+43 664 791 6419",
+        },
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303, updated.text
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_HEYY_TEMPLATE_PROPERTY_MATCH", "tmpl-property-match")
+    observed_email: dict[str, object] = {}
+    observed_whatsapp: dict[str, object] = {}
+    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: True)
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: observed_email.update(kwargs) or SimpleNamespace(provider="test-email", message_id="email-1"),
+    )
+    monkeypatch.setattr(
+        "app.product.service.HeyyWhatsAppBridgeService.send_template",
+        lambda self, **kwargs: observed_whatsapp.update(kwargs)
+        or {
+            "status": "sent",
+            "provider": "heyy",
+            "channel_id": kwargs.get("channel_id") or "",
+            "message_id": "msg-whatsapp-multi-1",
+            "delivery_status": "queued",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("telegram must not receive a hit when it is not selected"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._send_property_scout_queued_notification(
+        kind="hit",
+        kwargs={
+            "principal_id": principal_id,
+            "actor": "test",
+            "title": "Wohnung mieten in 1010 Wien | 85 m² | 3 Zimmer | EUR 1.900",
+            "summary": "3-Zimmer Wohnung im 1. Bezirk, 85 m2, Gesamtmiete EUR 1.900.",
+            "counterparty": "Willhaben | Austria | Rent | 1010 Vienna",
+            "account_email": "",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/high-fit/",
+            "source_ref": "property-scout:multichannel-hit",
+            "assessment": {"fit_score": 91.0, "recommendation": "shortlist"},
+            "fit_score": 91.0,
+            "preference_person_id": "self",
+            "review_url": "/app/research/high-fit",
+            "tour_result": {"status": "skipped", "tour_url": ""},
+            "candidate_properties": (),
+            "requested_location_hints": ("1010 Vienna",),
+            "requested_country_code": "AT",
+            "requested_region_code": "vienna",
+        },
+    )
+
+    assert result["status"] == "sent"
+    assert result["channel"] in {"whatsapp", "email"}
+    assert set(result["delivery_results"]) == {"email", "whatsapp"}
+    assert result["delivery_results"]["email"]["status"] == "sent"
+    assert result["delivery_results"]["whatsapp"]["status"] == "sent"
+    assert observed_whatsapp["phone_number"] == "+436647916419"
+
+
+def test_property_scout_queued_near_miss_uses_explicit_primary_not_checkbox_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-scout-near-miss-explicit-primary"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Near Miss Explicit Primary")
+    updated = client.post(
+        "/app/api/property/account/notifications",
+        data={
+            "notification_channels": ["telegram", "whatsapp"],
+            "preferred_channel": "whatsapp",
+            "whatsapp_ai_support_phone": "+43 664 791 6419",
+        },
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303, updated.text
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: pytest.fail("near-miss prompts must respect explicit primary, not checkbox order"),
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service._send_property_scout_queued_notification(
+        kind="near_miss",
+        kwargs={
+            "principal_id": principal_id,
+            "actor": "test",
+            "title": "Near miss",
+            "summary": "Strong candidate held by a soft filter.",
+            "counterparty": "Willhaben",
+            "property_url": "https://example.test/property",
+            "source_ref": "property-scout:near-miss-explicit-primary",
             "preference_person_id": "self",
             "failed_filter_key": "max_distance_to_supermarket_m",
             "failed_filter_label": "supermarket distance",

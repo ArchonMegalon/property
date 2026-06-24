@@ -993,6 +993,13 @@ def _scheduler_property_results_finalize_timeout_seconds() -> float:
     return max(30.0, _env_float("EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_TIMEOUT_SECONDS", 240.0))
 
 
+def _scheduler_property_search_recovery_interval_seconds() -> float:
+    try:
+        return max(15.0, float(os.environ.get("EA_SCHEDULER_PROPERTY_SEARCH_RECOVERY_INTERVAL_SECONDS") or 60.0))
+    except Exception:
+        return 60.0
+
+
 def _scheduler_property_scout_principal_ids(container) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
     raw = str(os.environ.get("EA_PROPERTY_SCOUT_PRINCIPAL_IDS") or "").strip()
     if raw:
@@ -1038,6 +1045,25 @@ def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, o
         "synced": synced,
         "errors": errors,
         "principals": list(principals),
+    }
+
+
+def _run_scheduler_property_search_recovery(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.product.service import build_product_service
+
+    service = build_product_service(container)
+    try:
+        summary = service.reconcile_stale_property_search_runs(limit=80)
+    except Exception:
+        log.exception("scheduler property search recovery failed")
+        return {"ran": True, "scanned": 0, "stale_total": 0, "repaired": 0, "replacement_started": 0, "errors": 1}
+    return {
+        "ran": True,
+        "scanned": int(summary.get("scanned") or 0),
+        "stale_total": int(summary.get("stale_total") or 0),
+        "repaired": int(summary.get("repaired") or 0),
+        "replacement_started": int(summary.get("replacement_started") or 0),
+        "errors": int(summary.get("errors") or 0),
     }
 
 
@@ -1575,6 +1601,7 @@ def _run_execution_worker(role: str) -> None:
     last_onemin_refresh_at = 0.0
     last_google_signal_sync_at = 0.0
     last_property_scout_at = 0.0
+    last_property_search_recovery_at = 0.0
     last_property_results_finalize_at = 0.0
     last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
@@ -1587,6 +1614,26 @@ def _run_execution_worker(role: str) -> None:
         if role == "scheduler":
             now = time.time()
             _write_scheduler_heartbeat(role=role, status="loop")
+            if now - last_property_search_recovery_at >= _scheduler_property_search_recovery_interval_seconds():
+                try:
+                    recovery_summary = _run_scheduler_property_search_recovery(container, log)
+                    last_property_search_recovery_at = now
+                    if (
+                        int(recovery_summary.get("stale_total") or 0) > 0
+                        or int(recovery_summary.get("errors") or 0) > 0
+                    ):
+                        log.info(
+                            "role=%s scheduler property search recovery scanned=%s stale=%s repaired=%s replacements=%s errors=%s",
+                            role,
+                            recovery_summary.get("scanned"),
+                            recovery_summary.get("stale_total"),
+                            recovery_summary.get("repaired"),
+                            recovery_summary.get("replacement_started"),
+                            recovery_summary.get("errors"),
+                        )
+                except Exception:
+                    log.exception("role=%s scheduler property search recovery failed", role)
+                    last_property_search_recovery_at = now
             if not property_only_scheduler and now - last_horizon_scan_at >= _SCHEDULER_SCAN_INTERVAL_SECONDS:
                 observed_at = datetime.now(timezone.utc)
                 try:

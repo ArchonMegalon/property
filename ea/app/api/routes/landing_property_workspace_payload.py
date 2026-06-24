@@ -324,7 +324,7 @@ def property_workspace_payload(
         if isinstance(candidate, dict)
         and _property_candidate_is_rankable(candidate)
     ]
-    if normalized_section == "shortlist" and ranked_candidates:
+    if normalized_section in {"properties", "shortlist"} and ranked_candidates:
         shortlist_candidates = _dedupe_shortlist_candidates([*ranked_candidates, *shortlist_candidates])
     if not shortlist_candidates:
         if ranked_candidates:
@@ -340,6 +340,39 @@ def property_workspace_payload(
                     synthesized_candidates.append(candidate)
             synthesized_candidates.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
             shortlist_candidates = synthesized_candidates
+
+    def _normalize_verified_candidate_tour(candidate: dict[str, object]) -> dict[str, object]:
+        normalized = dict(candidate)
+        tour_payload = dict(normalized.get("tour") or {}) if isinstance(normalized.get("tour"), dict) else {}
+        raw_tour_url = str(normalized.get("tour_url") or tour_payload.get("url") or tour_payload.get("embed_url") or "").strip()
+        if not raw_tour_url:
+            if tour_payload:
+                normalized["tour"] = tour_payload
+            return normalized
+        try:
+            from app.product import property_tour_hosting
+
+            verified_tour_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(raw_tour_url) or "").strip()  # type: ignore[attr-defined]
+        except Exception:
+            verified_tour_url = ""
+        if verified_tour_url:
+            normalized["tour_url"] = verified_tour_url
+            if tour_payload:
+                tour_payload["url"] = verified_tour_url
+                if str(tour_payload.get("embed_url") or "").strip():
+                    tour_payload["embed_url"] = verified_tour_url
+                normalized["tour"] = tour_payload
+        elif "/tours/" in raw_tour_url:
+            normalized["tour_url"] = raw_tour_url
+            if tour_payload:
+                tour_payload["url"] = raw_tour_url
+                tour_payload["embed_url"] = ""
+                normalized["tour"] = tour_payload
+        elif tour_payload:
+            normalized["tour"] = tour_payload
+        return normalized
+
+    shortlist_candidates = [_normalize_verified_candidate_tour(candidate) for candidate in shortlist_candidates]
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_search_goal = normalized_property_search_goal(property_preferences.get("search_goal"))
@@ -499,12 +532,8 @@ def property_workspace_payload(
             "Digest",
         ),
     ]
-    packet_ready_total = sum(
-        1
-        for candidate in shortlist_candidates
-        if str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
-    )
-    tour_ready_total = sum(1 for candidate in shortlist_candidates if str(candidate.get("tour_url") or "").strip())
+    packet_ready_total = 0
+    tour_ready_total = 0
 
     run_message = str(run_health.get("message") or run_payload.get("message") or "").strip()
     run_status_value = str(run_health.get("status") or run_payload.get("status") or "").strip().lower()
@@ -817,31 +846,35 @@ def property_workspace_payload(
             return bool(has_buy_signal and not has_rent_price)
         return False
 
-    compare_rows = []
-    for candidate in shortlist_candidates[:3]:
-        fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip()
-        fact_line = _candidate_fact_line(candidate)
-        detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the property page to inspect the ranking and evidence."
-        external_listing_url = _candidate_external_listing_url(candidate)
-        try:
-            from app.product import property_tour_hosting
+    def _compare_rows_for_candidates(candidates: list[dict[str, object]]) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for candidate in candidates[:3]:
+            fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip()
+            fact_line = _candidate_fact_line(candidate)
+            detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the property page to inspect the ranking and evidence."
+            external_listing_url = _candidate_external_listing_url(candidate)
+            try:
+                from app.product import property_tour_hosting
 
-            tour_action_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(candidate.get("tour_url")) or "").strip()  # type: ignore[attr-defined]
-        except Exception:
-            tour_action_url = ""
-        compare_rows.append(
-            {
-                "title": str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
-                "detail": detail,
-                "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate",
-                "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
-                "action_method": "get",
-                "action_label": "Open property page",
-                "secondary_action_href": str(tour_action_url or external_listing_url or "").strip(),
-                "secondary_action_method": "get" if (tour_action_url or external_listing_url) else "",
-                "secondary_action_label": "Open 360" if tour_action_url else ("Open listing" if external_listing_url else ""),
-            }
-        )
+                tour_action_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(candidate.get("tour_url")) or "").strip()  # type: ignore[attr-defined]
+            except Exception:
+                tour_action_url = ""
+            rows.append(
+                {
+                    "title": str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
+                    "detail": detail,
+                    "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate",
+                    "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
+                    "action_method": "get",
+                    "action_label": "Open property page",
+                    "secondary_action_href": str(tour_action_url or external_listing_url or "").strip(),
+                    "secondary_action_method": "get" if (tour_action_url or external_listing_url) else "",
+                    "secondary_action_label": "Open 360" if tour_action_url else ("Open listing" if external_listing_url else ""),
+                }
+            )
+        return rows
+
+    compare_rows = _compare_rows_for_candidates(shortlist_candidates)
 
     def _tour_status_line(candidate: dict[str, object]) -> str:
         provider_tour_url = str(
@@ -855,7 +888,13 @@ def property_workspace_payload(
         ).strip()
         if "api.willhaben.at/restapi/v2/logevent/" in provider_tour_url.lower():
             provider_tour_url = ""
-        if str(candidate.get("tour_url") or "").strip():
+        try:
+            from app.product import property_tour_hosting
+
+            verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(candidate.get("tour_url"))  # type: ignore[attr-defined]
+        except Exception:
+            verified_tour_url = ""
+        if verified_tour_url:
             return "Ready | Live now"
         if provider_tour_url:
             return "Ready | Provider 360"
@@ -908,6 +947,7 @@ def property_workspace_payload(
 
     results_table_rows = []
     workbench_results: list[dict[str, object]] = []
+    admitted_shortlist_candidates: list[dict[str, object]] = []
 
     def _money_per_sqm_line(facts: dict[str, object]) -> str:
         raw_price = facts.get("price_eur") or facts.get("purchase_price_eur")
@@ -1231,40 +1271,33 @@ def property_workspace_payload(
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
         if tour_url:
-            blocked_fallback = False
             try:
                 from app.product import property_tour_hosting
 
-                parsed_tour = urllib.parse.urlparse(tour_url)
-                path_parts = [part for part in str(parsed_tour.path or "").split("/") if part]
-                slug = path_parts[-1] if len(path_parts) >= 2 and path_parts[-2] == "tours" else ""
-                if slug:
-                    hosted_payload = property_tour_hosting._existing_hosted_property_tour_payload(slug)  # type: ignore[attr-defined]
-                    blocked_fallback = bool(
-                        hosted_payload and property_tour_hosting._property_tour_payload_is_disabled_fallback(hosted_payload)  # type: ignore[attr-defined]
-                    )
+                verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)  # type: ignore[attr-defined]
             except Exception:
-                blocked_fallback = False
-            if blocked_fallback:
+                verified_tour_url = ""
+            if verified_tour_url:
+                return {"status": "ready", "label": "360 ready", "url": verified_tour_url, "embed_url": verified_tour_url, "eta_label": ""}
+            try:
+                branded_tour_url = property_tour_hosting._is_branded_public_tour_url(tour_url)  # type: ignore[attr-defined]
+            except Exception:
+                branded_tour_url = False
+            if branded_tour_url:
                 return {
-                    "status": "blocked",
-                    "label": "360 unavailable",
-                    "url": "",
+                    "status": "ready",
+                    "label": "360 ready",
+                    "url": tour_url,
                     "embed_url": "",
-                    "eta_label": "A real hosted 3D tour is not available for this listing yet.",
+                    "eta_label": "Open hosted tour",
                 }
-            embed_url = tour_url
-            try:
-                from app.product import property_tour_hosting
-
-                parsed_tour = urllib.parse.urlparse(tour_url)
-                tour_host = str(parsed_tour.netloc or "").strip().lower()
-                property_host = urllib.parse.urlparse(property_tour_hosting._property_public_app_base_url()).netloc.strip().lower()  # type: ignore[attr-defined]
-                if property_tour_hosting._is_branded_public_tour_url(tour_url) and tour_host and property_host and tour_host != property_host:  # type: ignore[attr-defined]
-                    embed_url = ""
-            except Exception:
-                embed_url = tour_url
-            return {"status": "ready", "label": "360 ready", "url": tour_url, "embed_url": embed_url, "eta_label": ""}
+            return {
+                "status": "blocked",
+                "label": "360 unavailable",
+                "url": "",
+                "embed_url": "",
+                "eta_label": "A real hosted 3D tour is not available for this listing yet.",
+            }
         if provider_tour_url:
             return {
                 "status": "ready",
@@ -1288,11 +1321,20 @@ def property_workspace_payload(
         status = str(candidate.get("flythrough_status") or "").strip().lower()
         reason = str(candidate.get("flythrough_reason") or "").strip()
         provider = str(candidate.get("flythrough_provider") or "").strip()
-        if flythrough_url:
+        try:
+            from app.product import property_tour_hosting
+
+            verified_flythrough_url = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(candidate.get("tour_url"))  # type: ignore[attr-defined]
+            published_flythrough_url = property_tour_hosting._published_walkthrough_asset_url(flythrough_url)  # type: ignore[attr-defined]
+        except Exception:
+            verified_flythrough_url = ""
+            published_flythrough_url = ""
+        if verified_flythrough_url or published_flythrough_url:
+            open_url = verified_flythrough_url or published_flythrough_url
             return {
                 "status": "ready",
                 "label": "Open walkthrough",
-                "url": flythrough_url,
+                "url": open_url,
                 "detail": provider.replace("_", " ").title() if provider else "Walkthrough ready",
                 "progress_pct": 100,
                 "eta_label": "",
@@ -1691,10 +1733,6 @@ def property_workspace_payload(
             or str(facts.get("area_sqm") or "").strip()
             or str(facts.get("usable_area_sqm") or "").strip()
         )
-        if _candidate_is_non_residential(candidate, facts):
-            return False
-        if _candidate_is_generic_listing_page(candidate, facts):
-            return False
         if active_run_ranked and requested_postal_codes:
             listing_text = " ".join(
                 part
@@ -1710,6 +1748,10 @@ def property_workspace_payload(
                 return False
         if active_run_ranked:
             return True
+        if _candidate_is_non_residential(candidate, facts):
+            return False
+        if _candidate_is_generic_listing_page(candidate, facts):
+            return False
         if not active_run_ranked:
             if not _candidate_has_concrete_location_signal(candidate, facts):
                 return False
@@ -1743,7 +1785,11 @@ def property_workspace_payload(
 
     for candidate in ([] if management_surface else shortlist_candidates):
         facts = _property_candidate_display_facts(candidate)
-        if run_has_explicit_listing_context and _obvious_listing_mode_mismatch(facts, listing_mode=effective_listing_mode):
+        if (
+            not bool(candidate.get("_active_run_ranked"))
+            and run_has_explicit_listing_context
+            and _obvious_listing_mode_mismatch(facts, listing_mode=effective_listing_mode)
+        ):
             continue
         if not _candidate_is_shortlist_admissible(
             candidate,
@@ -1752,6 +1798,7 @@ def property_workspace_payload(
             selected_locations=review_scope_locations,
         ):
             continue
+        admitted_shortlist_candidates.append(candidate)
         price_line = str(
             facts.get("price_display")
             or facts.get("rent_display")
@@ -1928,10 +1975,11 @@ def property_workspace_payload(
                 repair_flag_detail=repair_flag_detail,
             )
         )
+        tour_payload = _tour_payload(candidate)
         results_table_rows.append(
             {
                 "cells": [
-                    {"title": "Open 360" if str(candidate.get("tour_url") or "").strip() else tour_status_line, "detail": "Hosted 360 tour" if str(candidate.get("tour_url") or "").strip() else "", "href": str(candidate.get("tour_url") or "").strip()},
+                    {"title": "Open 360" if str(tour_payload.get("url") or "").strip() else tour_status_line, "detail": "Hosted 360 tour" if str(tour_payload.get("url") or "").strip() else "", "href": str(tour_payload.get("url") or "").strip()},
                     {"title": f"#{len(results_table_rows) + 1} {str(candidate.get('title') or 'Candidate').strip() or 'Candidate'}", "detail": str(candidate.get("source_label") or "").strip()},
                     {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
                     {"title": "Open Map" if map_url else "Map pending", "detail": "", "href": map_url},
@@ -1941,11 +1989,50 @@ def property_workspace_payload(
                     {"title": packet_label, "detail": packet_url or str(candidate.get("property_url") or "").strip(), "href": packet_url},
                 ],
                 "packet_url": packet_url,
-                "tour_url": str(candidate.get("tour_url") or "").strip(),
+                "tour_url": str(tour_payload.get("url") or "").strip(),
                 "map_url": map_url,
                 "source_url": str(candidate.get("property_url") or "").strip(),
             }
         )
+
+    compare_rows = _compare_rows_for_candidates(admitted_shortlist_candidates)
+    packet_ready_total = sum(
+        1
+        for candidate in admitted_shortlist_candidates
+        if str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
+    )
+    tour_ready_total = sum(1 for candidate in admitted_shortlist_candidates if str(_tour_payload(candidate).get("url") or "").strip())
+    if not management_surface:
+        run_summary_for_surface = dict(run_summary_for_surface)
+        admitted_identities = {
+            identity
+            for identity in (_shortlist_identity(candidate) for candidate in admitted_shortlist_candidates)
+            if identity
+        }
+        if "ranked_candidates" in run_summary_for_surface:
+            run_summary_for_surface["ranked_candidates"] = [
+                dict(candidate)
+                for candidate in list(run_summary_for_surface.get("ranked_candidates") or [])
+                if isinstance(candidate, dict)
+                and _shortlist_identity(candidate) in admitted_identities
+            ]
+        if "sources" in run_summary_for_surface:
+            surface_sources: list[dict[str, object]] = []
+            for source in list(run_summary_for_surface.get("sources") or []):
+                if not isinstance(source, dict):
+                    continue
+                source_row = dict(source)
+                top_candidates = [
+                    dict(candidate)
+                    for candidate in list(source_row.get("top_candidates") or [])
+                    if isinstance(candidate, dict)
+                    and _shortlist_identity(candidate) in admitted_identities
+                ]
+                if source_row.get("top_candidates") is not None:
+                    source_row["top_candidates"] = top_candidates
+                surface_sources.append(source_row)
+            run_summary_for_surface["sources"] = surface_sources
+        run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
 
     hero_actions = {
         "properties": [
@@ -2006,7 +2093,7 @@ def property_workspace_payload(
             {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep.", "href": f"/app/properties{run_suffix}"},
         ],
         "shortlist": [
-            {"label": "Candidates", "value": str(len(shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
+            {"label": "Candidates", "value": str(len(admitted_shortlist_candidates)), "detail": "Ranked properties worth direct review now.", "href": f"/app/shortlist{run_suffix}"},
             {"label": "Pages", "value": str(packet_ready_total), "detail": "Hosted property pages ready before the raw portal listing.", "href": f"/app/research{run_suffix}"},
             {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available.", "href": f"/app/research{run_suffix}"},
             {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest run status.", "href": f"/app/properties{run_suffix}"},
@@ -2264,6 +2351,26 @@ def property_workspace_payload(
                 "Recorded",
             )
         )
+    billing_payment_rows = [
+        row_item(
+            "Status",
+            payment_status_detail,
+            payment_status_tag,
+        )
+    ]
+    if last_payment_status:
+        latest_payment_detail = last_payment_status.title()
+        if last_payment_amount:
+            latest_payment_detail = f"{latest_payment_detail} | EUR {last_payment_amount}"
+        if last_billing_event_type:
+            latest_payment_detail = f"{latest_payment_detail} | {last_billing_event_type}"
+        billing_payment_rows.append(
+            row_item(
+                "Latest payment",
+                latest_payment_detail,
+                "Recorded",
+            )
+        )
     if commercial.get("active_until"):
         billing_rows.append(
             row_item(
@@ -2413,7 +2520,7 @@ def property_workspace_payload(
         ]
     )
     research_rows = []
-    for candidate in shortlist_candidates[:6]:
+    for candidate in admitted_shortlist_candidates[:6]:
         title = str(candidate.get("title") or "Research packet").strip() or "Research packet"
         reasons = list(candidate.get("match_reasons") or [])[:2]
         mismatches = list(candidate.get("mismatch_reasons") or [])[:2]
@@ -2694,7 +2801,7 @@ def property_workspace_payload(
                                 "action_href": selected_agent_open_href or f"/app/agents{run_suffix}",
                                 "action_method": "get",
                                 "action_label": "Open watch",
-                                "secondary_action_href": selected_agent_edit_href or f"/app/properties{run_suffix}",
+                                "secondary_action_href": selected_agent_edit_href or f"/app/search{run_suffix}",
                                 "secondary_action_method": "get",
                                 "secondary_action_label": "Edit",
                             },
@@ -2803,11 +2910,7 @@ def property_workspace_payload(
                     "title": "Payment",
                     "body": "",
                     "items": [
-                        row_item(
-                            "Status",
-                            payment_status_detail,
-                            payment_status_tag,
-                        ),
+                        *billing_payment_rows,
                         {
                             **row_item(
                                 "Compare plans",

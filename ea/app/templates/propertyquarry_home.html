@@ -337,8 +337,8 @@
         <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
         <a class="btn" href="/app/properties" data-analytics-event="home_open_run" data-rybbit-event="home_open_run" data-rybbit-prop-surface="hero">Open latest run</a>
         {% else %}
-        <a class="btn primary" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
-        <a class="btn" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
+        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
+        <a class="btn" href="/register" data-analytics-event="home_create_account" data-rybbit-event="home_create_account" data-rybbit-prop-surface="hero">Create account</a>
         {% endif %}
       </div>
     </div>
@@ -360,8 +360,8 @@
         {% set scope_preview = row.get('scope_preview') or {} %}
         {% set row_href = row.get('href') or '/sign-in?signing_in=1' %}
         {% set detail_href = row.get('detail_href') or row_href %}
-        {% set tour_href = row.get('tour_href') or row_href %}
-        {% set walkthrough_href = row.get('walkthrough_href') or row_href %}
+        {% set tour_href = row.get('tour_href') or '' %}
+        {% set walkthrough_href = row.get('walkthrough_href') or '' %}
         <article class="pq-row">
           <div class="pq-row-main">
             <div class="pq-row-thumb">
@@ -374,10 +374,16 @@
             <div class="pq-row-copy">
               <strong><a class="pq-row-link" href="{{ row_href }}">{{ row.get('title') }}</a></strong>
               <span><a class="pq-row-link" href="{{ detail_href }}">{{ row.get('detail') }}</a></span>
+              {% if tour_href or walkthrough_href %}
               <div class="pq-row-actions" aria-label="Example media status">
+                {% if tour_href %}
                 <a class="pq-mini-tag pq-row-link" href="{{ tour_href }}">{{ row.get('tour_label') }}</a>
+                {% endif %}
+                {% if walkthrough_href %}
                 <a class="pq-mini-tag pq-row-link" href="{{ walkthrough_href }}">{{ row.get('walkthrough_label') }}</a>
+                {% endif %}
               </div>
+              {% endif %}
             </div>
           </div>
           <div class="pq-score">{{ row.get('score') }}</div>

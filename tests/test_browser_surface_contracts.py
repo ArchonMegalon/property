@@ -111,15 +111,25 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     from ea.app.api.routes.landing_content import LANDING_FAQS, SIGN_IN_NOTES
 
     client = _client()
+    anonymous_client = _client(principal_id="")
     for path in PUBLIC_ROUTES:
         response = client.get(path)
         assert response.status_code == 200, path
         _assert_no_drift(response.text)
 
-    landing = client.get("/")
+    landing = anonymous_client.get("/", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert "Search once. Rank the right homes. Decide with evidence." in landing.text
     assert "ranked homes" in landing.text
     assert "Open search" in landing.text
+    assert (
+        '<a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_open_search"'
+        in landing.text
+    )
+    assert (
+        '<a class="btn" href="/register" data-analytics-event="home_create_account"'
+        in landing.text
+    )
+    assert landing.text.index(">Open search</a>") < landing.text.index(">Create account</a>")
     assert "Hard filters stay hard" in landing.text
     assert "Preferences score" in landing.text
     assert "sample-memo" not in landing.text
@@ -199,6 +209,21 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         assert not href.startswith("/results")
         resolved = client.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
+
+    signed_in_landing = client.get("/", headers={"host": "propertyquarry.com", "accept": "text/html"})
+    assert (
+        '<a class="btn primary" href="/app/search" data-analytics-event="home_open_search"'
+        in signed_in_landing.text
+    )
+    assert (
+        '<a class="btn" href="/app/properties" data-analytics-event="home_open_run"'
+        in signed_in_landing.text
+    )
+
+    product = anonymous_client.get("/product", headers={"host": "propertyquarry.com", "accept": "text/html"})
+    assert '<a class="btn primary" href="/sign-in?signing_in=1">Open search</a>' in product.text
+    assert f'<a class="btn ghost" href="/register">{"Create account"}</a>' in product.text
+    assert product.text.index(">Open search</a>") < product.text.index(">Create account</a>")
 
 
 def test_propertyquarry_public_templates_do_not_keep_memo_anchors() -> None:

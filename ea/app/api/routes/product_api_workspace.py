@@ -25,12 +25,84 @@ from app.product.property_canonical_graph import build_property_passport_snapsho
 from app.product.property_tour_hosting import revoke_hosted_property_tour_bundle
 from app.product.service import build_product_service
 from app.services.onboarding import (
+    PROPERTY_NOTIFICATION_CHANNEL_LABELS,
     normalize_property_notification_channel,
     normalize_property_notification_channels,
     normalize_property_whatsapp_ai_support_phone,
 )
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+_PROPERTY_NOTIFICATION_PRIMARY_CHANNEL = "telegram"
+
+
+def _property_notification_explicit_primary(preferences: dict[str, object] | None) -> str:
+    payload = dict(preferences or {})
+    raw = str(payload.get("preferred_channel") or "").strip()
+    if not raw:
+        return ""
+    try:
+        normalized = normalize_property_notification_channel(raw)
+    except ValueError:
+        return ""
+    return normalized
+
+
+def _persist_property_notification_primary(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    preferred_channel: str,
+) -> None:
+    state = container.onboarding._ensure_state(principal_id)  # noqa: SLF001
+    channel_preferences = dict(state.channel_preferences_json or {})
+    property_notifications = dict(channel_preferences.get("property_notifications") or {})
+    if preferred_channel:
+        property_notifications["preferred_channel"] = preferred_channel
+    else:
+        property_notifications.pop("preferred_channel", None)
+        property_notifications.pop("preferred_label", None)
+    channel_preferences["property_notifications"] = property_notifications
+    container.onboarding._repo.upsert_state(  # noqa: SLF001
+        principal_id=state.principal_id,
+        onboarding_id=state.onboarding_id,
+        workspace_name=state.workspace_name,
+        workspace_mode=state.workspace_mode,
+        region=state.region,
+        language=state.language,
+        timezone=state.timezone,
+        selected_channels=tuple(state.selected_channels),
+        property_search_preferences_json=dict(state.property_search_preferences_json),
+        privacy_preferences_json=dict(state.privacy_preferences_json),
+        channel_preferences_json=channel_preferences,
+        brief_preview_json=dict(state.brief_preview_json),
+        status=state.status,
+    )
+
+
+def _sanitized_property_delivery_preferences(
+    status: dict[str, object],
+    *,
+    raw_property_notifications: dict[str, object] | None = None,
+) -> dict[str, object]:
+    delivery_preferences = dict(status.get("delivery_preferences") or {}) if isinstance(status.get("delivery_preferences"), dict) else {}
+    property_notifications = dict(delivery_preferences.get("property_notifications") or {})
+    explicit_primary = _property_notification_explicit_primary(raw_property_notifications or property_notifications)
+    selected_channels = normalize_property_notification_channels(
+        property_notifications.get("selected_channels"),
+        fallback=None,
+    )
+    resolved_primary = explicit_primary
+    if not resolved_primary and len(selected_channels) == 1:
+        resolved_primary = selected_channels[0]
+    if property_notifications:
+        property_notifications["preferred_channel"] = resolved_primary
+        property_notifications["preferred_label"] = (
+            PROPERTY_NOTIFICATION_CHANNEL_LABELS.get(resolved_primary, "")
+            if resolved_primary
+            else ""
+        )
+        delivery_preferences["property_notifications"] = property_notifications
+    return delivery_preferences
 
 
 def _support_bundle_download_filename(bundle: dict[str, object]) -> str:
@@ -155,6 +227,8 @@ def export_property_account_data(
         for row in service.list_workspace_access_sessions(principal_id=context.principal_id, status="", limit=100)
         if isinstance(row, dict)
     ]
+    raw_state = container.onboarding._ensure_state(context.principal_id)  # noqa: SLF001
+    raw_property_notifications = dict(dict(raw_state.channel_preferences_json or {}).get("property_notifications") or {})
     bundle: dict[str, object] = {
         "export_type": "propertyquarry_account_data",
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -162,7 +236,10 @@ def export_property_account_data(
         "workspace": workspace,
         "selected_channels": list(status.get("selected_channels") or []),
         "privacy": dict(status.get("privacy") or {}) if isinstance(status.get("privacy"), dict) else {},
-        "delivery_preferences": dict(status.get("delivery_preferences") or {}) if isinstance(status.get("delivery_preferences"), dict) else {},
+        "delivery_preferences": _sanitized_property_delivery_preferences(
+            status,
+            raw_property_notifications=raw_property_notifications,
+        ),
         "property_search_preferences": dict(status.get("property_search_preferences") or {}) if isinstance(status.get("property_search_preferences"), dict) else {},
         "recent_property_search_runs": recent_runs,
         "property_passport_summary": property_passport,
@@ -194,13 +271,14 @@ async def update_property_account_notifications(
     )
     try:
         normalized_channels = normalize_property_notification_channels(requested_channels, fallback=None)
+        normalized_channel = ""
         if requested_primary:
             normalized_channel = normalize_property_notification_channel(requested_primary)
-        elif len(normalized_channels) == 1:
-            normalized_channel = normalize_property_notification_channel(normalized_channels[0])
-        else:
-            raise ValueError("property_notification_primary_required")
-        if normalized_channel not in normalized_channels:
+            if not normalized_channels:
+                normalized_channels = (normalized_channel,)
+        elif not normalized_channels:
+            raise ValueError("property_notification_channel_required")
+        if normalized_channel and normalized_channel not in normalized_channels:
             raise ValueError("property_notification_primary_not_selected")
         normalized_support_phone = (
             normalize_property_whatsapp_ai_support_phone(whatsapp_ai_support_phone)
@@ -211,10 +289,16 @@ async def update_property_account_notifications(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     container.onboarding.update_property_notification_preferences(
         principal_id=context.principal_id,
-        preferred_channel=normalized_channel,
+        preferred_channel=normalized_channel or normalized_channels[0],
         selected_channels=normalized_channels,
         whatsapp_ai_support_phone=whatsapp_ai_support_phone,
     )
+    if not normalized_channel:
+        _persist_property_notification_primary(
+            container=container,
+            principal_id=context.principal_id,
+            preferred_channel="",
+        )
     service = build_product_service(container)
     service.record_surface_event(
         principal_id=context.principal_id,

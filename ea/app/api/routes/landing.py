@@ -95,6 +95,7 @@ from app.api.routes.admin_view_models import build_admin_section_payload as _bui
 from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
 from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
+from app.product import property_tour_hosting
 from app.product.property_surface_state import (
     build_property_billing_truth_snapshot,
     build_property_research_packet_snapshot,
@@ -254,13 +255,136 @@ def _public_tours_enabled_for_examples() -> bool:
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
 
+def _propertyquarry_public_app_base_url() -> str:
+    return str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
+
+
+def _propertyquarry_absolute_public_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        parsed = urllib.parse.urlparse("")
+    if parsed.scheme and parsed.netloc:
+        return normalized
+    public_app_base_url = _propertyquarry_public_app_base_url()
+    if normalized.startswith("/"):
+        return f"{public_app_base_url}{normalized}"
+    return f"{public_app_base_url}/{normalized.lstrip('/')}"
+
+
+def _propertyquarry_public_href(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+        base = urllib.parse.urlparse(_propertyquarry_public_app_base_url())
+    except Exception:
+        return normalized
+    if parsed.scheme and parsed.netloc and parsed.scheme == base.scheme and parsed.netloc == base.netloc:
+        return urllib.parse.urlunparse(("", "", parsed.path or "/", "", parsed.query, parsed.fragment))
+    return normalized
+
+
+def _propertyquarry_verified_public_tour_href(value: object) -> str:
+    tour_url = _propertyquarry_absolute_public_url(value)
+    if not tour_url:
+        return ""
+    verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)
+    return _propertyquarry_public_href(verified_tour_href) if verified_tour_href else ""
+
+
+def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[str, object] | object:
+    if not isinstance(candidate, dict):
+        return candidate
+    candidate_row = dict(candidate)
+    tour_url = _propertyquarry_absolute_public_url(candidate_row.get("tour_url"))
+    verified_tour_url = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if tour_url else ""
+    if verified_tour_url:
+        candidate_row["tour_url"] = verified_tour_url
+        tour_payload = dict(candidate_row.get("tour") or {}) if isinstance(candidate_row.get("tour"), dict) else {}
+        if tour_payload:
+            tour_payload["url"] = verified_tour_url
+            if str(tour_payload.get("embed_url") or "").strip():
+                tour_payload["embed_url"] = verified_tour_url
+            candidate_row["tour"] = tour_payload
+    return candidate_row
+
+
+def _propertyquarry_normalize_run_public_tour_targets(run_payload: dict[str, object]) -> dict[str, object]:
+    if not isinstance(run_payload, dict) or not run_payload:
+        return run_payload
+    summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
+    if not summary:
+        return run_payload
+
+    ranked_candidates = [
+        _propertyquarry_normalize_public_tour_candidate(candidate)
+        for candidate in list(summary.get("ranked_candidates") or [])
+    ]
+    if ranked_candidates:
+        summary["ranked_candidates"] = ranked_candidates
+    sources: list[dict[str, object]] = []
+    for source in list(summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_row = dict(source)
+        top_candidates = [
+            _propertyquarry_normalize_public_tour_candidate(candidate)
+            for candidate in list(source_row.get("top_candidates") or [])
+        ]
+        if top_candidates:
+            source_row["top_candidates"] = top_candidates
+        sources.append(source_row)
+    if sources:
+        summary["sources"] = sources
+    normalized_run = dict(run_payload)
+    normalized_run["summary"] = summary
+    return normalized_run
+
+
 def _propertyquarry_example_media_targets() -> dict[str, str]:
+    def _manifest_provider_url(payload: dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, dict):
+                for nested_key in ("url", "href", "embed_url", "public_url"):
+                    nested_value = value.get(nested_key)
+                    if isinstance(nested_value, str) and nested_value.strip():
+                        return nested_value.strip()
+        return ""
+
+    def _manifest_control_provider(payload: dict[str, Any]) -> str:
+        matterport_url = _manifest_provider_url(
+            payload,
+            "matterport_url",
+            "matterport_embed_url",
+            "matterport_public_url",
+        )
+        if matterport_url and "matterport" in matterport_url.lower():
+            return "matterport"
+        vista_url = _manifest_provider_url(
+            payload,
+            "3dvista_url",
+            "three_d_vista_url",
+            "threedvista_url",
+            "vista3d_url",
+        )
+        if vista_url:
+            return "3dvista"
+        return ""
+
     if not _public_tours_enabled_for_examples():
         return {}
     root = Path(str(os.environ.get("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
     if not root.exists() or not root.is_dir():
         return {}
-    resolved_root = root.resolve()
+
     for bundle_dir in sorted(path for path in root.iterdir() if path.is_dir()):
         manifest_path = bundle_dir / "tour.json"
         if not manifest_path.exists():
@@ -280,16 +404,22 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         creation_mode = str(payload.get("creation_mode") or "").strip().lower()
         if not has_floorplan_scene and scene_strategy != "layout_first" and "floorplan" not in creation_mode:
             continue
-        tour_href = str(payload.get("public_url") or payload.get("hosted_url") or "").strip()
-        if not tour_href:
+        bundle_tour_href = str(payload.get("public_url") or payload.get("hosted_url") or "").strip()
+        if not bundle_tour_href:
             continue
-        targets = {"tour_href": tour_href}
-        video_relpath = str(payload.get("video_relpath") or "").strip()
-        if video_relpath:
-            video_path = (bundle_dir / video_relpath).resolve()
-            if resolved_root in video_path.parents and video_path.exists():
-                separator = "&" if "?" in tour_href else "?"
-                targets["walkthrough_href"] = f"{tour_href}{separator}pane=flythrough-pane&autoplay=1"
+        bundle_tour_url = _propertyquarry_absolute_public_url(bundle_tour_href)
+        control_provider = _manifest_control_provider(payload)
+        if not control_provider:
+            continue
+        targets = {
+            "tour_href": _propertyquarry_public_href(f"{bundle_tour_url.rstrip('/')}/control/{control_provider}")
+        }
+        walkthrough_asset_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(bundle_tour_url)
+        if walkthrough_asset_href:
+            separator = "&" if "?" in bundle_tour_url else "?"
+            targets["walkthrough_href"] = _propertyquarry_public_href(
+                f"{bundle_tour_url}{separator}pane=flythrough-pane&autoplay=1"
+            )
         return targets
     return {}
 
@@ -1212,17 +1342,17 @@ def _clear_signed_out_marker_cookie(response: RedirectResponse, request: Request
     clear_domains = [None]
     if host.endswith(".propertyquarry.com") or host == "propertyquarry.com" or host == "www.propertyquarry.com":
         clear_domains.append(".propertyquarry.com")
-    for secure in (True, False):
-        for clear_domain in clear_domains:
-            for path in ("/", "/app"):
-                response.delete_cookie(
-                    "ea_workspace_signed_out",
-                    secure=secure,
-                    domain=clear_domain,
-                    path=path,
-                    httponly=True,
-                    samesite="lax",
-                )
+    secure = _browser_request_uses_secure_scheme(request)
+    for clear_domain in clear_domains:
+        for path in ("/", "/app"):
+            response.delete_cookie(
+                "ea_workspace_signed_out",
+                secure=secure,
+                domain=clear_domain,
+                path=path,
+                httponly=True,
+                samesite="lax",
+            )
 
 
 def _shared_browser_fields(
@@ -1684,12 +1814,11 @@ def _property_console_context(
             should_hydrate_run_status = False
         if should_hydrate_run_status:
             try:
-                lightweight_run_status = surface_scope.section == "properties"
                 run_payload = dict(
                     product.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=normalized_run_id,
-                        lightweight=lightweight_run_status,
+                        lightweight=False,
                     )
                     or {}
                 )
@@ -1734,6 +1863,7 @@ def _property_console_context(
                     )
                 )
             country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
+    run_payload = _propertyquarry_normalize_run_public_tour_targets(run_payload)
     run_status_value = str(run_payload.get("status") or "").strip().lower()
     enrich_run_candidates_with_feedback = (
         wants_run_state
@@ -2014,8 +2144,6 @@ def landing(
             "walkthrough_label": "Walkthrough queued",
             "href": example_shortlist_href,
             "detail_href": example_shortlist_detail_href,
-            "tour_href": example_shortlist_tour_href,
-            "walkthrough_href": example_shortlist_walkthrough_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1040 Vienna, 1050 Vienna"),
         },
         {
@@ -2026,8 +2154,6 @@ def landing(
             "walkthrough_label": "Walkthrough on request",
             "href": example_shortlist_href,
             "detail_href": example_shortlist_detail_href,
-            "tour_href": example_shortlist_tour_href,
-            "walkthrough_href": example_shortlist_walkthrough_href,
             "scope_preview": _property_scope_preview_map_only("AT", "wien", "1180 Vienna, 1190 Vienna"),
         },
     ]
@@ -3739,10 +3865,11 @@ def property_research_packet(
             seen_gallery_urls.add(item_url)
             filtered_gallery_items.append(dict(item))
         gallery_items = filtered_gallery_items
-    flythrough_url = str(candidate.get("flythrough_url") or "").strip()
+    flythrough_url = str(research_media.get("walkthrough_href") or candidate.get("flythrough_url") or "").strip()
+    hosted_tour_ready = bool(research_media.get("hosted_ready"))
+    tour_action_href = str(research_media.get("primary_href") or "").strip() if hosted_tour_ready else ""
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
-    hosted_tour_ready = bool(research_media.get("hosted_ready"))
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
     flythrough_eta_raw = str(candidate.get("flythrough_eta_minutes") or "").strip()
     tour_requested_at = str(candidate.get("tour_requested_at") or "").strip()
@@ -3792,8 +3919,8 @@ def property_research_packet(
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
-    if hosted_tour_ready and tour_url:
-        hero_actions.append({"href": tour_url, "label": "Open 3D tour", "external": False})
+    if hosted_tour_ready and tour_action_href:
+        hero_actions.append({"href": tour_action_href, "label": "Open 3D tour", "external": False})
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
@@ -4356,9 +4483,12 @@ def app_shell(
                 }
             if PropertySurfaceScope.for_section(resolved_section).section == "shortlist":
                 with contextlib.suppress(Exception):
-                    property_context["saved_shortlist_candidates"] = product.list_property_saved_shortlist_candidates(
-                        principal_id=context.principal_id,
-                    )
+                    property_context["saved_shortlist_candidates"] = [
+                        _propertyquarry_normalize_public_tour_candidate(candidate)
+                        for candidate in product.list_property_saved_shortlist_candidates(
+                            principal_id=context.principal_id,
+                        )
+                    ]
             if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:
                 fleet_digest = product.cached_fleet_digest_payload(
                     principal_id=context.principal_id,

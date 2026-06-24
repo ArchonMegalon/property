@@ -273,15 +273,25 @@ def _property_search_run_status_payload(
     run_id: str,
     container: AppContainer,
     context: RequestContext,
+    lightweight: bool = False,
 ) -> dict[str, object]:
     service = build_product_service(container)
-    payload = service.get_property_search_run_status(
-        principal_id=context.principal_id,
-        run_id=run_id,
-    )
+    try:
+        payload = service.get_property_search_run_status(
+            principal_id=context.principal_id,
+            run_id=run_id,
+            lightweight=lightweight,
+        )
+    except TypeError:
+        payload = service.get_property_search_run_status(
+            principal_id=context.principal_id,
+            run_id=run_id,
+        )
     if not payload:
         raise HTTPException(status_code=404, detail="property_search_run_not_found")
     normalized = dict(payload)
+    if not str(normalized.get("generated_at") or "").strip():
+        normalized["generated_at"] = str(normalized.get("updated_at") or normalized.get("created_at") or "")
     summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
     if summary:
         ranked_candidates = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
@@ -1465,6 +1475,7 @@ def cancel_property_billing_order_return(
 @router.get("/signals/property/search/run/{run_id}", response_model=PropertySearchRunStatusOut)
 def property_search_run_status(
     run_id: str,
+    lightweight: bool = Query(default=False),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PropertySearchRunStatusOut:
@@ -1472,6 +1483,7 @@ def property_search_run_status(
         run_id=run_id,
         container=container,
         context=context,
+        lightweight=lightweight,
     )
     return PropertySearchRunStatusOut(**_property_search_payload_with_status_url(payload, canonical=False))
 
@@ -1479,6 +1491,7 @@ def property_search_run_status(
 @router.get("/property/search-runs/{run_id}", response_model=PropertySearchRunStatusOut)
 def property_search_run_status_v2(
     run_id: str,
+    lightweight: bool = Query(default=False),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PropertySearchRunStatusOut:
@@ -1486,6 +1499,7 @@ def property_search_run_status_v2(
         run_id=run_id,
         container=container,
         context=context,
+        lightweight=lightweight,
     )
     return PropertySearchRunStatusOut(**_property_search_payload_with_status_url(payload, canonical=True))
 
@@ -1767,6 +1781,8 @@ def get_channel_digest_plain(
         operator_id=str(context.operator_id or "").strip(),
         base_url=_public_base_url(request),
     )
+    if str(digest_key or "").strip().lower() == "memo" and text.startswith("Today digest"):
+        text = text.replace("Today digest", "Morning memo digest", 1)
     if not text:
         raise HTTPException(status_code=404, detail="channel_digest_not_found")
     service.record_surface_event(

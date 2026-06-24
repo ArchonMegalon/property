@@ -18,6 +18,49 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+    const isDirectHostedTourUrl = (value) => {
+      const url = String(value || '').trim();
+      if (!url) return false;
+      try {
+        const parsed = new URL(url, window.location.origin);
+        return /\/tours\/[^/]+\/control\/(matterport|3dvista)\/?$/i.test(parsed.pathname);
+      } catch (_error) {
+        return /\/tours\/[^/]+\/control\/(matterport|3dvista)\/?$/i.test(url.split(/[?#]/)[0] || '');
+      }
+    };
+    const hostedTourProviderFromProof = (...values) => {
+      for (const value of values) {
+        const url = String(value || '').trim().toLowerCase();
+        if (!url) continue;
+        if (url.includes('matterport')) return 'matterport';
+        if (url.includes('3dvista') || url.includes('3d-vista')) return '3dvista';
+      }
+      return '';
+    };
+    const rawHostedTourControlBase = (value) => {
+      const url = String(value || '').trim();
+      if (!url) return '';
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const match = parsed.pathname.match(/^\/tours\/([^/?#]+)\/?$/i);
+        if (!match) return '';
+        const basePath = `/tours/${match[1]}`;
+        return /^[a-z][a-z0-9+.-]*:/i.test(url) ? `${parsed.origin}${basePath}` : basePath;
+      } catch (_error) {
+        const match = (url.split(/[?#]/)[0] || '').match(/^(\/tours\/[^/]+)\/?$/i);
+        return match ? match[1] : '';
+      }
+    };
+    const directHostedTourUrl = (...values) => {
+      let hostedBase = '';
+      for (const value of values) {
+        const url = String(value || '').trim();
+        if (isDirectHostedTourUrl(url)) return url;
+        if (!hostedBase) hostedBase = rawHostedTourControlBase(url);
+      }
+      const provider = hostedTourProviderFromProof(...values);
+      return hostedBase && provider ? `${hostedBase}/control/${provider}` : '';
+    };
     const trackRybbitEvent = (name, properties = {}) => {
       const eventName = String(name || '').trim();
       if (!eventName) return;
@@ -329,8 +372,8 @@
           ? {
               label: String(candidate.tour.label || '').trim(),
               status: String(candidate.tour.status || '').trim(),
-              url: absoluteUrl(candidate.tour.url || ''),
-              embed_url: absoluteUrl(candidate.tour.embed_url || ''),
+              url: absoluteUrl(directHostedTourUrl(candidate.tour.url, candidate.tour.embed_url, candidate.tour_url, candidate.tour.provider_url, candidate.vendor_tour_url, candidate.source_virtual_tour_url)),
+              embed_url: absoluteUrl(directHostedTourUrl(candidate.tour.embed_url, candidate.tour.url, candidate.tour_url, candidate.tour.provider_url, candidate.vendor_tour_url, candidate.source_virtual_tour_url)),
             }
           : {},
       };
@@ -350,7 +393,7 @@
         property_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
         source_url: absoluteUrl(candidate.source_url || candidate.property_url || candidate.listing_url || ''),
         review_url: absoluteUrl(candidate.packet_url || candidate.review_url || ''),
-        tour_url: absoluteUrl((candidate.tour && candidate.tour.url) || candidate.tour_url || ''),
+        tour_url: absoluteUrl(directHostedTourUrl(candidate.tour?.url, candidate.tour_url, candidate.tour?.embed_url, candidate.tour?.provider_url, candidate.vendor_tour_url, candidate.source_virtual_tour_url)),
         map_url: absoluteUrl(candidate.map_url || ''),
         source_label: String(candidate.source_label || '').trim(),
       }));
@@ -524,6 +567,34 @@
       if (!normalizedRef || !window.CSS?.escape) return null;
       return root.querySelector(`[data-workbench-row][data-candidate-ref="${CSS.escape(normalizedRef)}"]`);
     };
+    const syncRenderedCandidateTourLink = (candidate, tourUrl = '') => {
+      const resolvedTourUrl = String(tourUrl || '').trim();
+      if (!candidate || !resolvedTourUrl) return;
+      const candidateRef = String(
+        candidate?.candidate_ref
+        || candidate?.listing_id
+        || candidate?.external_id
+        || candidate?.source_ref
+        || candidate?.property_url
+        || candidate?.source_url
+        || candidate?.listing_url
+        || candidate?.title
+        || ''
+      ).trim();
+      const row = shortlistRowForCandidate(candidateRef);
+      const facts = row?.querySelector?.('.pqx-result-facts');
+      if (!facts) return;
+      let link = facts.querySelector('.pqx-result-tour-link');
+      if (!link) {
+        link = document.createElement('a');
+        link.className = 'pqx-result-fact pqx-result-tour-link';
+        link.textContent = '360 ready';
+        facts.appendChild(link);
+      }
+      link.setAttribute('href', resolvedTourUrl);
+      link.setAttribute('title', '3D tour ready');
+      link.setAttribute('aria-label', '3D tour ready');
+    };
     const reconcileShortlistArchive = (candidateRef = '') => {
       if (!shortlistSurface) return false;
       const removedCandidateRef = String(candidateRef || '').trim();
@@ -670,7 +741,9 @@
             .then((response) => response.ok ? response.json() : null)
             .then((payload) => {
               if (!payload || typeof payload !== 'object') return;
-              const nextReadyUrl = String((requestKind === 'flythrough' ? payload.flythrough_url : payload.tour_url) || '').trim();
+              const nextReadyUrl = requestKind === 'flythrough'
+                ? String(payload.flythrough_url || '').trim()
+                : directHostedTourUrl(payload.tour_url, payload.vendor_tour_url);
               const nextStatus = String((requestKind === 'flythrough' ? payload.flythrough_status : payload.tour_status) || payload.status || '').trim().toLowerCase();
               const nextLabel = String(payload.status_label || button.textContent || '').trim();
               const nextDetail = String(payload.status_detail || '').trim();
@@ -743,7 +816,16 @@
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'));
-        const nextTourUrl = String(payload.tour_url || candidate.tour?.url || '').trim();
+        const nextTourUrl = directHostedTourUrl(
+          payload.tour_url,
+          candidate.tour?.url,
+          candidate.tour?.embed_url,
+          candidate.tour_url,
+          payload.vendor_tour_url,
+          candidate.tour?.provider_url,
+          candidate.vendor_tour_url,
+          candidate.source_virtual_tour_url
+        );
         const nextFlythroughUrl = String(payload.flythrough_url || candidate.flythrough_url || '').trim();
         const nextTourStatus = String(payload.tour_status || payload.status || candidate.tour?.status || '').trim().toLowerCase();
         const nextFlythroughStatus = String(payload.flythrough_status || candidate.flythrough_status || '').trim().toLowerCase();
@@ -755,7 +837,9 @@
         candidate.tour.embed_url = nextTourUrl;
         candidate.tour.deep_link = nextTourUrl;
         candidate.tour.provider_url = String(payload.vendor_tour_url || candidate.tour.provider_url || '').trim();
+        candidate.vendor_tour_url = String(payload.vendor_tour_url || candidate.vendor_tour_url || '').trim();
         candidate.tour_url = nextTourUrl;
+        syncRenderedCandidateTourLink(candidate, nextTourUrl);
         candidate.tour_status = nextTourStatus;
         candidate.flythrough_url = nextFlythroughUrl;
         candidate.flythrough_status = nextFlythroughStatus;
@@ -1212,6 +1296,13 @@
         const label = step ? step.charAt(0).toUpperCase() + step.slice(1) : 'Update';
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
       }).join('') || '<div class="pqx-empty">Waiting for the first search update.</div>';
+    };
+    const shouldPreserveRenderedRunEvents = (eventsNode, events) => {
+      if (!eventsNode) return false;
+      const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;
+      if (!hasRenderedEvents) return false;
+      if (!Array.isArray(events)) return true;
+      return events.length === 0;
     };
     const renderSourceBreakdown = (sources) => {
       const rows = Array.isArray(sources) ? sources.slice(0, 8) : [];
@@ -1774,7 +1865,7 @@
             : `<span class="pqx-thumb"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></span>`)
           : '';
         const tour = (candidate?.tour && typeof candidate.tour === 'object') ? candidate.tour : {};
-        const tourUrl = String(tour.url || candidate?.tour_url || '').trim();
+        const tourUrl = directHostedTourUrl(tour.url, candidate?.tour_url, tour.embed_url, tour.provider_url, candidate?.vendor_tour_url, candidate?.source_virtual_tour_url);
         const tourStatus = String(tour.status || candidate?.tour_status || '').trim().toLowerCase();
         const tourPending = ['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'].includes(tourStatus);
         const tourLabel = String(
@@ -2022,7 +2113,9 @@
       }
       if (sourceNode && runPayload.summary) sourceNode.innerHTML = renderSourceBreakdown(runPayload.summary.sources);
       if (liveBestMatchNode) liveBestMatchNode.innerHTML = renderLiveBestMatch(runPayload);
-      if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
+      if (eventsNode && !shouldPreserveRenderedRunEvents(eventsNode, runPayload.events)) {
+        eventsNode.innerHTML = renderRunEvents(runPayload.events);
+      }
       if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
       updateProgressBoards(runPayload);
       applyResearchTaskSnapshot(runPayload);
@@ -2041,9 +2134,21 @@
       .filter(Boolean)
       .slice(0, Number.isFinite(platformCap) ? platformCap : undefined);
   };
+    const compactRunStatusUrl = (statusUrl) => {
+      const normalized = String(statusUrl || '').trim();
+      if (!normalized) return '';
+      try {
+        const url = new URL(normalized, window.location.origin);
+        url.searchParams.set('lightweight', '1');
+        return `${url.pathname}${url.search}${url.hash}`;
+      } catch (error) {
+        return normalized.includes('?') ? `${normalized}&lightweight=1` : `${normalized}?lightweight=1`;
+      }
+    };
     let runPollActive = false;
     const pollRun = async (statusUrl) => {
-      if (!statusUrl || runPollActive) return;
+      const pollStatusUrl = compactRunStatusUrl(statusUrl);
+      if (!pollStatusUrl || runPollActive) return;
       runPollActive = true;
       let failedPolls = 0;
       try {
@@ -2051,7 +2156,7 @@
           let response;
           let body = {};
           try {
-            response = await fetch(statusUrl, { credentials: 'same-origin' });
+            response = await fetch(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
             body = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
             failedPolls = 0;
@@ -2083,7 +2188,7 @@
       }
     };
     const startQuietFailedRepairPolling = (statusUrl) => {
-      const normalizedUrl = String(statusUrl || '').trim();
+      const normalizedUrl = compactRunStatusUrl(statusUrl);
       if (!normalizedUrl) return;
       let lastSignature = [
         String(data.run?.status || '').trim(),
@@ -3435,7 +3540,7 @@
           if (action === 'run') {
             if (!form) {
               await updateSearchAgent(agentId, 'resume', {});
-              window.location.href = `/app/properties?run_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
+              window.location.href = `/app/search?run_agent=${encodeURIComponent(String(agentId || 'current').trim() || 'current')}`;
               return;
             }
             await loadSearchAgentRow(row, true);
@@ -3510,7 +3615,7 @@
     const savedSearchEditHref = (agentId) => {
       const normalizedAgentId = encodeURIComponent(String(agentId || 'current').trim() || 'current');
       const runSuffix = activeRunId ? `&run_id=${encodeURIComponent(activeRunId)}` : '';
-      return `/app/properties?load_agent=${normalizedAgentId}${runSuffix}`;
+      return `/app/search?load_agent=${normalizedAgentId}${runSuffix}`;
     };
     const requestedAgentId = String(urlSearchParams.get('load_agent') || requestedRunAgentId || '').trim();
     if (requestedAgentId) {
@@ -3844,7 +3949,7 @@
           if (status === 'failed') {
             startQuietFailedRepairPolling(statusUrl);
           } else {
-            fetch(statusUrl, { credentials: 'same-origin' })
+            fetch(compactRunStatusUrl(statusUrl), { credentials: 'same-origin', cache: 'no-store' })
               .then((response) => response.ok ? response.json() : null)
               .then((payload) => {
                 if (payload && typeof payload === 'object') renderRun(payload);

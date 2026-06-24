@@ -1818,6 +1818,54 @@ def test_propertyquarry_properties_route_does_not_duplicate_heavy_run_payload(mo
     assert "initial_run" not in property_meta
 
 
+def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-full-run-trail")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert principal_id == "pq-properties-full-run-trail"
+        assert run_id == "run-full-trail"
+        assert lightweight is False
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 64,
+            "message": "Ranking homes.",
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 1,
+                "listing_total": 12,
+                "sources": [],
+            },
+            "events": [
+                {"step": "source_fetch", "message": "Fetched listings from Willhaben.", "status": "in_progress"},
+                {"step": "source_rank", "message": "Ranking homes.", "status": "in_progress"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    response = client.get("/app/properties?run_id=run-full-trail", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "Fetched listings from Willhaben." in response.text
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+    assert "Waiting for the first search update." not in rendered_html
+    workbench_match = re.search(
+        r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
+        response.text,
+        re.S,
+    )
+    assert workbench_match
+    workbench_payload = json.loads(html.unescape(workbench_match.group(1)))
+    assert [event["message"] for event in workbench_payload["run"]["events"]] == [
+        "Fetched listings from Willhaben.",
+        "Ranking homes.",
+    ]
+
+
 def test_propertyquarry_search_route_exposes_theme_toggle() -> None:
     client = build_property_client(principal_id="pq-theme-toggle")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -2184,9 +2232,11 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
                 "slug": "demo-home-tour",
                 "public_url": "/tours/demo-home-tour",
                 "hosted_url": "/tours/demo-home-tour",
+                "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
                 "scene_strategy": "layout_first",
                 "creation_mode": "hosted_floorplan_tour",
                 "video_relpath": "tour.mp4",
+                "video_provider": "manual_upload",
                 "scenes": [
                     {
                         "scene_id": "floorplan-1",
@@ -2200,16 +2250,17 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
     )
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
 
     targets = landing_routes._propertyquarry_example_media_targets()
 
     assert targets == {
-        "tour_href": "/tours/demo-home-tour",
+        "tour_href": "/tours/demo-home-tour/control/matterport",
         "walkthrough_href": "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1",
     }
 
 
-def test_propertyquarry_example_media_targets_ignore_false_example_public_tours(monkeypatch, tmp_path: Path) -> None:
+def test_propertyquarry_example_media_targets_ignore_false_example_public_tour_shells(monkeypatch, tmp_path: Path) -> None:
     bundle_dir = tmp_path / "public_tours" / "photo-gallery-only"
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.mp4").write_bytes(b"video")
@@ -2219,14 +2270,15 @@ def test_propertyquarry_example_media_targets_ignore_false_example_public_tours(
                 "slug": "photo-gallery-only",
                 "public_url": "/tours/photo-gallery-only",
                 "hosted_url": "/tours/photo-gallery-only",
-                "scene_strategy": "photo_gallery_hosted",
-                "creation_mode": "hosted_photo_gallery_tour",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
                 "video_relpath": "tour.mp4",
+                "video_provider": "manual_upload",
                 "scenes": [
                     {
-                        "scene_id": "photo-1",
-                        "role": "photo",
-                        "asset_relpath": "photo-01.jpg",
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
                     }
                 ],
             }
@@ -2235,10 +2287,43 @@ def test_propertyquarry_example_media_targets_ignore_false_example_public_tours(
     )
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
 
     targets = landing_routes._propertyquarry_example_media_targets()
 
     assert targets == {}
+
+
+def test_propertyquarry_example_media_targets_keep_walkthrough_hidden_without_real_video(monkeypatch, tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "public_tours" / "demo-3dvista-tour"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "demo-3dvista-tour",
+                "public_url": "/tours/demo-3dvista-tour",
+                "hosted_url": "/tours/demo-3dvista-tour",
+                "three_d_vista_url": "https://www.3dvista.com/share/demo-3dvista-tour",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "scenes": [
+                    {
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    targets = landing_routes._propertyquarry_example_media_targets()
+
+    assert targets == {"tour_href": "/tours/demo-3dvista-tour/control/3dvista"}
 
 
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
@@ -4002,28 +4087,45 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "data-prd-hero-fallback-src" in body
 
 
-def test_property_research_detail_keeps_desktop_first_view_compact() -> None:
+def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "grid-template-columns: minmax(0, 1.14fr) minmax(248px, 0.56fr);" in body
+    assert 'data-property-research-topnav' in body
+    assert "--prd-gold: #b88a2b;" in body
+    assert "var(--prd-gold-line)" in body
+    assert "var(--prd-gold-soft)" in body
+    assert 'href="/app/properties{{ research_query_suffix }}"' in body
+    assert 'href="/app/shortlist{{ research_query_suffix }}"' in body
+    assert 'href="/app/agents{{ research_query_suffix }}"' in body
+    assert 'href="/app/alerts{{ research_query_suffix }}"' in body
+    assert '<span class="is-active" aria-current="page">Research</span>' in body
+    assert 'href="/app/billing"' in body
+    assert 'href="/app/account"' in body
+    assert ".pq-shell[data-property-app-shell] .pq-appbar" in body
+    assert ".pq-mobile-nav" in body
+    assert "display: none !important;" in body
+    assert "grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.55fr);" in body
     assert ".pq-shell[data-property-app-shell] .pq-rail" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
-    assert "min-height: clamp(156px, 20vh, 196px);" in body
-    assert "max-height: min(calc(100vh - 440px), 202px);" in body
-    assert "min-height: clamp(150px, 19vh, 192px);" in body
+    assert "min-height: clamp(300px, 42vh, 460px);" in body
+    assert "min-height: clamp(320px, 44vh, 500px);" in body
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in body
-    assert "grid-template-columns: 72px minmax(0, 1fr);" in body
+    assert "grid-template-columns: 84px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
     assert "prd-hero-gallery" in body
     assert ".prd-hero-gallery .prd-gallery-label" in body
-    assert "-webkit-line-clamp: 2;" in body
-    assert "min-height: min(56vh, 520px);" not in body
+    assert "-webkit-line-clamp: 3;" in body
+    assert "max-height: min(calc(100vh - 440px), 202px);" not in body
+    assert body.index("data-property-research-topnav") < body.index("data-property-research-detail")
     assert body.index("data-object-media-stage") < body.index("Current read")
 
 
 def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeypatch) -> None:
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {})
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ())
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "",
+    )
 
     payload = landing_property_research._property_tour_media_payload(
         {
@@ -4038,19 +4140,23 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert payload["status_label"] == "360 needs rebuild"
     assert payload["primary_href"] == ""
 
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {"matterport_url": "https://my.matterport.com/show/?m=TEST123"})
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ("matterport",))
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "https://propertyquarry.com/tours/ready-tour/control/matterport",
+    )
     ready_payload = landing_property_research._property_tour_media_payload(
         {"tour_url": "https://propertyquarry.com/tours/ready-tour"}
     )
     assert ready_payload["has_live_viewer"] is True
     assert ready_payload["hosted_ready"] is True
-    assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control"
+    assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
+    assert ready_payload["primary_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
+    assert ready_payload["primary_label"] == "Open 3D tour"
 
 
 def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(monkeypatch) -> None:
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {})
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ())
+    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research,
         "_property_visual_eta_label",
@@ -4071,8 +4177,7 @@ def test_property_research_media_uses_delayed_eta_copy_for_stale_tour_requests(m
 
 
 def test_property_research_media_uses_live_eta_copy_while_render_is_fresh(monkeypatch) -> None:
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_manifest", lambda _url: {})
-    monkeypatch.setattr(landing_property_research, "_hosted_property_tour_provider_export_keys", lambda _url: ())
+    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research,
         "_property_visual_eta_label",
@@ -8283,6 +8388,76 @@ def test_propertyquarry_shortlist_keeps_live_ranked_candidates_without_second_ga
     assert "Request 3D tour" in shortlist.text
 
 
+def test_propertyquarry_shortlist_fails_honestly_when_ranked_candidates_are_not_admissible(monkeypatch) -> None:
+    monkeypatch.setenv("EA_API_TOKEN", "")
+    client = build_property_client(principal_id="pq-shortlist-ranked-not-admissible")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-shortlist-ranked-not-admissible"
+        assert run_id == "run-ranked-not-admissible"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+                "selected_districts": ["1010 Vienna"],
+            },
+            "summary": {
+                "status": "processed",
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "outside-area-ranked",
+                        "title": "Schardenberg ranked fallback",
+                        "summary": "EUR 900 | 70 m2 | 4784 Schardenberg",
+                        "property_url": "https://example.test/schardenberg-ranked",
+                        "fit_score": 81,
+                        "fit_summary": "Strong raw score, but outside the active selected area.",
+                        "property_facts": {
+                            "postal_name": "4784 Schardenberg",
+                            "rent_display": "EUR 900",
+                            "area_sqm": 70,
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    shortlist = client.get(
+        "/app/shortlist",
+        params={"run_id": "run-ranked-not-admissible"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert shortlist.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", shortlist.text, flags=re.IGNORECASE | re.DOTALL)
+    assert "Schardenberg ranked fallback" not in rendered_html
+    assert "Best matches" not in rendered_html
+    assert "No shortlist yet." in rendered_html
+    workbench_match = re.search(
+        r'<script type="application/json" data-property-workbench-json>(.*?)</script>',
+        shortlist.text,
+        re.S,
+    )
+    assert workbench_match
+    workbench_payload = json.loads(html.unescape(workbench_match.group(1)))
+    assert workbench_payload["results"] == []
+    assert workbench_payload["run"]["summary"]["ranked_candidates"] == []
+
+
 def test_property_selected_review_panel_stays_compact_without_old_decision_noise() -> None:
     body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_selected_review_panel.html").read_text(
         encoding="utf-8"
@@ -8936,6 +9111,17 @@ def test_propertyquarry_run_script_compacts_candidate_progress_to_fraction() -> 
     bundle = _read_workbench_bundle()
     assert "const compactRunMessage = (value) => {" in bundle
     assert "return `${candidateMatch[1]} / ${candidateMatch[2]}`;" in bundle
+
+
+def test_propertyquarry_run_script_preserves_non_empty_trail_from_omitted_or_empty_compact_payload() -> None:
+    bundle = _read_workbench_bundle()
+    assert "const shouldPreserveRenderedRunEvents = (eventsNode, events) => {" in bundle
+    assert "const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;" in bundle
+    assert "if (!hasRenderedEvents) return false;" in bundle
+    assert "if (!Array.isArray(events)) return true;" in bundle
+    assert "return events.length === 0;" in bundle
+    assert "if (eventsNode && !shouldPreserveRenderedRunEvents(eventsNode, runPayload.events)) {" in bundle
+    assert "eventsNode.innerHTML = renderRunEvents(runPayload.events);" in bundle
 
 
 def test_propertyquarry_run_script_prefers_concrete_provider_labels_for_grouped_sources() -> None:
@@ -9700,6 +9886,145 @@ def test_property_research_packet_prefers_ready_ranked_visual_state_over_stale_s
     assert "property_tour_execution_failed" not in visible_text
 
 
+def test_property_research_packet_renders_request_actions_when_hosted_tour_is_not_ready(monkeypatch) -> None:
+    principal_id = "pq-research-packet-request-actions"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Request-only loft",
+        "summary": "EUR 1,250 · 52 m² · 1050 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/request-only-loft",
+        "source_ref": "willhaben:request-only-loft",
+        "tour_status": "",
+        "tour_url": "",
+        "flythrough_status": "",
+        "flythrough_url": "",
+        "property_facts": {
+            "price_eur": 1250.0,
+            "area_m2": 52.0,
+            "postal_name": "1050 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1050 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "",
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1050 Vienna",
+        }
+    )
+    packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-request-only"}, headers={"host": "propertyquarry.com"})
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert 'data-pw-visual-request="tour"' in rendered_html
+    assert '>Request 3D tour</button>' in rendered_html
+    assert 'data-pw-visual-request="flythrough"' in rendered_html
+    assert '>Request walkthrough</button>' in rendered_html
+    assert '>Open 3D tour</a>' not in rendered_html
+
+
+def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(monkeypatch) -> None:
+    principal_id = "pq-research-packet-hosted-tour-ready"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Hosted-tour penthouse",
+        "summary": "EUR 2,950 · 110 m² · 1070 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/hosted-tour-penthouse",
+        "source_ref": "willhaben:hosted-tour-penthouse",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/hosted-tour-penthouse",
+        "flythrough_status": "",
+        "flythrough_url": "",
+        "property_facts": {
+            "price_eur": 2950.0,
+            "area_m2": 110.0,
+            "postal_name": "1070 Wien",
+        },
+    }
+    hosted_href = "https://propertyquarry.com/tours/hosted-tour-penthouse/control/matterport"
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: hosted_href,
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+        }
+    )
+    packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-hosted-tour"}, headers={"host": "propertyquarry.com"})
+    assert packet.status_code == 200
+    assert 'data-property-research-topnav' in packet.text
+    assert 'href="/app/shortlist?run_id=run-hosted-tour"' in packet.text
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert f'href="{hosted_href}"' in rendered_html
+    assert '>Open 3D tour</a>' in rendered_html
+    assert 'data-pw-visual-request="tour"' not in rendered_html
+
+
 def test_property_research_packet_uses_cross_run_lookup_for_missing_candidate(monkeypatch) -> None:
     principal_id = "pq-research-packet-cross-run"
     client = build_property_client(principal_id=principal_id)
@@ -10101,13 +10426,16 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Notifications" in account.text
-    assert "Choose where strong matches arrive." in account.text
+    assert "Strong matches go to every selected channel. Direct follow-up and near-miss prompts stay Telegram-only when Telegram is saved as primary." in account.text
+    assert "Near-miss follow-up prompts stay Telegram-only and run only when Telegram is selected and saved as the primary channel." in account.text
     assert 'action="/app/api/property/account/notifications"' in account.text
     assert 'type="checkbox" name="notification_channels" value="email"' in account.text
     assert 'type="checkbox" name="notification_channels" value="telegram"' in account.text
     assert 'type="checkbox" name="notification_channels" value="whatsapp"' in account.text
     assert "Signal later" not in account.text
-    assert 'type="radio" name="preferred_channel"' not in account.text
+    assert 'type="radio" name="preferred_channel" value="email"' in account.text
+    assert 'type="radio" name="preferred_channel" value="telegram"' in account.text
+    assert 'type="radio" name="preferred_channel" value="whatsapp"' in account.text
     assert 'value="email"' in account.text
     assert 'value="telegram"' in account.text
     assert 'data-channel-detail="email"' in account.text
@@ -10115,7 +10443,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'data-channel-detail="whatsapp"' in account.text
     assert '.pqx-account-channel-form:has(input[name="notification_channels"][value="whatsapp"]:checked)' in account.text
     assert "WhatsApp number" in account.text
-    assert "Needed only when WhatsApp is on." in account.text
+    assert "Needed when WhatsApp is selected for strong matches or AI support." in account.text
     assert "Used only for PropertyQuarry AI support." not in account.text
     assert "Save alerts and AI support number" not in account.text
     assert 'name="whatsapp_ai_support_phone"' in account.text
@@ -10193,7 +10521,6 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
         "/app/api/property/account/notifications",
         data={
             "notification_channels": "whatsapp",
-            "preferred_channel": "whatsapp",
             "whatsapp_ai_support_phone": "+43 664 791 6419",
         },
         headers=headers,
@@ -10204,8 +10531,27 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert export_after_whatsapp.status_code == 200
     whatsapp_preferences = export_after_whatsapp.json()["delivery_preferences"]["property_notifications"]
     assert whatsapp_preferences["preferred_channel"] == "whatsapp"
+    assert whatsapp_preferences["preferred_label"] == "WhatsApp"
     assert whatsapp_preferences["selected_channels"] == ["whatsapp"]
     assert whatsapp_preferences["whatsapp_notification_opt_in"] is True
+
+    whatsapp_primary_update = client.post(
+        "/app/api/property/account/notifications",
+        data={
+            "notification_channels": ["telegram", "whatsapp"],
+            "preferred_channel": "whatsapp",
+            "whatsapp_ai_support_phone": "+43 664 791 6419",
+        },
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert whatsapp_primary_update.status_code == 303
+    whatsapp_primary_export = client.get("/app/api/property/account/export", headers=headers)
+    assert whatsapp_primary_export.status_code == 200
+    assert (
+        whatsapp_primary_export.json()["delivery_preferences"]["property_notifications"]["preferred_channel"]
+        == "whatsapp"
+    )
 
     signal_update = client.post(
         "/app/api/property/account/notifications",

@@ -1282,7 +1282,7 @@ def workspace_section_payload(
                         "type": "checkbox",
                         "value": "true",
                         "checked": bool(assistant_notifications.get("whatsapp_notification_opt_in")),
-                        "help": "Enable only when you want morning memo, queue follow-up, support follow-up, or handoff notices over WhatsApp.",
+                        "help": "Enable only when you want morning memo, queue follow-up, support follow-up, or operator handoff notices over WhatsApp.",
                     },
                     {
                         "label": "Delivery time",

@@ -6357,10 +6357,10 @@
         </span>
       </a>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
-        {% if surface_mode == 'properties' %}
-        <span class="is-active" aria-current="page">Run</span>
+        {% if surface_mode in ['properties', 'search'] %}
+        <span class="is-active" aria-current="page">Search</span>
         {% else %}
-        <a href="/app/properties">Run</a>
+        <a href="/app/search">Search</a>
         {% endif %}
         {% if surface_mode == 'shortlist' %}
         <span class="is-active" aria-current="page">Shortlist</span>
@@ -6426,7 +6426,7 @@
               <a class="pqx-link-button" href="{{ account_nav.billing_href }}">Upgrade</a>
               {% endif %}
               {% if not account_surface %}
-              <a class="pqx-link-button" href="{{ account_nav.profile_href }}">{{ account_nav.profile_label or 'Search defaults' }}</a>
+              <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Profile</a>
               {% endif %}
               {% if not account_surface %}
               <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Connections</a>
@@ -7291,6 +7291,7 @@
       </section>
       {% elif run_terminal_no_results %}
       {% set ranked_candidates = run_summary.get('ranked_candidates') or [] %}
+      {% set empty_happened = (empty_outcome.get('happened') or '')|trim %}
       {% set empty_still_worked = (empty_outcome.get('still_worked') or '')|trim %}
       {% set empty_active_rule = (empty_outcome.get('active_rule') or '')|trim %}
       {% set empty_next_move = (empty_outcome.get('next_move') or '')|trim %}
@@ -7304,11 +7305,11 @@
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
               {% if run_status == 'failed' %}
-                {{ empty_outcome.get('happened') or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
+                {{ empty_happened or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
               {% elif soft_only_empty_state %}
                 No homes cleared the shortlist score.
               {% else %}
-                {{ empty_outcome.get('happened') or 'No shortlist yet.' }}
+                {{ empty_happened or 'No shortlist yet.' }}
               {% endif %}
             </h1>
             <p class="pqx-note pqx-empty-outcome-line" data-pqx-run-summary>
@@ -7323,7 +7324,7 @@
           </div>
           <div class="pqx-brief-stack">
             <div class="pqx-fact-grid">
-              {% set provider_display_total = (run_summary.get('sources_total') or run_summary.get('provider_total') or run.get('provider_display_total') or run_sources|length or 0)|int %}
+              {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
               <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
               <div class="pqx-fact"><span>Providers</span><strong>{{ provider_display_total or 0 }}</strong></div>
               <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
@@ -7331,7 +7332,7 @@
               <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
               {% endif %}
             </div>
-            {% if empty_active_rule or empty_next_move %}
+            {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
               {% if empty_active_rule %}<span class="pqx-pill">{{ empty_active_rule }}</span>{% endif %}
               <span class="pqx-small">{{ 'Lower the shortlist score or inspect the reviewed homes.' if soft_only_empty_state else (empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.')) }}</span>

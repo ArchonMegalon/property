@@ -156,10 +156,12 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                 "display_title": "Altbau near U6",
                 "hosted_url": f"/tours/{slug}",
                 "public_url": f"/tours/{slug}",
+                "matterport_url": "https://my.matterport.com/show/?m=AltbauNearU6",
                 "brand_name": "PropertyQuarry",
                 "scene_strategy": "layout_first",
                 "creation_mode": "hosted_floorplan_tour",
                 "video_relpath": "tour.mp4",
+                "video_provider": "manual_upload",
                 "scenes": [
                     {
                         "scene_id": "panorama-1",
@@ -285,7 +287,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                                 "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
                                 "recommendation": "shortlist",
                                 "review_url": "/app/handoffs/human_task:review-1",
-                                "tour_url": "/tours/altbau-u6",
+                                "tour_url": "/tours/altbau-u6/control/matterport",
                                 "match_reasons": ["Lift and transit fit."],
                                 "mismatch_reasons": [],
                                 "property_facts": {
@@ -386,6 +388,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     thread.start()
     local_base_url = f"http://127.0.0.1:{port}"
     browser_base_url = f"http://propertyquarry.com:{port}"
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", browser_base_url)
     _wait_for_http(local_base_url)
     try:
         yield {"base_url": browser_base_url, "client": test_client}
@@ -632,6 +635,29 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
     finally:
         desktop.close()
         mobile.close()
+        signed_in.close()
+
+
+def test_propertyquarry_home_example_media_links_open_real_public_tour_targets(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    slug = "altbau-u6"
+    signed_in = _new_public_context(browser, mobile=False, width=1440, height=820)
+    try:
+        _issue_browser_workspace_session(client=client, context=signed_in, base_url=base_url)
+        page = signed_in.new_page()
+        response = page.goto(f"{base_url}/?home=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        tour_href = page.get_by_role("link", name="3D tour ready").get_attribute("href")
+        walkthrough_href = page.get_by_role("link", name="Walkthrough ready").get_attribute("href")
+        assert tour_href == f"/tours/{slug}/control/matterport"
+        assert walkthrough_href == f"/tours/{slug}?pane=flythrough-pane&autoplay=1"
+        assert "#tour-preview" not in page.content()
+        assert "#walkthrough-preview" not in page.content()
+    finally:
         signed_in.close()
 
 
@@ -3684,12 +3710,12 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         assert response is not None and response.ok
         best_match = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
         best_match.wait_for()
-        expect(best_match.get_by_role("link", name="360 ready")).to_be_visible()
+        expect(best_match.get_by_role("link", name="3D tour ready")).to_be_visible()
         expect(best_match.get_by_role("link", name="Open 3D tour")).to_have_count(0)
         best_match.click()
-        open_360 = best_match.get_by_role("link", name="360 ready")
+        open_360 = best_match.get_by_role("link", name="3D tour ready")
         tour_url = str(open_360.get_attribute("href") or "").strip()
-        assert tour_url.endswith("/tours/altbau-u6")
+        assert tour_url.endswith("/tours/altbau-u6/control/matterport")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
         response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="networkidle")
         assert response is not None and response.ok
