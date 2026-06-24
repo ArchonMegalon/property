@@ -28,9 +28,9 @@
       if (!url) return false;
       try {
         const parsed = new URL(url, window.location.origin);
-        return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr)\/?$/i.test(parsed.pathname);
+        return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr|krpano)\/?$/i.test(parsed.pathname);
       } catch (_error) {
-        return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr)\/?$/i.test(url.split(/[?#]/)[0] || '');
+        return /\/tours\/[^/]+\/control\/(matterport|3dvista|pano2vr|krpano)\/?$/i.test(url.split(/[?#]/)[0] || '');
       }
     };
     const hostedTourProviderFromProof = (...values) => {

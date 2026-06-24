@@ -126,6 +126,7 @@ from app.product.property_tour_hosting import (
     _hosted_property_tour_control_url,
     _hosted_property_tour_asset_suffix,
     _hosted_property_tour_has_3dvista_export as _hosting_has_3dvista_export,
+    _hosted_property_tour_has_krpano_control as _hosting_has_krpano_control,
     _hosted_property_tour_has_matterport_export as _hosting_has_matterport_export,
     _hosted_property_tour_has_pano2vr_export as _hosting_has_pano2vr_export,
     _hosted_property_tour_payload_for_url,
@@ -15344,6 +15345,10 @@ def _hosted_property_tour_has_pano2vr_export(tour_url: str) -> bool:
     return _hosting_has_pano2vr_export(tour_url)
 
 
+def _hosted_property_tour_has_krpano_control(tour_url: str) -> bool:
+    return _hosting_has_krpano_control(tour_url)
+
+
 def _hosted_property_tour_provider_export_keys(tour_url: str) -> tuple[str, ...]:
     keys: list[str] = []
     if _hosted_property_tour_has_matterport_export(tour_url):
@@ -15352,6 +15357,8 @@ def _hosted_property_tour_provider_export_keys(tour_url: str) -> tuple[str, ...]
         keys.append("3dvista")
     if _hosted_property_tour_has_pano2vr_export(tour_url):
         keys.append("pano2vr")
+    if _hosted_property_tour_has_krpano_control(tour_url):
+        keys.append("krpano")
     return tuple(keys)
 
 
@@ -15372,6 +15379,10 @@ def _property_tour_compare_links(tour_url: str) -> dict[str, str]:
         pano2vr_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="pano2vr"))
         if pano2vr_url:
             links["pano2vr"] = pano2vr_url
+    if _hosted_property_tour_has_krpano_control(normalized):
+        krpano_url = _telegram_safe_url_button_target(_property_tour_control_link(normalized, viewer="krpano"))
+        if krpano_url:
+            links["krpano"] = krpano_url
     return links
 
 
@@ -15397,6 +15408,9 @@ def _property_3d_provider_rule_exit_gate(
         "pano2vr": "pano2vr",
         "pano_2_vr": "pano2vr",
         "pano-2-vr": "pano2vr",
+        "krpano": "krpano",
+        "kr_pano": "krpano",
+        "kr-pano": "krpano",
     }
     if expected_providers is None:
         expected = list(_hosted_property_tour_provider_export_keys(normalized))
@@ -15429,6 +15443,8 @@ def _property_3d_provider_rule_exit_gate(
             return False, "3dvista_export_missing_for_rule", metrics
         if provider == "pano2vr" and not (_hosted_property_tour_has_pano2vr_export(normalized) or declared_pano2vr_export):
             return False, "pano2vr_export_missing_for_rule", metrics
+        if provider == "krpano" and not _hosted_property_tour_has_krpano_control(normalized):
+            return False, "krpano_control_missing_for_rule", metrics
         link = str(
             links.get(provider)
             or (
@@ -30974,7 +30990,7 @@ class ProductService:
             elif str(payload.get("tour_url") or "").strip():
                 payload["tour_status"] = "repairing"
                 status_label = "3D tour verification needed"
-                status_detail = "The hosted tour shell exists, but no verified Matterport, 3DVista, or Pano2VR control is published yet."
+                status_detail = "The hosted tour shell exists, but no verified Matterport, 3DVista, Pano2VR, or licensed krpano control is published yet."
             elif payload["tour_status"] in {"queued", "pending"}:
                 status_label = "3D tour queued"
                 status_detail = "Queued. Opens here when ready."

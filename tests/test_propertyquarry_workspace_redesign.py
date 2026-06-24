@@ -4853,7 +4853,7 @@ def test_property_workspace_payload_does_not_embed_external_branded_tour_host(mo
     assert tour["status"] == "blocked"
     assert tour["url"] == ""
     assert tour["embed_url"] == ""
-    assert "no verified Matterport, 3DVista, or Pano2VR control" in tour["status_detail"]
+    assert "no verified Matterport, 3DVista, Pano2VR, or licensed krpano control" in tour["status_detail"]
 
 
 def test_property_workbench_no_longer_embeds_vienna_district_mapping_js() -> None:
@@ -4872,6 +4872,11 @@ def test_property_workbench_step_triggers_prevent_default_and_use_semantic_hidde
     assert "event.stopPropagation();" in body
     assert "let targetIndex = visibleSteps.findIndex" in body
     assert "targetIndex = steps.findIndex" not in body
+
+
+def test_property_workbench_treats_krpano_control_as_direct_hosted_tour() -> None:
+    body = _read_workbench_bundle()
+    assert "matterport|3dvista|pano2vr|krpano" in body
 
 
 def test_property_research_detail_uses_user_facing_visual_and_decision_copy() -> None:
@@ -5073,7 +5078,7 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert payload["embed_href"] == ""
     assert payload["hosted_ready"] is False
     assert payload["status_label"] == "360 needs rebuild"
-    assert "Matterport, 3DVista, or Pano2VR" in payload["status_detail"]
+    assert "Matterport, 3DVista, Pano2VR, or licensed krpano" in payload["status_detail"]
     assert payload["primary_href"] == ""
 
     monkeypatch.setattr(
@@ -5127,6 +5132,32 @@ def test_property_research_media_uses_pano2vr_label_for_verified_controls(monkey
     assert payload["primary_label"] == "Open Pano2VR"
     assert payload["status_label"] == "Pano2VR ready"
     assert payload["status_detail"] == "Pano2VR control is live inside the hosted PropertyQuarry tour."
+
+
+def test_property_research_media_uses_krpano_label_for_verified_controls(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: "https://propertyquarry.com/tours/krpano-ready/control/krpano",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "krpano",
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_url": "https://propertyquarry.com/tours/krpano-ready",
+            "property_url": "https://example.test/listing",
+        }
+    )
+
+    assert payload["hosted_ready"] is True
+    assert payload["provider_label"] == "krpano"
+    assert payload["primary_label"] == "Open krpano"
+    assert payload["status_label"] == "krpano ready"
+    assert payload["status_detail"] == "krpano control is live inside the hosted PropertyQuarry tour."
 
 
 def test_property_research_media_uses_provider_specific_vendor_360_copy(monkeypatch) -> None:

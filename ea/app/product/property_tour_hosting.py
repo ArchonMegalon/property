@@ -362,12 +362,14 @@ def _hosted_property_tour_control_url(tour_url: object, *, viewer: str = "") -> 
         viewer_slug = "matterport"
     if viewer_slug in {"pano_2_vr", "pano-2-vr"}:
         viewer_slug = "pano2vr"
-    if viewer_slug not in {"", "matterport", "3dvista", "pano2vr"}:
+    if viewer_slug in {"kr_pano", "kr-pano"}:
+        viewer_slug = "krpano"
+    if viewer_slug not in {"", "matterport", "3dvista", "pano2vr", "krpano"}:
         viewer_slug = ""
     try:
         parsed = urllib.parse.urlparse(normalized)
         path = str(parsed.path or "").rstrip("/")
-        if any(path.endswith(f"/control/{mode}") for mode in ("matterport", "3dvista", "pano2vr")):
+        if any(path.endswith(f"/control/{mode}") for mode in ("matterport", "3dvista", "pano2vr", "krpano")):
             path = path.rsplit("/control/", 1)[0]
         elif path.endswith("/control"):
             path = path[: -len("/control")]
@@ -428,6 +430,32 @@ def _hosted_property_tour_has_pano2vr_export(tour_url: object) -> bool:
     return False
 
 
+def _krpano_license_runtime_config() -> dict[str, str]:
+    domain = str(os.getenv("KRPANO_LICENSE_DOMAIN") or "").strip()
+    key = str(os.getenv("KRPANO_LICENSE_KEY") or "").strip()
+    if not domain or not key:
+        return {}
+    return {"domain": domain, "key": key}
+
+
+def _hosted_property_tour_has_krpano_control(tour_url: object) -> bool:
+    payload = _hosted_property_tour_payload_for_url(tour_url)
+    slug = _hosted_property_tour_slug_from_url(tour_url)
+    if not payload or not slug or not _krpano_license_runtime_config():
+        return False
+    scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+    if scene_strategy in {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}:
+        return False
+    if creation_mode == "hosted_listing_fallback":
+        return False
+    scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
+    if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
+        return False
+    walkable_scene = payload.get("walkable_scene")
+    return isinstance(walkable_scene, dict) and bool(walkable_scene)
+
+
 def _hosted_property_tour_verified_provider(tour_url: object) -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
@@ -436,14 +464,17 @@ def _hosted_property_tour_verified_provider(tour_url: object) -> str:
     if direct_provider:
         return direct_provider
     payload = _hosted_property_tour_payload_for_url(normalized_url)
-    if not payload or _property_tour_payload_is_disabled_fallback(payload):
+    if not payload:
         return ""
-    if _hosted_property_tour_has_matterport_export(normalized_url):
-        return "matterport"
-    if _hosted_property_tour_has_3dvista_export(normalized_url):
-        return "3dvista"
-    if _hosted_property_tour_has_pano2vr_export(normalized_url):
-        return "pano2vr"
+    if not _property_tour_payload_is_disabled_fallback(payload):
+        if _hosted_property_tour_has_matterport_export(normalized_url):
+            return "matterport"
+        if _hosted_property_tour_has_3dvista_export(normalized_url):
+            return "3dvista"
+        if _hosted_property_tour_has_pano2vr_export(normalized_url):
+            return "pano2vr"
+    if _hosted_property_tour_has_krpano_control(normalized_url):
+        return "krpano"
     return ""
 
 

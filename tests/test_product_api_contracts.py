@@ -24856,6 +24856,53 @@ def test_property_tour_compare_links_offer_pano2vr_only_when_entry_exists(monkey
     )
 
 
+def test_property_tour_compare_links_offer_krpano_only_for_licensed_walkable_scene(monkeypatch, tmp_path: Path) -> None:
+    ready_slug = "krpano-ready-tour"
+    ready_dir = tmp_path / ready_slug
+    ready_dir.mkdir(parents=True)
+    (ready_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": ready_slug,
+                "control_mode": "walkable_3d",
+                "walkable_scene": {
+                    "rooms": [{"id": "living", "name": "Living"}],
+                    "route": ["living"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    no_scene_slug = "krpano-no-scene-tour"
+    no_scene_dir = tmp_path / no_scene_slug
+    no_scene_dir.mkdir(parents=True)
+    (no_scene_dir / "tour.json").write_text(
+        json.dumps({"slug": no_scene_slug, "control_mode": "walkable_3d"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.delenv("KRPANO_LICENSE_DOMAIN", raising=False)
+    monkeypatch.delenv("KRPANO_LICENSE_KEY", raising=False)
+
+    ready_tour_url = f"https://propertyquarry.com/tours/{ready_slug}"
+    assert product_service._property_tour_compare_links(ready_tour_url) == {}
+    assert product_service._hosted_property_tour_provider_export_keys(ready_tour_url) == ()
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(ready_tour_url) == ""
+
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "test-license-key")
+
+    assert product_service._property_tour_compare_links(f"https://propertyquarry.com/tours/{no_scene_slug}") == {}
+    assert product_service._property_tour_compare_links(ready_tour_url) == {
+        "krpano": f"https://propertyquarry.com/tours/{ready_slug}/control/krpano",
+    }
+    assert product_service._hosted_property_tour_provider_export_keys(ready_tour_url) == ("krpano",)
+    assert property_tour_hosting._hosted_property_tour_verified_provider(ready_tour_url) == "krpano"
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(ready_tour_url) == (
+        f"https://propertyquarry.com/tours/{ready_slug}/control/krpano"
+    )
+
+
 def test_property_tour_compare_links_omits_fake_provider_exports(monkeypatch, tmp_path: Path) -> None:
     slug = "demo-tour"
     bundle_dir = tmp_path / slug
@@ -25085,6 +25132,40 @@ def test_property_3d_provider_rule_exit_gate_requires_selected_provider_links(mo
         "3dvista": "https://propertyquarry.com/tours/provider-rule-tour/control/3dvista",
     }
     assert metrics["available_links"] == metrics["selected_links"]
+
+
+def test_property_3d_provider_rule_exit_gate_accepts_licensed_krpano_control(monkeypatch, tmp_path: Path) -> None:
+    slug = "provider-rule-krpano-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "control_mode": "walkable_3d",
+                "walkable_scene": {
+                    "rooms": [{"id": "entry", "name": "Entry"}],
+                    "route": ["entry"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "test-license-key")
+
+    ok, reason, metrics = product_service._property_3d_provider_rule_exit_gate(
+        f"https://propertyquarry.com/tours/{slug}",
+        expected_providers=("kr-pano",),
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert metrics["expected_providers"] == ["krpano"]
+    assert metrics["selected_links"] == {
+        "krpano": f"https://propertyquarry.com/tours/{slug}/control/krpano",
+    }
 
 
 def test_property_3d_provider_rule_exit_gate_rejects_when_one_requested_viewer_is_missing(monkeypatch, tmp_path: Path) -> None:

@@ -667,7 +667,7 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         )
     elif tour_url:
         status_label = "360 needs rebuild"
-        status_detail = "The hosted tour link is not backed by usable Matterport, 3DVista, or Pano2VR viewer assets yet. Request a rebuild from this page."
+        status_detail = "The hosted tour link is not backed by usable Matterport, 3DVista, Pano2VR, or licensed krpano viewer assets yet. Request a rebuild from this page."
     elif vendor_tour_url:
         status_label = f"{vendor_tour_provider_label} source ready" if vendor_tour_provider_label else "Source 360 available"
         status_detail = (
