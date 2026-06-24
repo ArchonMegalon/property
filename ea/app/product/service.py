@@ -17706,12 +17706,17 @@ class ProductService:
         self,
         *,
         principal_id: str,
+        status: dict[str, object] | None = None,
     ) -> list[dict[str, object]]:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
             return []
-        status = self._container.onboarding.status(principal_id=normalized_principal)
-        preferences = dict(status.get("property_search_preferences") or {})
+        status_payload = (
+            dict(status or {})
+            if isinstance(status, dict)
+            else self._container.onboarding.status(principal_id=normalized_principal)
+        )
+        preferences = dict(status_payload.get("property_search_preferences") or {})
         raw_candidates = list(preferences.get("saved_shortlist_candidates") or [])
         candidate_rows: list[tuple[str, dict[str, object]]] = []
         for item in raw_candidates:

@@ -4471,6 +4471,7 @@ def app_shell(
                         _propertyquarry_normalize_public_tour_candidate(candidate)
                         for candidate in product.list_property_saved_shortlist_candidates(
                             principal_id=context.principal_id,
+                            status=status,
                         )
                     ]
             if PropertySurfaceScope.for_section(resolved_section).wants_credit_digest:

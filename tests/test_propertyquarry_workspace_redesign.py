@@ -2938,6 +2938,42 @@ def test_property_saved_shortlist_candidates_persist_across_runs() -> None:
     ]
 
 
+def test_property_saved_shortlist_candidates_can_reuse_loaded_status(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-saved-shortlist-loaded-status")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    product = build_product_service(client.app.state.container)
+
+    def _explode_status(*_args, **_kwargs):
+        raise AssertionError("saved shortlist should reuse the already-loaded route status")
+
+    monkeypatch.setattr(product._container.onboarding, "status", _explode_status)
+    monkeypatch.setattr(product, "_property_saved_shortlist_decision_states", lambda **_kwargs: {})
+
+    visible = product.list_property_saved_shortlist_candidates(
+        principal_id="pq-saved-shortlist-loaded-status",
+        status={
+            "property_search_preferences": {
+                "saved_shortlist_candidates": [
+                    {
+                        "candidate_ref": "cand-loaded",
+                        "property_url": "https://example.test/property-loaded",
+                        "title": "Loaded status property",
+                    }
+                ]
+            }
+        },
+    )
+
+    assert visible == [
+        {
+            "candidate_ref": "cand-loaded",
+            "property_url": "https://example.test/property-loaded",
+            "title": "Loaded status property",
+            "property_ref": "https://example.test/property-loaded",
+        }
+    ]
+
+
 def test_property_saved_shortlist_decision_filter_uses_targeted_refs(monkeypatch) -> None:
     from app.repositories import property_decision_loop_postgres as repo_module
 
