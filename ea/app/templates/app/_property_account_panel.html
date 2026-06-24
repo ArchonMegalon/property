@@ -10,6 +10,10 @@
   {% if card.get('title') == 'Public pages' %}{% set public_card.value = card %}{% endif %}
 {% endfor %}
 {% set profile_item = (profile_card.value.get('items') or [{}])[0] if profile_card.value else {} %}
+{% set profile_action_href = profile_item.get('action_href') or '/app/properties' %}
+{% if query_suffix and profile_action_href == '/app/properties' %}
+  {% set profile_action_href = '/app/properties' ~ query_suffix %}
+{% endif %}
 {% set profile_items = profile_card.value.get('items') or [] %}
 {% set plan_items = plan_card.value.get('items') or [] %}
 {% set plan_item = plan_items[0] if plan_items else {} %}
@@ -67,7 +71,7 @@
         </div>
         {% endif %}
       </div>
-      <a class="pqx-link-button primary" href="{{ profile_item.get('action_href') or '/app/search' }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
+      <a class="pqx-link-button primary" href="{{ profile_action_href }}">{{ profile_item.get('action_label') or 'Edit search' }}</a>
     </section>
 
     <section class="pqx-account-action-card notification" id="delivery">

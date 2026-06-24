@@ -10718,6 +10718,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Open billing" in account.text
     account_with_run = client.get("/app/account", params={"run_id": "run-account-billing"}, headers={"host": "propertyquarry.com"})
     assert 'href="/app/billing?run_id=run-account-billing"' in account_with_run.text
+    assert 'href="/app/properties?run_id=run-account-billing"' in account_with_run.text
     assert 'id="connected-services"' in account.text
     assert 'id="settings"' in account.text
     assert "Connections and privacy" in account.text
