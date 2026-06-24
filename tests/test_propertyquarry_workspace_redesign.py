@@ -4150,13 +4150,18 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "--prd-gold: #b88a2b;" in body
     assert "var(--prd-gold-line)" in body
     assert "var(--prd-gold-soft)" in body
-    assert 'href="/app/properties{{ research_query_suffix }}"' in body
-    assert 'href="/app/shortlist{{ research_query_suffix }}"' in body
-    assert 'href="/app/agents{{ research_query_suffix }}"' in body
-    assert 'href="/app/alerts{{ research_query_suffix }}"' in body
-    assert '<span class="is-active" aria-current="page">Research</span>' in body
-    assert 'href="/app/billing"' in body
-    assert 'href="/app/account"' in body
+    assert "{'href': '/app/properties' ~ research_query_suffix, 'label': 'Search', 'key': 'search'}" in body
+    assert "{'href': '/app/shortlist' ~ research_query_suffix, 'label': 'Shortlist', 'key': 'shortlist'}" in body
+    assert "{'href': '/app/agents' ~ research_query_suffix, 'label': 'Saved searches', 'key': 'agents'}" in body
+    assert "{'href': '/app/alerts' ~ research_query_suffix, 'label': 'Alerts', 'key': 'alerts'}" in body
+    assert "{% if item.key == current_nav %}" in body
+    assert '<span class="is-active" aria-current="page">{{ item.label }}</span>' in body
+    assert "{'href': '/app/billing', 'label': 'Billing', 'key': 'billing'}" in body
+    assert "{'href': '/app/account', 'label': 'Account', 'key': 'account'}" in body
+    assert 'aria-label="Account navigation"' in body
+    assert 'href="{{ account_nav.profile_href }}"' in body
+    assert 'href="{{ account_nav.settings_href }}"' in body
+    assert 'action="{{ account_nav.sign_out_action }}"' in body
     assert ".pq-shell[data-property-app-shell] .pq-appbar" in body
     assert ".pq-mobile-nav" in body
     assert "display: none !important;" in body
@@ -9948,6 +9953,9 @@ def test_property_research_packet_prefers_ready_ranked_visual_state_over_stale_s
     assert "Open 3D tour" in visible_text
     assert "No hosted 3D tour yet" not in visible_text
     assert "property_tour_execution_failed" not in visible_text
+    assert 'aria-label="Account navigation"' in packet.text
+    assert 'href="/app/account#search-defaults"' in packet.text
+    assert 'href="/app/account#connected-services"' in packet.text
 
 
 def test_property_research_packet_renders_request_actions_when_hosted_tour_is_not_ready(monkeypatch) -> None:

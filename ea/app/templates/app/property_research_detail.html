@@ -127,6 +127,8 @@
   .prd-top-actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
     min-width: 0;
   }
   .prd-run-chip {
@@ -1462,6 +1464,15 @@
 </style>
 
 {% set research_query_suffix = ('?run_id=' ~ (research_run_id|urlencode)) if research_run_id else '' %}
+{% set research_topnav_items = (
+  {'href': '/app/properties' ~ research_query_suffix, 'label': 'Search', 'key': 'search'},
+  {'href': '/app/shortlist' ~ research_query_suffix, 'label': 'Shortlist', 'key': 'shortlist'},
+  {'href': '/app/research' ~ research_query_suffix, 'label': 'Research', 'key': 'research'},
+  {'href': '/app/agents' ~ research_query_suffix, 'label': 'Saved searches', 'key': 'agents'},
+  {'href': '/app/alerts' ~ research_query_suffix, 'label': 'Alerts', 'key': 'alerts'},
+  {'href': '/app/billing', 'label': 'Billing', 'key': 'billing'},
+  {'href': '/app/account', 'label': 'Account', 'key': 'account'},
+) %}
 <header class="prd-topbar pqx-topbar" data-property-research-topnav>
   <a class="prd-brand" href="/?home=1" aria-label="PropertyQuarry home">
     <span class="prd-brand-mark">PQ</span>
@@ -1471,17 +1482,39 @@
     </span>
   </a>
   <nav class="prd-primary-nav" aria-label="PropertyQuarry sections">
-    <a href="/app/properties{{ research_query_suffix }}">Search</a>
-    <a href="/app/shortlist{{ research_query_suffix }}">Shortlist</a>
-    <span class="is-active" aria-current="page">Research</span>
-    <a href="/app/agents{{ research_query_suffix }}">Saved searches</a>
-    <a href="/app/alerts{{ research_query_suffix }}">Alerts</a>
-    <a href="/app/billing">Billing</a>
-    <a href="/app/account">Account</a>
+    {% for item in research_topnav_items %}
+      {% if item.key == current_nav %}
+      <span class="is-active" aria-current="page">{{ item.label }}</span>
+      {% else %}
+      <a href="{{ item.href }}">{{ item.label }}</a>
+      {% endif %}
+    {% endfor %}
   </nav>
   <div class="prd-top-actions">
     {% if research_run_id %}
     <a class="prd-run-chip" href="/app/shortlist{{ research_query_suffix }}">Run {{ research_run_id }}</a>
+    {% endif %}
+    {% if account_nav %}
+    <details class="account-menu">
+      <summary aria-label="Account navigation">
+        <span>{{ account_nav.menu_label or account_nav.label or 'Account' }}</span>
+      </summary>
+      <div class="account-menu-panel">
+        <div class="account-menu-label">
+          <span>Signed in</span>
+          <strong>{{ account_nav.label }}</strong>
+        </div>
+        <div class="account-menu-links">
+          <a class="btn" href="{{ account_nav.billing_href }}">Upgrade</a>
+          <a class="btn" href="{{ account_nav.profile_href }}">{{ account_nav.profile_label or 'Profile' }}</a>
+          <a class="btn ghost" href="{{ account_nav.settings_href }}">Connections</a>
+          <form class="account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
+            <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
+            <button class="btn ghost" type="submit">Log out</button>
+          </form>
+        </div>
+      </div>
+    </details>
     {% endif %}
   </div>
 </header>
