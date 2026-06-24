@@ -1012,6 +1012,9 @@
     .pq-mobile-nav {
       display: none;
     }
+    .pq-appbar-mobile-nav {
+      display: none;
+    }
 
     @media (max-width: 1080px) {
       .hero,
@@ -1072,6 +1075,42 @@
         background: var(--accent-soft);
         color: var(--text);
       }
+      .pq-appbar-mobile-nav {
+        display: flex;
+        width: 100%;
+        gap: 7px;
+        margin: 2px 0 0;
+        padding: 2px 0 4px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+      .pq-appbar-mobile-nav::-webkit-scrollbar {
+        display: none;
+      }
+      .pq-appbar-mobile-nav a,
+      .pq-appbar-mobile-nav span {
+        flex: 0 0 auto;
+        display: inline-grid;
+        place-items: center;
+        min-height: 32px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 253, 248, 0.72);
+        color: var(--text-dim);
+        font-size: 11.5px;
+        font-weight: 760;
+        text-decoration: none;
+        scroll-snap-align: start;
+      }
+      .pq-appbar-mobile-nav span[aria-current="page"] {
+        border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+        background: var(--accent-soft);
+        color: var(--text);
+      }
     }
     @media (max-width: 760px) {
       .nav { display: none; }
@@ -1112,7 +1151,7 @@
       .pq-appbar {
         top: 6px;
         gap: 4px;
-        padding: 8px 10px;
+        padding: 7px 9px;
         border-radius: 14px;
       }
       .pq-appbar-row,
@@ -1121,14 +1160,30 @@
         flex-direction: column;
         gap: 8px;
       }
+      .pq-appbar-overview-row {
+        display: none;
+      }
       .pq-appbar-breadcrumbs {
-        gap: 4px;
-        font-size: 9px;
+        display: none;
+      }
+      .pq-appbar-mobile-nav {
+        margin-top: 0;
+        padding-bottom: 2px;
+      }
+      .pq-appbar-mobile-nav a,
+      .pq-appbar-mobile-nav span {
+        min-height: 30px;
+        padding: 0 9px;
+        font-size: 11px;
       }
       .pq-topbar-copy {
         align-items: flex-start;
         flex-direction: column;
         gap: 2px;
+      }
+      .pq-topbar-copy .context,
+      .pq-topbar-copy p {
+        display: none;
       }
       .pq-topbar-copy h1 {
         font-size: 0.98rem;
@@ -1242,6 +1297,8 @@
     html[data-pq-theme="dark"] .account-menu summary,
     html[data-pq-theme="dark"] .pq-rail,
     html[data-pq-theme="dark"] .pq-appbar,
+    html[data-pq-theme="dark"] .pq-appbar-mobile-nav a,
+    html[data-pq-theme="dark"] .pq-appbar-mobile-nav span,
     html[data-pq-theme="dark"] .pq-mobile-nav {
       background: color-mix(in srgb, var(--panel) 92%, transparent);
       border-color: var(--line);
@@ -1255,6 +1312,10 @@
       color: var(--text-dim);
     }
     html[data-pq-theme="dark"] .pq-mobile-nav a.active {
+      background: var(--accent-soft);
+      color: var(--text);
+    }
+    html[data-pq-theme="dark"] .pq-appbar-mobile-nav span[aria-current="page"] {
       background: var(--accent-soft);
       color: var(--text);
     }
@@ -1282,6 +1343,15 @@
     {'href': '/app/agents' ~ query_suffix, 'label': 'Saved searches', 'key': 'agents'},
     {'href': '/app/account' ~ query_suffix, 'label': 'Account', 'key': 'account'},
   )) %}
+  {% set property_top_nav_items = (
+    {'href': '/app/search' ~ query_suffix, 'label': 'Search', 'key': 'search'},
+    {'href': '/app/shortlist' ~ query_suffix, 'label': 'Shortlist', 'key': 'shortlist'},
+    {'href': '/app/research' ~ query_suffix, 'label': 'Research', 'key': 'research'},
+    {'href': '/app/agents' ~ query_suffix, 'label': 'Saved searches', 'key': 'agents'},
+    {'href': '/app/alerts' ~ query_suffix, 'label': 'Alerts', 'key': 'alerts'},
+    {'href': '/app/billing' ~ query_suffix, 'label': 'Billing', 'key': 'billing'},
+    {'href': '/app/account' ~ query_suffix, 'label': 'Account', 'key': 'account'},
+  ) %}
   <div class="pq-shell" data-property-app-shell>
     <aside class="pq-rail">
       <div class="pq-rail-brand">
@@ -1330,6 +1400,15 @@
           <span>{{ brand.name }}</span>
           <span>{{ active_shell_label.value }}</span>
         </div>
+        <nav class="pq-appbar-mobile-nav" aria-label="PropertyQuarry sections" data-property-console-topnav>
+          {% for item in property_top_nav_items %}
+            {% if shell_nav_key == item.key %}
+            <span aria-current="page">{{ item.label }}</span>
+            {% else %}
+            <a href="{{ item.href }}">{{ item.label }}</a>
+            {% endif %}
+          {% endfor %}
+        </nav>
         <div class="pq-appbar-row">
           <div class="pq-topbar-copy">
             <div class="context">{% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}PropertyQuarry account{% endif %}</div>

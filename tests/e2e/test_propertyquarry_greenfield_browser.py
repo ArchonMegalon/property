@@ -3189,6 +3189,64 @@ def test_propertyquarry_mobile_dark_mode_covers_secondary_surfaces(
         context.close()
 
 
+def test_propertyquarry_mobile_settings_surfaces_keep_consistent_top_navigation(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    routes = [
+        ("/app/settings/plan", "propertyquarry-settings-plan-mobile-topnav.png"),
+        ("/app/settings/google", "propertyquarry-settings-google-mobile-topnav.png"),
+        ("/app/settings/access", "propertyquarry-settings-access-mobile-topnav.png"),
+        ("/app/settings/outcomes", "propertyquarry-settings-outcomes-mobile-topnav.png"),
+    ]
+    expected_labels = ["Search", "Shortlist", "Research", "Saved searches", "Alerts", "Billing", "Account"]
+    try:
+        page = context.new_page()
+        for route, screenshot_name in routes:
+            response = page.goto(f"{base_url}{route}", wait_until="networkidle")
+            assert response is not None and response.ok
+            _assert_no_horizontal_overflow(page)
+            _assert_property_shell_visual_gates(page, max_appbar_height=150)
+            top_nav = page.locator("[data-property-console-topnav]").first
+            expect(top_nav).to_be_visible()
+            nav_labels = top_nav.locator("a, span").evaluate_all(
+                "(nodes) => nodes.map((node) => node.textContent.trim()).filter(Boolean)"
+            )
+            assert nav_labels == expected_labels
+            expect(top_nav.locator('[aria-current="page"]')).to_have_text("Account")
+            metrics = top_nav.evaluate(
+                """(node) => {
+                    const rect = node.getBoundingClientRect();
+                    const style = window.getComputedStyle(node);
+                    const active = node.querySelector('[aria-current="page"]');
+                    const activeRect = active ? active.getBoundingClientRect() : null;
+                    return {
+                        display: style.display,
+                        overflowX: style.overflowX,
+                        width: rect.width,
+                        viewportWidth: window.innerWidth,
+                        activeTop: activeRect ? activeRect.top : 0,
+                        activeBottom: activeRect ? activeRect.bottom : 0,
+                        navTop: rect.top,
+                        navBottom: rect.bottom,
+                    };
+                }"""
+            )
+            assert metrics["display"] == "flex"
+            assert metrics["overflowX"] in {"auto", "scroll"}
+            assert metrics["width"] <= metrics["viewportWidth"] + 1
+            assert metrics["activeTop"] >= metrics["navTop"] - 1
+            assert metrics["activeBottom"] <= metrics["navBottom"] + 1
+            screenshot_path = tmp_path / screenshot_name
+            page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
+            assert screenshot_path.exists() and screenshot_path.stat().st_size > 16_000
+    finally:
+        context.close()
+
+
 def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_compact(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

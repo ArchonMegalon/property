@@ -43,6 +43,204 @@ def _dry_run() -> bool:
     }
 
 
+def _execute_search_matrix_enabled() -> bool:
+    return str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "enabled",
+        "live",
+    }
+
+
+def _target_context_for_country(country_code: str) -> dict[str, object]:
+    normalized = str(country_code or "").strip().upper()
+    if normalized == "CR":
+        return {
+            "location_query": "San Jose",
+            "selected_location_values": ["San Jose"],
+            "soft_keywords": {
+                "pool": "nice_to_have",
+                "supermarket nearby": "nice_to_have",
+                "good internet": "nice_to_have",
+            },
+            "soft_distances": {
+                "max_distance_to_supermarket_importance": "nice_to_have",
+                "max_distance_to_supermarket_m": 1800,
+            },
+            "max_price_eur": 2600,
+            "min_area_m2": 80,
+        }
+    return {
+        "location_query": "1010 Vienna, 1020 Vienna",
+        "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+        "soft_keywords": {
+            "balcony": "nice_to_have",
+            "lift": "nice_to_have",
+            "playground nearby": "nice_to_have",
+        },
+        "soft_distances": {
+            "max_distance_to_playground_importance": "nice_to_have",
+            "max_distance_to_playground_m": 1000,
+            "max_distance_to_supermarket_importance": "nice_to_have",
+            "max_distance_to_supermarket_m": 900,
+        },
+        "max_price_eur": 2900,
+        "min_area_m2": 60,
+    }
+
+
+def _agent_unlimited_commercial_state() -> dict[str, object]:
+    return {
+        "active_plan_key": "agent",
+        "status": "active",
+        "active_until": "2999-01-01T00:00:00+00:00",
+    }
+
+
+def _targeted_search_payload(*, country_code: str, provider_key: str, mode: str) -> dict[str, object]:
+    context = _target_context_for_country(country_code)
+    normalized_mode = str(mode or "").strip().lower()
+    soft_mode = normalized_mode == "targeted_soft_filters"
+    preferences: dict[str, object] = {
+        "country_code": str(country_code or "").strip().upper(),
+        "listing_mode": "rent",
+        "search_goal": "home",
+        "location_query": str(context["location_query"]),
+        "selected_location_values": list(context["selected_location_values"]),
+        "language_code": "en",
+        "preference_person_id": "self",
+        "search_mode": "discovery" if soft_mode else "strict",
+        "property_commercial": _agent_unlimited_commercial_state(),
+    }
+    if soft_mode:
+        preferences.update(
+            {
+                "keyword_preferences": dict(context["soft_keywords"]),
+                "keyword_preferences_json": json.dumps(dict(context["soft_keywords"]), sort_keys=True),
+                "min_area_m2": context["min_area_m2"],
+                "max_price_eur": context["max_price_eur"],
+                **dict(context["soft_distances"]),
+            }
+        )
+    return {
+        "selected_platforms": [str(provider_key or "").strip()],
+        "property_preferences": preferences,
+        "force_refresh": True,
+    }
+
+
+def _search_ready_provider_options(country_code: str) -> list[dict[str, object]]:
+    return [
+        dict(option)
+        for option in provider_options(country_code=country_code)
+        if bool(option.get("search_ready")) and not bool(option.get("coming_soon"))
+    ]
+
+
+def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeout_seconds: float) -> dict[str, object]:
+    url = urllib.parse.urljoin(base_url.rstrip("/") + "/", "app/api/property/search-runs")
+    api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
+    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:tibor.girschele@gmail.com").strip()
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "User-Agent": "PropertyQuarry-live-provider-search-matrix/1.0",
+            "Accept": "application/json,text/html,*/*",
+            "Content-Type": "application/json",
+            "Host": "propertyquarry.com",
+            "X-EA-Principal-ID": principal_id,
+            **(
+                {
+                    "Authorization": f"Bearer {api_token}",
+                    "X-EA-API-Token": api_token,
+                }
+                if api_token
+                else {}
+            ),
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        body = response.read(220_000)
+    return json.loads(body.decode("utf-8", errors="replace"))
+
+
+def _build_targeted_provider_search_matrix(
+    *,
+    countries: Iterable[str],
+    base_url: str,
+    enabled: bool,
+    dry_run: bool,
+    execute: bool,
+    timeout_seconds: float,
+    search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    executor = search_executor or (lambda payload, timeout: _post_search_run_payload(base_url=base_url, payload=payload, timeout_seconds=timeout))
+    for country in countries:
+        normalized_country = str(country or "").strip().upper()
+        for option in _search_ready_provider_options(normalized_country):
+            provider_key = str(option.get("value") or "").strip()
+            if not provider_key:
+                continue
+            for mode in ("targeted_no_soft_filters", "targeted_soft_filters"):
+                payload = _targeted_search_payload(country_code=normalized_country, provider_key=provider_key, mode=mode)
+                preferences = dict(payload.get("property_preferences") or {})
+                soft_filter_fields = sorted(
+                    key
+                    for key in preferences
+                    if key.startswith("max_distance_to_") or key in {"keyword_preferences", "keyword_preferences_json", "min_area_m2", "max_price_eur"}
+                )
+                row: dict[str, object] = {
+                    "country_code": normalized_country,
+                    "provider": provider_key,
+                    "provider_label": str(option.get("label") or provider_key).strip(),
+                    "provider_family": str(option.get("family") or "").strip(),
+                    "mode": mode,
+                    "endpoint": "/app/api/property/search-runs",
+                    "selected_platforms": [provider_key],
+                    "location_query": str(preferences.get("location_query") or "").strip(),
+                    "search_mode": str(preferences.get("search_mode") or "").strip(),
+                    "soft_filter_fields": soft_filter_fields,
+                    "soft_filters_present": bool(soft_filter_fields),
+                    "agent_unlimited_results": "max_results_per_source" not in payload and "max_results_per_source" not in preferences,
+                    "payload_contract_ok": (
+                        payload.get("selected_platforms") == [provider_key]
+                        and preferences.get("country_code") == normalized_country
+                        and preferences.get("property_commercial") == _agent_unlimited_commercial_state()
+                        and (bool(soft_filter_fields) if mode == "targeted_soft_filters" else not bool(soft_filter_fields))
+                    ),
+                    "status": "skipped" if not enabled else "dry_run" if dry_run else "planned",
+                }
+                if enabled and not dry_run and execute:
+                    try:
+                        response = dict(executor(payload, timeout_seconds) or {})
+                        run_id = str(response.get("run_id") or "").strip()
+                        status_url = str(response.get("status_url") or "").strip()
+                        response_status = str(response.get("status") or "").strip().lower()
+                        accepted = bool(run_id and status_url and response_status in {"queued", "in_progress", "processed", "completed", "completed_partial"})
+                        row.update(
+                            {
+                                "status": "pass" if accepted and row["payload_contract_ok"] else "fail",
+                                "run_id": run_id,
+                                "status_url": status_url,
+                                "runtime_status": response_status,
+                            }
+                        )
+                    except Exception as exc:
+                        row.update(
+                            {
+                                "status": "fail",
+                                "error": f"{type(exc).__name__}: {exc}",
+                            }
+                        )
+                rows.append(row)
+    return rows
+
+
 def _fetch_provider_payload(*, base_url: str, country_code: str, timeout_seconds: float) -> dict[str, object]:
     params = urllib.parse.urlencode({"country": country_code})
     url = urllib.parse.urljoin(base_url.rstrip("/") + "/", f"app/api/property/providers?{params}")
@@ -76,10 +274,13 @@ def build_live_provider_smoke_receipt(
     base_url: str = "http://localhost:8097",
     timeout_seconds: float = 8.0,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
+    execute_search_matrix: bool | None = None,
+    search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     normalized_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
     enabled = _enabled()
     dry_run = _dry_run()
+    should_execute_search_matrix = _execute_search_matrix_enabled() if execute_search_matrix is None else bool(execute_search_matrix)
     checks: list[dict[str, object]] = []
     effective_fetcher = fetcher or (lambda country, timeout: _fetch_provider_payload(base_url=base_url, country_code=country, timeout_seconds=timeout))
     for country in normalized_countries:
@@ -148,8 +349,18 @@ def build_live_provider_smoke_receipt(
                     }
                 )
         checks.append(row)
+    search_matrix = _build_targeted_provider_search_matrix(
+        countries=normalized_countries,
+        base_url=base_url,
+        enabled=enabled,
+        dry_run=dry_run,
+        execute=should_execute_search_matrix,
+        timeout_seconds=timeout_seconds,
+        search_executor=search_executor,
+    )
     statuses = {str(row.get("status") or "").strip().lower() for row in checks}
-    if "fail" in statuses:
+    search_statuses = {str(row.get("status") or "").strip().lower() for row in search_matrix}
+    if "fail" in statuses or "fail" in search_statuses:
         status = "fail"
     elif statuses == {"pass"}:
         status = "pass"
@@ -166,10 +377,26 @@ def build_live_provider_smoke_receipt(
         "dry_run": dry_run,
         "base_url": base_url,
         "checks": checks,
+        "targeted_search_matrix": search_matrix,
+        "targeted_search_matrix_count": len(search_matrix),
+        "targeted_search_matrix_status": (
+            "fail"
+            if "fail" in search_statuses
+            else "pass"
+            if search_statuses == {"pass"}
+            else "skipped"
+            if search_statuses == {"skipped"}
+            else "dry_run"
+            if search_statuses == {"dry_run"}
+            else "planned"
+        ),
+        "targeted_search_matrix_executed": should_execute_search_matrix and enabled and not dry_run,
         "notes": [
             "Live crawling is disabled unless PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1.",
             "Dry-run mode proves provider catalog, default provider, floorplan, and filter-pushdown contracts without crawling.",
             "Live mode probes the runtime provider catalog endpoint and checks provider/default-provider parity.",
+            "The targeted search matrix covers every search-ready provider with one strict no-soft-filter payload and one discovery soft-filter payload.",
+            "Set PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 with live mode to execute the targeted search matrix against /app/api/property/search-runs.",
         ],
     }
 

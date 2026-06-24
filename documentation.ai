@@ -20,6 +20,7 @@ PropertyQuarry must become a polished premium product across the complete custom
 - Rybbit instrumentation is included where it helps prove conversion, search completion, tour/walkthrough usage, billing, and support loops.
 - Self-healing jobs detect stale provider data, broken hosted tour shells, missing walkthrough assets, stuck render jobs, and missing research packets, then queue repairs with visible status.
 - Targeted e2e tests cover every active provider with and without soft filters.
+- Provider e2e receipts are generated through `scripts/property_live_provider_smoke.py`, which now includes strict and soft-filter targeted search matrix rows for every search-ready provider.
 - All fixes merge to `main`, push, deploy, and receive live smoke/e2e receipts before claiming gold.
 
 ## Verified Visual Media Scope
