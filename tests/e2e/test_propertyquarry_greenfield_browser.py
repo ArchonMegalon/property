@@ -2460,12 +2460,16 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const body = document.querySelector('.prd-body');
               const media = document.querySelector('.prd-media-frame');
               const actions = document.querySelector('.prd-actions');
+              const headline = document.querySelector('.prd-headline');
+              const visualConsole = document.querySelector('.prd-visual-console');
               const summaryBoxes = Array.from(document.querySelectorAll('.prd-current-read .prd-summary-box'));
               const shell = document.querySelector('[data-property-research-detail]');
               const feedback = document.querySelector('[data-object-feedback]');
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
               const mediaRect = media ? media.getBoundingClientRect() : null;
+              const headlineRect = headline ? headline.getBoundingClientRect() : null;
+              const visualConsoleRect = visualConsole ? visualConsole.getBoundingClientRect() : null;
               const actionsStyle = actions ? getComputedStyle(actions) : null;
               const shellRect = shell ? shell.getBoundingClientRect() : null;
               const feedbackRect = feedback ? feedback.getBoundingClientRect() : null;
@@ -2478,6 +2482,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 heroBottom: heroRect ? Math.round(heroRect.bottom) : 0,
                 bodyTop: bodyRect ? Math.round(bodyRect.top) : 0,
                 mediaHeight: mediaRect ? Math.round(mediaRect.height) : 0,
+                headlineTop: headlineRect ? Math.round(headlineRect.top) : 0,
+                visualConsoleTop: visualConsoleRect ? Math.round(visualConsoleRect.top) : 0,
                 actionsDisplay: actionsStyle ? actionsStyle.display : '',
                 actionsColumns: actionsStyle ? actionsStyle.gridTemplateColumns : '',
                 summaryBoxCount: summaryBoxes.length,
@@ -2494,6 +2500,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert layout["heroBottom"] > 0
         assert layout["bodyTop"] > layout["heroBottom"]
         assert 190 <= layout["mediaHeight"] <= 360
+        assert 0 < layout["headlineTop"] < layout["visualConsoleTop"]
         assert layout["actionsDisplay"] == "grid"
         assert "px" in layout["actionsColumns"]
         assert layout["summaryBoxCount"] == 4

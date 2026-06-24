@@ -4232,6 +4232,9 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "max-height: min(calc(100vh - 440px), 202px);" not in body
     assert body.index("data-property-research-topnav") < body.index("data-property-research-detail")
     assert body.index("data-object-media-stage") < body.index("Current read")
+    assert body.index("Property details") < body.index("Visual review")
+    assert "OODA" not in body
+    assert "operator notes" not in body
 
 
 def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatch) -> None:
@@ -7789,6 +7792,7 @@ def test_propertyquarry_customer_surfaces_avoid_operator_jargon() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     checked_paths = [
         repo_root / "ea/app/templates/app/property_decision_workbench.html",
+        repo_root / "ea/app/templates/app/property_research_detail.html",
         repo_root / "ea/app/templates/app/_property_account_panel.html",
         repo_root / "ea/app/templates/app/_property_selected_review_panel.html",
         repo_root / "ea/app/templates/app/_property_workbench_script.html",
