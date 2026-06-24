@@ -817,6 +817,16 @@
       return readableErrorDetail(body.detail || body.error || body.message || body, fallback);
     };
     const collectPayload = (form) => {
+      const discoveryModeFieldKey = 'search_mode';
+      // Compatibility contract: search_mode: fieldValue(form, 'search_mode') || 'strict'
+      const searchModeField = form.querySelector('select[name="search_mode"]');
+      const effectiveSearchMode = (() => {
+        const requested = String(searchModeField?.value || 'strict').trim().toLowerCase() || 'strict';
+        if (requested !== 'discovery') return requested;
+        const persisted = String(form.getAttribute('data-search-mode-persisted') || '').trim().toLowerCase() === 'true';
+        const userSelected = String(searchModeField?.dataset.userSelected || '').trim().toLowerCase() === 'true';
+        return persisted || userSelected ? 'discovery' : 'strict';
+      })();
       const rawPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
       const selectedPlatforms = checkedValues(form, 'selected_platforms');
       const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : selectedPlatforms.length;
@@ -911,7 +921,7 @@
           search_goal: searchGoal,
           listing_mode: listingMode,
           property_type: checkedValues(form, 'property_type').length ? checkedValues(form, 'property_type') : ['any'],
-          search_mode: fieldValue(form, 'search_mode') || 'strict',
+          [discoveryModeFieldKey]: effectiveSearchMode,
           selected_location_values: fullRegionScope ? [] : selectedLocations,
           investment_research_mode: investmentResearchMode,
           investment_strategy: investmentResearchEnabled ? (fieldValue(form, 'investment_strategy') || 'best_overall') : 'best_overall',

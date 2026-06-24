@@ -171,8 +171,15 @@
     gap: 18px;
   }
   .prd-media-stack {
+    grid-column: 1;
+    grid-row: 1 / span 2;
     align-content: start;
     gap: 12px;
+  }
+  .prd-visual-console {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
   }
   .prd-body {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
@@ -180,6 +187,8 @@
     gap: 18px;
   }
   .prd-headline {
+    grid-column: 2;
+    grid-row: 2;
     grid-template-columns: 1fr;
     align-items: start;
     gap: 12px;
@@ -333,8 +342,8 @@
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    min-height: clamp(300px, 42vh, 460px);
-    max-height: 520px;
+    min-height: clamp(280px, 40vh, 420px);
+    max-height: 480px;
     padding: 0;
     background: var(--panel-2);
     border: 1px solid var(--prd-gold-line);
@@ -344,6 +353,12 @@
   .prd-media-frame.prd-media-frame-live {
     min-height: clamp(320px, 44vh, 500px);
     max-height: 560px;
+  }
+  @media (min-width: 1081px) {
+    .prd-media-frame.prd-media-frame-live {
+      min-height: clamp(300px, 42vh, 460px);
+      max-height: 520px;
+    }
   }
   .prd-media-frame iframe,
   .prd-media-frame img {
@@ -1179,6 +1194,12 @@
     .prd-summary-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+    .prd-media-stack,
+    .prd-visual-console,
+    .prd-headline {
+      grid-column: auto;
+      grid-row: auto;
+    }
   }
   @media (max-width: 760px) {
     .prd-topbar {
@@ -1441,7 +1462,7 @@
 </style>
 
 {% set research_query_suffix = ('?run_id=' ~ (research_run_id|urlencode)) if research_run_id else '' %}
-<header class="prd-topbar" data-property-research-topnav>
+<header class="prd-topbar pqx-topbar" data-property-research-topnav>
   <a class="prd-brand" href="/?home=1" aria-label="PropertyQuarry home">
     <span class="prd-brand-mark">PQ</span>
     <span class="prd-brand-copy">
@@ -1464,6 +1485,13 @@
     {% endif %}
   </div>
 </header>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const legacyAppbar = document.querySelector('.pq-shell[data-property-app-shell] .pq-appbar');
+    if (legacyAppbar) legacyAppbar.remove();
+  });
+</script>
 
 <section class="prd-shell" data-property-research-detail>
   <section class="prd-hero" data-pqx-screenfit-target="research-detail-hero">

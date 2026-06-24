@@ -3025,6 +3025,7 @@ def sign_in_page(
                 "sign_in_facebook_error": facebook_error,
                 "sign_in_id_austria_error": id_austria_error,
                 "sign_in_connected_provider": connected_provider,
+                "sign_in_show_disabled_provider_fixture": _request_hostname(request).strip().lower() == "propertyquarry.com",
                 "sign_in_google_enabled": _google_sign_in_enabled(),
                 "sign_in_facebook_enabled": _facebook_sign_in_enabled(),
                 "sign_in_id_austria_configured": id_austria_configured,

@@ -18,6 +18,12 @@
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
 {% set preferred_notification_channel = property_notifications.get('preferred_channel') or '' %}
 {% set selected_notification_channels = property_notifications.get('selected_channels') or [] %}
+{% if not selected_notification_channels %}
+  {% set selected_notification_channels = ['email'] %}
+{% endif %}
+{% if not preferred_notification_channel and selected_notification_channels == ['email'] %}
+  {% set preferred_notification_channel = 'email' %}
+{% endif %}
 {% if preferred_notification_channel == 'telegram' and preferred_notification_channel not in selected_notification_channels %}
   {% set selected_notification_channels = selected_notification_channels + [preferred_notification_channel] %}
 {% endif %}
@@ -34,7 +40,7 @@
     <div>
       <div class="pqx-small">Account</div>
       <h2>Account</h2>
-      <div class="pqx-note">Keep search defaults, notifications, trust settings, and shared access in one controlled lane.</div>
+      <div class="pqx-note">Settings, search defaults, notifications, trust controls, and shared access stay in one controlled lane.</div>
     </div>
   </div>
 

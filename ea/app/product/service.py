@@ -11701,6 +11701,16 @@ def _registration_principal_id_for_email(email: str) -> str:
     return f"user-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]}"
 
 
+def _workspace_name_for_email(email: str, *, fallback: str = "") -> str:
+    normalized_email = str(email or "").strip().lower()
+    if "@" in normalized_email:
+        local = normalized_email.split("@", 1)[0].replace(".", " ").replace("_", " ").replace("-", " ").strip()
+        derived = " ".join(part.capitalize() for part in local.split() if part)
+        if derived:
+            return derived
+    return str(fallback or "PropertyQuarry account").strip() or "PropertyQuarry account"
+
+
 def _saved_link_tag_summary(value: object) -> str:
     if isinstance(value, str):
         return ", ".join(part.strip() for part in value.split(",") if part.strip())
@@ -43563,13 +43573,30 @@ class ProductService:
                     workspace_name = fallback_workspace_name
                     selected_display_name = str(display_name or fallback_workspace_name).strip() or fallback_workspace_name
         if not principal_id:
-            self._record_product_event(
-                principal_id=f"cf-email:{normalized_email}",
-                event_type="workspace_google_sign_in_not_found",
-                payload={"google_email": normalized_email},
-                source_id=f"google-sign-in-not-found:{normalized_email}",
+            fallback = str(fallback_principal_id or "").strip()
+            principal_id = fallback or _registration_principal_id_for_email(normalized_email) or f"cf-email:{normalized_email}"
+            workspace_name = _workspace_name_for_email(
+                normalized_email,
+                fallback=str(display_name or "PropertyQuarry account").strip(),
             )
-            raise RuntimeError("workspace_google_sign_in_not_found")
+            selected_display_name = str(display_name or workspace_name).strip() or workspace_name
+            existing_workspace = dict(self._container.onboarding.status(principal_id=principal_id).get("workspace") or {})
+            if not str(existing_workspace.get("name") or "").strip():
+                self._container.onboarding.start_workspace(
+                    principal_id=principal_id,
+                    workspace_name=workspace_name,
+                    workspace_mode="personal",
+                    region="",
+                    language="en",
+                    timezone="Europe/Vienna",
+                    selected_channels=("google",),
+                )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="workspace_google_sign_in_auto_created",
+                payload={"google_email": normalized_email, "workspace_name": workspace_name},
+                source_id=f"google-sign-in-auto-created:{normalized_email}",
+            )
         used_temporary_principal = principal_id.startswith("cf-email:")
         resolved_display_name = selected_display_name or workspace_name or str(display_name or "PropertyQuarry account").strip() or "PropertyQuarry account"
         access_session = self.issue_workspace_access_session(

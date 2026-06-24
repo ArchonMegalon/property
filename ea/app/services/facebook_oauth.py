@@ -186,7 +186,12 @@ def complete_facebook_oauth_callback(
                 facebook_email=facebook_email,
             )
             if not principal_id:
-                raise RuntimeError("facebook_sign_in_not_found")
+                principal_id = _ensure_facebook_sign_in_workspace(
+                    container=container,
+                    facebook_subject=facebook_subject,
+                    facebook_email=facebook_email,
+                    facebook_name=facebook_name,
+                )
         else:
             raise RuntimeError("facebook_oauth_principal_missing")
     granted_scopes = returned_scopes
@@ -276,6 +281,51 @@ def _find_facebook_principal(*, container: AppContainer, facebook_subject: str, 
         if normalized_email and normalized_email in candidates:
             return str(binding.principal_id or "").strip()
     return ""
+
+
+def _facebook_registration_principal_id(*, facebook_email: str, facebook_subject: str) -> str:
+    normalized_email = str(facebook_email or "").strip().lower()
+    if "@" in normalized_email and "." in normalized_email.rsplit("@", 1)[-1]:
+        return f"user-{hashlib.sha256(normalized_email.encode('utf-8')).hexdigest()[:16]}"
+    normalized_subject = str(facebook_subject or "").strip()
+    if normalized_subject:
+        return f"user-facebook-{hashlib.sha256(normalized_subject.encode('utf-8')).hexdigest()[:16]}"
+    return ""
+
+
+def _workspace_name_from_identity(*, display_name: str = "", email: str = "") -> str:
+    normalized_display_name = str(display_name or "").strip()
+    if normalized_display_name:
+        return normalized_display_name
+    local = str(email or "").strip().split("@", 1)[0].replace(".", " ").replace("_", " ").replace("-", " ").strip()
+    return " ".join(part.capitalize() for part in local.split() if part) or "PropertyQuarry account"
+
+
+def _ensure_facebook_sign_in_workspace(
+    *,
+    container: AppContainer,
+    facebook_subject: str,
+    facebook_email: str = "",
+    facebook_name: str = "",
+) -> str:
+    principal_id = _facebook_registration_principal_id(
+        facebook_email=facebook_email,
+        facebook_subject=facebook_subject,
+    )
+    if not principal_id:
+        raise RuntimeError("facebook_sign_in_not_found")
+    existing_workspace = dict(container.onboarding.status(principal_id=principal_id).get("workspace") or {})
+    if not str(existing_workspace.get("name") or "").strip():
+        container.onboarding.start_workspace(
+            principal_id=principal_id,
+            workspace_name=_workspace_name_from_identity(display_name=facebook_name, email=facebook_email),
+            workspace_mode="personal",
+            region="",
+            language="en",
+            timezone="Europe/Vienna",
+            selected_channels=("facebook",),
+        )
+    return principal_id
 
 
 def _exchange_facebook_code_for_token(

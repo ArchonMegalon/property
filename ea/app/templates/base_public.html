@@ -189,6 +189,9 @@
       background: transparent;
       color: var(--text-soft);
     }
+    .pq-mobile-auth {
+      display: none;
+    }
     .btn:hover { border-color: var(--accent); }
     .btn.primary:hover { filter: brightness(1.03); }
     .btn.ghost:hover { color: var(--text); }
@@ -730,8 +733,15 @@
         border-radius: 8px;
         font-size: 12px;
       }
-      .actions .btn.primary:not(:only-child) {
+      .actions > :not(:first-child) .btn,
+      .actions > .btn:not(:first-child):not(.pq-mobile-auth) {
         display: none;
+      }
+      .actions > .btn.primary:first-of-type {
+        display: none;
+      }
+      .actions .pq-mobile-auth {
+        display: inline-flex;
       }
       .mobile-nav {
         display: none;
@@ -823,6 +833,7 @@
         </form>
         {% else %}
         <a class="btn primary" href="/sign-in?signing_in=1">Open search</a>
+        <a class="btn primary pq-mobile-auth" href="/sign-in?signing_in=1">Sign in</a>
         <a class="btn ghost" href="/register">{{ brand.create_label }}</a>
         {% endif %}
         {% endif %}

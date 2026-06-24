@@ -353,12 +353,11 @@ def test_id_austria_unknown_identity_returns_to_sign_in(monkeypatch: pytest.Monk
     )
 
     assert callback.status_code == 303
-    assert callback.headers["location"].startswith("/sign-in?")
-    assert "id_austria_error=id_austria_sign_in_not_found" in callback.headers["location"]
-    followup = client.get(callback.headers["location"])
-    assert followup.status_code == 200
-    assert "account settings" not in followup.text
-    assert "connect ID Austria from Account, with Connections inside it" in followup.text
+    assert callback.headers["location"].startswith("/workspace-access/")
+    opened = client.get(callback.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/search"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
 def test_sign_in_id_austria_callback_rejects_replayed_state_before_second_token_exchange(
@@ -393,7 +392,7 @@ def test_sign_in_id_austria_callback_rejects_replayed_state_before_second_token_
         follow_redirects=False,
     )
     assert first_callback.status_code == 303
-    assert "id_austria_error=id_austria_sign_in_not_found" in first_callback.headers["location"]
+    assert first_callback.headers["location"].startswith("/workspace-access/")
     assert token_exchanges["count"] == 1
 
     second_callback = client.get(
@@ -871,12 +870,11 @@ def test_sign_in_google_does_not_create_wrong_workspace_for_unknown_email(monkey
     )
 
     assert callback.status_code == 303
-    assert callback.headers["location"].startswith("/sign-in?")
-    assert "google_error=workspace_google_sign_in_not_found" in callback.headers["location"]
-    sign_in_page = client.get(callback.headers["location"], follow_redirects=False)
-    assert sign_in_page.status_code == 200
-    assert "Create account" in sign_in_page.text
-    assert "unknown.google@example.com" in sign_in_page.text
+    assert callback.headers["location"].startswith("/workspace-access/")
+    opened = client.get(callback.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/search"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
 def test_sign_in_google_callback_google_error_is_returned_to_sign_in(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1034,7 +1032,7 @@ def test_sign_in_google_callback_rejects_replayed_state_before_second_token_exch
         follow_redirects=False,
     )
     assert first_callback.status_code == 303
-    assert "google_error=workspace_google_sign_in_not_found" in first_callback.headers["location"]
+    assert first_callback.headers["location"].startswith("/workspace-access/")
     assert token_exchanges["count"] == 1
 
     second_callback = client.get(
@@ -1153,8 +1151,11 @@ def test_sign_in_facebook_requires_linked_workspace_after_callback(monkeypatch: 
         follow_redirects=False,
     )
     assert callback.status_code == 303
-    assert callback.headers["location"].startswith("/sign-in?")
-    assert "facebook_error=facebook_sign_in_not_found" in callback.headers["location"]
+    assert callback.headers["location"].startswith("/workspace-access/")
+    opened = client.get(callback.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/search"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
 def test_facebook_connect_links_workspace_and_sign_in_reopens_it(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1337,7 +1338,7 @@ def test_sign_in_facebook_callback_rejects_replayed_state_before_second_token_ex
         follow_redirects=False,
     )
     assert first_callback.status_code == 303
-    assert "facebook_error=facebook_sign_in_not_found" in first_callback.headers["location"]
+    assert first_callback.headers["location"].startswith("/workspace-access/")
     assert token_exchanges["count"] == 1
 
     second_callback = client.get(

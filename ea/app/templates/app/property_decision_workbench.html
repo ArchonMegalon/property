@@ -3416,6 +3416,49 @@
       min-height: 30px;
       padding-inline: 9px;
     }
+    .pqx-automation-note {
+      margin-top: 8px;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-card {
+      gap: 8px;
+      padding: 8px;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-thumbnail,
+    .pqx-automation-board.is-compact .pqx-automation-thumbnail img {
+      min-height: 116px;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-meta {
+      gap: 5px;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-headline {
+      gap: 6px;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-row-meta {
+      gap: 5px;
+      margin-top: 4px;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-metrics,
+    .pqx-automation-board.is-compact .pqx-automation-rhythm {
+      font-size: 10px;
+      line-height: 1.2;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-actions {
+      gap: 5px;
+      padding-top: 0;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-actions .pqx-button {
+      min-height: 28px;
+      padding-inline: 8px;
+    }
+    .pqx-automation-board.is-compact .pqx-automation-note {
+      margin-top: 4px;
+      font-size: 11px;
+      line-height: 1.25;
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
     .pqx-automation-empty {
       min-height: 146px;
       align-content: center;
@@ -7318,7 +7361,7 @@
               {% if run_status == 'failed' %}
                 {{ empty_happened or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
               {% elif soft_only_empty_state %}
-                No homes cleared the shortlist score.
+                No homes cleared the shortlist score for the current brief.
               {% else %}
                 {{ empty_happened or 'No shortlist yet.' }}
               {% endif %}
@@ -7327,7 +7370,7 @@
               {% if run_status == 'failed' %}
                 {{ empty_eta_feedback or empty_still_worked or 'Repair is checking the run.' }}
               {% elif soft_only_empty_state %}
-                {{ soft_demoted_total }} home{% if soft_demoted_total != 1 %}s{% endif %} stayed below the current shortlist score.
+                {{ soft_demoted_total }} home{% if soft_demoted_total != 1 %}s{% endif %} stayed below the current shortlist score for the current brief.
               {% else %}
                 {{ empty_eta_feedback or empty_still_worked or 'No strong matches cleared the current brief.' }}
               {% endif %}

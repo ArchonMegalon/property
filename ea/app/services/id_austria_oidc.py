@@ -253,13 +253,20 @@ def complete_id_austria_oidc_callback(
     claims = _decode_id_austria_id_token(id_token=id_token, config=config)
     bpk = str(claims.get(ID_AUSTRIA_BPK_CLAIM) or claims.get("bpk") or "").strip()
     subject = str(claims.get("sub") or "").strip()
+    given_name = str(claims.get("given_name") or "").strip()
+    family_name = str(claims.get("family_name") or "").strip()
     if not bpk:
         raise RuntimeError("id_austria_bpk_missing")
     if not principal_id:
         if browser_source == "sign_in":
             principal_id = _find_id_austria_principal(container=container, bpk=bpk)
             if not principal_id:
-                raise RuntimeError("id_austria_sign_in_not_found")
+                principal_id = _ensure_id_austria_sign_in_workspace(
+                    container=container,
+                    bpk=bpk,
+                    given_name=given_name,
+                    family_name=family_name,
+                )
         else:
             raise RuntimeError("id_austria_principal_missing")
     binding_id = _primary_id_austria_binding_id(principal_id)
@@ -268,8 +275,8 @@ def complete_id_austria_oidc_callback(
     auth_metadata_json = {
         "id_austria_bpk_hash": bpk_hash,
         "id_austria_subject": subject,
-        "given_name": str(claims.get("given_name") or "").strip(),
-        "family_name": str(claims.get("family_name") or "").strip(),
+        "given_name": given_name,
+        "family_name": family_name,
         "issuer": str(claims.get("iss") or config.issuer).strip(),
         "requested_scopes": list(ID_AUSTRIA_SCOPES),
         "token_status": "active",
@@ -361,6 +368,42 @@ def _find_id_austria_principal(*, container: AppContainer, bpk: str) -> str:
         if bpk_hash in candidates:
             return str(binding.principal_id or "").strip()
     return ""
+
+
+def _id_austria_registration_principal_id(*, bpk: str) -> str:
+    normalized_bpk = str(bpk or "").strip()
+    if not normalized_bpk:
+        return ""
+    return f"user-id-austria-{hashlib.sha256(normalized_bpk.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _id_austria_workspace_name(*, given_name: str = "", family_name: str = "") -> str:
+    full_name = " ".join(part for part in (str(given_name or "").strip(), str(family_name or "").strip()) if part)
+    return full_name or "PropertyQuarry account"
+
+
+def _ensure_id_austria_sign_in_workspace(
+    *,
+    container: AppContainer,
+    bpk: str,
+    given_name: str = "",
+    family_name: str = "",
+) -> str:
+    principal_id = _id_austria_registration_principal_id(bpk=bpk)
+    if not principal_id:
+        raise RuntimeError("id_austria_sign_in_not_found")
+    existing_workspace = dict(container.onboarding.status(principal_id=principal_id).get("workspace") or {})
+    if not str(existing_workspace.get("name") or "").strip():
+        container.onboarding.start_workspace(
+            principal_id=principal_id,
+            workspace_name=_id_austria_workspace_name(given_name=given_name, family_name=family_name),
+            workspace_mode="personal",
+            region="",
+            language="de",
+            timezone="Europe/Vienna",
+            selected_channels=("id_austria",),
+        )
+    return principal_id
 
 
 def _primary_id_austria_binding_id(principal_id: str) -> str:

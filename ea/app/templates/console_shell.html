@@ -1447,6 +1447,15 @@
     .map((node) => String(node.value || '').trim())
     .filter(Boolean);
 
+  const effectiveSearchModeForForm = (form) => {
+    const field = form?.querySelector('select[name="search_mode"]');
+    const requested = field ? String(field.value || '').trim().toLowerCase() : 'strict';
+    if (requested !== 'discovery') return requested || 'strict';
+    const persisted = String(form?.getAttribute('data-search-mode-persisted') || '').trim().toLowerCase() === 'true';
+    const userSelected = String(field?.dataset.userSelected || '').trim().toLowerCase() === 'true';
+    return persisted || userSelected ? 'discovery' : 'strict';
+  };
+
   const integerValue = (form, name) => {
     const raw = fieldValue(form, name);
     const parsed = Number.parseInt(raw, 10);
@@ -1676,7 +1685,7 @@
         language_code: fieldValue(form, 'language_code') || 'en',
         listing_mode: fieldValue(form, 'listing_mode') || 'rent',
         property_type: selectedPropertyTypes.length ? selectedPropertyTypes : ['any'],
-        search_mode: fieldValue(form, 'search_mode') || 'strict',
+        search_mode: effectiveSearchModeForForm(form),
         location_query: selectedLocations.join(', '),
         keywords: selectedKeywords.join(', '),
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
@@ -2034,6 +2043,9 @@
       meta = {};
     }
     bindRangeOutputs(form);
+    if (meta?.search_mode_persisted === true) {
+      form.setAttribute('data-search-mode-persisted', 'true');
+    }
     bindTooltips(form);
     syncSchoolStageVariantVisibility(form);
     initPropertyWizard(form, meta);
@@ -2041,6 +2053,7 @@
     const regionField = form.querySelector('select[name="region_code"]');
     const familyModeField = form.querySelector('input[name="enable_family_mode"]');
     const commuteResearchField = form.querySelector('input[name="enable_commute_research"]');
+    const searchModeField = form.querySelector('select[name="search_mode"]');
     const schoolStageWrap = form.querySelector('input[name="school_stage_preferences"]')?.closest('.console-field');
     const schoolQualityWrap = form.querySelector('[name="school_evidence_priority"]')?.closest('.console-field');
     const playgroundDistanceWrap = form.querySelector('[name="max_distance_to_playground_m"]')?.closest('.console-field');
@@ -2174,6 +2187,9 @@
     }
     familyModeField?.addEventListener('change', syncFamilyModeControls);
     commuteResearchField?.addEventListener('change', syncCommuteControls);
+    searchModeField?.addEventListener('change', () => {
+      searchModeField.dataset.userSelected = 'true';
+    });
     form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => {
       node.addEventListener('change', syncFamilyModeControls);
     });

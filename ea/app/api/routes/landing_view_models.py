@@ -4745,6 +4745,7 @@ def app_section_payload(
             "feedback_person_id": str(property_preferences.get("preference_person_id") or "self"),
             "search_agent": property_search_agent,
             "search_agents": property_search_agents,
+            "search_mode_persisted": str(property_preferences.get("search_mode") or "").strip().lower() == "discovery",
             "search_agent_update_endpoint_template": "/v1/onboarding/property-search/agents/__AGENT_ID__",
             "shortlist_candidates": property_shortlist_cards,
             "wizard_steps": [

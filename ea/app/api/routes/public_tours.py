@@ -4651,12 +4651,26 @@ def _tour_control_external_iframe_html(*, title: str, iframe_src: str, badge: st
     <style>
       html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0f1112; color: #f8f4eb; font-family: Inter, system-ui, sans-serif; }}
       iframe {{ position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; background: #0f1112; }}
-      .badge {{ position: fixed; left: 14px; top: 14px; z-index: 2; padding: 8px 10px; border-radius: 8px; background: rgba(15,17,18,.62); border: 1px solid rgba(255,255,255,.18); font-size: 12px; backdrop-filter: blur(10px); }}
+      .shell {{ position: fixed; left: 14px; top: 14px; z-index: 2; display: grid; gap: 8px; max-width: min(420px, calc(100vw - 28px)); }}
+      .badge {{ width: fit-content; padding: 8px 10px; border-radius: 8px; background: rgba(15,17,18,.62); border: 1px solid rgba(255,255,255,.18); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; backdrop-filter: blur(10px); }}
+      .summary {{ padding: 12px 14px; border-radius: 10px; background: rgba(15,17,18,.72); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(12px); box-shadow: 0 12px 28px rgba(0,0,0,.24); }}
+      .summary p {{ margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(248,244,235,.72); }}
+      .summary h1 {{ margin: 0; font-size: clamp(1.1rem, 2vw, 1.45rem); line-height: 1.12; }}
+      @media (max-width: 720px) {{
+        .shell {{ max-width: calc(100vw - 20px); left: 10px; top: 10px; }}
+        .summary {{ padding: 10px 12px; }}
+      }}
     </style>
   </head>
   <body>
     <iframe src="{html.escape(iframe_src)}" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
-    <div class="badge">{html.escape(badge)}</div>
+    <div class="shell">
+      <div class="badge">{html.escape(badge)}</div>
+      <section class="summary" aria-label="Property tour summary">
+        <p>Property Tour</p>
+        <h1>{title}</h1>
+      </section>
+    </div>
   </body>
 </html>"""
 
@@ -4864,11 +4878,18 @@ def public_tour_control(slug: str) -> HTMLResponse:
 
 @router.get("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
 @router.head("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
-def public_tour_control_viewer(slug: str, viewer_mode: str) -> HTMLResponse:
+def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) -> HTMLResponse:
     payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    normalized_viewer_mode = str(viewer_mode or "").strip().lower()
+    if normalized_viewer_mode in {"matterport", "metaport", "3dvista", "3d_vista", "three_d_vista"}:
+        rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
+        return HTMLResponse(
+            _tour_html(rendered_payload, hostname=request_hostname(request), path=request_path(request)),
+            headers=_public_tour_security_headers(),
+        )
     rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=False)
     return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
 

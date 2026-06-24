@@ -1905,7 +1905,7 @@
           propertyUrl && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_tour" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}">Request 3D tour</button>` : '',
           flythroughUrl && !shortlistSurface ? `<a class="pqx-progress-button is-ready" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Open walkthrough</a>` : '',
           flythroughPending ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
-          propertyUrl && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Request walkthrough</button>` : '',
+          propertyUrl && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="property_request_flythrough" data-rybbit-prop-candidate="${escapeHtml(candidateRef)}" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         return `
@@ -2365,11 +2365,15 @@
     };
     bindTooltips(root);
     if (form) {
+      if (meta?.search_mode_persisted === true) {
+        form.setAttribute('data-search-mode-persisted', 'true');
+      }
       bindRangeOutputs(form);
       initWizard(form);
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
       const listingModeField = form.querySelector('select[name="listing_mode"]');
+      const searchModeField = form.querySelector('select[name="search_mode"]');
       const searchGoalField = form.querySelector('select[name="search_goal"]');
       const investmentField = form.querySelector('[data-property-field-name=investment_research_mode] select');
       const investmentFieldWrap = form.querySelector('[data-property-field-name=investment_research_mode]');
@@ -2397,6 +2401,9 @@
           }
         });
       };
+      searchModeField?.addEventListener('change', () => {
+        searchModeField.dataset.userSelected = 'true';
+      });
       const setConditionalWrapVisibility = (wrap, visible, reason, { disableFieldset = false } = {}) => {
         if (!(wrap instanceof HTMLElement)) return;
         const normalizedReason = String(reason || 'conditional').trim() || 'conditional';
