@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 
-from app.services.property_market_catalog import default_platforms_for_country, provider_options
+from app.services.property_market_catalog import COUNTRIES, default_platforms_for_country, provider_options
 
 
 class _WallClockTimeout(RuntimeError):
@@ -80,6 +80,28 @@ def _execute_search_matrix_enabled() -> bool:
         "on",
         "enabled",
         "live",
+    }
+
+
+def _all_search_ready_country_codes() -> tuple[str, ...]:
+    countries: list[str] = []
+    for country in COUNTRIES:
+        code = str(country.code or "").strip().upper()
+        if not code:
+            continue
+        if _search_ready_provider_options(code):
+            countries.append(code)
+    return tuple(dict.fromkeys(countries))
+
+
+def _all_search_ready_countries_enabled() -> bool:
+    return str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "enabled",
+        "all",
     }
 
 
@@ -370,10 +392,15 @@ def build_live_provider_smoke_receipt(
     timeout_seconds: float = 8.0,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
     execute_search_matrix: bool | None = None,
+    all_search_ready_countries: bool | None = None,
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
     checkpoint_path: str | Path = "",
 ) -> dict[str, object]:
-    normalized_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
+    requested_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
+    all_search_ready_scope = _all_search_ready_countries_enabled() if all_search_ready_countries is None else bool(all_search_ready_countries)
+    normalized_countries = _all_search_ready_country_codes() if all_search_ready_scope else requested_countries
+    if not normalized_countries:
+        normalized_countries = ("AT", "CR")
     enabled = _enabled()
     dry_run = _dry_run()
     should_execute_search_matrix = _execute_search_matrix_enabled() if execute_search_matrix is None else bool(execute_search_matrix)
@@ -514,6 +541,7 @@ def build_live_provider_smoke_receipt(
         "enabled": enabled,
         "dry_run": dry_run,
         "base_url": base_url,
+        "country_scope": "all_search_ready" if all_search_ready_scope else "explicit",
         "checks": checks,
         "targeted_search_matrix": search_matrix,
         "targeted_search_matrix_summary": search_matrix_summary,
@@ -537,6 +565,7 @@ def build_live_provider_smoke_receipt(
             "Dry-run mode proves provider catalog, default provider, floorplan, and filter-pushdown contracts without crawling.",
             "Live mode probes the runtime provider catalog endpoint and checks provider/default-provider parity.",
             "The targeted search matrix covers every search-ready provider with one strict no-soft-filter payload and one discovery soft-filter payload.",
+            "Set PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES=1 or pass --all-search-ready-countries to expand the matrix to every country with search-ready providers.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 with live mode to execute the targeted search matrix against /app/api/property/search-runs.",
         ],
     }
@@ -552,6 +581,11 @@ def main() -> int:
         return 0
     parser = argparse.ArgumentParser(description="PropertyQuarry live provider smoke receipt.")
     parser.add_argument("--country", action="append", default=[], help="Country code to include. Defaults to AT and CR.")
+    parser.add_argument(
+        "--all-search-ready-countries",
+        action="store_true",
+        help="Include every country that has at least one search-ready provider. Ignored when --country is also supplied.",
+    )
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_BASE_URL") or "http://localhost:8097")
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
@@ -573,11 +607,14 @@ def main() -> int:
     elif args.no_execute_search_matrix:
         execute_search_matrix = False
     try:
+        if args.all_search_ready_countries and not args.country:
+            os.environ["PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES"] = "1"
         receipt = build_live_provider_smoke_receipt(
-            countries=tuple(args.country or ("AT", "CR")),
+            countries=tuple(args.country or (() if args.all_search_ready_countries else ("AT", "CR"))),
             base_url=str(args.base_url),
             timeout_seconds=float(args.timeout_seconds),
             execute_search_matrix=execute_search_matrix,
+            all_search_ready_countries=bool(args.all_search_ready_countries and not args.country),
             checkpoint_path=args.write,
         )
     except KeyboardInterrupt:
@@ -587,7 +624,9 @@ def main() -> int:
         raise
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
-        Path(args.write).write_text(output + "\n", encoding="utf-8")
+        write_path = Path(args.write)
+        write_path.parent.mkdir(parents=True, exist_ok=True)
+        write_path.write_text(output + "\n", encoding="utf-8")
     print(output)
     return 0 if str(receipt.get("status") or "").strip().lower() in {"pass", "dry_run", "skipped"} else 1
 

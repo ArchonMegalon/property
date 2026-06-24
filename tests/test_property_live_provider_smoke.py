@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from scripts.property_live_provider_smoke import build_live_provider_smoke_receipt
-from app.services.property_market_catalog import provider_options
+from app.services.property_market_catalog import COUNTRIES, provider_options
 
 
 def _search_ready_provider_count(country_code: str) -> int:
@@ -11,6 +11,14 @@ def _search_ready_provider_count(country_code: str) -> int:
         1
         for row in provider_options(country_code=country_code)
         if bool(row.get("search_ready")) and not bool(row.get("coming_soon"))
+    )
+
+
+def _all_search_ready_countries() -> tuple[str, ...]:
+    return tuple(
+        country.code
+        for country in COUNTRIES
+        if _search_ready_provider_count(country.code) > 0
     )
 
 
@@ -33,6 +41,34 @@ def test_live_provider_smoke_is_skipped_by_default(monkeypatch) -> None:
     assert summary["skipped_case_count"] == receipt["targeted_search_matrix_count"]
     assert summary["all_search_ready_providers_covered"] is True
     assert summary["agent_unlimited_results_ok"] is True
+    assert receipt["country_scope"] == "explicit"
+
+
+def test_live_provider_smoke_can_expand_to_all_search_ready_countries(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES", raising=False)
+
+    receipt = build_live_provider_smoke_receipt(countries=(), all_search_ready_countries=True)
+
+    countries = _all_search_ready_countries()
+    provider_total = sum(_search_ready_provider_count(country) for country in countries)
+    assert receipt["status"] == "skipped"
+    assert receipt["country_scope"] == "all_search_ready"
+    assert receipt["targeted_search_matrix_count"] == 2 * provider_total
+    assert receipt["targeted_search_matrix_summary"]["country_codes"] == list(countries)
+    assert receipt["targeted_search_matrix_summary"]["all_search_ready_providers_covered"] is True
+    assert receipt["targeted_search_matrix_summary"]["strict_case_count"] == provider_total
+    assert receipt["targeted_search_matrix_summary"]["soft_filter_case_count"] == provider_total
+
+
+def test_live_provider_smoke_explicit_countries_can_override_all_country_env(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES", "1")
+
+    receipt = build_live_provider_smoke_receipt(countries=("AT",), all_search_ready_countries=False)
+
+    assert receipt["country_scope"] == "explicit"
+    assert receipt["targeted_search_matrix_summary"]["country_codes"] == ["AT"]
+    assert receipt["targeted_search_matrix_count"] == 2 * _search_ready_provider_count("AT")
 
 
 def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> None:
