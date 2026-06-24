@@ -13,20 +13,21 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `89486db626e69a61e1654bcbca3fe0d1c673ef22` |
+| Runtime commit SHA | `a497ad25f33b651467d4cebb44b237dce4ce7094` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for visual-state self-healing, deploy-probe, mobile What Matters, and mobile navigation candidate |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for visual-state self-healing, deploy-probe, mobile What Matters, mobile navigation, and notification routing candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `89486db` passed:
+The candidate at `a497ad2` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
 - `bash -n scripts/deploy_propertyquarry.sh`
 - `PYTHONPATH=ea pytest -q tests/test_property_deploy_operator_contracts.py`
+- `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'account_and_billing_templates_keep_controls_minimal or account_lifecycle_controls'`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'what_matters_as_comboboxes'`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'settings_subpages_keep_property_shell_and_mobile_dock or shell_uses_the_new_surface_navigation'`
 - `PYTHONPATH=ea pytest -q tests/test_property_packet_publications.py`
