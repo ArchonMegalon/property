@@ -12017,6 +12017,22 @@ def test_property_settings_subpages_keep_property_shell_and_mobile_dock() -> Non
         assert 'class="pq-rail-link active" href="/app/account"' in response.text, path
 
 
+def test_property_google_settings_uses_fast_local_status(monkeypatch) -> None:
+    def _blocked_google_sync_status(*args, **kwargs):
+        raise AssertionError("PropertyQuarry Google settings must not block on workspace diagnostics")
+
+    monkeypatch.setattr(ProductService, "google_signal_sync_status", _blocked_google_sync_status)
+    client = build_property_client(principal_id="pq-settings-google-fast")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "PropertyQuarry Google connection" in response.text
+    assert "Connected Google accounts" in response.text
+    assert "Connect Google" in response.text
+
+
 def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     client = build_property_client(principal_id="pq-surface-nav")
     start_workspace(client, mode="personal", workspace_name="Surface Nav")

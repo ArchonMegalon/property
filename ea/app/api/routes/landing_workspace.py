@@ -95,6 +95,216 @@ def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/s
     )
 
 
+def _google_event_type(row: dict[str, object]) -> str:
+    return str(row.get("event_type") or "").strip()
+
+
+def _google_event_created_at(row: dict[str, object]) -> str:
+    return str(row.get("created_at") or "").strip()
+
+
+def _google_event_payload(row: dict[str, object]) -> dict[str, object]:
+    payload = row.get("payload")
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _google_event_identity(payload: dict[str, object], *, fallback_email_key: str = "google_email") -> str:
+    return (
+        str(payload.get("google_subject") or "").strip().lower()
+        or str(payload.get(fallback_email_key) or "").strip().lower()
+        or str(payload.get("sender_email") or "").strip().lower()
+        or str(payload.get("binding_id") or "").strip().lower()
+    )
+
+
+def _property_google_settings_sync_status(
+    *,
+    product,
+    principal_id: str,
+    google_accounts: list[google_oauth_service.GoogleOAuthAccount],
+) -> dict[str, object]:
+    """Build PropertyQuarry's Google page from local receipts only."""
+
+    event_rows = [
+        dict(row)
+        for row in product.list_office_events(principal_id=principal_id, limit=200, channel="product")
+        if isinstance(row, dict)
+    ]
+    sync_last_event = next(
+        (row for row in event_rows if _google_event_type(row) == "google_workspace_signal_sync_completed"),
+        None,
+    )
+    sync_last_payload = _google_event_payload(sync_last_event or {})
+    sync_last_completed_at = _google_event_created_at(sync_last_event or {})
+
+    verification_last_event = next(
+        (
+            row
+            for row in event_rows
+            if _google_event_type(row) in {"google_send_verification_completed", "google_send_verification_failed"}
+        ),
+        None,
+    )
+    verification_last_payload = _google_event_payload(verification_last_event or {})
+    verification_last_type = _google_event_type(verification_last_event or {})
+    verification_last_state = (
+        "completed"
+        if verification_last_type == "google_send_verification_completed"
+        else "failed"
+        if verification_last_event is not None
+        else ""
+    )
+
+    account_change_last_event = next(
+        (
+            row
+            for row in event_rows
+            if _google_event_type(row)
+            in {
+                "google_account_connected",
+                "google_account_primary_updated",
+                "google_account_disconnected",
+            }
+        ),
+        None,
+    )
+    account_change_last_payload = _google_event_payload(account_change_last_event or {})
+    account_change_last_type = _google_event_type(account_change_last_event or {})
+    account_change_last_state = account_change_last_type.replace("google_", "") if account_change_last_event else ""
+
+    primary_binding_id = f"{principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}"
+    primary_account = next(
+        (account for account in google_accounts if str(account.binding.binding_id or "").strip() == primary_binding_id),
+        None,
+    )
+    active_accounts = [
+        account
+        for account in google_accounts
+        if str(account.binding.status or "").strip().lower() == "enabled"
+        and str(account.token_status or "").strip().lower() != "revoked"
+    ]
+    fallback_account = primary_account or (active_accounts[0] if active_accounts else (google_accounts[0] if google_accounts else None))
+    account_email = str(getattr(fallback_account, "google_email", "") or sync_last_payload.get("account_email") or "").strip()
+    token_status = (
+        str(getattr(fallback_account, "token_status", "") or "").strip()
+        or ("active" if sync_last_completed_at else ("missing" if not google_accounts else "unknown"))
+    )
+
+    verification_by_identity: dict[str, dict[str, object]] = {}
+    account_change_by_identity: dict[str, dict[str, object]] = {}
+    for row in event_rows:
+        event_type = _google_event_type(row)
+        payload = _google_event_payload(row)
+        if event_type in {"google_send_verification_completed", "google_send_verification_failed"}:
+            identity = _google_event_identity(payload)
+            if identity and identity not in verification_by_identity:
+                verification_by_identity[identity] = {
+                    "state": "completed" if event_type == "google_send_verification_completed" else "failed",
+                    "verified_at": _google_event_created_at(row),
+                    "sender_email": str(payload.get("sender_email") or "").strip(),
+                    "recipient_email": str(payload.get("recipient_email") or "").strip(),
+                    "error": str(payload.get("error") or "").strip(),
+                }
+        if event_type in {"google_account_connected", "google_account_primary_updated", "google_account_disconnected"}:
+            identity = _google_event_identity(payload)
+            if identity and identity not in account_change_by_identity:
+                account_change_by_identity[identity] = {
+                    "state": event_type.replace("google_", ""),
+                    "changed_at": _google_event_created_at(row),
+                    "google_email": str(payload.get("google_email") or "").strip(),
+                    "error": str(payload.get("error") or "").strip(),
+                }
+
+    send_verification_accounts: list[dict[str, object]] = []
+    account_change_accounts: list[dict[str, object]] = []
+    for account in google_accounts:
+        identity_keys = (
+            str(account.google_subject or "").strip().lower(),
+            str(account.google_email or "").strip().lower(),
+            str(account.binding.binding_id or "").strip().lower(),
+        )
+        matched_verification: dict[str, object] = {}
+        matched_change: dict[str, object] = {}
+        for identity_key in identity_keys:
+            if not identity_key:
+                continue
+            if not matched_verification and identity_key in verification_by_identity:
+                matched_verification = dict(verification_by_identity[identity_key])
+            if not matched_change and identity_key in account_change_by_identity:
+                matched_change = dict(account_change_by_identity[identity_key])
+        send_verification_accounts.append(
+            {
+                "binding_id": str(account.binding.binding_id or "").strip(),
+                "google_email": str(account.google_email or "").strip(),
+                "google_subject": str(account.google_subject or "").strip(),
+                "is_primary": str(account.binding.binding_id or "").strip() == primary_binding_id,
+                "state": str(matched_verification.get("state") or "").strip(),
+                "verified_at": str(matched_verification.get("verified_at") or "").strip(),
+                "sender_email": str(matched_verification.get("sender_email") or "").strip(),
+                "recipient_email": str(matched_verification.get("recipient_email") or "").strip(),
+                "error": str(matched_verification.get("error") or "").strip(),
+            }
+        )
+        account_change_accounts.append(
+            {
+                "binding_id": str(account.binding.binding_id or "").strip(),
+                "google_email": str(account.google_email or "").strip(),
+                "google_subject": str(account.google_subject or "").strip(),
+                "is_primary": str(account.binding.binding_id or "").strip() == primary_binding_id,
+                "state": str(matched_change.get("state") or "").strip(),
+                "changed_at": str(matched_change.get("changed_at") or "").strip(),
+                "error": str(matched_change.get("error") or "").strip(),
+            }
+        )
+
+    return {
+        "generated_at": "",
+        "connected": bool(google_accounts) or bool(account_email),
+        "account_email": account_email,
+        "account_emails": [
+            str(account.google_email or "").strip().lower()
+            for account in google_accounts
+            if str(account.google_email or "").strip()
+        ],
+        "token_status": token_status,
+        "last_refresh_at": str(getattr(fallback_account, "last_refresh_at", "") or sync_last_completed_at or "").strip(),
+        "reauth_required_reason": str(getattr(fallback_account, "reauth_required_reason", "") or "").strip(),
+        "workspace_sync_supported": bool(
+            fallback_account is not None
+            and google_oauth_service.google_bundle_supports_workspace_sync(scopes=fallback_account.granted_scopes)
+        ),
+        "sync_completed": sum(1 for row in event_rows if _google_event_type(row) == "google_workspace_signal_sync_completed"),
+        "office_signal_ingested": sum(1 for row in event_rows if _google_event_type(row) == "office_signal_ingested"),
+        "last_completed_at": sync_last_completed_at,
+        "last_synced_total": int(sync_last_payload.get("synced_total") or 0),
+        "last_deduplicated_total": int(sync_last_payload.get("deduplicated_total") or 0),
+        "last_suppressed_total": int(sync_last_payload.get("suppressed_total") or 0),
+        "last_gmail_total": int(sync_last_payload.get("gmail_total") or 0),
+        "last_calendar_total": int(sync_last_payload.get("calendar_total") or 0),
+        "age_seconds": None,
+        "freshness_state": "clear" if sync_last_completed_at else "watch",
+        "account_sync_accounts": [
+            dict(value)
+            for value in list(sync_last_payload.get("accounts") or [])
+            if isinstance(value, dict)
+        ],
+        "last_send_verification_at": _google_event_created_at(verification_last_event or {}),
+        "last_send_verification_state": verification_last_state,
+        "last_send_verification_sender_email": str(verification_last_payload.get("sender_email") or "").strip(),
+        "last_send_verification_recipient_email": str(verification_last_payload.get("recipient_email") or "").strip(),
+        "last_send_verification_binding_id": str(verification_last_payload.get("binding_id") or "").strip(),
+        "last_send_verification_error": str(verification_last_payload.get("error") or "").strip(),
+        "send_verification_accounts": send_verification_accounts,
+        "last_account_change_at": _google_event_created_at(account_change_last_event or {}),
+        "last_account_change_state": account_change_last_state,
+        "last_account_change_binding_id": str(account_change_last_payload.get("binding_id") or "").strip(),
+        "last_account_change_email": str(account_change_last_payload.get("google_email") or "").strip(),
+        "account_change_accounts": account_change_accounts,
+        "pending_commitment_candidates": 0,
+        "covered_signal_candidates": 0,
+    }
+
+
 def _public_app_base_url(request: Request) -> str:
     forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
     request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
@@ -1327,7 +1537,6 @@ def settings_google_detail(
         surface="settings_google",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
-    sync = product.google_signal_sync_status(principal_id=context.principal_id)
     sync_error = str(request.query_params.get("sync_error") or "").strip()
     sync_status = str(request.query_params.get("sync_status") or "").strip()
     sync_processed_total = int(request.query_params.get("sync_processed_total") or 0)
@@ -1351,6 +1560,15 @@ def settings_google_detail(
             str(account.google_email or "").strip().lower(),
             str(account.binding.binding_id or "").strip(),
         ),
+    )
+    sync = (
+        _property_google_settings_sync_status(
+            product=product,
+            principal_id=context.principal_id,
+            google_accounts=google_accounts,
+        )
+        if is_property_brand
+        else product.google_signal_sync_status(principal_id=context.principal_id)
     )
     primary_account = next(
         (
