@@ -62,6 +62,42 @@ FORBIDDEN_CUSTOMER_NOISE = (
     "operator center",
 )
 
+SHARED_TOP_NAV_LABELS = (
+    "Search",
+    "Shortlist",
+    "Research",
+    "Saved searches",
+    "Alerts",
+    "Billing",
+    "Account",
+)
+
+
+def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
+    normalized_path = str(path or "").split("?", 1)[0]
+    if not normalized_path.startswith("/app/"):
+        return []
+    nav_missing = [label for label in SHARED_TOP_NAV_LABELS if label not in body]
+    return [
+        {
+            "name": "mobile_viewport_meta",
+            "ok": 'name="viewport"' in body and "width=device-width" in body,
+        },
+        {
+            "name": "shared_top_navigation",
+            "ok": "data-property-research-topnav" in body and not nav_missing,
+            "detail": ", ".join(nav_missing[:5]),
+        },
+        {
+            "name": "property_app_shell",
+            "ok": "data-property-app-shell" in body and "data-pq-greenfield-shell" in body,
+        },
+        {
+            "name": "mobile_dock_target",
+            "ok": "data-property-mobile-dock" in body,
+        },
+    ]
+
 
 def _route_budget_for(path: str, *, route_budget_ms: int) -> int:
     normalized_path = str(path or "").split("?", 1)[0]
@@ -272,6 +308,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         {"name": "no_generic_ea_copy", "ok": "Executive Assistant" not in body and "Morning Memo" not in body},
         {"name": "no_customer_jargon", "ok": not noise_hits, "detail": ", ".join(noise_hits[:5])},
     ]
+    checks.extend(_mobile_surface_contract_checks(path, body))
     if path == "/app/agents":
         checks.extend(
             (
@@ -333,6 +370,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "notes": [
             "This smoke is local, authenticated, provider-free and non-networked.",
             "It guards first-paint route budgets for search, agents, results, research, account and billing surfaces.",
+            "It also asserts the shared top navigation, viewport metadata, app shell and mobile dock targets render on every measured app surface.",
         ],
     }
 
