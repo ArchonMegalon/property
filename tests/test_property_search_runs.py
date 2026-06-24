@@ -203,6 +203,36 @@ def test_property_search_preferences_use_school_evidence_priority_with_legacy_al
     assert "school_quality_priority" not in legacy
 
 
+def test_property_search_preferences_normalizer_drops_stale_agent_result_cap() -> None:
+    normalized = property_market_catalog.normalize_property_search_preferences(
+        {
+            "max_results_per_source": 50,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        }
+    )
+
+    assert "max_results_per_source" not in normalized
+
+
+def test_property_search_preferences_normalizer_clamps_paid_result_cap_to_plan() -> None:
+    normalized = property_market_catalog.normalize_property_search_preferences(
+        {
+            "max_results_per_source": 50,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        }
+    )
+
+    assert normalized["max_results_per_source"] == 5
+
+
 def test_property_candidate_google_maps_url_prefers_listing_snapshot_locality_over_source_scope_placeholder() -> None:
     candidate = {
         "title": "expat flat",
