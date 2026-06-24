@@ -1470,6 +1470,12 @@
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   };
 
+  const maxResultsPerSourceValue = (form) => (
+    form?.querySelector('[name="max_results_per_source"]')
+      ? integerValue(form, 'max_results_per_source')
+      : null
+  );
+
   const selectedPlatformsForForm = (form) => selectedValuesForForm(form, 'selected_platforms');
 
   const renderCheckboxOptions = (form, name, options, selectedValues) => {
@@ -1680,7 +1686,7 @@
     const selectedPropertyTypes = selectedValuesForForm(form, 'property_type');
     const selectedLocations = selectedValuesForForm(form, 'location_query');
     const selectedKeywords = selectedValuesForForm(form, 'keywords');
-    const parsedMaxResults = integerValue(form, 'max_results_per_source');
+    const parsedMaxResults = maxResultsPerSourceValue(form);
     const schoolEvidencePriority = Boolean(form.querySelector('input[name="enable_family_mode"]')?.checked) && selectedValuesForForm(form, 'school_stage_preferences').length > 0
       ? (fieldValue(form, 'school_evidence_priority') || 'any')
       : 'any';
