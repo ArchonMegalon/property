@@ -8,6 +8,7 @@ PropertySurfaceName = Literal[
     "properties",
     "search",
     "shortlist",
+    "research",
     "agents",
     "alerts",
     "billing",
@@ -32,19 +33,19 @@ class PropertySurfaceScope:
     @classmethod
     def for_section(cls, section: str) -> "PropertySurfaceScope":
         normalized = str(section or "properties").strip().lower() or "properties"
-        if normalized not in {"properties", "search", "shortlist", "agents", "alerts", "billing", "account", "settings"}:
+        if normalized not in {"properties", "search", "shortlist", "research", "agents", "alerts", "billing", "account", "settings"}:
             normalized = "properties"
         return cls(
             section=normalized,  # type: ignore[arg-type]
-            wants_run_state=normalized in {"properties", "search", "shortlist", "agents", "alerts"},
-            wants_recent_runs=normalized in {"properties", "search", "shortlist"},
+            wants_run_state=normalized in {"properties", "search", "shortlist", "research", "agents", "alerts"},
+            wants_recent_runs=normalized in {"properties", "search", "shortlist", "research"},
             wants_recent_matches=False,
             wants_preference_profile=normalized in {"account"},
             wants_learning_summary=False,
             wants_search_runs=normalized in {"search"},
             wants_agent_views=normalized == "agents",
             wants_credit_digest=normalized in {"billing"},
-            wants_run_views=normalized in {"properties", "search", "shortlist", "agents", "alerts"},
+            wants_run_views=normalized in {"properties", "search", "shortlist", "research", "agents", "alerts"},
         )
 
 

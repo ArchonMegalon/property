@@ -4285,6 +4285,63 @@ def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatc
     assert ".pq-mobile-nav {\n    display: none !important;\n  }" not in packet.text
 
 
+def test_property_research_route_uses_research_surface_contract(monkeypatch) -> None:
+    principal_id = "pq-research-surface-contract"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Research surface contract flat",
+        "summary": "EUR 2,080 · 81 m² · 1070 Wien",
+        "property_url": "https://example.test/research-surface-contract",
+        "source_ref": "src:research-surface-contract",
+        "packet_url": "/app/research/research-surface-contract?run_id=run-research-surface",
+        "property_facts": {
+            "price_eur": 2080.0,
+            "area_m2": 81.0,
+            "postal_name": "1070 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Test source",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    research = client.get(
+        "/app/research",
+        params={"run_id": "run-research-surface"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert research.status_code == 200
+    assert "<title>PropertyQuarry Research</title>" in research.text
+    assert 'data-pqx-surface="research"' in research.text
+    assert '<span class="is-active" aria-current="page">Research</span>' in research.text
+    assert 'data-property-decision-workbench' in research.text
+    assert "PropertyQuarry Shortlist" not in research.text
+
+
 def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeypatch) -> None:
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,

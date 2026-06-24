@@ -4231,6 +4231,8 @@ def app_shell(
     property_brand = brand["key"] == "propertyquarry"
     nav_groups = app_nav_groups_for_brand(brand["key"])
     allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in nav_groups for item in group["items"]}
+    if property_brand:
+        allowed.add("research")
     legacy_redirects = {
         "briefing": "/app/queue",
         "inbox": "/app/queue",
@@ -4253,7 +4255,6 @@ def app_shell(
         "automation": "/app/agents",
         "automations": "/app/agents",
         "channels": "/app/account#delivery",
-        "research": "/app/properties",
         "profile": "/app/account",
         "settings": "/app/account",
         "usage": "/app/settings/usage",
