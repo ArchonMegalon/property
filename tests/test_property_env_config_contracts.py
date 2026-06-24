@@ -57,6 +57,10 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_3DVISTA_EXPORT_ROOT=/docker/property/state/public_property_tours/3dvista",
         "PROPERTYQUARRY_FASTESTVPN_ON_DEMAND_ENABLED=0",
         "PROPERTYQUARRY_FASTESTVPN_AUTO_STOP_AFTER_REFRESH=1",
+        "PROPERTYQUARRY_RYBBIT_ENABLED=0",
+        "PROPERTYQUARRY_RYBBIT_AUTHENTICATED_ENABLED=0",
+        "PROPERTYQUARRY_RYBBIT_SKIP_PATTERNS=/app/**,/workspace-access/**,/app/api/**,/v1/**,/api/**,/auth/**,/admin/**,/tours/**",
+        "PROPERTYQUARRY_RYBBIT_MASK_PATTERNS=/app/**,/workspace-access/**,/app/handoffs/**,/tours/**,/app/properties/**,/app/research/**",
     ):
         assert required in env
     assert "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_PUBLIC_SITE_URL" not in env

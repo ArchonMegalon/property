@@ -8,6 +8,19 @@ from fastapi.testclient import TestClient
 from app.services.public_rybbit import rybbit_head_snippet
 
 
+class _FakeUrl:
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self.hostname = "propertyquarry.com"
+
+
+class _FakeRequest:
+    def __init__(self, path: str, host: str = "propertyquarry.com") -> None:
+        self.headers = {"host": host}
+        self.scope = {"path": path}
+        self.url = _FakeUrl(path)
+
+
 def test_propertyquarry_rybbit_snippet_is_disabled_by_default(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_RYBBIT_ENABLED", raising=False)
     monkeypatch.delenv("RYBBIT_ENABLED", raising=False)
@@ -32,6 +45,29 @@ def test_propertyquarry_rybbit_snippet_masks_private_property_paths(monkeypatch)
     assert "/app/api/**" in snippet
     assert "/tours/**" in snippet
     assert "/app/properties/**" in snippet
+
+
+def test_propertyquarry_rybbit_skips_authenticated_routes_by_default(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_SITE_ID", "propertyquarry-site")
+    monkeypatch.delenv("PROPERTYQUARRY_RYBBIT_AUTHENTICATED_ENABLED", raising=False)
+
+    assert rybbit_head_snippet(_FakeRequest("/app/properties")) == ""
+    assert rybbit_head_snippet(_FakeRequest("/app/research/private-result")) == ""
+    assert rybbit_head_snippet(_FakeRequest("/tours/private-tour/control")) == ""
+
+
+def test_propertyquarry_rybbit_authenticated_scope_is_explicit_and_anonymous(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_AUTHENTICATED_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_SITE_ID", "propertyquarry-site")
+
+    snippet = rybbit_head_snippet(_FakeRequest("/app/properties"))
+
+    assert 'data-site-id="propertyquarry-site"' in snippet
+    assert "identify" not in snippet
+    assert "principal" not in snippet
+    assert "email" not in snippet
 
 
 def test_propertyquarry_rybbit_snippet_rejects_invalid_base_url(monkeypatch) -> None:
@@ -73,9 +109,16 @@ def test_propertyquarry_page_renders_one_rybbit_script_with_legacy_and_canonical
     from app.api.app import create_app
 
     client = TestClient(create_app())
-    response = client.get("/app/properties", headers={"host": "propertyquarry.com", "X-EA-Principal-ID": "rybbit-browser-test"})
+    response = client.get("/", headers={"host": "propertyquarry.com"})
 
     assert response.status_code == 200
     assert response.text.count("https://app.rybbit.io/api/script.js") == 1
     assert 'data-site-id="canonical-property-site"' in response.text
     assert 'data-site-id="legacy-property-site"' not in response.text
+
+    app_response = client.get(
+        "/app/properties",
+        headers={"host": "propertyquarry.com", "X-EA-Principal-ID": "rybbit-browser-test"},
+    )
+    assert app_response.status_code == 200
+    assert "https://app.rybbit.io/api/script.js" not in app_response.text

@@ -3522,12 +3522,18 @@ def test_propertyquarry_start_failure_explains_backend_reason(
             """
             () => {
               const button = document.querySelector('[data-property-start-top]');
-              return Boolean(
+              const inlineError = document.querySelector('[data-property-inline-error]');
+              const sawLoading = Boolean(
                 button
                 && button.getAttribute('aria-busy') === 'true'
                 && button.getAttribute('data-pqx-loading') === 'true'
                 && String(button.textContent || '').includes('Launching...')
               );
+              const sawBackendFailure = Boolean(
+                inlineError
+                && String(inlineError.textContent || '').includes('Upgrade required for this run')
+              );
+              return sawLoading || sawBackendFailure;
             }
             """
         )

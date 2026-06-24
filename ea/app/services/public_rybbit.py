@@ -14,6 +14,16 @@ _LEGACY_SITE_ID_ENV_BY_HOST = {
     "www.myexternalbrain.com": "RYBBIT_IO_MYEXTERNALBRAIN_SITE_ID",
 }
 
+_PRIVATE_PATH_PREFIXES = (
+    "/admin",
+    "/api",
+    "/app",
+    "/auth",
+    "/tours",
+    "/v1",
+    "/workspace-access",
+)
+
 
 def _truthy(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
@@ -41,6 +51,31 @@ def _request_hostname(request: Any | None) -> str:
     return str(getattr(url, "hostname", "") or "").strip().lower().rstrip(".")
 
 
+def _normalize_path(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    path = parsed.path if parsed.scheme or parsed.netloc or parsed.query else raw
+    normalized = "/" + str(path or "").lstrip("/")
+    if len(normalized) > 1:
+        normalized = normalized.rstrip("/")
+    return normalized
+
+
+def _request_path(request: Any | None) -> str:
+    if request is None:
+        return ""
+    headers = getattr(request, "headers", {})
+    for header_name in ("x-forwarded-uri", "x-original-uri"):
+        header_value = str(headers.get(header_name) or "").split(",", 1)[0].strip()
+        if header_value:
+            return _normalize_path(header_value)
+    url = getattr(request, "url", None)
+    path = getattr(url, "path", "") or getattr(request, "scope", {}).get("path", "")
+    return _normalize_path(path)
+
+
 def _enabled() -> bool:
     return any(
         _truthy(os.getenv(env_name))
@@ -51,6 +86,26 @@ def _enabled() -> bool:
             "EA_PUBLIC_RYBBIT_ENABLED",
         )
     )
+
+
+def _authenticated_scope_enabled() -> bool:
+    return any(
+        _truthy(os.getenv(env_name))
+        for env_name in (
+            "PROPERTYQUARRY_RYBBIT_AUTHENTICATED_ENABLED",
+            "PROPERTYQUARRY_RYBBIT_APP_ENABLED",
+            "EA_PUBLIC_RYBBIT_AUTHENTICATED_ENABLED",
+        )
+    )
+
+
+def _route_allowed(request: Any | None) -> bool:
+    path = _request_path(request)
+    if not path:
+        return True
+    if any(path == prefix or path.startswith(prefix + "/") for prefix in _PRIVATE_PATH_PREFIXES):
+        return _authenticated_scope_enabled()
+    return True
 
 
 def _site_id(hostname: str) -> str:
@@ -75,6 +130,8 @@ def _script_url(base_url: str) -> str:
 def rybbit_head_snippet(request: Any | None = None) -> str:
     if not _enabled():
         return ""
+    if not _route_allowed(request):
+        return ""
     site_id = _site_id(_request_hostname(request))
     if not site_id:
         return ""
@@ -92,13 +149,13 @@ def rybbit_head_snippet(request: Any | None = None) -> str:
         os.getenv("PROPERTYQUARRY_RYBBIT_SKIP_PATTERNS")
         or os.getenv("RYBBIT_SKIP_PATTERNS")
         or os.getenv("EA_PUBLIC_RYBBIT_SKIP_PATTERNS")
-        or "/workspace-access/**,/app/api/**,/v1/**,/api/**,/tours/files/**"
+        or "/app/**,/workspace-access/**,/app/api/**,/v1/**,/api/**,/auth/**,/admin/**,/tours/**,/tours/files/**"
     )
     mask_patterns = _safe_json_array(
         os.getenv("PROPERTYQUARRY_RYBBIT_MASK_PATTERNS")
         or os.getenv("RYBBIT_MASK_PATTERNS")
         or os.getenv("EA_PUBLIC_RYBBIT_MASK_PATTERNS")
-        or "/workspace-access/**,/app/handoffs/**,/tours/**,/app/properties/**"
+        or "/app/**,/workspace-access/**,/app/handoffs/**,/tours/**,/app/properties/**,/app/research/**"
     )
     if skip_patterns != "[]":
         attrs.append(f"data-skip-patterns='{html.escape(skip_patterns, quote=True)}'")

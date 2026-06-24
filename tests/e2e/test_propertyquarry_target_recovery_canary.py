@@ -848,6 +848,32 @@ def _preview_property_type(facts: dict[str, object], *, title: str, summary: str
     return "apartment"
 
 
+def _preview_title_is_generic_portal(title: str, *, source_label: str) -> bool:
+    normalized = _normalize_text(title)
+    if not normalized:
+        return True
+    source = _normalize_text(source_label)
+    generic_fragments = (
+        "portal obwieszczeń",
+        "portal obwieszczen",
+        "portal obwieszczen i licytacji",
+        "portal obwieszczeń i licytacji",
+        "real estate search",
+        "property search",
+        "suchergebnisse",
+        "immobiliensuche",
+    )
+    if any(fragment in normalized for fragment in generic_fragments):
+        return True
+    if "portal" in normalized and ("licytac" in normalized or "obwieszc" in normalized):
+        return True
+    source_tokens = {token for token in source.split() if len(token) >= 5}
+    title_tokens = {token for token in normalized.split() if len(token) >= 5}
+    if source_tokens and title_tokens and title_tokens.issubset(source_tokens):
+        return True
+    return False
+
+
 def _preview_is_probe_usable(*, property_url: str, preview: dict[str, object], source_label: str) -> bool:
     title = str(preview.get("title") or "").strip()
     summary = str(preview.get("summary") or "").strip()
@@ -867,6 +893,8 @@ def _preview_is_probe_usable(*, property_url: str, preview: dict[str, object], s
     normalized_title = _normalize_text(title)
     normalized_source_label = _normalize_text(source_label)
     if normalized_title == normalized_source_label:
+        return False
+    if _preview_title_is_generic_portal(title, source_label=source_label):
         return False
     title_tokens = {token for token in normalized_title.split() if len(token) >= 4}
     source_tokens = {token for token in normalized_source_label.split() if len(token) >= 4}
@@ -1373,6 +1401,22 @@ def test_preview_probe_usable_rejects_provider_label_junk_target() -> None:
         property_url="https://example.test/gesiba/123",
         preview=preview,
         source_label="GESIBA | Austria | Rent | Vienna",
+    ) is False
+
+
+def test_preview_probe_usable_rejects_generic_auction_portal_target() -> None:
+    preview = {
+        "title": "Licytacja komornicza - Portal Obwieszczeń i Licytacji Komorniczych",
+        "summary": "Portal page instead of a listing-detail extract.",
+        "property_facts_json": {
+            "postal_name": "00-031 Warszawa",
+        },
+    }
+
+    assert _preview_is_probe_usable(
+        property_url="https://elicytacje.komornik.pl/licytacje/76353/1-8-niewydzielona-czesc-nieruchomosci",
+        preview=preview,
+        source_label="Komornik e-Licytacje | PL | Buy",
     ) is False
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import html
 import hmac
-import hashlib
 import io
 import json
 import os
@@ -1589,11 +1588,6 @@ def _console_shell_context(
     console_form: dict[str, object] | None = None,
 ) -> dict[str, object]:
     brand = request_brand(request)
-    analytics_principal_id = ""
-    if str(context.principal_id or "").strip():
-        analytics_principal_id = "principal_" + hashlib.sha256(
-            str(context.principal_id or "").strip().encode("utf-8")
-        ).hexdigest()[:24]
     return {
         "page_title": page_title,
         "brand": brand,
@@ -1606,7 +1600,6 @@ def _console_shell_context(
         "stats": stats,
         "console_form": console_form or {},
         "principal_id": context.principal_id,
-        "analytics_principal_id": analytics_principal_id,
         "access_email": context.access_email,
         "operator_id": context.operator_id,
         "account_nav": _account_nav_context(request=request, context=context),

@@ -5110,11 +5110,12 @@ def test_public_ctas_and_selected_review_panel_expose_rybbit_events() -> None:
     assert 'data-rybbit-event="property_request_tour"' in workbench_script
 
 
-def test_base_console_identifies_rybbit_with_opaque_principal_id() -> None:
+def test_base_console_never_identifies_rybbit_principals() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/base_console.html"
     body = template_path.read_text(encoding="utf-8")
-    assert "analytics_principal_id" in body
-    assert "rybbit.identify({{ analytics_principal_id|tojson }}" in body
+    assert "{{ rybbit_head_snippet(request) }}" in body
+    assert "analytics_principal_id" not in body
+    assert "rybbit.identify" not in body
     assert "rybbit.identify({{ principal_id|tojson }}" not in body
 
 
