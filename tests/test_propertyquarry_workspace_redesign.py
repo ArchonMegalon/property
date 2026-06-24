@@ -3505,6 +3505,47 @@ def test_property_console_context_skips_recent_run_hydration_for_explicit_shortl
     assert context["run"]["run_id"] == "run-1"
 
 
+def test_property_console_context_uses_lightweight_status_for_explicit_research_run(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-research-lightweight-run")
+    calls: list[bool] = []
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            raise AssertionError("explicit research packet should not hydrate recent runs")
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            calls.append(lightweight)
+            return {
+                "run_id": run_id,
+                "status": "completed_partial",
+                "summary": {
+                    "status": "completed_partial",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "research-cand-1",
+                            "title": "Research candidate",
+                            "property_url": "https://example.test/research-cand-1",
+                        }
+                    ],
+                    "sources": [],
+                },
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-research-lightweight-run",
+        status={"property_search_preferences": {"country_code": "AT"}},
+        run_id="run-1",
+        surface_mode="research",
+    )
+
+    assert calls == [True]
+    assert context["recent_search_runs"] == []
+    assert context["run"]["summary"]["ranked_candidates"][0]["candidate_ref"] == "research-cand-1"
+
+
 def test_property_console_context_keeps_preference_profile_hydration_on_account(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-account-profile")
     seen = {"profile": 0, "learning": 0}
@@ -5058,6 +5099,61 @@ def test_property_research_route_uses_research_surface_contract(monkeypatch) -> 
     assert "Inspect the evidence before you open the raw listing." in research.text
     assert "Open the strongest property pages first" in research.text
     assert "PropertyQuarry Shortlist" not in research.text
+
+
+def test_property_research_packet_uses_lightweight_run_status_for_explicit_run(monkeypatch) -> None:
+    principal_id = "pq-research-packet-lightweight"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    calls: list[bool] = []
+    candidate = {
+        "candidate_ref": "research-packet-lightweight-candidate",
+        "title": "Lightweight packet flat",
+        "summary": "EUR 1,880 · 72 m² · 1060 Wien",
+        "property_url": "https://example.test/research-packet-lightweight",
+        "review_url": "/app/research/research-packet-lightweight-candidate?run_id=run-research-lightweight",
+        "property_facts": {
+            "price_eur": 1880.0,
+            "area_m2": 72.0,
+            "postal_name": "1060 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        calls.append(lightweight)
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Test source",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    response = client.get(
+        "/app/research/research-packet-lightweight-candidate",
+        params={"run_id": "run-research-lightweight"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    assert calls == [True]
+    assert "Lightweight packet flat" in response.text
 
 
 def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeypatch) -> None:

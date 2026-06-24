@@ -1722,7 +1722,7 @@ def _property_console_context(
     active_run: dict[str, object] | None = None
     should_load_recent_runs = (
         wants_recent_runs
-        and not (normalized_run_id and surface_scope.section in {"properties", "shortlist"})
+        and not (normalized_run_id and surface_scope.section in {"properties", "shortlist", "research"})
         and surface_scope.section != "search"
         and (
             surface_scope.section != "properties"
@@ -1794,7 +1794,7 @@ def _property_console_context(
                     product.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=normalized_run_id,
-                        lightweight=False,
+                        lightweight=surface_scope.section == "research",
                     )
                     or {}
                 )
@@ -3477,6 +3477,7 @@ def property_research_packet(
         principal_id=context.principal_id,
         status=status,
         run_id=run_id,
+        surface_mode="research",
     )
     normalized_candidate_ref = str(candidate_ref or "").strip()
     resolved_run_id = str(run_id or "").strip()
