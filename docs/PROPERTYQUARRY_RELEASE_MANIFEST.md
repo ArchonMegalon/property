@@ -39,7 +39,7 @@ Observed route timings after the latest deploy:
 | `/app/search` | 0.78s, 1.82s, 1.35s repeated probes |
 | `/app/billing` | 1.37s, 2.24s, 1.50s repeated probes; authenticated smoke observed 1.18s |
 | `/app/account` | 2.60s, 2.59s, 1.40s repeated probes; authenticated smoke observed 1.40s |
-| `/app/shortlist` | 4.04s, 2.72s, 2.23s repeated probes |
+| `/app/shortlist` | 4.04s, 2.72s, 2.23s repeated probes before receipt redeploy; 6.54s cold probe and 4.25s, 4.58s, 3.89s, 4.29s, 3.73s warmed probes after receipt redeploy |
 
 Internal payload probes after the latest deploy:
 
@@ -48,11 +48,11 @@ Internal payload probes after the latest deploy:
 | `/app/billing` | 0.003s | 0.012s | 19,020 chars |
 | `/app/shortlist` | 0.468s | 0.012s | 220,571 chars |
 
-The previous billing payload carried roughly 16.6 MB of account/form state and the previous shortlist payload carried roughly 30.7 MB of raw account/run state. The current runtime trims those hidden payloads while preserving customer-visible account, billing, shortlist, and selected-review state. Backend saved-shortlist filtering now measured `1.643s` mean over five in-container probes; full-page `/app/shortlist` improved but remains watched until provider/result volume and public-domain timing are stable.
+The previous billing payload carried roughly 16.6 MB of account/form state and the previous shortlist payload carried roughly 30.7 MB of raw account/run state. The current runtime trims those hidden payloads while preserving customer-visible account, billing, shortlist, and selected-review state. Backend saved-shortlist filtering now measured `1.643s` mean over five in-container probes; full-page `/app/shortlist` improved but remains over the premium target and needs another pass.
 
 ## Gold Blockers
 
-- Full-page `/app/shortlist` improved from 7-11s repeated probes to 2.2-4.0s repeated probes, but still needs browser/performance-budget receipts before gold.
+- Full-page `/app/shortlist` improved from 7-11s repeated probes to roughly 3.7-4.6s warmed probes, but still needs another latency pass plus browser/performance-budget receipts before gold.
 - Verified Matterport, 3DVista, Pano2VR/krpano, and MagicFit walkthrough readiness still require complete current-HEAD receipts.
 - Brilliant Directories billing is allowed only as a governed handoff; signature verification, replay protection, receipt logging, and local entitlement reconciliation remain release blockers before any webhook-driven state change.
 - The documentation.ai whole-project audit P0/P1 findings remain in scope: runtime privilege, branch/deployment authority, reproducible builds, durable RBAC/session hardening, CI/security/accessibility/visual gates, public-network posture, and documentation separation.
