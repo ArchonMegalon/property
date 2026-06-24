@@ -52,6 +52,9 @@ Required behavior:
 
 The supplied whole-project audit is in scope as a gold-board blocker list. Its highest-risk findings must be resolved or explicitly dispositioned before a production-gold claim:
 
+- Intake status: active release blocker list.
+- Current manifest: `docs/PROPERTYQUARRY_RELEASE_MANIFEST.md`.
+- Current candidate status: working candidate, not gold.
 - Audit verdict to carry forward: EA core is an engineering release candidate, the memorial plane is not present/proven on the audited public `main`, whole-project gold is not claimable from that public branch, and production security posture is blocked until deployment privilege is hardened.
 - The first project decision is branch authority, not another feature: identify whether public `main`, a private/local branch, or another commit is the source of truth for the deployed product and receipts.
 - Establish an authoritative release manifest: repository, branch, commit SHA, deployment ID, public origin, artifact set, and release label.
@@ -100,3 +103,10 @@ The supplied whole-project audit is in scope as a gold-board blocker list. Its h
 3. Polish billing and Brilliant Directories handoff documentation/contracts without leaking private billing truth.
 4. Add documentation.ai audit receipts and release-manifest proof.
 5. Run targeted unit/browser e2e, commit, push, deploy, and live smoke.
+
+## Immediate Blocker Disposition
+
+- Branch authority: PropertyQuarry release work is currently tracked from `/docker/property` on `main`, pushed to both configured remotes. The external EA audit remains relevant only for shared runtime/deployment practices unless EA core artifacts are explicitly part of the PropertyQuarry release plane.
+- Billing authority: PropertyQuarry owns plan, invoice, entitlement, access-check, refund, cancellation, failed-payment, renewal, support, and agent-tier behavior. Brilliant Directories can only provide a governed white-label handoff and public-safe directory profile projection.
+- Documentation authority: documentation.ai is treated as audit intake and release-governance scope, not as source-of-truth product copy. Product truth stays in the repo, manifests, tests, receipts, and deployed runtime.
+- Current gold status: blocked until app latency, verified 3D/walkthrough receipts, provider e2e matrix, mobile polish, Brilliant Directories billing safeguards, and documentation.ai P0/P1 audit blockers are resolved or formally dispositioned.

@@ -26,7 +26,7 @@ Whole-project work includes every system below:
 16. Documentation, help center, legal pages, provider attribution, generated-tour disclaimers, and localization.
 17. Integration governance for LTD/provider lanes such as Subscribr, MetaSurvey, ApiX-Drive, Invoiless, Lunacal, Documentation.AI, Paperguide, Internxt, ApproveThis, Unmixr, and Brilliant Directories.
 18. Brilliant Directories billing and directory handoff, with PropertyQuarry retaining plan, invoice, entitlement, access-check, ranking, and customer-data source of truth.
-19. Documentation.AI/release-audit governance, including authoritative release manifest, branch/deployment reconciliation, security posture, reproducible builds, CI gates, and documentation separation.
+19. Documentation.AI/release-audit governance, including authoritative release manifest, branch/deployment reconciliation, security posture, reproducible builds, CI gates, documentation separation, and current-HEAD proof receipts.
 
 ## Definition Of Done
 
@@ -66,6 +66,8 @@ The active gold board also includes these non-negotiable extensions:
 - Brilliant Directories can be used only as a governed white-label directory or payment/account handoff lane. It cannot own billing truth, entitlements, provider access, private user profile data, property facts, ranking, search scope, or publication approval.
 - Any Brilliant Directories webhook is advisory until signature verification, replay protection, receipt logging, and local entitlement reconciliation pass.
 - Documentation.AI/audit intake is part of the release gate. A gold claim requires an authoritative release manifest, clean branch/deployment mapping, hardened Docker/runtime posture, reproducible build proof, CI/security/accessibility/visual gates, and current-HEAD receipts.
+- The documentation.ai audit is an active blocker list, not background context. Each P0 item must be fixed, moved to a tracked release blocker with owner/evidence, or explicitly declared out of scope for the PropertyQuarry runtime plane before any gold claim.
+- The current release manifest lives in `docs/PROPERTYQUARRY_RELEASE_MANIFEST.md`; it must be updated for every pushed/deployed candidate and must state whether the deployed artifact is gold, working-candidate, or blocked.
 - Mobile phone UI is a first-class release surface across search, shortlist, research, billing, account, alerts, settings, authentication, and public conversion pages. A desktop-only pass is incomplete.
 
 ### Current Additional Execution Goal (active)
@@ -75,6 +77,7 @@ For this pass, the additional objective is:
 1. Harden reliability semantics where user-facing state can look stale or contradictory.
 2. Keep hard/soft filter semantics correct for all postal/selected-district workflows.
 3. Preserve user control surfaces (logout, filtered recovery, run lifecycle, automation surfaces) across both API and live-board payloads.
+4. Promote billing, Brilliant Directories, documentation.ai, and release-manifest governance into active gold blockers instead of optional integration notes.
 
 Acceptance criteria before this pass is considered complete:
 
@@ -83,4 +86,7 @@ Acceptance criteria before this pass is considered complete:
 - Logout works for browser and API-driven sessions.
 - Run status/repair messaging stays truthful when repair tasks are queued and when repair completes.
 - Scope/automation thumbnails render usable district overlays without clipping key shapes, and map preview payloads reject unsupported image pipelines.
+- Billing and Brilliant Directories states either pass the governed handoff contract or fail closed on a PropertyQuarry-owned recovery surface.
+- The documentation.ai audit has a current release-manifest receipt with repository, branch, commit, deployment endpoint, artifact set, verification commands, and unresolved blockers.
+- Default runtime security, reproducibility, CI, auth, and public-network findings from the audit are either fixed in code or tracked as explicit P0/P1 release blockers.
 - Every above is covered by unit/e2e test and a smoke check.
