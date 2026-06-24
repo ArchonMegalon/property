@@ -105,6 +105,10 @@
       background: color-mix(in srgb, var(--pq-mark-bg) 82%, white 18%);
       box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pq-gold) 22%, transparent);
     }
+    html[data-pq-theme="dark"] .pq-pack-nav .is-active {
+      background: color-mix(in srgb, var(--pq-mark-bg) 88%, var(--pq-card) 12%);
+      border-color: color-mix(in srgb, var(--pq-gold) 52%, var(--pq-border));
+    }
     .pq-pack-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
     .pq-pack-button {
       border: 1px solid var(--pq-border);
