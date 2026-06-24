@@ -336,6 +336,54 @@ def test_agent_saved_search_payload_drops_stale_result_cap_on_save_and_load() ->
     assert loaded.json()["property_search_preferences"].get("max_results_per_source") is None
 
 
+def test_plus_saved_search_payload_clamps_stale_result_cap_on_save_and_load() -> None:
+    client = build_property_client(principal_id="exec-property-plus-search-agent-max-results")
+    start_workspace(client, mode="personal", workspace_name="Property office")
+
+    created = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "selected_platforms": ["willhaben"],
+            "search_agent_enabled": True,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    agent_id = created.json()["property_search_preferences"]["search_agents"][0]["agent_id"]
+
+    saved = client.post(
+        f"/v1/onboarding/property-search/agents/{agent_id}",
+        json={
+            "action": "save",
+            "patch": {
+                "preferences_json": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "selected_platforms": ["willhaben"],
+                    "max_results_per_source": 50,
+                },
+            },
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    saved_agent = next(
+        agent
+        for agent in saved.json()["property_search_preferences"]["search_agents"]
+        if agent["agent_id"] == agent_id
+    )
+    assert saved_agent["preferences_json"]["max_results_per_source"] == 5
+
+    loaded = client.post(f"/v1/onboarding/property-search/agents/{agent_id}", json={"action": "load"})
+    assert loaded.status_code == 200, loaded.text
+    assert loaded.json()["property_search_preferences"].get("max_results_per_source") == 5
+
+
 def test_saved_search_load_payload_prefers_saved_preferences_over_current_brief_defaults() -> None:
     formatted = format_property_search_agent(
         {
@@ -418,6 +466,49 @@ def test_agent_saved_search_format_payload_drops_stale_result_cap() -> None:
     )
 
     assert "max_results_per_source" not in formatted["load_payload"]
+
+
+def test_plus_saved_search_format_payload_clamps_stale_result_cap() -> None:
+    formatted = format_property_search_agent(
+        {
+            "name": "Vienna rent watch",
+            "enabled": True,
+            "preferences_json": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": "1020 Wien",
+                "listing_mode": "rent",
+                "property_type": "apartment",
+                "selected_platforms": ["willhaben"],
+                "max_results_per_source": 50,
+            },
+        },
+        property_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Wien",
+            "property_type": "apartment",
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        selected_platforms=["willhaben"],
+        selected_listing_mode="rent",
+        search_mode_requested="strict",
+        default_duration_days=30,
+        default_notification_limit=5,
+        default_notification_period="day",
+        normalize_property_type_values=lambda value: [str(value).strip().lower()] if str(value).strip() else ["any"],
+        scope_preview_builder=lambda country_code, region_code, location_query: {
+            "country_code": country_code,
+            "region_code": region_code,
+            "location_query": location_query,
+        },
+    )
+
+    assert formatted["load_payload"]["max_results_per_source"] == 5
 
 
 def test_investment_saved_search_snapshot_forces_buy_and_investment_labels() -> None:

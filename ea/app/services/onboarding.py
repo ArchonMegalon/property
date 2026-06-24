@@ -2176,6 +2176,10 @@ class OnboardingService(AssistantOnboardingService):
         )
         commercial_snapshot = property_commercial_snapshot({"property_commercial": commercial_source} if commercial_source else {})
         plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+        try:
+            plan_result_cap = int(commercial_snapshot.get("max_results_per_source") or 0)
+        except Exception:
+            plan_result_cap = 0
         country_code = normalize_country_code(raw.get("country_code") or base.get("country_code"))
         region_code = str(raw.get("region_code") or base.get("region_code") or "").strip().lower()
         location_query = str(raw.get("location_query") or base.get("location_query") or "").strip()
@@ -2237,8 +2241,16 @@ class OnboardingService(AssistantOnboardingService):
         )
         if not preferences_json:
             preferences_json = OnboardingService._search_agent_preferences_payload(base)
-        if plan_key == "agent":
+        if plan_key == "agent" and plan_result_cap <= 0:
             preferences_json.pop("max_results_per_source", None)
+        elif "max_results_per_source" in preferences_json:
+            try:
+                preferences_json["max_results_per_source"] = max(
+                    1,
+                    min(plan_result_cap or 10, int(float(str(preferences_json.get("max_results_per_source") or "").strip()))),
+                )
+            except Exception:
+                preferences_json.pop("max_results_per_source", None)
         preferences_json.update(
             {
                 "country_code": country_code,

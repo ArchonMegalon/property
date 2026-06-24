@@ -1660,6 +1660,10 @@ def build_property_recurring_watch_snapshot(
     )
     commercial_snapshot = property_commercial_snapshot(dict(property_preferences or {}))
     plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+    try:
+        plan_result_cap = int(commercial_snapshot.get("max_results_per_source") or 0)
+    except Exception:
+        plan_result_cap = 0
     base_load_payload = (
         safe_agent_load_payload(saved_preferences)
         if saved_preferences
@@ -1676,8 +1680,16 @@ def build_property_recurring_watch_snapshot(
             "search_agent_notification_period": agent_notification_period,
         }
     )
-    if plan_key == "agent":
+    if plan_key == "agent" and plan_result_cap <= 0:
         base_load_payload.pop("max_results_per_source", None)
+    elif "max_results_per_source" in base_load_payload:
+        try:
+            base_load_payload["max_results_per_source"] = max(
+                1,
+                min(plan_result_cap or 10, int(float(str(base_load_payload.get("max_results_per_source") or "").strip()))),
+            )
+        except Exception:
+            base_load_payload.pop("max_results_per_source", None)
     return PropertyRecurringWatchSnapshot(
         agent_id=str(raw_agent.get("agent_id") or "current").strip() or "current",
         name=agent_name,
