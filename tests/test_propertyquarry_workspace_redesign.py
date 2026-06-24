@@ -10936,6 +10936,20 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     assert "/sign-in" in audited_page_paths
 
 
+def test_property_settings_subpages_keep_property_shell_and_mobile_dock() -> None:
+    client = build_property_client(principal_id="pq-settings-shell-contract")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    headers = {"host": "propertyquarry.com"}
+
+    for path in ("/app/settings/google", "/app/settings/access", "/app/settings/outcomes", "/app/settings/support"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, path
+        assert 'data-property-app-shell' in response.text, path
+        assert 'data-property-mobile-dock' in response.text, path
+        assert 'aria-label="PropertyQuarry mobile navigation"' in response.text, path
+        assert 'class="pq-rail-link active" href="/app/account"' in response.text, path
+
+
 def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     client = build_property_client(principal_id="pq-surface-nav")
     start_workspace(client, mode="personal", workspace_name="Surface Nav")

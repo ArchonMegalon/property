@@ -1128,22 +1128,43 @@
         padding-left: 10px;
         padding-right: 10px;
       }
+      .pq-appbar {
+        top: 6px;
+        gap: 4px;
+        padding: 8px 10px;
+        border-radius: 14px;
+      }
       .pq-appbar-row,
       .pq-topbar {
         align-items: flex-start;
         flex-direction: column;
+        gap: 8px;
+      }
+      .pq-appbar-breadcrumbs {
+        gap: 4px;
+        font-size: 9px;
       }
       .pq-topbar-copy {
         align-items: flex-start;
         flex-direction: column;
         gap: 2px;
       }
+      .pq-topbar-copy h1 {
+        font-size: 0.98rem;
+        line-height: 1.16;
+      }
       .pq-topbar-copy .context {
         max-width: min(100%, 320px);
       }
       .pq-topbar-actions {
-        width: 100%;
+        width: auto;
         justify-content: flex-start;
+      }
+      .pq-topbar-actions .account-menu summary,
+      .pq-topbar-actions .btn {
+        min-height: 40px;
+        padding-left: 12px;
+        padding-right: 12px;
       }
       .pq-surface {
         padding: 12px 10px 98px;
@@ -1260,15 +1281,16 @@
 </head>
 <body>
   {% set brand_home_href = '/?home=1' if brand.key == 'propertyquarry' else (brand.app_home or '/app/properties') %}
-  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account'] %}
+  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account', 'settings'] %}
   {% if property_app_nav %}
   {% set mobile_nav = namespace(items=[]) %}
-  {% set active_shell_label = namespace(value=current_nav|replace('_', ' ')|title) %}
+  {% set shell_nav_key = 'account' if current_nav == 'settings' else current_nav %}
+  {% set active_shell_label = namespace(value=('Account' if current_nav == 'settings' else current_nav|replace('_', ' ')|title)) %}
   {% set run_query = request.url.query %}
   {% set query_suffix = ('?' ~ run_query) if run_query else '' %}
   {% for group in nav_groups %}
     {% for item in group["items"] %}
-      {% if current_nav == item.key %}
+      {% if shell_nav_key == item.key %}
         {% set active_shell_label.value = item.label %}
       {% endif %}
       {% if mobile_nav.items|length < 6 %}
@@ -1305,9 +1327,9 @@
         <nav class="pq-rail-nav" aria-label="PropertyQuarry app sections">
           {% for group in nav_groups %}
             {% for item in group["items"] %}
-            <a class="pq-rail-link {% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}">
+            <a class="pq-rail-link {% if shell_nav_key == item.key %}active{% endif %}" href="{{ item.href }}">
               <strong>{{ item.label }}</strong>
-              <span>{{ 'Current section' if current_nav == item.key else 'Open section' }}</span>
+              <span>{{ 'Current section' if shell_nav_key == item.key else 'Open section' }}</span>
             </a>
             {% endfor %}
           {% endfor %}
@@ -1481,9 +1503,9 @@
     </main>
     <nav class="pq-mobile-nav" aria-label="PropertyQuarry mobile navigation" data-property-mobile-dock>
       {% for item in mobile_nav.items %}
-      <a class="{% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}">
+      <a class="{% if shell_nav_key == item.key %}active{% endif %}" href="{{ item.href }}">
         <strong>{{ item.label }}</strong>
-        <span>{% if current_nav == item.key %}Open{% else %}Go{% endif %}</span>
+        <span>{% if shell_nav_key == item.key %}Open{% else %}Go{% endif %}</span>
       </a>
       {% endfor %}
     </nav>
