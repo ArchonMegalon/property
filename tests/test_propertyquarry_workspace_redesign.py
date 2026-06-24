@@ -5909,6 +5909,18 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Packet posture" not in body
 
 
+def test_property_decision_workbench_uses_shared_research_shell_contract() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert 'data-property-research-topnav' in body
+    assert 'href="/app/properties{{ topnav_query_suffix }}" aria-label="PropertyQuarry search"' in body
+    assert '<span class="pqx-brand-copy">Research desk</span>' in body
+    assert 'href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>' in body
+    assert 'href="/app/properties{{ topnav_query_suffix }}">Edit search</a>' in body
+    assert "Decision desk" not in body
+
+
 def test_property_object_detail_feedback_script_avoids_magicfit_preview_innerhtml() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail_feedback_script.html"
     body = template_path.read_text(encoding="utf-8")

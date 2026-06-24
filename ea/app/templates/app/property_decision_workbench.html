@@ -6392,12 +6392,12 @@
     <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
-    <header class="pqx-topbar">
-      <a class="pqx-brand" href="/?home=1" aria-label="PropertyQuarry public home">
+    <header class="pqx-topbar" data-property-research-topnav>
+      <a class="pqx-brand" href="/app/properties{{ topnav_query_suffix }}" aria-label="PropertyQuarry search">
         <span class="pqx-mark">PQ</span>
         <span>
           <strong>PropertyQuarry</strong>
-          <span class="pqx-brand-copy">Decision desk</span>
+          <span class="pqx-brand-copy">Research desk</span>
         </span>
       </a>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
@@ -6452,10 +6452,10 @@
         </div>
         {% endif %}
         {% if has_results and result_surface %}
-        <a class="pqx-link-button subtle" href="/app/properties/packets">Review</a>
+        <a class="pqx-link-button subtle" href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>
         {% endif %}
         {% if has_results and result_surface %}
-        <a class="pqx-link-button subtle" href="/app/properties">Edit search</a>
+        <a class="pqx-link-button subtle" href="/app/properties{{ topnav_query_suffix }}">Edit search</a>
         {% endif %}
         <button class="pqx-button subtle" type="button" data-pqx-theme-toggle aria-pressed="false">Dark mode</button>
         {% if result_surface %}
