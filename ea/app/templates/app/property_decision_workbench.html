@@ -7413,7 +7413,7 @@
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
             <div>
                 <h2>{{ 'Review scored homes' if soft_only_empty_state else 'Widen the brief' }}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{{ 'Lower the shortlist score or review the strongest near-misses first.' if soft_only_empty_state else (empty_next_move or 'Relax one hard rule at a time so the next shortlist stays easy to compare.') }}</div>
+                <div class="pqx-note" data-pqx-run-summary>{{ 'Lower the shortlist score or review the strongest near-misses first.' if soft_only_empty_state else (empty_next_move or 'Relax one hard rule at a time so the next shortlist stays easy to review.') }}</div>
               </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>

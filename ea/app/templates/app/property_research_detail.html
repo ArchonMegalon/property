@@ -2008,6 +2008,30 @@
     </section>
 
     <aside class="prd-side-stack">
+      {% if research_ranked_run_rows %}
+      <section class="prd-panel">
+        <div class="prd-kicker">Run ranking</div>
+        <h2>Other ranked homes from this run</h2>
+        <div class="object-list">
+          {% for row in research_ranked_run_rows %}
+          <div class="object-row">
+            <div>
+              {% if row.get('href') %}
+              <strong><a href="{{ row.get('href') }}">{{ row.get('title') }}</a></strong>
+              {% else %}
+              <strong>{{ row.get('title') }}</strong>
+              {% endif %}
+              <small>{{ row.get('source_label') }} · Score {{ row.get('score') }}</small>
+              {% if row.get('fit_summary') %}
+              <small>{{ row.get('fit_summary') }}</small>
+              {% endif %}
+            </div>
+            <div class="object-tag">Ranked</div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
       <section class="prd-panel object-feedback" data-object-feedback data-object-feedback-payload='{{ research_feedback|tojson|safe }}'>
       <div class="prd-kicker">Decision</div>
       <h2>Save this property decision</h2>

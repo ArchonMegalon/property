@@ -1443,7 +1443,7 @@ def _public_context(
     meta_description = str((extra or {}).get("meta_description") or "").strip()
     if not meta_description:
         meta_description = (
-            "PropertyQuarry helps renters, buyers, and investors define a brief, compare the strongest homes, "
+            "PropertyQuarry helps renters, buyers, and investors define a brief, rank the strongest homes, "
             "open the dossier, and decide with evidence."
         )
     og_title = str((extra or {}).get("og_title") or "").strip() or page_title
@@ -3970,6 +3970,26 @@ def property_research_packet(
         {"label": "Rooms", "value": rooms_summary or "Not listed"},
         {"label": "Location", "value": location_summary or display_source_label},
     ]
+    ranked_run_rows: list[dict[str, object]] = []
+    for row in sorted(
+        _property_shortlist_candidates_from_context(property_context),
+        key=lambda item: float(item.get("ranking_score") or item.get("investment_score") or item.get("fit_score") or 0.0),
+        reverse=True,
+    ):
+        row_ref = _property_candidate_ref(row)
+        if row_ref == normalized_candidate_ref:
+            continue
+        ranked_run_rows.append(
+            {
+                "title": str(row.get("title") or "Ranked property").strip() or "Ranked property",
+                "source_label": _compact_provider_label(str(row.get("source_label") or "Source").strip() or "Source"),
+                "score": int(float(row.get("ranking_score") or row.get("investment_score") or row.get("fit_score") or 0.0)),
+                "href": str(row.get("packet_url") or row.get("review_url") or row.get("property_url") or "").strip(),
+                "fit_summary": _clean_property_candidate_copy(
+                    str(row.get("fit_summary") or row.get("compare_reason") or row.get("summary") or "").strip()
+                ),
+            }
+        )
     if detail_sections.get("feature_values"):
         overview_rows.append({"label": "Highlights", "value": ", ".join(list(detail_sections.get("feature_values") or [])[:4])})
     research_sections: list[dict[str, object]] = [
@@ -4127,6 +4147,7 @@ def property_research_packet(
                 stats=[{"label": row["label"], "value": row["value"]} for row in overview_rows[:4]],
             ),
             **research_snapshot,
+            "research_ranked_run_rows": ranked_run_rows,
         },
     )
 
@@ -4520,7 +4541,7 @@ def app_shell(
             )
             if current_nav == "search":
                 payload["title"] = "Search"
-                payload["summary"] = "Build the brief, run the sweep, compare the results, and open the property that deserves a decision."
+                payload["summary"] = "Build the brief, run the sweep, review the ranking, and open the property that deserves a decision."
             elif current_nav == "account":
                 payload["title"] = "Account"
                 payload["summary"] = "Identity, plan, delivery, and editable defaults."

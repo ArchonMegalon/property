@@ -4858,7 +4858,7 @@ def app_section_payload(
                 {
                     "eyebrow": "Themes",
                     "title": "Recurring topics",
-                    "body": "Themes help compare results without reopening every property.",
+                    "body": "Themes help review results without reopening every property.",
                     "items": string_rows(themes, ("No themes surfaced yet.",), tag="Theme", detail="This theme is active in the current search."),
                 },
                 {
