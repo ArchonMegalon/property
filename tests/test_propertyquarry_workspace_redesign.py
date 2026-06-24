@@ -5673,9 +5673,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert profile.status_code == 200
     assert "Account" in profile.text
     assert "Identity, plan, delivery, and editable defaults." in profile.text
+    assert 'href="/app/properties?run_id=run-42"' in profile.text
 
     alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=headers)
     assert alerts.status_code == 200
+    assert 'href="/app/account?run_id=run-42#delivery"' in alerts.text
     assert "Alerts" in alerts.text
     assert "Delivery rules" in alerts.text
     assert "Email" in alerts.text

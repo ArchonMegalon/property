@@ -2200,12 +2200,12 @@ def property_workspace_payload(
         "profile": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
-            {"href": "/app/account#search-defaults", "label": "Search defaults"},
+            {"href": f"/app/account{run_suffix}#search-defaults", "label": "Search defaults"},
         ],
         "alerts": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-            {"href": "/app/account#delivery", "label": "Delivery"},
+            {"href": f"/app/account{run_suffix}#delivery", "label": "Delivery"},
         ],
         "agents": [
             {"href": f"/app/properties{run_suffix}", "label": "New search", "tone": "primary"},
