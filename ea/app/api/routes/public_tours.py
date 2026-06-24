@@ -2228,7 +2228,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                     f'<h3>{html.escape(str(card.get("title") or "Property").strip())}</h3>'
                     f'<div class="subtle">{html.escape(str(card.get("score_label") or "Fit").strip())} '
                     f'{int(round(float(card.get("score") or 0.0))):d}/100</div>'
-                    f'<p class="sub">{html.escape(str(card.get("why_now") or "No comparison note stored.").strip())}</p>'
+                    f'<p class="sub">{html.escape(str(card.get("why_now") or "No ranking note stored.").strip())}</p>'
                     f'<a class="chip compare-chip" href="{html.escape(str(card.get("listing_url") or "#").strip())}"'
                     f'{"" if str(card.get("listing_url") or "").strip() else " aria-disabled=\"true\""}>{html.escape(str(card.get("recommended_action") or "review").strip())}</a>'
                     '</div>'
@@ -2285,15 +2285,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             "</table>"
             "</div>"
         ) if shortlist_matrix_rows else (
-            '<div class="summary-card shortlist-empty">No shortlist comparison matrix is available yet.</div>'
+            '<div class="summary-card shortlist-empty">No shortlist ranking matrix is available yet.</div>'
         )
 
         shortlist_panel = (
             '<section class="panel">'
-            '<div class="eyebrow">Shortlist Compare</div>'
-            '<h2>Current property against active shortlist items</h2>'
+            '<div class="eyebrow">Shortlist Ranking</div>'
+            '<h2>Current property within the active shortlist ranking</h2>'
             '<div class="summary-grid" style="margin-top:0;">'
-            f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available for side-by-side comparison.</p></div>"}'
+            f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available in this run ranking.</p></div>"}'
             '</div>'
             f'{shortlist_matrix}'
             '</section>'
@@ -3017,7 +3017,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             '<div class="stat">'
             f'<span>Fit {int(round(float(row.get("score") or 0.0))):d}/100</span>'
             f'<strong>{html.escape(str(row.get("title") or "Property").strip())}</strong>'
-            f'<p>{html.escape(str(row.get("why_now") or "No comparison note stored.").strip())}</p>'
+            f'<p>{html.escape(str(row.get("why_now") or "No ranking note stored.").strip())}</p>'
             f'<p><span class="shortlist-delta-better">shortlist upside</span> <span class="shortlist-delta-worse">shortlist trade-off</span></p>'
             + ''.join(
                 f'<p><b>{html.escape(label)}:</b> {html.escape(_shortlist_metric_display(key, dict(row.get("metrics") or {}).get(key)))}</p>'
@@ -3030,8 +3030,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     )
     pure_shortlist_panel = (
         '<section class="card decision-card">'
-        '<div class="eyebrow">Shortlist Compare</div>'
-        '<h2>Current property against active shortlist items</h2>'
+        '<div class="eyebrow">Shortlist Ranking</div>'
+        '<h2>Current property within the active shortlist ranking</h2>'
         f'<div class="stat-grid">{pure_shortlist_cards or "<div class=\"stat\"><span>Shortlist</span><strong>No shortlist loaded</strong></div>"}</div>'
         '</section>'
     )
@@ -3971,16 +3971,16 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         (
             '<div class="kv">'
             f'<b>{html.escape(str(row.get("title") or "Property").strip())}</b>'
-            f'{html.escape(str(row.get("why_now") or row.get("score_label") or "No comparison note stored.").strip())}'
+            f'{html.escape(str(row.get("why_now") or row.get("score_label") or "No ranking note stored.").strip())}'
             '</div>'
         )
         for row in legacy_shortlist_rows[:3]
     )
     legacy_shortlist_panel = (
         '<section class="panel">'
-        '<div class="eyebrow">Shortlist Compare</div>'
-        '<h2>Current property against active shortlist items</h2>'
-        f'<div class="stack">{legacy_shortlist_cards or "<div class=\"kv\"><b>No shortlist loaded</b>No other active shortlist property is currently available for side-by-side comparison.</div>"}</div>'
+        '<div class="eyebrow">Shortlist Ranking</div>'
+        '<h2>Current property within the active shortlist ranking</h2>'
+        f'<div class="stack">{legacy_shortlist_cards or "<div class=\"kv\"><b>No shortlist loaded</b>No other active shortlist property is currently available in this run ranking.</div>"}</div>'
         '</section>'
     )
     legacy_decision_panel = (

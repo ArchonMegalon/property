@@ -3144,14 +3144,14 @@ def app_section_payload(
 
         preferred_match = next((item for item in match_reasons if item and not _is_tour_only(item)), "")
         if preferred_match:
-            return f"Preferred because: {preferred_match}"
+            return f"Ranked highly because: {preferred_match}"
         preferred_risk = next((item for item in mismatch_reasons if item and not _is_tour_only(item)), "")
         if preferred_risk:
             return f"Watch-out first: {preferred_risk}"
         if fit_summary and not _is_tour_only(fit_summary):
             return fit_summary
         if match_reasons:
-            return "Preferred because it stayed closest to the current brief on the available facts; 3D evidence helps verification but was not decisive on its own."
+            return "Ranked highly because it stayed closest to the current brief on the available facts; 3D evidence helps verification but was not decisive on its own."
         return ""
 
     if surface_scope.wants_run_views:

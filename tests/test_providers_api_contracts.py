@@ -8887,8 +8887,8 @@ def test_public_tour_renders_shortlist_compare_cards(
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
 
     assert page.status_code == 200
-    assert "Shortlist Compare" in page.text
-    assert "Current property against active shortlist items" in page.text
+    assert "Shortlist Ranking" in page.text
+    assert "Current property within the active shortlist ranking" in page.text
     assert "Strong Waehring listing" in page.text
     assert "Strong Doebling listing" in page.text
     assert "High-fit property alert with 360 media and preferred district match." in page.text
