@@ -5575,6 +5575,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     )
     assert selected_candidate.status_code == 200
     assert "Family flat near Tiergarten" in selected_candidate.text
+    assert 'href="/app/search?run_id=run-42"' in selected_candidate.text
 
     shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=headers)
     assert shortlist.status_code == 200
@@ -8770,10 +8771,12 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
         encoding="utf-8"
     )
 
+    assert "{% set review_query_suffix = ('?run_id=' ~ ((run_payload.get('run_id') or '')|urlencode)) if run_payload.get('run_id') else '' %}" in body
     assert "Use this as the short decision read before you contact the agent, request documents, or move on." not in body
     assert "Pick the answer that matches your real-world next step. Add only the reasons that matter." not in body
     assert "<strong>This will</strong>" not in body
     assert "<summary><strong>Next step</strong></summary>" in body
+    assert 'href="/app/search{{ review_query_suffix }}">Open search brief</a>' in body
 
 
 def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:

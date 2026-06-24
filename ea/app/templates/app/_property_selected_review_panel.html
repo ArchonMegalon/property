@@ -1,4 +1,5 @@
 <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
+  {% set review_query_suffix = ('?run_id=' ~ ((run_payload.get('run_id') or '')|urlencode)) if run_payload.get('run_id') else '' %}
   <div class="pqx-empty pqx-results-empty-state" data-pw-shortlist-empty-state hidden>
     <strong>No shortlist yet.</strong>
     <span class="pqx-actions">
@@ -160,7 +161,7 @@
         <textarea class="pqx-decision-note" rows="3" placeholder="What worked, failed, or still feels unclear?" data-pw-feedback-note></textarea>
         <div class="pqx-actions">
           <button class="pqx-button primary" type="button" data-pw-feedback-save aria-label="Save decision">Save answer</button>
-          <a class="pqx-link-button subtle" href="/app/search">Open search brief</a>
+          <a class="pqx-link-button subtle" href="/app/search{{ review_query_suffix }}">Open search brief</a>
         </div>
       </div>
       <details class="pqx-decision-advanced">
