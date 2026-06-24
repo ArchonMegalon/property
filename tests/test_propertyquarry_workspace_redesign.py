@@ -6014,6 +6014,8 @@ def test_propertyquarry_public_product_copy_uses_property_page_language() -> Non
     assert "hosted packet" not in pricing_page
     assert "property page" in product_page
     assert "property page" in pricing_page
+    assert "<span>Per provider</span><strong>{% if plan.max_results_per_source > 0 %}{{ plan.max_results_per_source }}{% else %}All ranked{% endif %}</strong>" in pricing_page
+    assert "<span>Per source</span>" not in pricing_page
 
 
 def test_propertyquarry_settings_and_onboarding_avoid_workspace_customer_copy() -> None:

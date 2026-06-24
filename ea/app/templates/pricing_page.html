@@ -108,7 +108,7 @@
       </p>
       <ul class="tier-facts">
         <li><span>Sources</span><strong>{% if plan.max_platforms > 0 %}{{ plan.max_platforms }}{% else %}All{% endif %}</strong></li>
-        <li><span>Per source</span><strong>{{ plan.max_results_per_source }}</strong></li>
+        <li><span>Per provider</span><strong>{% if plan.max_results_per_source > 0 %}{{ plan.max_results_per_source }}{% else %}All ranked{% endif %}</strong></li>
         <li><span>Score ceiling</span><strong>{{ plan.max_match_score }}/100</strong></li>
         <li><span>Research</span><strong>{{ plan.research_depth }}</strong></li>
         <li><span>Saved searches</span><strong>{% if plan.search_agent_limit > 0 %}{{ plan.search_agent_limit }}{% else %}Unlimited{% endif %}</strong></li>
