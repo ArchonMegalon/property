@@ -4994,7 +4994,7 @@ def app_section_payload(
                             (
                                 "All ranked"
                                 if property_plan_has_unlimited_results
-                                else str(property_preferences.get("max_results_per_source") or "3")
+                                else str(property_results_value)
                             ),
                             "Guardrail",
                         ),
