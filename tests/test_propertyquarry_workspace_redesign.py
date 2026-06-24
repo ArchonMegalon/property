@@ -157,6 +157,8 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert "PropertyQuarry bot <small>Telegram</small>" not in account
     assert "<h2>Notifications</h2>" in account
     assert ">Save notification routing</button>" in account
+    assert "preferred_notification_channel and preferred_notification_channel not in selected_notification_channels" in account
+    assert "preferred_notification_channel == 'telegram' and preferred_notification_channel not in selected_notification_channels" not in account
 
     assert "<h2>Plan and payments</h2>" in billing
     assert ">Open</a>" not in billing

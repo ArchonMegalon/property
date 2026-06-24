@@ -30,7 +30,7 @@
 {% if not preferred_notification_channel and selected_notification_channels == ['email'] %}
   {% set preferred_notification_channel = 'email' %}
 {% endif %}
-{% if preferred_notification_channel == 'telegram' and preferred_notification_channel not in selected_notification_channels %}
+{% if preferred_notification_channel and preferred_notification_channel not in selected_notification_channels %}
   {% set selected_notification_channels = selected_notification_channels + [preferred_notification_channel] %}
 {% endif %}
 {% set account_channels = rendered_account_status.get('channels') or {} %}
