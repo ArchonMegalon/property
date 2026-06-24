@@ -4418,7 +4418,16 @@ def test_scheduler_property_search_recovery_adopts_stale_in_progress_runs(monkey
         run_id=run_id,
         principal_id=principal_id,
         selected_platforms=("willhaben",),
-        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        property_search_preferences={
+            "country_code": "AT",
+            "location_query": "1010 Vienna",
+            "max_results_per_source": 1,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
         force_refresh=False,
     )
     state["status"] = "in_progress"
@@ -4449,6 +4458,7 @@ def test_scheduler_property_search_recovery_adopts_stale_in_progress_runs(monkey
     assert status["status"] == "failed"
     assert status["summary"]["repair_replacement_run_id"] == "scheduler-stale-repair"
     assert any(event["step"] == "run_repair_queued" for event in status["events"])
+    assert replacement_calls[0]["max_results_per_source"] is None
 
 
 def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) -> None:
@@ -4492,7 +4502,15 @@ def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) ->
         run_id=parent_run_id,
         principal_id=principal_id,
         selected_platforms=("willhaben",),
-        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna"},
+        property_search_preferences={
+            "country_code": "AT",
+            "location_query": "1010 Vienna",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
         force_refresh=False,
     )
     parent_state["status"] = "failed"
@@ -4505,7 +4523,16 @@ def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) ->
         run_id=replacement_run_id,
         principal_id=principal_id,
         selected_platforms=("willhaben",),
-        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        property_search_preferences={
+            "country_code": "AT",
+            "location_query": "1010 Vienna",
+            "max_results_per_source": 1,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
         force_refresh=True,
     )
     replacement_state["status"] = "starting"
@@ -4544,6 +4571,7 @@ def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) ->
     assert status["summary"]["repair_parent_run_ids"] == [parent_run_id]
     assert any(event["step"] == "recovery_pickup_started" for event in status["events"])
     assert scout_calls
+    assert scout_calls[0]["max_results_per_source"] is None
     assert scout_calls[0]["property_search_preferences"]["__property_search_run_id__"] == replacement_run_id
     assert replacement_calls == []
 

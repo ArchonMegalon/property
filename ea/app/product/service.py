@@ -916,6 +916,21 @@ def _property_search_effective_min_match_score(preferences: dict[str, object] | 
     return float(max(1.0, min(requested_score, float(cap))))
 
 
+def _property_search_resolve_max_results_per_source(
+    preferences: dict[str, object] | None,
+    requested_value: object,
+) -> int | None:
+    try:
+        snapshot = property_commercial_snapshot(preferences)
+        plan_key = str(snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+        plan_result_cap = int(snapshot.get("max_results_per_source") or 0)
+        if plan_key == "agent" and plan_result_cap <= 0:
+            return None
+        return max(1, min(plan_result_cap or 10, int(requested_value))) if requested_value else None
+    except Exception:
+        return None
+
+
 def _property_candidate_effective_fit_score(*, assessment_fit_score: object, ranked_fit_score: object) -> float:
     try:
         assessment_value = max(0.0, float(assessment_fit_score or 0.0))
@@ -25580,10 +25595,10 @@ class ProductService:
                     if str(item or "").strip()
                 )
                 max_results_value = parent_preferences.get("max_results_per_source") or parent_summary.get("max_results_per_source")
-                try:
-                    repair_max_results = max(1, min(10, int(max_results_value))) if max_results_value else None
-                except Exception:
-                    repair_max_results = None
+                repair_max_results = _property_search_resolve_max_results_per_source(
+                    parent_preferences,
+                    max_results_value,
+                )
                 replacement = self._start_property_search_repair_replacement_run(
                     principal_id=principal_id,
                     selected_platforms=parent_platforms,
@@ -31569,20 +31584,17 @@ class ProductService:
         ).strip() or "self"
         merged_preferences["force_refresh"] = bool(force_refresh)
 
-        commercial_snapshot = property_commercial_snapshot(merged_preferences)
-        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
-        plan_result_cap = int(commercial_snapshot.get("max_results_per_source") or 0)
         merged_max_results = merged_preferences.get("max_results_per_source")
         if max_results_per_source is None:
-            try:
-                if plan_key == "agent" and plan_result_cap <= 0:
-                    resolved_max_results = None
-                else:
-                    resolved_max_results = max(1, min(plan_result_cap or 10, int(merged_max_results))) if merged_max_results else None
-            except Exception:
-                resolved_max_results = None
+            resolved_max_results = _property_search_resolve_max_results_per_source(
+                merged_preferences,
+                merged_max_results,
+            )
         else:
-            resolved_max_results = None if plan_key == "agent" and plan_result_cap <= 0 else max(1, min(plan_result_cap or 10, int(max_results_per_source)))
+            resolved_max_results = _property_search_resolve_max_results_per_source(
+                merged_preferences,
+                max_results_per_source,
+            )
 
         if resolved_max_results and resolved_max_results > 0:
             merged_preferences["max_results_per_source"] = resolved_max_results
@@ -32616,10 +32628,10 @@ class ProductService:
         preferences["force_refresh"] = True
         summary = dict(state.get("summary") or {}) if isinstance(state.get("summary"), dict) else {}
         max_results_value = preferences.get("max_results_per_source") or summary.get("max_results_per_source")
-        try:
-            max_results_per_source = max(1, min(10, int(max_results_value))) if max_results_value else None
-        except Exception:
-            max_results_per_source = None
+        max_results_per_source = _property_search_resolve_max_results_per_source(
+            preferences,
+            max_results_value,
+        )
         parent_refs = tuple(str(value or "").strip() for value in parent_run_ids if str(value or "").strip())
         summary_updates: dict[str, object] = {
             "execution_pickup_status": "started",
@@ -32993,24 +33005,18 @@ class ProductService:
                 "sources": [],
             }
         effective_force_refresh = bool(force_refresh)
-        commercial_snapshot = property_commercial_snapshot(request_preferences)
-        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
-        try:
-            resolved_max_results = (
-                None
-                if plan_key == "agent"
-                else (max(1, min(10, int(max_results_per_source))) if max_results_per_source is not None else None)
-            )
-        except Exception:
-            resolved_max_results = None
+        resolved_max_results = _property_search_resolve_max_results_per_source(
+            request_preferences,
+            max_results_per_source,
+        )
 
         if resolved_max_results is None:
-            try:
-                requested_max = request_preferences.get("max_results_per_source")
-                if requested_max is not None:
-                    resolved_max_results = None if plan_key == "agent" else max(1, min(10, int(requested_max)))
-            except Exception:
-                resolved_max_results = None
+            requested_max = request_preferences.get("max_results_per_source")
+            if requested_max is not None:
+                resolved_max_results = _property_search_resolve_max_results_per_source(
+                    request_preferences,
+                    requested_max,
+                )
 
         preference_person_id = str(
             request_preferences.get("preference_person_id")
