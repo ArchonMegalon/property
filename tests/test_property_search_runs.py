@@ -50,6 +50,15 @@ def test_free_property_plan_stays_narrower_than_paid_lanes() -> None:
     assert snapshot["max_match_score"] == 35
 
 
+def test_agent_property_plan_exposes_unlimited_results_per_provider() -> None:
+    snapshot = property_commercial_snapshot(
+        {"property_commercial": {"active_plan_key": "agent", "active_until": "2999-01-01T00:00:00+00:00"}}
+    )
+
+    assert snapshot["current_plan_key"] == "agent"
+    assert snapshot["max_results_per_source"] == 0
+
+
 def test_property_notification_price_signal_uses_catalog_currencies() -> None:
     assert product_service._property_candidate_notification_price_signal(  # type: ignore[attr-defined]
         {},

@@ -118,7 +118,7 @@ _PAID_PLANS = {
         amount_eur="99.00",
         pass_days=30,
         max_platforms=0,
-        max_results_per_source=10,
+        max_results_per_source=0,
         search_agent_limit=0,
         max_match_score=60,
         research_depth="deep",
@@ -130,7 +130,7 @@ _PAID_PLANS = {
         auto_tour_policy="all_opt_in",
         features=(
             "all Austria provider lanes in one run",
-            "up to 10 results per provider",
+            "all ranked results per provider",
             "match threshold up to 60/100",
             "deep research and follow-up readiness",
             "opt-in 3D reconstruction floor plans and interior flythroughs for every found property",
@@ -413,7 +413,7 @@ def enforce_property_plan_limits(
     if int(current_plan.max_platforms) > 0 and platform_count > current_plan.max_platforms:
         target = "plus" if current_plan.plan_key == "free" else "agent"
         raise RuntimeError(f"property_plan_upgrade_required:{target}")
-    if max_results_per_source is not None and int(max_results_per_source) > int(current_plan.max_results_per_source):
+    if int(current_plan.max_results_per_source) > 0 and max_results_per_source is not None and int(max_results_per_source) > int(current_plan.max_results_per_source):
         target = "plus" if current_plan.plan_key == "free" else "agent"
         raise RuntimeError(f"property_plan_upgrade_required:{target}")
 

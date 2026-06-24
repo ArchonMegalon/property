@@ -31569,14 +31569,20 @@ class ProductService:
         ).strip() or "self"
         merged_preferences["force_refresh"] = bool(force_refresh)
 
+        commercial_snapshot = property_commercial_snapshot(merged_preferences)
+        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+        plan_result_cap = int(commercial_snapshot.get("max_results_per_source") or 0)
         merged_max_results = merged_preferences.get("max_results_per_source")
         if max_results_per_source is None:
             try:
-                resolved_max_results = max(1, min(10, int(merged_max_results))) if merged_max_results else None
+                if plan_key == "agent" and plan_result_cap <= 0:
+                    resolved_max_results = None
+                else:
+                    resolved_max_results = max(1, min(plan_result_cap or 10, int(merged_max_results))) if merged_max_results else None
             except Exception:
                 resolved_max_results = None
         else:
-            resolved_max_results = max(1, min(10, int(max_results_per_source)))
+            resolved_max_results = None if plan_key == "agent" and plan_result_cap <= 0 else max(1, min(plan_result_cap or 10, int(max_results_per_source)))
 
         if resolved_max_results and resolved_max_results > 0:
             merged_preferences["max_results_per_source"] = resolved_max_results
@@ -32987,11 +32993,13 @@ class ProductService:
                 "sources": [],
             }
         effective_force_refresh = bool(force_refresh)
+        commercial_snapshot = property_commercial_snapshot(request_preferences)
+        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
         try:
             resolved_max_results = (
-                max(1, min(10, int(max_results_per_source)))
-                if max_results_per_source is not None
-                else None
+                None
+                if plan_key == "agent"
+                else (max(1, min(10, int(max_results_per_source))) if max_results_per_source is not None else None)
             )
         except Exception:
             resolved_max_results = None
@@ -33000,7 +33008,7 @@ class ProductService:
             try:
                 requested_max = request_preferences.get("max_results_per_source")
                 if requested_max is not None:
-                    resolved_max_results = max(1, min(10, int(requested_max)))
+                    resolved_max_results = None if plan_key == "agent" else max(1, min(10, int(requested_max)))
             except Exception:
                 resolved_max_results = None
 
@@ -33028,8 +33036,6 @@ class ProductService:
             principal_id=principal_id,
             preferences=request_preferences,
         )
-        commercial_snapshot = property_commercial_snapshot(request_preferences)
-        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
         paid_plan = plan_key in {"plus", "agent"}
         notification_budget_remaining = int(notification_budget.get("remaining") or 0)
         notification_budget_suppressed_total = 0
@@ -35830,7 +35836,7 @@ class ProductService:
                     "filter_near_miss_notified_total": filter_near_miss_notified_for_source,
                     "filter_near_misses": filter_near_misses_for_source[:5],
                     "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
-                    "top_candidates": sorted_top_candidates_for_source[:5],
+                    "top_candidates": sorted_top_candidates_for_source if plan_key == "agent" else sorted_top_candidates_for_source[:5],
                     "research_candidates": sorted_top_candidates_for_source,
                     "timing_ms": {
                         "provider_fetch": round(provider_fetch_ms, 2),

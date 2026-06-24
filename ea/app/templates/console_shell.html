@@ -1281,7 +1281,7 @@
           </small>
           <small class="console-run-note">
             {{ commercial.get('max_platforms') or 1 }} platform{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}
-            | up to {{ commercial.get('max_results_per_source') or 2 }} results per provider
+            | {% if (commercial.get('max_results_per_source') or 0)|int <= 0 %}all ranked results per provider{% else %}up to {{ commercial.get('max_results_per_source') or 2 }} results per provider{% endif %}
           </small>
           <div class="console-inline-status" data-property-billing-status></div>
           <div class="console-inline-error" data-property-billing-error></div>

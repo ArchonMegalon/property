@@ -2471,7 +2471,7 @@ def test_property_surface_state_builds_billing_truth_snapshot() -> None:
             "current_plan_key": "agent",
             "research_depth": "deep",
             "max_platforms": 12,
-            "max_results_per_source": 5,
+            "max_results_per_source": 0,
         },
         default_billing_plan="agent",
         billing_enabled_plans=["plus", "agent"],
@@ -2484,6 +2484,15 @@ def test_property_surface_state_builds_billing_truth_snapshot() -> None:
     assert "provider_labels_by_plan" not in snapshot
     assert snapshot["order_endpoint"] == "/billing/order"
     assert snapshot["fleet_digest"] == {"summary": "Visible"}
+
+
+def test_property_workspace_billing_shows_agent_unlimited_provider_results() -> None:
+    payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+    shell_source = (Path(__file__).resolve().parents[1] / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+
+    assert "all ranked results per provider" in payload_source
+    assert '("All ranked" if int(commercial.get("max_results_per_source") or 0) <= 0 else str(commercial.get("max_results_per_source") or 2))' in payload_source
+    assert "all ranked results per provider" in shell_source
 
 
 def test_property_surface_state_builds_preference_manager_snapshot() -> None:

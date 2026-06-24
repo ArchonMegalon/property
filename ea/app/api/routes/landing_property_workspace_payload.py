@@ -2273,7 +2273,7 @@ def property_workspace_payload(
             {"label": "Plan", "value": current_plan_label, "detail": "Active plan.", "href": f"/app/billing{run_suffix}"},
             {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "Research depth for each property.", "href": f"/app/billing{run_suffix}"},
             {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Portal allowance for the active plan.", "href": f"/app/billing{run_suffix}"},
-            {"label": "Per provider", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked homes per provider.", "href": f"/app/billing{run_suffix}"},
+            {"label": "Per provider", "value": ("All ranked" if int(commercial.get("max_results_per_source") or 0) <= 0 else str(commercial.get("max_results_per_source") or 2)), "detail": "Maximum ranked homes per provider.", "href": f"/app/billing{run_suffix}"},
         ],
         "settings": [
             {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
@@ -2472,6 +2472,7 @@ def property_workspace_payload(
     current_plan_spec = next((plan for plan in plan_catalog if str(plan.get("plan_key") or "").strip().lower() == current_plan_key), {})
     current_platform_cap = int(current_plan_spec.get("max_platforms") or commercial.get("max_platforms") or 0)
     current_result_cap = int(current_plan_spec.get("max_results_per_source") or commercial.get("max_results_per_source") or 0)
+    current_result_cap_label = "all ranked results per provider" if current_result_cap <= 0 else f"up to {current_result_cap} results per provider"
     current_match_cap = int(current_plan_spec.get("max_match_score") or commercial.get("max_match_score") or 0)
     commercial_state = dict(commercial.get("property_commercial") or {})
     commercial_status = str(commercial_state.get("status") or "").strip().lower()
@@ -2494,7 +2495,7 @@ def property_workspace_payload(
         ),
         row_item(
             "Coverage",
-            f"{commercial.get('max_platforms') or 'Multi'} providers | up to {commercial.get('max_results_per_source') or 2} results per provider",
+            f"{commercial.get('max_platforms') or 'Multi'} providers | {current_result_cap_label}",
             "Limits",
         ),
         row_item(
@@ -2567,7 +2568,7 @@ def property_workspace_payload(
         match_cap = int(plan.get("max_match_score") or 0)
         delta_parts = [
             f"{platform_cap} platforms" if platform_cap else "",
-            f"{result_cap} results per provider" if result_cap else "",
+            "all ranked results per provider" if result_cap <= 0 else f"{result_cap} results per provider",
             f"{match_cap}/100 match ceiling" if match_cap else "",
             f"{str(plan.get('research_depth') or '').strip()} research".strip() if str(plan.get("research_depth") or "").strip() else "",
         ]
@@ -2576,7 +2577,9 @@ def property_workspace_payload(
             improvement_parts.append(f"+{platform_cap - current_platform_cap} more portals")
         elif platform_cap < current_platform_cap:
             improvement_parts.append(f"{current_platform_cap - platform_cap} fewer platforms, but a tighter working lane")
-        if result_cap > current_result_cap:
+        if result_cap <= 0 and current_result_cap > 0:
+            improvement_parts.append("unlimited ranked results per provider")
+        elif result_cap > current_result_cap:
             improvement_parts.append(f"+{result_cap - current_result_cap} more results per provider")
         if match_cap > current_match_cap:
             improvement_parts.append(f"+{match_cap - current_match_cap} points of shortlist ceiling")
