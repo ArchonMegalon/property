@@ -44,11 +44,16 @@ Required behavior:
 - Billing UI must show current plan, checkout state, recovery state, history, and provider status without disrupting the search workflow.
 - Directory profiles may be projected only after public-field rights review and redaction.
 - Webhooks require signature verification, replay protection, and receipt logging before they can affect local billing or directory state.
+- Billing events from Brilliant Directories are advisory until reconciled against PropertyQuarry-owned customer, plan, invoice, and entitlement records.
+- Checkout, upgrade, downgrade, refund, failed-payment, cancellation, and renewal states must have mobile-tested UI, email/notification copy, and audit receipts.
+- Brilliant Directories cannot create privileged accounts, raise agent-tier limits, change provider access, publish listings, or reveal billing/private profile data.
 
 ## documentation.ai Whole-Project Audit Scope
 
 The supplied whole-project audit is in scope as a gold-board blocker list. Its highest-risk findings must be resolved or explicitly dispositioned before a production-gold claim:
 
+- Audit verdict to carry forward: EA core is an engineering release candidate, the memorial plane is not present/proven on the audited public `main`, whole-project gold is not claimable from that public branch, and production security posture is blocked until deployment privilege is hardened.
+- The first project decision is branch authority, not another feature: identify whether public `main`, a private/local branch, or another commit is the source of truth for the deployed product and receipts.
 - Establish an authoritative release manifest: repository, branch, commit SHA, deployment ID, public origin, artifact set, and release label.
 - Reconcile public `main`, deployed commit, receipts, and any private/local branch state before regenerating receipts.
 - Remove host Docker control from default API/worker deployment profiles: no `/var/run/docker.sock`, no `/docker` mount, and no broad host repository access in the base stack.
@@ -62,6 +67,31 @@ The supplied whole-project audit is in scope as a gold-board blocker list. Its h
 - Harden public network posture: localhost binding or authenticated ingress, no placeholder secrets, explicit trusted proxy configuration.
 - Split product README from operator/lab docs and add a markdown link checker.
 - Restore or separately publish any memorial/gold plane only with current-HEAD proof receipts.
+
+### P0 Audit Patch Order
+
+1. Declare the authoritative repository, branch, commit, deployment ID, public origin, artifact set, and release label.
+2. Restore or separately publish any memorial/source plane only if it is intentionally part of the release.
+3. Remove `/var/run/docker.sock`, `/docker`, and host repository mounts from the default API/worker/property stack.
+4. Run core runtime containers as non-root.
+5. Add locked dependencies, pinned browser/runtime versions, pinned base image digests, dependency audit, container scan, and SBOM.
+6. Replace configuration-derived operator access with durable identity, workspace membership, RBAC, scoped grants, and action authorization.
+7. Disable loopback no-auth and principal-header overrides in production.
+
+### P1 Audit Patch Order
+
+1. Split core, provider-lab, media-worker, property, memorial, and unrelated release-control deployment profiles.
+2. Add type/lint, security/SAST, dependency/container, coverage, accessibility, visual regression, performance, and release-artifact freshness gates.
+3. Bind public runtime safely through localhost/authenticated ingress and fail startup on placeholder secrets.
+4. Add session revocation, session-version checks, key rotation, and security-event ledger receipts.
+5. Repair documentation links and split product docs from operator/provider/lab docs.
+
+### P2 Audit Patch Order
+
+1. Add one unified release/status page.
+2. Add runtime/provider cost and reliability SLOs.
+3. Add mobile, empty-state, large-workspace, and high-zoom visual tests.
+4. Reintroduce any memorial or whole-project gold claim only through a separate current-HEAD proof set.
 
 ## Current Priority Order
 

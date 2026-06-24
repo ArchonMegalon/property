@@ -60,6 +60,27 @@ The runtime lane only accepts public directory search terms such as keyword, cat
 
 The adapter does not create users, posts, leads, invoices, reviews, property listings, or public pages. Those require a separate rights and approval gate. Billing handoff is limited to an HTTPS, allowlisted, white-label account/payment URL; local plan state and entitlement checks must continue to come from PropertyQuarry-owned records.
 
+## Billing Handoff Contract
+
+Brilliant Directories billing support is a premium-account convenience, not a billing authority.
+
+PropertyQuarry owns:
+
+- customer identity and account creation;
+- current plan and agent-tier entitlement;
+- invoice and payment-status display;
+- search/result limits and unlimited agent-tier behavior;
+- refund, cancellation, renewal, failed-payment, and support state;
+- access checks for search, shortlist, research, tours, walkthroughs, notifications, and exports.
+
+Brilliant Directories may provide only:
+
+- a white-label HTTPS checkout or account-management handoff URL after host allowlist validation;
+- public-safe directory profile data after field-rights review;
+- signed webhook notifications that are stored as receipts and reconciled locally before any user-visible state changes.
+
+Every billing state must have a mobile-safe UI path and a local receipt. If Brilliant Directories is unavailable, misconfigured, unsigned, replayed, or returns a non-allowlisted URL, PropertyQuarry must fail closed and keep the user on the local billing/recovery surface.
+
 ## Verification
 
 ```bash

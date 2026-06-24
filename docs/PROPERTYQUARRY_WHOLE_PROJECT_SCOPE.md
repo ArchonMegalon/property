@@ -25,6 +25,8 @@ Whole-project work includes every system below:
 15. Observability: SLOs, structured logs, queue depth, provider success, cost per run, incident signals, and live smoke checks.
 16. Documentation, help center, legal pages, provider attribution, generated-tour disclaimers, and localization.
 17. Integration governance for LTD/provider lanes such as Subscribr, MetaSurvey, ApiX-Drive, Invoiless, Lunacal, Documentation.AI, Paperguide, Internxt, ApproveThis, Unmixr, and Brilliant Directories.
+18. Brilliant Directories billing and directory handoff, with PropertyQuarry retaining plan, invoice, entitlement, access-check, ranking, and customer-data source of truth.
+19. Documentation.AI/release-audit governance, including authoritative release manifest, branch/deployment reconciliation, security posture, reproducible builds, CI gates, and documentation separation.
 
 ## Definition Of Done
 
@@ -55,6 +57,16 @@ The additional whole-scope goal is to keep moving PropertyQuarry from run-centri
 - governed provider and content integrations.
 
 This goal remains active until those systems are implemented, tested, and visible in the relevant customer or operator surfaces.
+
+## Gold Board Extensions
+
+The active gold board also includes these non-negotiable extensions:
+
+- Billing must feel premium on desktop and mobile: current plan, checkout, upgrade, downgrade, cancellation, renewal, failed-payment recovery, invoice history, refunds, VAT/tax copy, entitlement state, and support path must be visible without breaking the search workflow.
+- Brilliant Directories can be used only as a governed white-label directory or payment/account handoff lane. It cannot own billing truth, entitlements, provider access, private user profile data, property facts, ranking, search scope, or publication approval.
+- Any Brilliant Directories webhook is advisory until signature verification, replay protection, receipt logging, and local entitlement reconciliation pass.
+- Documentation.AI/audit intake is part of the release gate. A gold claim requires an authoritative release manifest, clean branch/deployment mapping, hardened Docker/runtime posture, reproducible build proof, CI/security/accessibility/visual gates, and current-HEAD receipts.
+- Mobile phone UI is a first-class release surface across search, shortlist, research, billing, account, alerts, settings, authentication, and public conversion pages. A desktop-only pass is incomplete.
 
 ### Current Additional Execution Goal (active)
 
