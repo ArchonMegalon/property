@@ -33017,6 +33017,9 @@ class ProductService:
                     request_preferences,
                     requested_max,
                 )
+        commercial_snapshot = property_commercial_snapshot(request_preferences)
+        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+        unlimited_provider_results = plan_key == "agent" and resolved_max_results is None
 
         preference_person_id = str(
             request_preferences.get("preference_person_id")
@@ -33381,8 +33384,11 @@ class ProductService:
             )
             provider_cache_key = _property_source_listing_cache_key(source_url=source_url, source_spec=source_spec)
             default_max = max(1, min(int(source_spec.get("max_results") or 3), 10))
-            max_results = default_max if resolved_max_results is None else resolved_max_results
-            max_results = max(1, min(10, int(max_results)))
+            max_results = None if unlimited_provider_results else (
+                default_max if resolved_max_results is None else resolved_max_results
+            )
+            if max_results is not None:
+                max_results = max(1, min(10, int(max_results)))
             notify_telegram = bool(source_spec.get("notify_telegram", True))
             account_email = str(source_spec.get("account_email") or "").strip().lower()
             source_preference_person_id = str(source_spec.get("preference_person_id") or "").strip() or preference_person_id
@@ -33768,11 +33774,17 @@ class ProductService:
             scan_truncated = bool(scan_cap and len(listing_urls) > scan_cap)
             if scan_cap:
                 listing_urls = listing_urls[:scan_cap]
+            analysis_window = max(1, len(listing_urls)) if unlimited_provider_results else max(1, int(max_results or 1))
+            shortlist_target_label = (
+                "all ranked matches"
+                if unlimited_provider_results
+                else f"up to {int(max_results or 1)} match(es)"
+            )
             _report(
                 step="source_rank_prep",
                 message=(
                     f"Found {raw_listing_count} raw listing candidates for {source_label}; "
-                    f"scanning {len(listing_urls)} for up to {max_results} match(es) above "
+                    f"scanning {len(listing_urls)} for {shortlist_target_label} above "
                     f"{int(min_match_score)}/100."
                 ),
                 status="in_progress",
@@ -33800,7 +33812,7 @@ class ProductService:
                         8,
                         max(1, len(listing_urls))
                         + _property_search_analysis_cap_per_source(
-                            max_results=max_results,
+                            max_results=analysis_window,
                             candidate_total=max(1, len(listing_urls)),
                             exact_scope=_property_search_has_exact_scope(
                                 request_preferences=request_preferences,
@@ -34491,14 +34503,18 @@ class ProductService:
                 preliminary_location_miss_count += max(0, len(preliminary_rows) - len(preliminary_matching_rows))
                 preliminary_rows = preliminary_matching_rows
             analysis_limit = len(preliminary_rows)
-            enrichment_limit = _property_search_analysis_cap_per_source(
-                max_results=max_results,
-                candidate_total=analysis_limit,
-                exact_scope=_property_search_has_exact_scope(
-                    request_preferences=request_preferences,
-                    location_hints=source_location_hints,
-                ),
-                focused_scope=len(specs) == 1,
+            enrichment_limit = (
+                analysis_limit
+                if unlimited_provider_results
+                else _property_search_analysis_cap_per_source(
+                    max_results=max(1, int(max_results or 1)),
+                    candidate_total=analysis_limit,
+                    exact_scope=_property_search_has_exact_scope(
+                        request_preferences=request_preferences,
+                        location_hints=source_location_hints,
+                    ),
+                    focused_scope=len(specs) == 1,
+                )
             )
             if analysis_limit > 0:
                 _report(
@@ -34514,8 +34530,12 @@ class ProductService:
             top_watch_candidate_for_source: dict[str, object] | None = None
             for ordinal, row in enumerate(preliminary_rows[:enrichment_limit], start=1):
                 if (
+                    not unlimited_provider_results
+                    and max_results is not None
+                    and (
                     sum(1 for ranked_row in ranked_rows if not bool(ranked_row.get("below_match_threshold")))
                     >= max_results
+                    )
                 ):
                     break
                 property_url = str(row.get("property_url") or "").strip()
@@ -35220,7 +35240,8 @@ class ProductService:
                     if search_goal == "investment"
                     else "Sparse listing data: verify location, availability, layout, and operating costs before treating this as a fit."
                 )
-                for fallback_row in preliminary_rows[:max_results]:
+                fallback_rows = preliminary_rows if unlimited_provider_results else preliminary_rows[: max(1, int(max_results or 1))]
+                for fallback_row in fallback_rows:
                     property_url = str(fallback_row.get("property_url") or "").strip()
                     if not property_url:
                         continue
@@ -35330,12 +35351,17 @@ class ProductService:
                 row for row in ranked_rows if bool(row.get("below_match_threshold"))
             ]
             if strong_ranked_rows:
-                ranked_rows = strong_ranked_rows[:max_results]
-                remaining_slots = max(0, int(max_results) - len(ranked_rows))
-                if remaining_slots > 0 and fallback_ranked_rows:
-                    ranked_rows.extend(fallback_ranked_rows[:remaining_slots])
-            elif len(fallback_ranked_rows) > max_results:
-                ranked_rows = fallback_ranked_rows[:max_results]
+                if unlimited_provider_results:
+                    ranked_rows = [*strong_ranked_rows, *fallback_ranked_rows]
+                else:
+                    ranked_rows = strong_ranked_rows[: max(1, int(max_results or 1))]
+                    remaining_slots = max(0, int(max_results or 1) - len(ranked_rows))
+                    if remaining_slots > 0 and fallback_ranked_rows:
+                        ranked_rows.extend(fallback_ranked_rows[:remaining_slots])
+            elif not unlimited_provider_results and len(fallback_ranked_rows) > int(max_results or 1):
+                ranked_rows = fallback_ranked_rows[: int(max_results or 1)]
+            else:
+                ranked_rows = fallback_ranked_rows
             _report(
                 step="source_shortlist",
                 message=f"Built shortlist of {len(ranked_rows)} listing(s) for {source_label}.",

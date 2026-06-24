@@ -5266,6 +5266,110 @@ def test_property_search_keeps_demoted_soft_mismatch_candidates_in_remaining_sho
     assert result["sources"][0]["top_candidates"][1]["below_match_threshold"] is True
 
 
+def test_agent_property_search_keeps_all_ranked_results_per_provider(monkeypatch) -> None:
+    principal_id = "exec-property-agent-unlimited-provider-results"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Agent Unlimited Provider Results")
+    service = ProductService(client.app.state.container)
+
+    source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
+    listing_urls = [
+        f"https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/unlimited-{index}/"
+        for index in range(12)
+    ]
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 3,
+            }
+        ],
+    )
+    monkeypatch.setattr(product_service, "_property_search_interleave_by_provider_group", lambda specs: list(specs))
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": list(listing_urls),
+                "provider_cache_state": {"status": "miss", "cache_key": "willhaben:agent-unlimited"},
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+
+    def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+        slug = property_url.rstrip("/").rsplit("/", 1)[-1]
+        return {
+            "listing_id": slug,
+            "title": f"Mietwohnung {slug}",
+            "summary": "78 m2, 3 Zimmer, Gesamtmiete EUR 1.650, Balkon.",
+            "property_facts_json": {
+                "postal_name": "1020 Wien",
+                "area_sqm": 78,
+                "rooms": 3,
+                "total_rent_eur": 1650,
+                "has_balcony": True,
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "fit_score": 84.0,
+            "confidence": 0.82,
+            "predicted_reaction": "consider",
+            "recommendation": "strong_fit",
+            "match_reasons_json": ["Strong fit"],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    monkeypatch.setattr(ProductService, "_warm_property_public_preview_cache_for_sources", lambda self, **kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {"status": "opened", "editor_url": f"/app/research/{kwargs.get('source_ref') or 'candidate'}"},
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "1020 Vienna",
+            "property_type": "apartment",
+            "min_match_score": 40,
+            "require_floorplan": False,
+            "max_results_per_source": 1,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        force_refresh=True,
+    )
+
+    source = dict(result["sources"][0])
+    assert result["listing_total"] == len(listing_urls)
+    assert source["listing_total"] == len(listing_urls)
+    assert len(source["top_candidates"]) == len(listing_urls)
+    assert len(source["research_candidates"]) == len(listing_urls)
+    assert {row["property_url"] for row in source["top_candidates"]} == set(listing_urls)
+
+
 def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypatch) -> None:
     principal_id = "exec-property-soft-filter-equivalence"
     client = build_property_client(principal_id=principal_id)
