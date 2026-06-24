@@ -128,7 +128,7 @@
                   <strong>{{ row.get('title') or 'Homes outside the brief' }}</strong>
                   <span class="pqx-note">{{ row.get('detail') or 'Some candidates stayed outside the shortlist because of the current brief or missing evidence.' }}</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button primary" href="/app/properties">{{ row.get('action_label') or 'Adjust search' }}</a>
+                    <a class="pqx-button primary" href="/app/properties{{ topnav_query_suffix }}">{{ row.get('action_label') or 'Adjust search' }}</a>
                   </div>
                 </div>
                 {% else %}
@@ -136,14 +136,14 @@
                   <strong>Widen the selected area</strong>
                   <span class="pqx-note">Keep hard requirements, but add nearby districts or a small radius before rerunning.</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button primary" href="/app/properties">Adjust search</a>
+                    <a class="pqx-button primary" href="/app/properties{{ topnav_query_suffix }}">Adjust search</a>
                   </div>
                 </div>
                 <div class="pqx-filtered-dialog-rule">
                   <strong>Soften one preference</strong>
                   <span class="pqx-note">Leave must-haves strict; move nice-to-have rules into scoring so good homes can surface.</span>
                   <div class="pqx-actions">
-                    <a class="pqx-button subtle" href="/app/properties">Review what matters</a>
+                    <a class="pqx-button subtle" href="/app/properties{{ topnav_query_suffix }}">Review what matters</a>
                   </div>
                 </div>
                 {% endfor %}

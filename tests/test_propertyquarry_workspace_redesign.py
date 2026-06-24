@@ -5521,6 +5521,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "about 12 min" in search.text
     assert 'data-tour-status="queued"' in search.text
     assert 'data-tour-eta="about 12 min"' in search.text
+    assert 'href="/app/properties/packets?run_id=run-42"' in search.text
+    assert 'href="/app/properties?run_id=run-42">Edit search</a>' in search.text
     assert "still waiting on floorplans" in search.text
     assert "not scheduled yet" not in search.text
     assert "360 not ready" not in search.text
@@ -5918,7 +5920,17 @@ def test_property_decision_workbench_uses_shared_research_shell_contract() -> No
     assert '<span class="pqx-brand-copy">Research desk</span>' in body
     assert 'href="/app/properties/packets{{ topnav_query_suffix }}">Review</a>' in body
     assert 'href="/app/properties{{ topnav_query_suffix }}">Edit search</a>' in body
+    assert 'href="/app/properties{{ topnav_query_suffix }}">{{ row.get(\'action_label\') or \'Adjust search\' }}</a>' in body
+    assert 'href="/app/properties{{ topnav_query_suffix }}">Review what matters</a>' in body
     assert "Decision desk" not in body
+
+
+def test_property_results_list_keeps_adjust_search_in_active_run() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_results_list.html"
+    body = template_path.read_text(encoding="utf-8")
+
+    assert "{% set results_query_suffix = ('?run_id=' ~ ((run.get('run_id') or '')|urlencode)) if run.get('run_id') else '' %}" in body
+    assert 'href="/app/properties{{ results_query_suffix }}">Adjust search</a>' in body
 
 
 def test_property_object_detail_feedback_script_avoids_magicfit_preview_innerhtml() -> None:

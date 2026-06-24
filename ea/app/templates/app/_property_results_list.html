@@ -1,5 +1,6 @@
 <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
   {% set run_summary = run.get('summary') or {} %}
+  {% set results_query_suffix = ('?run_id=' ~ ((run.get('run_id') or '')|urlencode)) if run.get('run_id') else '' %}
   {% set is_shortlist_surface = surface_mode == 'shortlist' %}
     {% set is_research_surface = surface_mode == 'research' %}
     {% set run_sources = run_summary.get('sources') or [] %}
@@ -249,7 +250,7 @@
       <strong>No ranked homes are ready yet.</strong>
       <span class="pqx-note">Relax one hard rule to rank more homes.</span>
       <span class="pqx-actions">
-        <a class="pqx-button primary" href="/app/properties">Adjust search</a>
+        <a class="pqx-button primary" href="/app/properties{{ results_query_suffix }}">Adjust search</a>
         {% if filtered_total or score_demoted_total %}
         <button class="pqx-button subtle" type="button" data-pqx-filtered-open>Widen the brief</button>
         {% endif %}
