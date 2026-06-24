@@ -796,6 +796,10 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Use a saved session, email link, or connected identity." in sign_in.text
     assert "First-time provider sign-in also creates the account automatically." in sign_in.text
     assert "auth-provider-icon" in sign_in.text
+    assert "Private hardware sign-in lane for approved devices." in sign_in.text
+    assert ">Restricted<" in sign_in.text
+    assert "verified rollout" not in sign_in.text
+    assert ">Invite only<" not in sign_in.text
     assert "first useful memo" not in page.text
     assert 'data-milestone="commitments"' not in page.text
     assert "Executive Assistant" not in page.text
