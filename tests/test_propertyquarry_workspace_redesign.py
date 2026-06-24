@@ -12635,6 +12635,15 @@ def test_property_settings_subpages_keep_property_shell_and_mobile_dock() -> Non
     client = build_property_client(principal_id="pq-settings-shell-contract")
     start_workspace(client, mode="personal", workspace_name="Property Office")
     headers = {"host": "propertyquarry.com"}
+    required_nav = {
+        "/app/search": "Search",
+        "/app/shortlist": "Shortlist",
+        "/app/research": "Research",
+        "/app/agents": "Saved searches",
+        "/app/alerts": "Alerts",
+        "/app/billing": "Billing",
+        "/app/account": "Account",
+    }
 
     for path in ("/app/settings/google", "/app/settings/access", "/app/settings/outcomes", "/app/settings/support"):
         response = client.get(path, headers=headers)
@@ -12643,6 +12652,28 @@ def test_property_settings_subpages_keep_property_shell_and_mobile_dock() -> Non
         assert 'data-property-mobile-dock' in response.text, path
         assert 'aria-label="PropertyQuarry mobile navigation"' in response.text, path
         assert 'class="pq-rail-link active" href="/app/account"' in response.text, path
+        topnav_match = re.search(
+            r'<nav class="pq-appbar-mobile-nav"[^>]*data-property-console-topnav[^>]*>(?P<nav>.*?)</nav>',
+            response.text,
+            flags=re.DOTALL,
+        )
+        dock_match = re.search(
+            r'<nav class="pq-mobile-nav"[^>]*data-property-mobile-dock[^>]*>(?P<nav>.*?)</nav>',
+            response.text,
+            flags=re.DOTALL,
+        )
+        assert topnav_match, path
+        assert dock_match, path
+        topnav = topnav_match.group("nav")
+        dock = dock_match.group("nav")
+        for href, label in required_nav.items():
+            assert label in topnav, path
+            assert label in dock, path
+            if href != "/app/account":
+                assert f'href="{href}' in topnav, path
+                assert f'href="{href}' in dock, path
+        assert 'aria-current="page">Account</span>' in topnav, path
+        assert 'class="active" href="/app/account' in dock, path
 
 
 def test_property_google_settings_uses_fast_local_status(monkeypatch) -> None:
