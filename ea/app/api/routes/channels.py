@@ -2343,7 +2343,7 @@ def _telegram_property_alert_policy_reply(
     )
     threshold = int(float(policy.get("good_fit_min_score") or 80.0))
     return (
-        "Understood. PropertyQuarry will now score and compare property alerts automatically, "
+        "Understood. PropertyQuarry will now score and rank property alerts automatically, "
         f"and only notify you here when the fit looks genuinely good, around {threshold}/100 or shortlist-level."
     )
 

@@ -1769,7 +1769,7 @@ def test_telegram_property_alert_policy_reply_uses_propertyquarry_brand(monkeypa
         lower="do all of that by itself",
     )
 
-    assert "PropertyQuarry will now score and compare property alerts automatically" in reply
+    assert "PropertyQuarry will now score and rank property alerts automatically" in reply
     assert "EA will now score" not in reply
 
 
@@ -4147,7 +4147,7 @@ def test_telegram_ingest_updates_property_alert_policy_from_plain_message(monkey
     assert response.status_code == 200
     body = response.json()
     assert body["reply_sent"] is True
-    assert "score and compare property alerts automatically" in body["reply_text"]
+    assert "score and rank property alerts automatically" in body["reply_text"]
     assert sent and "only notify you here when the fit looks genuinely good" in str(sent[0]["payload"]["text"])
 
 
