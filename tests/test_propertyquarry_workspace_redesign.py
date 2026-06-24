@@ -490,8 +490,8 @@ def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tool
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/object_detail.html"
     body = template_path.read_text(encoding="utf-8")
     assert "{% set object_query_suffix = ('?run_id=' ~ (object_run_id|urlencode)) if object_run_id else '' %}" in body
-    assert "Open question helper" in body
-    assert "Visualize furnished living" in body
+    assert "Open guided questions" in body
+    assert "Preview furnished living" in body
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the packet PDF dossier" in body
@@ -4180,7 +4180,7 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "Decision call" not in body
     assert "Open Magic Fit" not in body
     assert "Request missing documents" in body
-    assert "Open question helper" in body
+    assert "Open guided questions" in body
     assert "data-prd-map-overlay" in body
     assert "Questions worth asking next" in body
     assert "3D tour queued" in body
@@ -5655,7 +5655,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Request missing documents" in packet.text
     assert "Offer candidate" in packet.text
     assert "Optional tools" in packet.text
-    assert "Open question helper" in packet.text
+    assert "Open guided questions" in packet.text
     assert "Ask agent next" not in packet.text
     assert "Tracked follow-up" in packet.text
     assert "What changed" in packet.text

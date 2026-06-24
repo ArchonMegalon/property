@@ -743,12 +743,12 @@
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
 	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-clippy-toggle>Open question helper</button>
+	        <button class="console-action" type="button" data-object-clippy-toggle>Open guided questions</button>
 	      </div>
 	      <div class="object-list" data-object-clippy-panel hidden>
 	        <div class="object-row">
 	          <div>
-	            <strong>Question helper</strong>
+	            <strong>Guided questions</strong>
 	            <small>Ask one grounded question about this property. The helper only answers from packet facts, timeline, stakeholder feedback, and investment context already on this page.</small>
 	          </div>
 	          <div class="object-tag">Opt-in</div>
@@ -761,13 +761,13 @@
 	        </div>
 	        <textarea data-object-clippy-question rows="3" placeholder="Ask about blockers, household disagreement, underwriting risk, or the next agent follow-up."></textarea>
 	        <div class="object-actions">
-	          <button class="console-action" type="button" data-object-clippy-ask>Ask question helper</button>
+	          <button class="console-action" type="button" data-object-clippy-ask>Ask guided question</button>
 	        </div>
 	        <div class="object-copy" data-object-clippy-status></div>
 	        <div class="object-list" data-object-clippy-answer></div>
 	      </div>
 	      <div class="object-actions" style="margin-top: 12px;">
-	        <button class="console-action" type="button" data-object-magicfit-toggle>Visualize furnished living</button>
+	        <button class="console-action" type="button" data-object-magicfit-toggle>Preview furnished living</button>
 	      </div>
 	      <div class="object-magicfit-panel" data-object-magicfit-panel hidden>
 	        <div class="object-row">
@@ -1077,7 +1077,7 @@
     const safeRows = Array.isArray(rows) ? rows : [];
     const rowsToRender = safeRows.length
       ? safeRows
-      : [{ title: 'No tracked question yet', detail: 'Use the question helper or the suggested next question to start a tracked follow-up.', tag: 'Waiting' }];
+      : [{ title: 'No tracked question yet', detail: 'Use guided questions or the suggested next question to start a tracked follow-up.', tag: 'Waiting' }];
     rowsToRender.forEach((row) => {
       const feedbackId = String(row?.feedback_id || '').trim();
       const container = document.createElement('div');
@@ -1170,7 +1170,7 @@
     const summaryRow = document.createElement('div');
     summaryRow.className = 'object-row';
     const summaryWrap = document.createElement('div');
-    appendTextNode(summaryWrap, 'strong', body?.name || 'Question helper');
+    appendTextNode(summaryWrap, 'strong', body?.name || 'Guided questions');
     appendTextNode(summaryWrap, 'small', body?.answer || 'No answer returned.');
     summaryRow.appendChild(summaryWrap);
     appendTextNode(summaryRow, 'div', 'Grounded').className = 'object-tag';
@@ -1218,7 +1218,7 @@
             selectedReasons.add(String(row.reason_key || ''));
             reasonButton.classList.add('active');
           }
-          if (status) status.textContent = `Question helper marked ${String(row.detail || 'a reason').trim()} as the current reason. Save your answer when ready.`;
+          if (status) status.textContent = `Guided questions marked ${String(row.detail || 'a reason').trim()} as the current reason. Save your answer when ready.`;
           return;
         }
         if (action === 'ask_agent' && row.question) {
@@ -1253,12 +1253,12 @@
   clippyToggle?.addEventListener('click', () => {
     const open = Boolean(clippyPanel?.hidden);
     if (clippyPanel) clippyPanel.hidden = !open;
-    clippyToggle.textContent = open ? 'Hide question helper' : 'Open question helper';
+    clippyToggle.textContent = open ? 'Hide guided questions' : 'Open guided questions';
   });
   magicFitToggle?.addEventListener('click', () => {
     const open = Boolean(magicFitPanel?.hidden);
     if (magicFitPanel) magicFitPanel.hidden = !open;
-    magicFitToggle.textContent = open ? 'Hide furnished preview' : 'Visualize furnished living';
+    magicFitToggle.textContent = open ? 'Hide furnished preview' : 'Preview furnished living';
   });
   root.querySelectorAll('[data-object-magicfit-scene]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -1421,7 +1421,7 @@
       if (clippyStatus) clippyStatus.textContent = 'Ask a specific property question first.';
       return;
     }
-    if (clippyStatus) clippyStatus.textContent = 'Question helper is reviewing the packet context...';
+    if (clippyStatus) clippyStatus.textContent = 'Guided questions are reviewing the property context...';
     try {
       const response = await fetch(String(payload.clippy_endpoint || '/app/api/property/decision-copilot'), {
         method: 'POST',
@@ -1438,11 +1438,11 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'The question helper could not answer right now.'));
+      if (!response.ok) throw new Error(String(body.detail || 'Guided questions could not answer right now.'));
       renderClippy(body);
-      if (clippyStatus) clippyStatus.textContent = 'Question helper answered from the current property context.';
+      if (clippyStatus) clippyStatus.textContent = 'Guided questions answered from the current property context.';
     } catch (error) {
-      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'The question helper could not answer right now.';
+      if (clippyStatus) clippyStatus.textContent = error instanceof Error ? error.message : 'Guided questions could not answer right now.';
     }
   });
   root.querySelectorAll('[data-object-feedback-reaction]').forEach((button) => {
@@ -1510,9 +1510,9 @@
   }
   if (shouldOpenClippy) {
     if (clippyPanel) clippyPanel.hidden = false;
-    if (clippyToggle) clippyToggle.textContent = 'Hide question helper';
+    if (clippyToggle) clippyToggle.textContent = 'Hide guided questions';
     if (clippyQuestion && presetPrompt) clippyQuestion.value = presetPrompt;
-    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Question helper prompt loaded from the email or shared link.';
+    if (clippyStatus && presetPrompt) clippyStatus.textContent = 'Guided question prompt loaded from the email or shared link.';
   }
 })();
 </script>
