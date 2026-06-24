@@ -4192,6 +4192,8 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")
     assert 'data-property-research-topnav' in body
+    assert "<span>Decision desk</span>" in body
+    assert "<span>Research</span>" not in body
     assert "--prd-gold: #b88a2b;" in body
     assert "var(--prd-gold-line)" in body
     assert "var(--prd-gold-soft)" in body
