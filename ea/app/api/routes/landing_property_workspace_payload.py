@@ -92,6 +92,117 @@ def _property_workbench_lightweight_orientation_preview(value: object) -> dict[s
     return preview
 
 
+def _compact_property_account_status(status: dict[str, object]) -> dict[str, object]:
+    """Keep authenticated account UI state without carrying raw preference/run blobs."""
+    raw_status = dict(status or {})
+    raw_workspace = dict(raw_status.get("workspace") or {}) if isinstance(raw_status.get("workspace"), dict) else {}
+    raw_channels = dict(raw_status.get("channels") or {}) if isinstance(raw_status.get("channels"), dict) else {}
+    raw_delivery_preferences = (
+        dict(raw_status.get("delivery_preferences") or {})
+        if isinstance(raw_status.get("delivery_preferences"), dict)
+        else {}
+    )
+    raw_property_notifications = (
+        dict(raw_delivery_preferences.get("property_notifications") or {})
+        if isinstance(raw_delivery_preferences.get("property_notifications"), dict)
+        else {}
+    )
+    raw_telegram_bot = (
+        dict(raw_property_notifications.get("telegram_bot") or {})
+        if isinstance(raw_property_notifications.get("telegram_bot"), dict)
+        else {}
+    )
+    raw_telegram_channel = (
+        dict(raw_channels.get("telegram") or {})
+        if isinstance(raw_channels.get("telegram"), dict)
+        else {}
+    )
+    raw_channel_bot = (
+        dict(raw_telegram_channel.get("product_bot") or {})
+        if isinstance(raw_telegram_channel.get("product_bot"), dict)
+        else {}
+    )
+    raw_google_channel = (
+        dict(raw_channels.get("google") or {})
+        if isinstance(raw_channels.get("google"), dict)
+        else {}
+    )
+
+    def _copy_keys(source: dict[str, object], keys: tuple[str, ...]) -> dict[str, object]:
+        return {key: source.get(key) for key in keys if source.get(key) not in (None, "", [], {})}
+
+    telegram_bot = _copy_keys(
+        {**raw_channel_bot, **raw_telegram_bot},
+        ("display_handle", "connect_url", "status_label", "status"),
+    )
+    property_notifications = _copy_keys(
+        raw_property_notifications,
+        (
+            "preferred_channel",
+            "selected_channels",
+            "whatsapp_ai_support_phone",
+            "email_enabled",
+            "telegram_enabled",
+            "whatsapp_enabled",
+        ),
+    )
+    if telegram_bot:
+        property_notifications["telegram_bot"] = telegram_bot
+
+    compact_channels: dict[str, object] = {}
+    if raw_google_channel:
+        compact_channels["google"] = _copy_keys(
+            raw_google_channel,
+            (
+                "status",
+                "status_label",
+                "connected_account_email",
+                "primary_account_email",
+                "account_email",
+            ),
+        )
+    if raw_telegram_channel or telegram_bot:
+        compact_channels["telegram"] = {
+            **_copy_keys(raw_telegram_channel, ("status", "status_label")),
+            **({"product_bot": telegram_bot} if telegram_bot else {}),
+        }
+    for channel_key in ("email", "whatsapp"):
+        raw_channel = raw_channels.get(channel_key)
+        if isinstance(raw_channel, dict):
+            compact_channels[channel_key] = _copy_keys(raw_channel, ("status", "status_label"))
+
+    return {
+        "workspace": _copy_keys(raw_workspace, ("name", "timezone")),
+        "channels": compact_channels,
+        "delivery_preferences": {"property_notifications": property_notifications},
+    }
+
+
+def _compact_property_run_payload_for_template(run_payload: dict[str, object]) -> dict[str, object]:
+    raw_run = dict(run_payload or {})
+    raw_summary = dict(raw_run.get("summary") or {}) if isinstance(raw_run.get("summary"), dict) else {}
+    compact_summary = {
+        key: raw_summary.get(key)
+        for key in (
+            "status",
+            "listing_total",
+            "reviewed_listing_total",
+            "ranked_total",
+            "filtered_total",
+            "held_back_total",
+            "provider_total",
+            "source_variant_total",
+            "sources_total",
+        )
+        if raw_summary.get(key) not in (None, "", [], {})
+    }
+    return {
+        key: raw_run.get(key)
+        for key in ("run_id", "status", "status_label", "progress", "message", "status_url", "eta_label")
+        if raw_run.get(key) not in (None, "", [], {})
+    } | ({"summary": compact_summary} if compact_summary else {})
+
+
 def _property_provider_identity_key(source_spec: dict[str, object]) -> str:
     provider_source_key = str(source_spec.get("provider_source_key") or source_spec.get("source_provider_key") or "").strip()
     if provider_source_key:
@@ -3076,7 +3187,7 @@ def property_workspace_payload(
                     "items": billing_history_rows,
                 },
             ],
-            "console_form": property_form,
+            "console_form": {},
             "show_brief_form": False,
             "show_shortlist_cards": False,
             "show_billing_cards": True,
@@ -3238,7 +3349,7 @@ def property_workspace_payload(
     payload = dict(sections.get(section, sections["properties"]))
     payload["primary_cards"] = _strip_current_surface_actions_from_cards(payload.get("primary_cards"))
     payload["secondary_cards"] = _strip_current_surface_actions_from_cards(payload.get("secondary_cards"))
-    payload["account_status"] = dict(status or {})
+    payload["account_status"] = _compact_property_account_status(status)
     shortlist_snapshot = build_property_shortlist_snapshot(
         workbench_results,
         selected_candidate_ref=selected_candidate_ref,
@@ -3377,7 +3488,7 @@ def property_workspace_payload(
         summary=str(payload.get("summary") or ""),
         stats=list(base.get("stats") or []),
         current_plan_label=current_plan_label,
-        run_payload=run_payload_for_surface,
+        run_payload=_compact_property_run_payload_for_template(run_payload_for_surface),
         run_summary=run_summary_for_surface,
         preference_manager=preference_manager,
         decision_workbench=decision_workbench,

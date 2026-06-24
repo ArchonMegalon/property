@@ -7431,6 +7431,116 @@ def test_property_workspace_payload_returns_decision_workbench_contract_shape() 
     assert payload["current_plan_label"] == "Agent"
 
 
+def test_property_workspace_payload_compacts_account_status_for_app_surfaces() -> None:
+    heavy_blob = "x" * 5000
+    payload = landing_routes._property_workspace_payload(
+        "billing",
+        status={
+            "workspace": {"name": "Compact Account", "timezone": "Europe/Vienna"},
+            "channels": {
+                "google": {
+                    "connected_account_email": "buyer@example.test",
+                    "raw_oauth_payload": heavy_blob,
+                },
+                "telegram": {
+                    "status": "enabled",
+                    "product_bot": {
+                        "display_handle": "@PropertyQuarryBot",
+                        "connect_url": "https://t.me/PropertyQuarryBot",
+                        "raw_webhook_secret": heavy_blob,
+                    },
+                },
+            },
+            "delivery_preferences": {
+                "property_notifications": {
+                    "preferred_channel": "telegram",
+                    "selected_channels": ["email", "telegram"],
+                    "telegram_bot": {"display_handle": "@PropertyQuarryBot", "raw": heavy_blob},
+                    "raw_delivery_receipts": [{"payload": heavy_blob}],
+                }
+            },
+            "property_search_preferences": {
+                "raw_preferences": {"blob": heavy_blob},
+                "saved_shortlist_candidates": [{"candidate_ref": "candidate-heavy", "detail": heavy_blob}],
+            },
+        },
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "buy"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {},
+        },
+    )
+
+    compact_status = dict(payload.get("account_status") or {})
+    serialized_status = json.dumps(compact_status, sort_keys=True)
+    assert "buyer@example.test" in serialized_status
+    assert "@PropertyQuarryBot" in serialized_status
+    assert "raw_preferences" not in serialized_status
+    assert "saved_shortlist_candidates" not in serialized_status
+    assert "raw_oauth_payload" not in serialized_status
+    assert heavy_blob not in serialized_status
+
+
+def test_property_workspace_payload_compacts_top_level_run_payload_for_shortlist() -> None:
+    heavy_blob = "x" * 5000
+    payload = landing_routes._property_workspace_payload(
+        "shortlist",
+        status={"workspace": {"name": "Compact Run"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent", "location_query": "1010 Vienna"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {},
+            "run": {
+                "run_id": "run-compact",
+                "status": "completed",
+                "progress": 100,
+                "property_search_preferences": {
+                    "raw_preferences": {"blob": heavy_blob},
+                    "saved_shortlist_candidates": [{"candidate_ref": "saved", "detail": heavy_blob}],
+                },
+                "summary": {
+                    "status": "completed",
+                    "listing_total": 3,
+                    "ranked_total": 1,
+                    "sources": [
+                        {
+                            "source_label": "Willhaben",
+                            "top_candidates": [{"candidate_ref": "candidate-heavy", "title": "Heavy", "detail": heavy_blob}],
+                            "source_html": heavy_blob,
+                        }
+                    ],
+                    "ranked_candidates": [
+                        {"candidate_ref": "candidate-heavy", "title": "Heavy", "fit_score": 91, "detail": heavy_blob}
+                    ],
+                },
+            },
+        },
+    )
+
+    top_level_run = dict(payload.get("run_payload") or {})
+    serialized_top_level_run = json.dumps(top_level_run, sort_keys=True)
+    assert top_level_run["run_id"] == "run-compact"
+    assert top_level_run["summary"]["listing_total"] == 3
+    assert "ranked_candidates" not in serialized_top_level_run
+    assert "top_candidates" not in serialized_top_level_run
+    assert "source_html" not in serialized_top_level_run
+    assert heavy_blob not in serialized_top_level_run
+
+
+def test_property_billing_payload_does_not_emit_search_form_meta() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "billing",
+        status={"workspace": {"name": "Billing Compact"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "buy"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {},
+        },
+    )
+
+    assert payload.get("console_form") == {}
+
+
 def test_property_billing_payload_skips_full_preference_manager_build(monkeypatch) -> None:
     monkeypatch.setattr(
         landing_view_models,
