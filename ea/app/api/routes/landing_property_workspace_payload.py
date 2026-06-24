@@ -250,9 +250,9 @@ def property_workspace_payload(
             seen.add(identity)
             deduped.append(candidate)
         return deduped
-    if normalized_section in {"properties", "search", "shortlist", "agents", "account", "settings", "billing"}:
+    if normalized_section in {"properties", "search", "shortlist", "research", "agents", "account", "settings", "billing"}:
         trimmed_meta = dict(property_meta)
-        if normalized_section in {"properties", "search", "shortlist", "account", "settings", "billing"}:
+        if normalized_section in {"properties", "search", "shortlist", "research", "account", "settings", "billing"}:
             trimmed_meta.pop("search_agent", None)
             trimmed_meta.pop("search_agents", None)
         trimmed_meta.pop("initial_run", None)
@@ -324,7 +324,7 @@ def property_workspace_payload(
         if isinstance(candidate, dict)
         and _property_candidate_is_rankable(candidate)
     ]
-    if normalized_section in {"properties", "shortlist"} and ranked_candidates:
+    if normalized_section in {"properties", "shortlist", "research"} and ranked_candidates:
         shortlist_candidates = _dedupe_shortlist_candidates([*ranked_candidates, *shortlist_candidates])
     if not shortlist_candidates:
         if ranked_candidates:

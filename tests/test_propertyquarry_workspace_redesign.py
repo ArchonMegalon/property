@@ -4339,6 +4339,8 @@ def test_property_research_route_uses_research_surface_contract(monkeypatch) -> 
     assert 'data-pqx-surface="research"' in research.text
     assert '<span class="is-active" aria-current="page">Research</span>' in research.text
     assert 'data-property-decision-workbench' in research.text
+    assert "Inspect the evidence before you open the raw listing." in research.text
+    assert "Open the strongest property pages first" in research.text
     assert "PropertyQuarry Shortlist" not in research.text
 
 

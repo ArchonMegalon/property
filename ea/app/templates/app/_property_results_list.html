@@ -1,6 +1,7 @@
 <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
   {% set run_summary = run.get('summary') or {} %}
   {% set is_shortlist_surface = surface_mode == 'shortlist' %}
+    {% set is_research_surface = surface_mode == 'research' %}
     {% set run_sources = run_summary.get('sources') or [] %}
     {% set filtered_total = run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or (run_summary.get('filtered_area_total') or 0) + (run_summary.get('filtered_property_type_total') or 0) + (run_summary.get('filtered_availability_total') or 0) + (run_summary.get('filtered_floorplan_total') or 0) + (run_summary.get('filtered_generic_page_total') or 0) + (run_summary.get('filtered_listing_mode_total') or 0) %}
     {% set score_demoted_total = run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0 %}
@@ -8,6 +9,20 @@
     {% set shortlist_compact_actions = is_shortlist_surface %}
   <div class="pqx-result-panel-head">
     <div class="pqx-results-headline">
+      {% if is_research_surface %}
+      <div class="pqx-title" style="margin-bottom:12px;">
+        <span>{{ hero_kicker or 'Research pages' }}</span>
+        <h1>{{ hero_title or 'Inspect the evidence before you open the raw listing.' }}</h1>
+        <p class="pqx-note">{{ hero_summary or 'Hosted property pages and 360 tours stay primary. Raw portal links remain secondary.' }}</p>
+      </div>
+      {% if hero_actions %}
+      <div class="pqx-actions" style="margin:0 0 12px;">
+        {% for action in hero_actions[:3] %}
+        <a class="pqx-link-button{% if action.get('tone') == 'primary' %} primary{% else %} subtle{% endif %}" href="{{ action.get('href') }}">{{ action.get('label') }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endif %}
       <div class="pqx-note pqx-results-summary-row">
         <a class="pqx-results-summary-link" href="#results-list"><b>{{ results|length }}</b> {{ results_label }}</a>
         {% if filtered_total %}
@@ -21,9 +36,12 @@
         </span>
         {% endif %}
       </div>
+      {% if is_research_surface %}
+      <div class="pqx-note">Open the strongest property pages first. Hosted property pages and 360 tours stay primary.</div>
+      {% endif %}
     </div>
   </div>
-  {% if score_methodology and not is_shortlist_surface %}
+  {% if score_methodology and not is_shortlist_surface and not is_research_surface %}
   <section class="pqx-score-bts" aria-label="{{ score_methodology.get('title') or 'Behind the score' }}">
     <div class="pqx-score-bts-head">
       <div>
@@ -166,13 +184,13 @@
           <a class="pqx-result-open" href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>
           {% endif %}
           {% if candidate.get('packet_url') %}
-          <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">Open property</a>
+          <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">{% if is_research_surface %}Open property page{% else %}Open property{% endif %}</a>
           {% endif %}
           {% if (candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url')) and not shortlist_compact_actions %}
           <a class="pqx-result-open" href="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>
           {% endif %}
           {% if tour.get('url') and not shortlist_compact_actions %}
-          <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}">Open 3D tour</a>
+          <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}">{% if (tour.get('provider_label') or '') == 'Matterport' %}Open Matterport{% elif (tour.get('provider_label') or '') == '3DVista' %}Open 3DVista{% else %}Open 3D tour{% endif %}</a>
           {% elif tour_pending %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ tour_progress }}%;" title="{{ tour_tooltip }}" aria-label="{{ tour_tooltip }}">{{ tour.get('label') or '3D tour queued' }}</button>
           {% elif visual_property_url %}

@@ -6531,9 +6531,9 @@
           {% set previous_limit = 4 if surface_mode == 'search' else 6 %}
           <div class="pqx-title">
             <span>
-              {% if surface_mode == 'search' %}
+            {% if surface_mode == 'search' %}
               Search
-              {% elif surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
+              {% elif surface_mode in ['agents', 'alerts', 'account', 'billing', 'research'] %}
               {{ hero_kicker or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
               Run
@@ -6542,7 +6542,7 @@
             <h1>
               {% if surface_mode == 'search' %}
               Search brief
-              {% elif surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
+              {% elif surface_mode in ['agents', 'alerts', 'account', 'billing', 'research'] %}
               {{ hero_title or title or surface_mode|replace('_', ' ')|title }}
               {% else %}
               Open the right surface for the next decision.
@@ -6610,7 +6610,7 @@
             </div>
           </section>
           {% endif %}
-          {% if surface_mode in ['agents', 'alerts', 'account', 'billing'] %}
+          {% if surface_mode in ['agents', 'alerts', 'account', 'billing', 'research'] %}
           <div class="pqx-brief-stack">
             {% if hero_summary or summary %}
             <p class="pqx-note">{{ hero_summary or summary or '' }}</p>
@@ -7476,10 +7476,28 @@
           {% endif %}
           {% if ranked_candidates %}
           <div data-pqx-screenfit-target="run-progress">
+            {% if surface_mode == 'research' %}
+            <section class="pqx-card" style="margin-bottom:12px;">
+              <div class="pqx-section-head">
+                <div>
+                  <div class="pqx-small">{{ hero_kicker or 'Research pages' }}</div>
+                  <h2>{{ hero_title or 'Inspect the evidence before you open the raw listing.' }}</h2>
+                  <div class="pqx-note">{{ hero_summary or 'Hosted property pages and 360 tours stay primary. Raw portal links remain secondary.' }}</div>
+                </div>
+              </div>
+              {% if hero_actions %}
+              <div class="pqx-actions" style="margin-top:12px;">
+                {% for action in hero_actions[:3] %}
+                <a class="pqx-link-button{% if action.get('tone') == 'primary' %} primary{% else %} subtle{% endif %}" href="{{ action.get('href') }}">{{ action.get('label') }}</a>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </section>
+            {% endif %}
             <div class="pqx-section-head">
               <div>
-                <h2>Best matches</h2>
-                <div class="pqx-note" data-pqx-run-summary>{{ results|length }} homes ranked from the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}</div>
+                <h2>{% if surface_mode == 'research' %}Open the strongest property pages first{% else %}Best matches{% endif %}</h2>
+                <div class="pqx-note" data-pqx-run-summary">{% if surface_mode == 'research' %}Hosted property pages and 360 tours stay primary. {{ results|length }} ranked homes are ready for review{% if run_active %} while the rest of the search keeps checking in the background{% endif %}.{% else %}{{ results|length }} homes ranked from the current brief{% if run_active %} · search is still checking the rest in the background{% endif %}{% endif %}</div>
               </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -7544,9 +7562,24 @@
                   <td>{{ candidate.get('fit_score') or 0 }}</td>
                   <td>{{ candidate.get('compare_reason') or candidate.get('fit_summary') or (candidate.get('match_reasons') or ['Open the property page for more context'])[0] }}</td>
                   <td>
-                    {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">Review</a>{% endif %}
+                    {% set hosted_tour_url = candidate.get('tour_url') or candidate.get('tour', {}).get('url') or '' %}
+                    {% set walkthrough_url = candidate.get('flythrough_url') or candidate.get('flythrough', {}).get('url') or '' %}
+                    {% set hosted_tour_provider = (candidate.get('tour_provider') or candidate.get('tour', {}).get('provider') or '')|lower %}
+                    {% if candidate.get('packet_url') %}<a href="{{ candidate.get('packet_url') }}">{% if surface_mode == 'research' %}Property page{% else %}Review{% endif %}</a>{% endif %}
+                    {% if hosted_tour_url %}
+                    <a href="{{ hosted_tour_url }}" target="_blank" rel="noreferrer">
+                      {% if hosted_tour_provider == 'matterport' or 'matterport' in hosted_tour_url|lower %}
+                      Matterport
+                      {% elif hosted_tour_provider == '3dvista' or '3dvista' in hosted_tour_url|lower %}
+                      3DVista
+                      {% else %}
+                      3D tour
+                      {% endif %}
+                    </a>
+                    {% endif %}
+                    {% if walkthrough_url %}<a href="{{ walkthrough_url }}" target="_blank" rel="noreferrer">Walkthrough</a>{% endif %}
                     {% if candidate.get('map_url') %}<a href="{{ candidate.get('map_url') }}" target="_blank" rel="noreferrer">Map</a>{% endif %}
-                    {% if candidate.get('property_url') %}<a href="{{ candidate.get('property_url') }}">Listing</a>{% endif %}
+                    {% if candidate.get('property_url') %}<a href="{{ candidate.get('property_url') }}" target="_blank" rel="noreferrer">Listing</a>{% endif %}
                   </td>
                 </tr>
                 {% endfor %}
