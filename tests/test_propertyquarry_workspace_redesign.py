@@ -270,7 +270,7 @@ def test_property_research_detail_uses_property_shell_and_real_title() -> None:
     base_console = (repo_root / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
     landing_route = (repo_root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
 
-    assert "['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account']" in base_console
+    assert "['properties', 'search', 'shortlist', 'research', 'agents', 'alerts', 'billing', 'account', 'settings']" in base_console
     assert "PropertyQuarry workspace" in base_console
     assert "Account overview" in base_console
     assert 'console_title=display_title' in landing_route
