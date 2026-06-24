@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import inspect
 import os
 import subprocess
 import sys
@@ -10999,6 +11000,15 @@ def test_property_search_run_schema_ready_does_not_backfill_existing_compact_col
     assert not any(sql.startswith("UPDATE property_search_runs SET") for sql in executed_sql)
     assert not any(sql.startswith("ALTER TABLE property_search_runs ADD COLUMN") for sql in executed_sql)
     assert not any(sql.startswith("CREATE INDEX idx_property_search_runs_") for sql in executed_sql)
+
+
+def test_property_search_run_upsert_skips_noop_conflict_updates() -> None:
+    source = inspect.getsource(property_search_storage._store_property_search_run_record)  # type: ignore[attr-defined]
+
+    assert "WHERE property_search_runs.payload_json IS DISTINCT FROM EXCLUDED.payload_json" in source
+    assert "property_search_runs.status IS DISTINCT FROM EXCLUDED.status" in source
+    assert "property_search_runs.compact_json IS DISTINCT FROM EXCLUDED.compact_json" in source
+    assert "property_search_runs.updated_at IS DISTINCT FROM EXCLUDED.updated_at" not in source
 
 
 def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:

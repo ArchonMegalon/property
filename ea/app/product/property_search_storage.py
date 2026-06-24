@@ -386,6 +386,9 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
                     status = EXCLUDED.status,
                     compact_json = EXCLUDED.compact_json,
                     updated_at = EXCLUDED.updated_at
+                WHERE property_search_runs.payload_json IS DISTINCT FROM EXCLUDED.payload_json
+                   OR property_search_runs.status IS DISTINCT FROM EXCLUDED.status
+                   OR property_search_runs.compact_json IS DISTINCT FROM EXCLUDED.compact_json
                 """,
                 (
                     run_id,
