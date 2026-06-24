@@ -2095,7 +2095,7 @@
       const fitScore = Number(candidate?.fit_score || candidate?.ranking_score || 0);
       const layout = String(candidate?.layout_display || '').trim() || 'Still being verified';
       const location = String(candidate?.location_label || candidate?.source_label || '').trim() || 'Source match';
-      const reason = String(candidate?.compare_reason || candidate?.fit_summary || candidate?.summary || '').trim() || 'Current best candidate in this run.';
+      const reason = String(candidate?.fit_summary || candidate?.compare_reason || candidate?.summary || '').trim() || 'Top-ranked home in the current run.';
       const href = String(candidate?.packet_url || candidate?.property_url || '').trim();
       const action = href
         ? (String(candidate?.packet_url || '').trim()
