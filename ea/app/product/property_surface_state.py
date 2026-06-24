@@ -4,6 +4,7 @@ import re
 import urllib.parse
 from typing import Callable
 
+from app.services.property_billing import property_commercial_snapshot
 from app.services.property_market_catalog import supported_currency_codes
 
 from app.product.models import (
@@ -1657,6 +1658,26 @@ def build_property_recurring_watch_snapshot(
         agent_region_code,
         agent_location_query,
     )
+    commercial_snapshot = property_commercial_snapshot(dict(property_preferences or {}))
+    plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+    base_load_payload = (
+        safe_agent_load_payload(saved_preferences)
+        if saved_preferences
+        else {
+            "country_code": agent_country_code,
+            "region_code": agent_region_code,
+            "location_query": agent_location_query,
+            "property_type": agent_property_types,
+            "search_mode": str(raw_agent.get("search_mode") or search_mode_requested or "strict").strip().lower() or "strict",
+            "selected_platforms": list(agent_selected_platforms or []),
+            "search_agent_enabled": agent_enabled,
+            "search_agent_duration_days": agent_duration_days,
+            "search_agent_notification_limit": agent_notification_limit,
+            "search_agent_notification_period": agent_notification_period,
+        }
+    )
+    if plan_key == "agent":
+        base_load_payload.pop("max_results_per_source", None)
     return PropertyRecurringWatchSnapshot(
         agent_id=str(raw_agent.get("agent_id") or "current").strip() or "current",
         name=agent_name,
@@ -1691,22 +1712,7 @@ def build_property_recurring_watch_snapshot(
         run_label=f"Last: {last_run_at or 'not run yet'} · Next: {next_run_at or ('waiting for scheduler' if agent_enabled else 'paused')}",
         delivery_label=f"Sent {sent_in_current_window}/{agent_notification_limit} this {('week' if agent_notification_period == 'week' else 'day')}",
         load_payload={
-            **(
-                safe_agent_load_payload(saved_preferences)
-                if saved_preferences
-                else {
-                    "country_code": agent_country_code,
-                    "region_code": agent_region_code,
-                    "location_query": agent_location_query,
-                    "property_type": agent_property_types,
-                    "search_mode": str(raw_agent.get("search_mode") or search_mode_requested or "strict").strip().lower() or "strict",
-                    "selected_platforms": list(agent_selected_platforms or []),
-                    "search_agent_enabled": agent_enabled,
-                    "search_agent_duration_days": agent_duration_days,
-                    "search_agent_notification_limit": agent_notification_limit,
-                    "search_agent_notification_period": agent_notification_period,
-                }
-            ),
+            **base_load_payload,
             "search_goal": agent_search_goal,
             "listing_mode": agent_listing_mode,
         },

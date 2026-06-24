@@ -377,6 +377,49 @@ def test_saved_search_load_payload_prefers_saved_preferences_over_current_brief_
     assert formatted["scope_preview"]["country_code"] == "CR"
 
 
+def test_agent_saved_search_format_payload_drops_stale_result_cap() -> None:
+    formatted = format_property_search_agent(
+        {
+            "name": "Vienna rent watch",
+            "enabled": True,
+            "preferences_json": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": "1020 Wien",
+                "listing_mode": "rent",
+                "property_type": "apartment",
+                "selected_platforms": ["willhaben"],
+                "max_results_per_source": 6,
+            },
+        },
+        property_preferences={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1020 Wien",
+            "property_type": "apartment",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        selected_platforms=["willhaben"],
+        selected_listing_mode="rent",
+        search_mode_requested="strict",
+        default_duration_days=30,
+        default_notification_limit=5,
+        default_notification_period="day",
+        normalize_property_type_values=lambda value: [str(value).strip().lower()] if str(value).strip() else ["any"],
+        scope_preview_builder=lambda country_code, region_code, location_query: {
+            "country_code": country_code,
+            "region_code": region_code,
+            "location_query": location_query,
+        },
+    )
+
+    assert "max_results_per_source" not in formatted["load_payload"]
+
+
 def test_investment_saved_search_snapshot_forces_buy_and_investment_labels() -> None:
     formatted = format_property_search_agent(
         {
