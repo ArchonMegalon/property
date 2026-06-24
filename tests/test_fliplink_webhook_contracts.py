@@ -564,6 +564,8 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     dashboard = client.get("/app/properties/packets", headers={"host": "propertyquarry.com"})
     assert dashboard.status_code == 200, dashboard.text
     assert "data-property-packets-dashboard" in dashboard.text
+    assert "data-property-research-topnav" in dashboard.text
+    assert 'aria-label="Account navigation"' in dashboard.text
     assert "Sharing" in dashboard.text
     assert "Share polished property pages and track the replies." in dashboard.text
     assert "Viewer responses" in dashboard.text

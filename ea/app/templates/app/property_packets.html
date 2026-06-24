@@ -110,6 +110,56 @@
       border-color: color-mix(in srgb, var(--pq-gold) 52%, var(--pq-border));
     }
     .pq-pack-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+    .pq-pack-account-menu {
+      position: relative;
+    }
+    .pq-pack-account-menu summary {
+      list-style: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 40px;
+      min-height: 40px;
+      padding: 0 12px;
+      border: 1px solid var(--pq-border);
+      border-radius: 999px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-weight: 800;
+    }
+    .pq-pack-account-menu summary::-webkit-details-marker { display: none; }
+    .pq-pack-account-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      width: min(240px, 80vw);
+      border: 1px solid var(--pq-border);
+      border-radius: 10px;
+      background: var(--pq-panel);
+      box-shadow: 0 18px 48px rgba(31, 23, 11, 0.16);
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      z-index: 5;
+    }
+    .pq-pack-account-label {
+      display: grid;
+      gap: 4px;
+      color: var(--pq-muted);
+      font-size: 12px;
+    }
+    .pq-pack-account-label strong {
+      color: var(--pq-ink);
+      font-size: 14px;
+    }
+    .pq-pack-account-links {
+      display: grid;
+      gap: 8px;
+    }
+    .pq-pack-account-links form {
+      margin: 0;
+    }
     .pq-pack-button {
       border: 1px solid var(--pq-border);
       border-radius: 8px;
@@ -302,7 +352,7 @@
 </head>
 <body>
   <main class="pq-pack-shell" data-property-packets-dashboard>
-    <header class="pq-pack-topbar">
+    <header class="pq-pack-topbar" data-property-research-topnav>
       <a class="pq-pack-brand" href="/app/properties">
         <span class="pq-pack-mark">PQ</span>
         <span><strong>PropertyQuarry</strong><span>{{ workspace_label }}</span></span>
@@ -318,7 +368,28 @@
       </nav>
       <nav class="pq-pack-actions">
         <a class="pq-pack-button" href="/app/properties">Open run</a>
+        {% if account_nav %}
+        <details class="pq-pack-account-menu">
+          <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
+          <div class="pq-pack-account-panel">
+            <div class="pq-pack-account-label">
+              <span>Signed in</span>
+              <strong>{{ account_nav.menu_label or account_nav.label or 'Account' }}</strong>
+            </div>
+            <div class="pq-pack-account-links">
+              <a class="pq-pack-button" href="{{ account_nav.profile_href }}">Search defaults</a>
+              <a class="pq-pack-button" href="{{ account_nav.billing_href }}">Billing</a>
+              <a class="pq-pack-button" href="{{ account_nav.settings_href }}">Connections</a>
+              <form method="post" action="{{ account_nav.sign_out_action }}">
+                <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
+                <button class="pq-pack-button" type="submit">Log out</button>
+              </form>
+            </div>
+          </div>
+        </details>
+        {% else %}
         <a class="pq-pack-button" href="/app/account">Account</a>
+        {% endif %}
       </nav>
     </header>
 

@@ -5894,6 +5894,7 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Share packet" not in body
     assert "Household reactions" in body
     assert 'aria-label="PropertyQuarry sections"' in body
+    assert 'data-property-research-topnav' in body
     assert 'href="/app/properties">Search</a>' in body
     assert 'href="/app/shortlist">Shortlist</a>' in body
     assert '<span class="is-active" aria-current="page">Research</span>' in body
@@ -5901,6 +5902,7 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert 'href="/app/alerts">Alerts</a>' in body
     assert 'href="/app/billing">Billing</a>' in body
     assert 'href="/app/account">Account</a>' in body
+    assert 'aria-label="Account navigation"' in body
     assert "Packet posture" not in body
 
 

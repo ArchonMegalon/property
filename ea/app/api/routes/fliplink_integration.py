@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -58,6 +59,45 @@ FeedbackReviewAction = Literal[
     "convert_to_hard_rule",
 ]
 _REVOKED_PACKET_STATUSES = {"archived", "revoked", "deleted"}
+
+
+def _packet_account_nav_context(*, request: Request, context: RequestContext) -> dict[str, object]:
+    if not context.principal_id:
+        return {}
+    if (
+        str(request.cookies.get("ea_workspace_signed_out") or "").strip() == "1"
+        and context.auth_source not in {"workspace_access_session", "cloudflare_access", "api_token"}
+    ):
+        return {}
+
+    brand = request_brand(request)
+    account_label = str(context.access_email or "").strip().lower()
+    if not account_label:
+        account_label = str(context.operator_id or "").strip() or "Account"
+    menu_label = str(context.access_email or "").strip()
+    if not menu_label:
+        menu_label = str(context.operator_id or "").strip() or "Account"
+    raw_sign_out_return_to = str(brand.get("public_base_url") or "/").strip()
+    parsed_sign_out_return_to = urllib.parse.urlparse(raw_sign_out_return_to)
+    sign_out_return_to = "/"
+    if parsed_sign_out_return_to.path:
+        sign_out_return_to = parsed_sign_out_return_to.path.strip() or "/"
+    elif raw_sign_out_return_to.startswith("/"):
+        sign_out_return_to = raw_sign_out_return_to
+    elif not raw_sign_out_return_to:
+        sign_out_return_to = "/"
+    elif raw_sign_out_return_to != "/":
+        sign_out_return_to = "/"
+    return {
+        "label": account_label,
+        "menu_label": menu_label,
+        "profile_href": "/app/account#search-defaults",
+        "profile_label": "Search defaults",
+        "billing_href": "/app/billing",
+        "settings_href": "/app/account#connected-services",
+        "sign_out_action": "/app/actions/sign-out",
+        "sign_out_return_to": sign_out_return_to,
+    }
 
 
 def _score_methodology_pdf_response(
@@ -604,6 +644,7 @@ def property_packets_dashboard(
             "brand": request_brand(request),
             "workspace_label": "PropertyQuarry account",
             "current_nav": "packets",
+            "account_nav": _packet_account_nav_context(request=request, context=context),
             "publications": rows,
             "fliplink_capacity": capacity,
             "feedback_items": list(inbox.get("items") or []),
