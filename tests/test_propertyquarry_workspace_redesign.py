@@ -2495,6 +2495,17 @@ def test_property_workspace_billing_shows_agent_unlimited_provider_results() -> 
     assert "all ranked results per provider" in shell_source
 
 
+def test_property_workbench_script_keeps_agent_provider_results_uncapped() -> None:
+    script_source = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+
+    assert "const hasUnlimitedProviderResults = () => currentPlanKey() === 'agent' && currentResultCap() <= 0;" in script_source
+    assert "const limitRowsForPlan = (rows, limit) => {" in script_source
+    assert "const rows = limitRowsForPlan(sources, 8);" in script_source
+    assert "const sourceChips = limitRowsForPlan(summary.sources, 8).map((source) => {" in script_source
+    assert "const rows = limitRowsForPlan(candidates, 50);" in script_source
+    assert "return limitRowsForPlan(collected, 50).map((candidate, index) => ({" in script_source
+
+
 def test_property_surface_state_builds_preference_manager_snapshot() -> None:
     snapshot = property_surface_state.build_property_preference_manager_snapshot(
         person_id="self",

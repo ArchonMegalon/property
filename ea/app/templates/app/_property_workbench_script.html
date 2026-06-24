@@ -213,6 +213,18 @@
       return candidates[0] || selectedCandidatePayload || null;
     };
     const briefPreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
+    const currentPlanKey = () => String(
+      meta?.commercial?.current_plan_key
+      || data?.brief?.plan_key
+      || data?.run?.brief?.plan_key
+      || 'free'
+    ).trim().toLowerCase();
+    const currentResultCap = () => Number(meta?.commercial?.max_results_per_source ?? 0);
+    const hasUnlimitedProviderResults = () => currentPlanKey() === 'agent' && currentResultCap() <= 0;
+    const limitRowsForPlan = (rows, limit) => {
+      const normalized = Array.isArray(rows) ? rows : [];
+      return hasUnlimitedProviderResults() ? normalized.slice() : normalized.slice(0, limit);
+    };
     const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
     const propertyDecisionSaveEndpoint = () => '/app/api/property/decisions';
     const propertyDecisionStateEndpoint = (propertyRef) => `/app/api/property/decisions?property_ref=${encodeURIComponent(String(propertyRef || '').trim())}`;
@@ -1305,7 +1317,7 @@
       return events.length === 0;
     };
     const renderSourceBreakdown = (sources) => {
-      const rows = Array.isArray(sources) ? sources.slice(0, 8) : [];
+      const rows = limitRowsForPlan(sources, 8);
       if (!rows.length) return '';
       return rows.map((source) => {
         const label = compactProviderLabel(source?.source_label || source?.platform || 'Provider');
@@ -1574,11 +1586,11 @@
       const progressFill = status === 'processed' || status === 'completed' || status === 'completed_partial' ? 100 : (progress > 0 ? progress : 4);
       const liveInfo = latestFractionInfo(runPayload);
       const liveFraction = liveInfo.fraction;
-      const planKey = String(meta?.commercial?.current_plan_key || runPayload?.brief?.plan_key || data?.brief?.plan_key || 'free').toLowerCase();
+      const planKey = currentPlanKey();
       const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
       const workerTooltip = 'Selected sources keep moving in parallel. Saved searches are separate.';
-      const sourceChips = (Array.isArray(summary.sources) ? summary.sources.slice(0, 8) : []).map((source) => {
+      const sourceChips = limitRowsForPlan(summary.sources, 8).map((source) => {
         const label = source?.source_label || source?.label || 'Source';
         const state = source?.error ? 'warn' : 'good';
         return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
@@ -1761,7 +1773,7 @@
       });
     };
     const renderRankedCandidates = (candidates, runPayload = null) => {
-      const rows = Array.isArray(candidates) ? candidates.slice(0, 50) : [];
+      const rows = limitRowsForPlan(candidates, 50);
       const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
       const summary = runPayload?.summary && typeof runPayload.summary === 'object' ? runPayload.summary : {};
       const componentFilteredTotal = Number(summary.filtered_area_total || 0)
@@ -1988,7 +2000,7 @@
         });
       });
       collected.sort((left, right) => Number(right?.ranking_score || right?.investment_score || right?.fit_score || 0) - Number(left?.ranking_score || left?.investment_score || left?.fit_score || 0));
-      return collected.slice(0, 50).map((candidate, index) => ({
+      return limitRowsForPlan(collected, 50).map((candidate, index) => ({
         rank: candidate.rank || index + 1,
         ...candidate,
       }));
