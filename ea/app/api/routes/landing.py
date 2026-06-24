@@ -3770,7 +3770,7 @@ def property_research_packet(
     magic_fit_rows = [
         _object_detail_row(
             str(latest_magic_fit_scene.get("scene_type") or "Lifestyle scene").replace("_", " ").title(),
-            str(latest_magic_fit_scene.get("summary") or "A generated family-in-space still is ready for the packet and PDF.").strip(),
+            str(latest_magic_fit_scene.get("summary") or "A generated family-in-space still is ready for the property page and PDF.").strip(),
             "Visual simulation",
             href=str(latest_magic_fit_scene.get("image_url") or "").strip(),
             secondary_action_href=str(latest_magic_fit_scene.get("image_url") or "").strip(),
@@ -3780,7 +3780,7 @@ def property_research_packet(
     ] if latest_magic_fit_scene else [
         _object_detail_row(
             "No scene generated yet",
-            "Opt in to create a furnished family-life still for the packet. It stays clearly marked as a visual simulation and can be attached to the PDF dossier.",
+            "Opt in to create a furnished family-life still for this property page. It stays clearly marked as a visual simulation and can be attached to the PDF dossier.",
             "Opt-in",
         )
     ]
@@ -3797,7 +3797,7 @@ def property_research_packet(
         agent_question_rows = [
             _object_detail_row(
                 "No generated question yet",
-                "Save a decision or add missing-fact blockers to generate the next agent brief automatically.",
+                "Save a decision or add missing-fact blockers to generate the next follow-up question automatically.",
                 "Waiting",
             )
         ]
@@ -3816,7 +3816,7 @@ def property_research_packet(
             {
                 "feedback_id": "",
                 "title": "No tracked question yet",
-                "detail": "Use the question helper or the suggested next question to start a tracked follow-up.",
+                "detail": "Use guided questions or the suggested next question to start a tracked follow-up.",
                 "tag": "Waiting",
             }
         ]

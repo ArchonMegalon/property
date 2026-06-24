@@ -494,7 +494,7 @@ def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tool
     assert "Preview furnished living" in body
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
-    assert "Attach the generated still to the packet PDF dossier" in body
+    assert "Attach the generated still to the PDF dossier" in body
     assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Open active search</a>' in body
 
 
