@@ -30084,7 +30084,7 @@ class ProductService:
                                 candidate_row["vendor_tour_url"] = vendor_tour_url
                         if str(visual_state.get("tour_status") or "").strip():
                             candidate_row["tour_status"] = str(visual_state.get("tour_status") or "").strip()
-                        if str(visual_state.get("tour_eta_minutes") or "").strip():
+                        if "tour_eta_minutes" in visual_state:
                             candidate_row["tour_eta_minutes"] = str(visual_state.get("tour_eta_minutes") or "").strip()
                         if str(visual_state.get("tour_requested_at") or "").strip():
                             candidate_row["tour_requested_at"] = str(visual_state.get("tour_requested_at") or "").strip()
@@ -30098,7 +30098,7 @@ class ProductService:
                             candidate_row["flythrough_url"] = str(visual_state.get("flythrough_url") or "").strip()
                         if str(visual_state.get("flythrough_status") or "").strip():
                             candidate_row["flythrough_status"] = str(visual_state.get("flythrough_status") or "").strip()
-                        if str(visual_state.get("flythrough_eta_minutes") or "").strip():
+                        if "flythrough_eta_minutes" in visual_state:
                             candidate_row["flythrough_eta_minutes"] = str(visual_state.get("flythrough_eta_minutes") or "").strip()
                         if str(visual_state.get("flythrough_requested_at") or "").strip():
                             candidate_row["flythrough_requested_at"] = str(visual_state.get("flythrough_requested_at") or "").strip()

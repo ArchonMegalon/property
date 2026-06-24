@@ -1340,6 +1340,7 @@ def test_property_visual_state_does_not_cross_update_same_source_ref_different_p
                                 "title": "Shared listing from provider B",
                                 "source_ref": shared_source_ref,
                                 "property_url": second_url,
+                                "flythrough_eta_minutes": "10",
                             }
                         ],
                     },
@@ -1354,7 +1355,7 @@ def test_property_visual_state_does_not_cross_update_same_source_ref_different_p
             candidate_ref="",
             source_ref=shared_source_ref,
             property_url=second_url,
-            visual_state={"tour_status": "pending", "flythrough_status": "queued"},
+            visual_state={"tour_status": "pending", "flythrough_status": "queued", "flythrough_eta_minutes": ""},
         )
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             sources = list(dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id]["summary"]).get("sources") or [])
@@ -1365,6 +1366,7 @@ def test_property_visual_state_does_not_cross_update_same_source_ref_different_p
         assert second_candidate["property_url"] == second_url
         assert second_candidate["tour_status"] == "pending"
         assert second_candidate["flythrough_status"] == "queued"
+        assert second_candidate["flythrough_eta_minutes"] == ""
     finally:
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             product_service._PROPERTY_SEARCH_RUN_REGISTRY.clear()
