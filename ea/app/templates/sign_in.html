@@ -395,7 +395,13 @@
       <p class="copy">Use the inbox that already has access or an invite.</p>
       {% else %}
       <strong>We could not send a sign-in link.</strong>
-      <p class="copy">{{ sign_in_link_error or 'Use an existing invite or ask the account owner to issue a new link.' }}</p>
+      <p class="copy">
+        {% if sign_in_link_error == 'workspace_sign_in_email_delivery_not_configured' %}
+        Email sign-in links are temporarily unavailable. Use an existing invite, access link, or connected identity while email delivery is unavailable.
+        {% else %}
+        {{ sign_in_link_error or 'Use an existing invite or ask the account owner to issue a new link.' }}
+        {% endif %}
+      </p>
       {% endif %}
     </div>
     {% endif %}

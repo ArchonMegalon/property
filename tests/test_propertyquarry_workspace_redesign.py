@@ -853,6 +853,7 @@ def test_propertyquarry_email_link_unavailable_uses_live_service_language() -> N
     assert "Email sign-in links are temporarily unavailable." in response.text
     assert "Use an existing invite, access link, or connected identity while email delivery is unavailable." in response.text
     assert "Email return links are not enabled on this deployment yet." not in response.text
+    assert "workspace_sign_in_email_delivery_not_configured" not in response.text
 
 
 def test_propertyquarry_sign_in_offers_id_austria_only_for_austrian_requests(monkeypatch) -> None:
