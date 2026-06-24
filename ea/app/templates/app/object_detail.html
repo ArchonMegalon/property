@@ -738,8 +738,8 @@
 	      {% endif %}
 	      <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
 	      <div class="object-actions">
-	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save answer</button>
-	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Open search brief</a>
+	        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
+	        <a class="console-action" href="{{ object_feedback.get('profile_href') or ('/app/search' ~ object_query_suffix) }}">Open active search</a>
 	      </div>
 	      <p class="object-copy" data-object-feedback-status></p>
 	      <div class="object-actions" style="margin-top: 12px;">
@@ -749,7 +749,7 @@
 	        <div class="object-row">
 	          <div>
 	            <strong>Guided questions</strong>
-	            <small>Ask one grounded question about this property. The helper only answers from packet facts, timeline, stakeholder feedback, and investment context already on this page.</small>
+	            <small>Ask one grounded question about this property. It only answers from the facts, timeline, stakeholder feedback, and investment context already on this page.</small>
 	          </div>
 	          <div class="object-tag">Opt-in</div>
 	        </div>

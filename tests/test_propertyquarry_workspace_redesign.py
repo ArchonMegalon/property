@@ -495,7 +495,7 @@ def test_propertyquarry_object_detail_template_exposes_user_facing_optional_tool
     assert "Upload reference photos" in body
     assert "Use Google Photos Picker" in body
     assert "Attach the generated still to the packet PDF dossier" in body
-    assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Open search brief</a>' in body
+    assert 'href="{{ object_feedback.get(\'profile_href\') or (\'/app/search\' ~ object_query_suffix) }}">Open active search</a>' in body
 
 
 def test_propertyquarry_blocks_legacy_object_detail_routes_for_generic_office_objects() -> None:
