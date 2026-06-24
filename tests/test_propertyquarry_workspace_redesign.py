@@ -4204,8 +4204,8 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "{'href': '/app/alerts' ~ research_query_suffix, 'label': 'Alerts', 'key': 'alerts'}" in body
     assert "{% if item.key == current_nav %}" in body
     assert '<span class="is-active" aria-current="page">{{ item.label }}</span>' in body
-    assert "{'href': '/app/billing', 'label': 'Billing', 'key': 'billing'}" in body
-    assert "{'href': '/app/account', 'label': 'Account', 'key': 'account'}" in body
+    assert "{'href': '/app/billing' ~ research_query_suffix, 'label': 'Billing', 'key': 'billing'}" in body
+    assert "{'href': '/app/account' ~ research_query_suffix, 'label': 'Account', 'key': 'account'}" in body
     assert 'aria-label="Account navigation"' in body
     assert 'href="{{ account_nav.profile_href }}"' in body
     assert 'href="{{ account_nav.settings_href }}"' in body

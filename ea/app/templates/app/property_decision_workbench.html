@@ -6429,12 +6429,12 @@
         {% if surface_mode == 'billing' %}
         <span class="is-active" aria-current="page">Billing</span>
         {% else %}
-        <a href="/app/billing">Billing</a>
+        <a href="/app/billing{{ topnav_query_suffix }}">Billing</a>
         {% endif %}
         {% if surface_mode == 'account' %}
         <span class="is-active" aria-current="page">Account</span>
         {% else %}
-        <a href="/app/account">Account</a>
+        <a href="/app/account{{ topnav_query_suffix }}">Account</a>
         {% endif %}
       </nav>
       <div class="pqx-top-actions" data-pq-context-actions>
