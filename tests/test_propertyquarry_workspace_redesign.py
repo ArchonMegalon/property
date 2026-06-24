@@ -5502,14 +5502,25 @@ def test_public_ctas_and_selected_review_panel_expose_rybbit_events() -> None:
     home = (repo_root / "ea/app/templates/propertyquarry_home.html").read_text(encoding="utf-8")
     pricing = (repo_root / "ea/app/templates/pricing_page.html").read_text(encoding="utf-8")
     selected_review = (repo_root / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+    results_list = (repo_root / "ea/app/templates/app/_property_results_list.html").read_text(encoding="utf-8")
     workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    feedback_script = (repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html").read_text(encoding="utf-8")
     assert 'data-rybbit-event="home_create_account"' in home
     assert 'data-rybbit-event="pricing_checkout_start"' in pricing
     assert "data-pricing-provider" not in pricing
     assert "Opening secure checkout" in pricing
-    assert 'data-rybbit-event="property_open_page"' in selected_review
-    assert 'data-rybbit-event="property_open_page"' in workbench_script
-    assert 'data-rybbit-event="property_request_tour"' in workbench_script
+    assert 'data-rybbit-event="pq.property.opened"' in selected_review
+    assert 'data-rybbit-event="pq.property.opened"' in workbench_script
+    assert "'data-rybbit-event': 'pq.property.opened'" in feedback_script
+    assert 'data-rybbit-event="pq.tour.opened"' in workbench_script
+    assert 'data-rybbit-event="pq.tour.opened"' in results_list
+    assert 'data-rybbit-event="pq.flythrough.opened"' in workbench_script
+    assert 'data-rybbit-event="pq.flythrough.opened"' in results_list
+    for app_analytics_source in (selected_review, results_list, workbench_script, feedback_script):
+        assert "data-rybbit-prop-candidate" not in app_analytics_source
+        assert "data-rybbit-event=\"property_" not in app_analytics_source
+        assert "selected_platform_count" not in app_analytics_source
+        assert "saved_search_id" not in app_analytics_source
 
 
 def test_base_console_never_identifies_rybbit_principals() -> None:

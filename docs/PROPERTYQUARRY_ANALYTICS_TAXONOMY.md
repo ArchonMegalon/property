@@ -14,6 +14,7 @@ Authenticated app analytics require `PROPERTYQUARRY_RYBBIT_AUTHENTICATED_ENABLED
 pq.search.started
 pq.search.results_viewed
 pq.search.agent_created
+pq.search.agent_updated
 pq.search.agent_notification_sent
 pq.search.suppressed_viewed
 pq.property.opened

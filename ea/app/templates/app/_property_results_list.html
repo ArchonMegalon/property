@@ -152,7 +152,7 @@
               <span class="pqx-result-fact">{{ candidate.get('investment', {}).get('market_delta_display') }}</span>
               {% endif %}
               {% if tour.get('url') %}
-              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="3D tour ready" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') }}">360 ready</a>
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or '3D tour ready' }}" aria-label="3D tour ready" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">360 ready</a>
               {% endif %}
               {% if walkthrough.get('url') %}
               <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Walkthrough ready' }}" aria-label="Walkthrough ready">Walkthrough ready</a>
@@ -195,7 +195,7 @@
           <a class="pqx-result-open" href="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') }}" target="_blank" rel="noopener noreferrer">Open listing</a>
           {% endif %}
           {% if tour.get('url') and not shortlist_compact_actions %}
-          <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="property_open_360" data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}">{% if (tour.get('provider_label') or '') == 'Matterport' %}Open Matterport{% elif (tour.get('provider_label') or '') == '3DVista' %}Open 3DVista{% else %}Open 3D tour{% endif %}</a>
+          <a class="pqx-result-open" href="{{ tour.get('url') }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">{% if (tour.get('provider_label') or '') == 'Matterport' %}Open Matterport{% elif (tour.get('provider_label') or '') == '3DVista' %}Open 3DVista{% else %}Open 3D tour{% endif %}</a>
           {% elif tour_pending and not shortlist_compact_actions %}
           <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ tour_progress }}%;" title="{{ tour_tooltip }}" aria-label="{{ tour_tooltip }}">{{ tour.get('label') or '3D tour queued' }}</button>
           {% elif visual_property_url and not shortlist_compact_actions %}
@@ -207,8 +207,9 @@
             data-source-ref="{{ candidate.get('source_ref') or '' }}"
             data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
             data-run-id="{{ run.get('run_id') or '' }}"
-            data-rybbit-event="property_request_tour"
-            data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}"
+            data-rybbit-event="pq.tour.opened"
+            data-rybbit-prop-cta-key="request_tour"
+            data-rybbit-prop-surface="{{ surface_mode or 'results' }}"
           >Request 3D tour</button>
           {% endif %}
           {% if walkthrough.get('url') and not shortlist_compact_actions %}
@@ -224,8 +225,9 @@
             data-source-ref="{{ candidate.get('source_ref') or '' }}"
             data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
             data-run-id="{{ run.get('run_id') or '' }}"
-            data-rybbit-event="property_request_flythrough"
-            data-rybbit-prop-candidate="{{ candidate.get('candidate_ref') or '' }}"
+            data-rybbit-event="pq.flythrough.opened"
+            data-rybbit-prop-cta-key="request_flythrough"
+            data-rybbit-prop-surface="{{ surface_mode or 'results' }}"
             title="{{ walkthrough_tooltip }}"
             aria-label="Request walkthrough"
           >Request walkthrough</button>

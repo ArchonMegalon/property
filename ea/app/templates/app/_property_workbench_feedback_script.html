@@ -180,8 +180,8 @@
           link: true,
           primary: true,
           attributes: {
-            'data-rybbit-event': 'property_open_360',
-            'data-rybbit-prop-candidate': candidateRef,
+            'data-rybbit-event': 'pq.tour.opened',
+            'data-rybbit-prop-surface': 'research',
           },
         });
       }
@@ -192,8 +192,8 @@
           link: true,
           primary: !tour.url,
           attributes: {
-            'data-rybbit-event': 'property_open_page',
-            'data-rybbit-prop-candidate': candidateRef,
+            'data-rybbit-event': 'pq.property.opened',
+            'data-rybbit-prop-surface': 'research',
           },
         });
       }
@@ -202,8 +202,8 @@
         attributes: {
           'data-fliplink-packet': '',
           'data-candidate-ref': candidateRef,
-          'data-rybbit-event': 'property_share_home',
-          'data-rybbit-prop-candidate': candidateRef,
+          'data-rybbit-event': 'pq.packet.shared',
+          'data-rybbit-prop-surface': 'research',
         },
       }));
       const details = document.createElement('details');
@@ -228,8 +228,9 @@
           attributes: {
             target: '_blank',
             rel: 'noreferrer',
-            'data-rybbit-event': 'property_open_listing',
-            'data-rybbit-prop-candidate': candidateRef,
+            'data-rybbit-event': 'pq.property.opened',
+            'data-rybbit-prop-cta-key': 'open_listing',
+            'data-rybbit-prop-surface': 'research',
           },
         });
       }
@@ -243,8 +244,9 @@
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
             'data-run-id': runId,
-            'data-rybbit-event': 'property_request_tour',
-            'data-rybbit-prop-candidate': candidateRef,
+            'data-rybbit-event': 'pq.tour.opened',
+            'data-rybbit-prop-cta-key': 'request_tour',
+            'data-rybbit-prop-surface': 'research',
           },
         });
         appendActionControl(actions, {
@@ -255,8 +257,9 @@
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
             'data-run-id': runId,
-            'data-rybbit-event': 'property_request_flythrough',
-            'data-rybbit-prop-candidate': candidateRef,
+            'data-rybbit-event': 'pq.flythrough.opened',
+            'data-rybbit-prop-cta-key': 'request_flythrough',
+            'data-rybbit-prop-surface': 'research',
           },
         });
       }
@@ -264,7 +267,8 @@
         label: 'Share results',
         attributes: {
           'data-fliplink-shortlist-share': '',
-          'data-rybbit-event': 'property_share_results',
+          'data-rybbit-event': 'pq.packet.shared',
+          'data-rybbit-prop-surface': 'research',
         },
       }));
       details.appendChild(actions);
@@ -288,8 +292,8 @@
           link: true,
           primary: true,
           attributes: {
-            'data-rybbit-event': 'property_open_page',
-            'data-rybbit-prop-candidate': candidateRef,
+            'data-rybbit-event': 'pq.property.opened',
+            'data-rybbit-prop-surface': 'research',
           },
         });
       }
@@ -750,8 +754,8 @@
         const dislikes = Array.isArray(body.learning_summary?.dislikes) ? body.learning_summary.dislikes.length : 0;
         trackRybbitEvent('shortlist_decision_saved', {
           reaction: selectedFeedbackReaction,
-          reason_count: selectedFeedbackReasonKeys.size,
-          candidate_ref: String(candidate.candidate_ref || '').trim(),
+          surface: 'research',
+          cta_key: `reason_count_${selectedFeedbackReasonKeys.size}`,
         });
         renderSavedDecisionConsequences(body);
         feedbackStatusNode.textContent = `Saved durably. Profile now has ${likes} positive signal(s) and ${dislikes} avoid signal(s).`;
