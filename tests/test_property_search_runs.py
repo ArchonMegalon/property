@@ -9219,11 +9219,33 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
         },
     )
     assert stored.status_code == 200, stored.text
-    assert stored.json()["property_search_preferences"]["max_results_per_source"] == 50
+    assert stored.json()["property_search_preferences"]["max_results_per_source"] is None
 
     status_snapshot = client.get("/v1/onboarding/property-search/preferences")
     assert status_snapshot.status_code == 200
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
+
+
+def test_agent_property_search_preferences_drop_stale_result_cap_when_saved() -> None:
+    principal_id = "exec-property-agent-preferences-unlimited"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Agent Unlimited")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "selected_platforms": ["willhaben"],
+            "max_results_per_source": 7,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+
+    assert stored.status_code == 200, stored.text
+    assert stored.json()["property_search_preferences"]["max_results_per_source"] is None
 
 
 def test_property_search_preferences_persist_full_region_scope_as_hard_location_scope() -> None:

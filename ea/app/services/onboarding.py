@@ -1929,6 +1929,9 @@ class OnboardingService(AssistantOnboardingService):
             if isinstance(raw.get("property_commercial"), dict)
             else {}
         )
+        active_plan_key = str(property_commercial.get("active_plan_key") or "").strip().lower()
+        if active_plan_key == "agent":
+            normalized_max = None
         promoted_numeric: dict[str, int] = {}
         for numeric_key in (
             "max_price_eur",
