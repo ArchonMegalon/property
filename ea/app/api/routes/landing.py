@@ -344,38 +344,6 @@ def _propertyquarry_normalize_run_public_tour_targets(run_payload: dict[str, obj
 
 
 def _propertyquarry_example_media_targets() -> dict[str, str]:
-    def _manifest_provider_url(payload: dict[str, Any], *keys: str) -> str:
-        for key in keys:
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-            if isinstance(value, dict):
-                for nested_key in ("url", "href", "embed_url", "public_url"):
-                    nested_value = value.get(nested_key)
-                    if isinstance(nested_value, str) and nested_value.strip():
-                        return nested_value.strip()
-        return ""
-
-    def _manifest_control_provider(payload: dict[str, Any]) -> str:
-        matterport_url = _manifest_provider_url(
-            payload,
-            "matterport_url",
-            "matterport_embed_url",
-            "matterport_public_url",
-        )
-        if matterport_url and "matterport" in matterport_url.lower():
-            return "matterport"
-        vista_url = _manifest_provider_url(
-            payload,
-            "3dvista_url",
-            "three_d_vista_url",
-            "threedvista_url",
-            "vista3d_url",
-        )
-        if vista_url:
-            return "3dvista"
-        return ""
-
     if not _public_tours_enabled_for_examples():
         return {}
     root = Path(str(os.environ.get("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
@@ -405,11 +373,11 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         if not bundle_tour_href:
             continue
         bundle_tour_url = _propertyquarry_absolute_public_url(bundle_tour_href)
-        control_provider = _manifest_control_provider(payload)
-        if not control_provider:
+        verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
+        if not verified_tour_href:
             continue
         targets = {
-            "tour_href": _propertyquarry_public_href(f"{bundle_tour_url.rstrip('/')}/control/{control_provider}")
+            "tour_href": _propertyquarry_public_href(verified_tour_href)
         }
         walkthrough_asset_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(bundle_tour_url)
         if walkthrough_asset_href:

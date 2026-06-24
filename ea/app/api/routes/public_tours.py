@@ -492,7 +492,7 @@ def _safe_live_360_url(value: object) -> str:
     raw_allowed = str(
         os.getenv(
             "PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS",
-            "propertyquarry.com,*.propertyquarry.com,my.matterport.com,*.matterport.com,360.kalandra.at",
+            "propertyquarry.com,*.propertyquarry.com,my.matterport.com,*.matterport.com,3dvista.com,*.3dvista.com,360.kalandra.at",
         )
         or ""
     ).strip()
@@ -5129,10 +5129,7 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     normalized_viewer_mode = str(viewer_mode or "").strip().lower()
     if normalized_viewer_mode in {"matterport", "metaport", "3dvista", "3d_vista", "three_d_vista"}:
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
-        return HTMLResponse(
-            _tour_html(rendered_payload, hostname=request_hostname(request), path=request_path(request)),
-            headers=_public_tour_security_headers(),
-        )
+        return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
     rendered_payload = _redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},

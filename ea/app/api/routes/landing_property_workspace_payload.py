@@ -1312,14 +1312,14 @@ def property_workspace_payload(
                 provider_key = ""
             provider_label = _visual_provider_label(provider_key) if provider_key else "Provider 360"
             return {
-                "status": "ready",
-                "label": "360 ready",
+                "status": "source",
+                "label": "Source 360",
                 "url": provider_tour_url,
                 "embed_url": provider_tour_url,
                 "eta_label": "Provider 360",
                 "provider_label": provider_label,
                 "provider_key": provider_key,
-                "status_detail": f"{provider_label} source is live from the listing provider.",
+                "status_detail": f"{provider_label} source is available, but no verified PropertyQuarry-hosted control is ready yet.",
                 "recovery_label": "",
                 "control_label": f"Open {provider_label}" if provider_key else "Open provider 360",
             }
@@ -2105,7 +2105,11 @@ def property_workspace_payload(
         for candidate in admitted_shortlist_candidates
         if str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
     )
-    tour_ready_total = sum(1 for candidate in admitted_shortlist_candidates if str(_tour_payload(candidate).get("url") or "").strip())
+    tour_ready_total = sum(
+        1
+        for candidate in admitted_shortlist_candidates
+        if str(_tour_payload(candidate).get("status") or "").strip() == "ready"
+    )
     if not management_surface:
         run_summary_for_surface = dict(run_summary_for_surface)
         admitted_identities = {

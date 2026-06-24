@@ -24759,6 +24759,36 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     assert private_response.status_code == 404
 
 
+def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "forced-provider-mismatch"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Forced Provider Mismatch",
+                "three_d_vista_url": "https://www.3dvista.com/share/forced-provider-mismatch",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-forced-provider-mismatch")
+    wrong_response = client.get(f"/tours/{slug}/control/matterport")
+    right_response = client.get(f"/tours/{slug}/control/3dvista")
+
+    assert wrong_response.status_code == 404
+    assert wrong_response.json()["error"]["code"] == "tour_control_matterport_export_missing"
+    assert right_response.status_code == 200
+    assert "3DVista Control" in right_response.text
+
+
 def test_public_tour_landing_links_pano2vr_spatial_review_for_cube_payload() -> None:
     from app.api.routes import public_tours
 

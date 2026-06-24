@@ -84,6 +84,18 @@ def main() -> int:
     if "tour.private.json" not in writer_source and "_public_tour_private_manifest_path" not in writer_source:
         failures.append("hosted public tour writer must keep private receipt data outside raw tour.json")
 
+    landing_source = inspect.getsource(__import__("app.api.routes.landing", fromlist=["_propertyquarry_example_media_targets"])._propertyquarry_example_media_targets)
+    if "_hosted_property_tour_verified_open_url" not in landing_source:
+        failures.append("PropertyQuarry example media targets must only expose verified hosted tour controls")
+    if "/control/{control_provider}" in landing_source or "_manifest_control_provider" in landing_source:
+        failures.append("PropertyQuarry example media targets must not infer ready controls directly from public manifest keys")
+
+    control_viewer_source = inspect.getsource(public_tours.public_tour_control_viewer)
+    if "_tour_control_html(rendered_payload, viewer_mode=viewer_mode)" not in control_viewer_source:
+        failures.append("forced public tour provider routes must render the requested provider control or fail closed")
+    if "_tour_html(rendered_payload" in control_viewer_source:
+        failures.append("forced public tour provider routes must not fall back to the generic tour shell")
+
     if failures:
         print("property public tour manifest contract failed:", file=sys.stderr)
         for failure in failures:

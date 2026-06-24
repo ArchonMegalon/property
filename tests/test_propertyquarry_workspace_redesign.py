@@ -2630,6 +2630,38 @@ def test_propertyquarry_example_media_targets_keep_walkthrough_hidden_without_re
     assert targets == {"tour_href": "/tours/demo-3dvista-tour/control/3dvista"}
 
 
+def test_propertyquarry_example_media_targets_ignore_unverified_public_control_shell(monkeypatch, tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "public_tours" / "public-control-shell"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "public-control-shell",
+                "public_url": "/tours/public-control-shell",
+                "hosted_url": "/tours/public-control-shell",
+                "control_mode": "matterport",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "scenes": [
+                    {
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+
+    targets = landing_routes._propertyquarry_example_media_targets()
+
+    assert targets == {}
+
+
 def test_propertyquarry_root_hints_signing_in_from_query_flags() -> None:
     client = build_property_client()
     response = client.get("/?signing_in=1&signing=yes", headers={"host": "propertyquarry.com"})
@@ -4504,9 +4536,62 @@ def test_property_workspace_payload_exposes_visual_provider_labels_for_ready_del
 
     result = payload["decision_workbench"]["results"][0]
     assert result["tour"]["provider_label"] == "Matterport"
-    assert "Matterport source is live" in result["tour"]["status_detail"]
+    assert result["tour"]["status"] == "source"
+    assert result["tour"]["label"] == "Source 360"
+    assert "no verified PropertyQuarry-hosted control is ready yet" in result["tour"]["status_detail"]
     assert result["flythrough"]["provider_label"] == "Magicfit"
     assert "Magicfit rendered walkthrough ready" in result["flythrough"]["detail"]
+
+
+def test_property_workspace_payload_does_not_count_raw_provider_tour_as_ready() -> None:
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-raw-provider-source",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-raw-provider-source",
+                            "title": "Provider source only",
+                            "property_url": "https://example.test/provider-source-only",
+                            "source_virtual_tour_url": "https://my.matterport.com/show/?m=SourceOnly",
+                            "fit_score": 82,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_display": "EUR 2,100",
+                                "area_m2": 74,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+    ready_highlight = next(row for row in payload["hero_highlights"] if row["label"] == "360 ready")
+
+    assert result["tour"]["status"] == "source"
+    assert result["tour"]["control_label"] == "Open Matterport"
+    assert ready_highlight["value"] == "0"
 
 
 def test_property_workspace_payload_fills_result_price_display_from_numeric_price_fields() -> None:
