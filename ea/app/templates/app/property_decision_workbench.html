@@ -466,9 +466,16 @@
       gap: 12px;
       flex-wrap: nowrap;
       min-width: 0;
-      overflow: hidden;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .pqx-primary-nav::-webkit-scrollbar {
+      display: none;
     }
     .pqx-primary-nav :is(a, span) {
+      flex: 0 0 auto;
       min-height: var(--pq-touch-target);
       display: inline-flex;
       align-items: center;
@@ -2875,9 +2882,10 @@
         -webkit-overflow-scrolling: touch;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open][data-active-distance-rows="true"] .pqx-pref-list {
-        max-height: min(46svh, 390px);
-        padding-bottom: 12px;
-        scroll-padding-bottom: 18px;
+        max-height: none;
+        overflow: visible;
+        padding-bottom: 4px;
+        scroll-padding-bottom: 0;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list::-webkit-scrollbar {
         width: 0;
@@ -2891,8 +2899,9 @@
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
         grid-column: auto;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        min-height: 90px;
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 0;
+        gap: 7px;
         transform: none;
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div {
@@ -2900,9 +2909,10 @@
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-preference-select],
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
-        grid-column: auto;
+        grid-column: 1 / -1;
         width: 100%;
         max-width: 100%;
+        min-height: 42px;
       }
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
         scroll-margin-bottom: 18px;

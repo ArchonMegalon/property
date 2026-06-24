@@ -151,6 +151,20 @@ def test_brilliant_directories_billing_handoff_requires_white_label_host(monkeyp
     assert brilliant_directories_billing_handoff_url(config) == ""
 
 
+def test_brilliant_directories_receipt_records_billing_as_advisory_white_label_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+
+    receipt = build_brilliant_directories_verification_receipt()
+    capabilities = receipt["verified_capabilities"]
+
+    assert capabilities["white_label_billing_handoff_host_allowlist"] is True
+    assert capabilities["billing_source_of_truth_stays_propertyquarry"] is True
+    assert capabilities["brilliant_directories_billing_events_advisory_only"] is True
+    assert capabilities["billing_webhooks_must_be_signed_and_reconciled"] is True
+
+
 def test_brilliant_directories_request_builder_supports_explicit_json_without_making_it_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

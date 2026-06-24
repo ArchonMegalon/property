@@ -8598,6 +8598,62 @@ def test_propertyquarry_dark_mode_covers_nested_search_controls() -> None:
         assert selector in dark_block
 
 
+def test_propertyquarry_mobile_top_nav_scrolls_instead_of_clipping_sections() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    nav_match = re.search(r"\.pqx-primary-nav\s*\{(?P<body>.*?)\}", body, re.S)
+
+    assert nav_match is not None
+    nav_block = nav_match.group("body")
+    assert "overflow-x: auto;" in nav_block
+    assert "overflow: hidden;" not in nav_block
+    assert "scrollbar-width: none;" in nav_block
+    assert "-webkit-overflow-scrolling: touch;" in nav_block
+    assert ".pqx-primary-nav::-webkit-scrollbar" in body
+
+
+def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+
+    active_list_match = re.search(
+        r'@media \(max-width: 760px\).*?'
+        r'\.pqx-what-matters-panel \.pqx-choice-groupbox'
+        r'\[data-what-matters-group\]\[open\]\[data-active-distance-rows="true"\] \.pqx-pref-list\s*\{'
+        r'(?P<body>.*?)\}',
+        body,
+        re.S,
+    )
+    assert active_list_match is not None
+    active_list_block = active_list_match.group("body")
+    assert "max-height: none;" in active_list_block
+    assert "overflow: visible;" in active_list_block
+    mobile_block_end = body.find("@keyframes pqx-soft-reveal", active_list_match.end())
+    assert mobile_block_end > active_list_match.end()
+    mobile_block = body[active_list_match.end():mobile_block_end]
+
+    mobile_distance_row = re.search(
+        r'\.pqx-what-matters-panel \.pqx-keyword-priority-row'
+        r'\[data-keyword-distance-enabled="true"\]\s*\{(?P<body>.*?)\}',
+        mobile_block,
+        re.S,
+    )
+    assert mobile_distance_row is not None
+    assert "grid-template-columns: minmax(0, 1fr);" in mobile_distance_row.group("body")
+    assert "min-height: 0;" in mobile_distance_row.group("body")
+
+    distance_select = re.search(
+        r'\[data-keyword-preference-select\],\s*'
+        r'\.pqx-what-matters-panel \.pqx-keyword-priority-row'
+        r'\[data-keyword-distance-enabled="true"\] \[data-keyword-distance-select\]\s*\{(?P<body>.*?)\}',
+        mobile_block,
+        re.S,
+    )
+    assert distance_select is not None
+    assert "grid-column: 1 / -1;" in distance_select.group("body")
+    assert "min-height: 42px;" in distance_select.group("body")
+
+
 def test_property_delivery_rows_are_customer_outcomes_not_provider_receipts() -> None:
     rows = landing_property_workspace_helpers._delivery_proof_rows(
         {
@@ -8720,6 +8776,29 @@ def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate(
     assert "human message" in failure_body
     assert "operator detail" in failure_body
     assert "fallback action" in failure_body
+
+
+def test_propertyquarry_documentation_ai_carries_billing_and_whole_project_audit_scope() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    scope = repo_root / "documentation.ai"
+    body = scope.read_text(encoding="utf-8")
+
+    required = (
+        "Billing And Brilliant Directories Scope",
+        "PropertyQuarry remains the source of truth for plan, entitlement, invoice status, and access checks.",
+        "Brilliant Directories may expose a white-label account or payment handoff URL only when HTTPS, host allowlist, and rights review pass.",
+        "documentation.ai Whole-Project Audit Scope",
+        "Establish an authoritative release manifest: repository, branch, commit SHA, deployment ID, public origin, artifact set, and release label.",
+        "Remove host Docker control from default API/worker deployment profiles",
+        "Add reproducible dependencies",
+        "Keep principal-header overrides and loopback no-auth disabled in production.",
+        "Current Priority Order",
+    )
+
+    assert scope.exists()
+    assert "not a credential store" in body
+    for phrase in required:
+        assert phrase in body
 
 
 def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:

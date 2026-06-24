@@ -765,6 +765,10 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
             "private_property_truth_blocked": True,
             "private_provider_contact_fields_stripped": True,
             "direct_publication_disabled": True,
+            "white_label_billing_handoff_host_allowlist": True,
+            "billing_source_of_truth_stays_propertyquarry": True,
+            "brilliant_directories_billing_events_advisory_only": True,
+            "billing_webhooks_must_be_signed_and_reconciled": True,
         },
         "sources": [
             "https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000101842-brilliant-directories-api-endpoints-technical-reference",
