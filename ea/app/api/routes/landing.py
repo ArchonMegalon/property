@@ -4299,6 +4299,7 @@ def app_shell(
         "properties": "properties",
         "search": "search",
         "shortlist": "shortlist",
+        "research": "research",
         "agents": "agents",
         "alerts": "alerts",
         "account": "account",
@@ -4306,7 +4307,7 @@ def app_shell(
     }
     status = container.onboarding.status(principal_id=context.principal_id)
     normalized_run_id = str(run_id or "").strip()
-    if property_brand and resolved_section in {"properties", "shortlist"} and normalized_run_id:
+    if property_brand and resolved_section in {"properties", "shortlist", "research"} and normalized_run_id:
         product = build_product_service(container)
         route_run = dict(
             product.get_property_search_run_status(
@@ -4386,7 +4387,7 @@ def app_shell(
                 stats=stats,
             ),
         )
-    property_sections = {"properties", "search", "shortlist", "agents", "alerts", "account", "billing"} if property_brand else set()
+    property_sections = {"properties", "search", "shortlist", "research", "agents", "alerts", "account", "billing"} if property_brand else set()
     core_sections = {"today", "queue", "commitments", "people", "evidence", "activity"}
     if not property_brand:
         core_sections.add("settings")
