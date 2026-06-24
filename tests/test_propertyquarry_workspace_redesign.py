@@ -4210,8 +4210,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert 'href="{{ account_nav.settings_href }}"' in body
     assert 'action="{{ account_nav.sign_out_action }}"' in body
     assert ".pq-shell[data-property-app-shell] .pq-appbar" in body
-    assert ".pq-mobile-nav" in body
-    assert "display: none !important;" in body
+    assert ".pq-mobile-nav {\n    display: none !important;\n  }" not in body
     assert "grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.55fr);" in body
     assert ".pq-shell[data-property-app-shell] .pq-rail" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
@@ -4226,6 +4225,62 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "max-height: min(calc(100vh - 440px), 202px);" not in body
     assert body.index("data-property-research-topnav") < body.index("data-property-research-detail")
     assert body.index("data-object-media-stage") < body.index("Current read")
+
+
+def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatch) -> None:
+    principal_id = "pq-research-mobile-dock"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Mobile dock audit flat",
+        "summary": "EUR 1,940 · 82 m² · 1050 Wien",
+        "property_url": "https://example.test/mobile-dock-audit",
+        "source_ref": "src:mobile-dock-audit",
+        "property_facts": {
+            "price_eur": 1940.0,
+            "area_m2": 82.0,
+            "postal_name": "1050 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Test source",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    packet_ref = landing_property_research._property_candidate_ref({**candidate, "source_label": "Test source"})
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-mobile-dock"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert packet.status_code == 200
+    assert 'data-property-mobile-dock' in packet.text
+    assert 'aria-label="PropertyQuarry mobile navigation"' in packet.text
+    assert ".pq-mobile-nav {\n    display: none !important;\n  }" not in packet.text
 
 
 def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeypatch) -> None:
