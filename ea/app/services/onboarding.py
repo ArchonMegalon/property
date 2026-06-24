@@ -1929,9 +1929,16 @@ class OnboardingService(AssistantOnboardingService):
             if isinstance(raw.get("property_commercial"), dict)
             else {}
         )
-        active_plan_key = str(property_commercial.get("active_plan_key") or "").strip().lower()
-        if active_plan_key == "agent":
+        commercial_snapshot = property_commercial_snapshot({"property_commercial": property_commercial} if property_commercial else {})
+        active_plan_key = str(commercial_snapshot.get("current_plan_key") or property_commercial.get("active_plan_key") or "").strip().lower()
+        try:
+            plan_result_cap = int(commercial_snapshot.get("max_results_per_source") or 0)
+        except Exception:
+            plan_result_cap = 0
+        if active_plan_key == "agent" and plan_result_cap <= 0:
             normalized_max = None
+        elif normalized_max is not None:
+            normalized_max = max(1, min(plan_result_cap or 10, normalized_max))
         promoted_numeric: dict[str, int] = {}
         for numeric_key in (
             "max_price_eur",
