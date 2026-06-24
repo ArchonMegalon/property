@@ -22783,6 +22783,56 @@ def test_property_search_run_allows_free_plan_across_multiple_platforms_when_res
     assert response.status_code == 200, response.text
 
 
+def test_property_search_run_ignores_stale_agent_result_cap_from_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-agent-request-cap-ignored"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Agent Request Cap Office")
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(self, **kwargs):
+        observed["max_results_per_source"] = kwargs.get("max_results_per_source")
+        observed["property_search_preferences"] = dict(kwargs.get("property_search_preferences") or {})
+        return {
+            "generated_at": product_api_delivery_routes.now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 12,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    response = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {
+                "preference_person_id": "self",
+                "property_commercial": {
+                    "active_plan_key": "agent",
+                    "status": "active",
+                    "active_until": "2999-01-01T00:00:00+00:00",
+                },
+            },
+            "max_results_per_source": 50,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert observed["max_results_per_source"] is None
+    assert dict(observed["property_search_preferences"]).get("max_results_per_source") in (None, "")
+
+
 def test_property_paypal_checkout_and_capture_updates_property_commercial_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
