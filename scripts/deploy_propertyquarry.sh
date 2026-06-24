@@ -359,7 +359,7 @@ if ! printf '%s' "${version_json}" | grep -q '"storage_backend"[[:space:]]*:[[:s
 fi
 
 landing_html="$(curl -fsS --connect-timeout 2 --max-time 8 "${base_url}/")"
-if ! printf '%s' "${landing_html}" | grep -q 'PropertyQuarry'; then
+if [[ "${landing_html}" != *PropertyQuarry* ]]; then
   echo "Landing page probe did not find PropertyQuarry branding." >&2
   exit 1
 fi
