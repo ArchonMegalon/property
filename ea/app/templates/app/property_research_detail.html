@@ -1568,9 +1568,15 @@
         </div>
       </section>
     </section>
-    {% set visual_actions = research_actions|selectattr('kind')|list %}
+    {% set visual_actions = namespace(items=[]) %}
+    {% for action in research_actions %}
+      {% set action_label = (action.get('label') or '')|lower %}
+      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough'] %}
+        {% set visual_actions.items = visual_actions.items + [action] %}
+      {% endif %}
+    {% endfor %}
     {% set visual_status = namespace(active=None) %}
-    {% for action in visual_actions %}
+    {% for action in visual_actions.items %}
       {% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] and visual_status.active is none %}
         {% set visual_status.active = action %}
       {% endif %}
@@ -1582,15 +1588,23 @@
         {% endif %}
       {% endfor %}
     {% endif %}
-    {% if visual_actions or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
+    {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
     <section class="prd-visual-console" aria-label="Visual review controls">
       <div class="prd-visual-toolbar">
         {% if research_media.get('show_status_line') %}
         <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>
         {% endif %}
-        {% if visual_actions %}
+        {% if visual_actions.items %}
         <div class="prd-actions prd-media-actions" aria-label="Media requests">
-          {% for action in visual_actions %}
+          {% for action in visual_actions.items %}
+          {% if action.get('href') %}
+          <a
+            class="console-action prd-visual-hero-action"
+            href="{{ action.get('href') }}"
+            {% if action.get('external') %}target="_blank" rel="noopener noreferrer"{% endif %}
+            aria-label="{{ action.get('label') or 'Open visual review' }}"
+          >{{ action.get('label') }}</a>
+          {% else %}
           <button
             class="console-action prd-visual-hero-action"
             type="button"
@@ -1606,6 +1620,7 @@
             data-pw-visual-poll-seconds="{% if action.get('state') in ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started'] %}10{% else %}0{% endif %}"
             aria-label="{{ action.get('label') or 'Request visual review' }}"
           >{{ action.get('label') }}</button>
+          {% endif %}
           {% endfor %}
         </div>
         {% endif %}

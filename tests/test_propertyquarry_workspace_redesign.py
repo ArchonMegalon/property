@@ -10141,7 +10141,84 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open 3D tour</a>' in rendered_html
+    assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
+
+
+def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(monkeypatch) -> None:
+    principal_id = "pq-research-packet-walkthrough-ready"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Walkthrough-ready loft",
+        "summary": "EUR 2,650 · 94 m² · 1060 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/walkthrough-ready-loft",
+        "source_ref": "willhaben:walkthrough-ready-loft",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/walkthrough-ready-loft",
+        "flythrough_status": "ready",
+        "flythrough_url": "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1",
+        "property_facts": {
+            "price_eur": 2650.0,
+            "area_m2": 94.0,
+            "postal_name": "1060 Wien",
+        },
+    }
+    hosted_href = "https://propertyquarry.com/tours/walkthrough-ready-loft/control/matterport"
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1060 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: hosted_href,
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1060 Vienna",
+        }
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-walkthrough-ready"},
+        headers={"host": "propertyquarry.com"},
+    )
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert f'href="{hosted_href}"' in rendered_html
+    assert 'href="https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&amp;autoplay=1"' in rendered_html
+    assert '>Open 3D tour</a>' in rendered_html
+    assert '>Open walkthrough</a>' in rendered_html
+    assert "Walkthrough is ready on this page." in rendered_html
+    assert 'data-pw-visual-request="tour"' not in rendered_html
+    assert 'data-pw-visual-request="flythrough"' not in rendered_html
 
 
 def test_property_research_packet_uses_cross_run_lookup_for_missing_candidate(monkeypatch) -> None:
