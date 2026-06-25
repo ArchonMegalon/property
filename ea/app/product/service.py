@@ -32398,6 +32398,8 @@ class ProductService:
                     summary=summary,
                     selected_platforms=list(compact_snapshot.get("selected_platforms") or []),
                 )
+                summary = self._apply_property_search_run_repair_receipts(summary=summary)
+                compact_snapshot["summary"] = summary
                 if _has_pending_worker_exception_repair(summary):
                     full_snapshot = self.get_property_search_run_status(
                         principal_id=principal_id,
