@@ -586,6 +586,9 @@ def test_propertyquarry_candidate_display_facts_fill_price_display_from_numeric_
     facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
 
     assert facts["price_display"] == "EUR 649,000"
+    assert facts["listing_fact_confirmation"]["status"] == "confirmed"
+    assert "price" in facts["listing_fact_confirmation"]["fields"]
+    assert facts["listing_fact_confirmation"]["requires_manual_confirmation"] is False
 
 
 def test_propertyquarry_candidate_display_facts_fill_price_display_from_listing_text() -> None:
@@ -600,6 +603,55 @@ def test_propertyquarry_candidate_display_facts_fill_price_display_from_listing_
     facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
 
     assert facts["price_display"] == "GBP 420,000"
+    assert facts["listing_fact_confirmation"]["sources"]["price"] == "listing_text"
+
+
+def test_propertyquarry_listing_fact_confirmation_marks_core_provider_facts_confirmed() -> None:
+    candidate = {
+        "title": "1220 Wien apartment",
+        "property_facts": {
+            "postal_name": "1220 Wien",
+            "price_display": "EUR 1,490",
+            "area_sqm": 71,
+            "rooms": 3,
+        },
+    }
+
+    facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
+
+    confirmation = facts["listing_fact_confirmation"]
+    assert confirmation["status"] == "confirmed"
+    assert confirmation["label"] == "Facts confirmed"
+    assert set(confirmation["fields"]) >= {"price", "area", "rooms", "location"}
+    assert "needs confirmation" not in json.dumps(confirmation).lower()
+
+
+def test_propertyquarry_research_rows_use_auto_confirmed_listing_facts() -> None:
+    facts = {
+        "postal_name": "1220 Wien",
+        "price_display": "EUR 1,490",
+        "area_m2": 71,
+        "rooms": 3,
+        "listing_fact_confirmation": {
+            "status": "confirmed",
+            "label": "Facts confirmed",
+            "summary": "4 listing facts confirmed automatically from provider evidence.",
+            "fields": ["price", "area", "rooms", "location"],
+        },
+    }
+
+    rows = landing_property_research._property_packet_score_rows(
+        facts=facts,
+        preferences={"location_query": "1220 Wien"},
+        match_reasons=[],
+        mismatch_reasons=[],
+    )
+
+    tags_by_title = {row["title"]: row["tag"] for row in rows}
+    assert tags_by_title["Location fit"] == "Confirmed"
+    assert tags_by_title["Budget signal"] == "Confirmed"
+    assert tags_by_title["Layout signal"] == "Confirmed"
+    assert tags_by_title["Facts confirmed"] == "Confirmed"
 
 
 def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_code() -> None:
@@ -3246,6 +3298,7 @@ def test_property_workbench_candidate_snapshot_carries_detail_state() -> None:
         map_url="https://maps.example.com",
         source_url="https://example.com/listing",
         property_facts={"postal_name": "Vienna"},
+        listing_fact_confirmation={"status": "confirmed", "fields": ["price"], "label": "Facts confirmed"},
         assessment={"fit_score": 86},
         objection_rows=[{"title": "Risk", "detail": "Minor"}],
         timeline_rows=[{"title": "Ranked", "detail": "Now"}],
@@ -3268,6 +3321,7 @@ def test_property_workbench_candidate_snapshot_carries_detail_state() -> None:
         preview_image_url="https://img.example.com/1.jpg",
     )
     assert snapshot["candidate_ref"] == "cand-1"
+    assert snapshot["listing_fact_confirmation"]["status"] == "confirmed"
     assert snapshot["rank"] == 1
     assert snapshot["tour"]["status"] == "ready"
     assert snapshot["official_evidence_rows"][0]["title"] == "Cadastre"

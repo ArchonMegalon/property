@@ -421,6 +421,7 @@ class PropertyWorkbenchCandidateSnapshot:
     source_url: str = ""
     floorplan_url: str = ""
     property_facts: dict[str, object] = field(default_factory=dict)
+    listing_fact_confirmation: dict[str, object] = field(default_factory=dict)
     assessment: dict[str, object] = field(default_factory=dict)
     objection_rows: list[dict[str, str]] = field(default_factory=list)
     timeline_rows: list[dict[str, str]] = field(default_factory=list)

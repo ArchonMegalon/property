@@ -2142,6 +2142,7 @@ def property_workspace_payload(
                 source_url=str(candidate.get("property_url") or "").strip(),
                 floorplan_url=_floorplan_url(facts),
                 property_facts=facts,
+                listing_fact_confirmation=dict(facts.get("listing_fact_confirmation") or {}) if isinstance(facts.get("listing_fact_confirmation"), dict) else {},
                 assessment=dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
                 objection_rows=_candidate_objection_rows(candidate, facts),
                 timeline_rows=_candidate_timeline_rows(candidate, facts),

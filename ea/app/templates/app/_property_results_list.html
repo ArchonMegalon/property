@@ -128,6 +128,9 @@
               <span class="pqx-result-fact warn" title="{{ candidate.get('repair_flag_detail') }}">{{ candidate.get('repair_flag_label') }}</span>
               {% endif %}
               {% if candidate.get('recovered_by_filter') %}<span class="pqx-result-fact recovered">Recovered</span>{% endif %}
+              {% if candidate.get('listing_fact_confirmation', {}).get('status') == 'confirmed' %}
+              <span class="pqx-result-fact" title="{{ candidate.get('listing_fact_confirmation', {}).get('summary') or 'Listing facts confirmed automatically from provider evidence.' }}">{{ candidate.get('listing_fact_confirmation', {}).get('label') or 'Facts confirmed' }}</span>
+              {% endif %}
               {% if candidate.get('layout_display') and candidate.get('floorplan_url') %}
               <button
                 class="pqx-result-fact pqx-result-fact-button"

@@ -206,6 +206,7 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
         )
         if part
     )
+    direct_fact_sources: dict[str, str] = {}
     listing_postal_name = next(iter(_property_postal_names_from_text(listing_text)), "")
     listing_postal_code = listing_postal_name.split(" ", 1)[0] if listing_postal_name else ""
     if listing_postal_name and (
@@ -218,9 +219,11 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
             current = str(merged.get(key) or "").strip()
             if not current or _normalized(current) in source_scope_candidates or (source_postal_code and listing_postal_code and source_postal_code != listing_postal_code):
                 merged[key] = listing_postal_name
+        direct_fact_sources["location"] = "listing_text"
 
     if not str(merged.get("price_display") or "").strip():
         fallback_price = ""
+        price_source = ""
         for raw_value in (
             merged.get("rent_display"),
             merged.get("purchase_price_display"),
@@ -230,6 +233,7 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
         ):
             fallback_price = str(raw_value or "").strip()
             if fallback_price:
+                price_source = "provider_structured_fact"
                 break
         if not fallback_price:
             for key in (
@@ -248,6 +252,7 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
                 if amount > 0:
                     currency_code = str(merged.get("currency_code") or "EUR").strip().upper() or "EUR"
                     fallback_price = f"{currency_code} {amount:,.0f}"
+                    price_source = "provider_numeric_fact"
                     break
         if not fallback_price and listing_text:
             currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
@@ -258,9 +263,33 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
                 match = re.search(pattern, listing_text, flags=re.IGNORECASE)
                 if match:
                     fallback_price = " ".join(str(match.group(1) or "").split()).strip(" ,")
+                    price_source = "listing_text"
                     break
         if fallback_price:
             merged["price_display"] = fallback_price
+            direct_fact_sources["price"] = price_source or "provider_fact"
+    elif any(str(merged.get(key) or "").strip() for key in ("price_display", "rent_display", "purchase_price_display", "buy_price_display")):
+        direct_fact_sources["price"] = "provider_structured_fact"
+    elif any(merged.get(key) not in (None, "", 0, 0.0) for key in ("price_eur", "purchase_price_eur", "buy_price_eur", "rent_eur", "total_rent_eur", "monthly_rent_eur")):
+        direct_fact_sources["price"] = "provider_numeric_fact"
+
+    if any(merged.get(key) not in (None, "", 0, 0.0) for key in ("area_sqm", "area_m2", "living_area_m2", "living_area_sqm")):
+        direct_fact_sources["area"] = "provider_structured_fact"
+    if any(merged.get(key) not in (None, "", 0, 0.0) for key in ("rooms", "room_count")):
+        direct_fact_sources["rooms"] = "provider_structured_fact"
+    if not direct_fact_sources.get("location") and any(str(merged.get(key) or "").strip() for key in ("exact_address", "street_address", "address", "postal_name", "district", "city")):
+        direct_fact_sources["location"] = "provider_structured_fact"
+
+    if direct_fact_sources:
+        confirmed_fields = sorted(direct_fact_sources)
+        merged["listing_fact_confirmation"] = {
+            "status": "confirmed",
+            "label": "Facts confirmed",
+            "summary": f"{len(confirmed_fields)} listing fact{'s' if len(confirmed_fields) != 1 else ''} confirmed automatically from provider evidence.",
+            "fields": confirmed_fields,
+            "sources": direct_fact_sources,
+            "requires_manual_confirmation": False,
+        }
 
     if not snapshot:
         return merged

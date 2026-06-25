@@ -993,6 +993,8 @@ def _property_packet_score_rows(
     mismatch_reasons: list[str],
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    confirmation = dict(facts.get("listing_fact_confirmation") or {}) if isinstance(facts.get("listing_fact_confirmation"), dict) else {}
+    confirmed_fields = {str(value or "").strip().lower() for value in list(confirmation.get("fields") or []) if str(value or "").strip()}
     selected_locations = {str(value).strip().lower() for value in str(preferences.get("location_query") or "").split(",") if str(value).strip()}
     fact_address = str(facts.get("address") or facts.get("postal_name") or "").strip()
     if fact_address:
@@ -1001,7 +1003,7 @@ def _property_packet_score_rows(
             _object_detail_row(
                 "Location fit",
                 fact_address,
-                "Strong" if fits_location else "Check",
+                "Confirmed" if "location" in confirmed_fields else ("Strong" if fits_location else "Check"),
             )
         )
     price_value = str(
@@ -1012,7 +1014,7 @@ def _property_packet_score_rows(
         or ""
     ).strip()
     if price_value:
-        rows.append(_object_detail_row("Budget signal", price_value, "Budget"))
+        rows.append(_object_detail_row("Budget signal", price_value, "Confirmed" if "price" in confirmed_fields else "Budget"))
     area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
     rooms_value = _property_rooms_display(facts)
     if area_value or rooms_value:
@@ -1022,7 +1024,15 @@ def _property_packet_score_rows(
                 f"{area_value} m2" if area_value else "",
             ) if part
         )
-        rows.append(_object_detail_row("Layout signal", detail, "Layout"))
+        rows.append(_object_detail_row("Layout signal", detail, "Confirmed" if {"area", "rooms"} & confirmed_fields else "Layout"))
+    if confirmed_fields:
+        rows.append(
+            _object_detail_row(
+                str(confirmation.get("label") or "Listing facts confirmed"),
+                str(confirmation.get("summary") or "Provider listing evidence confirmed the displayed facts automatically."),
+                "Confirmed",
+            )
+        )
     if match_reasons:
         rows.append(_object_detail_row("Best fit signal", match_reasons[0], "Positive"))
     if mismatch_reasons:
