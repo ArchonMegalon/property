@@ -68,6 +68,16 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --require-all-provider-modes \
   --write _completion/property_tour_controls/release-gate.json \
   --summary-only
+property_api_container="${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
+if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container}" >/dev/null 2>&1; then
+  docker exec "${property_api_container}" python /app/scripts/verify_property_tour_controls.py \
+    --tour-root /data/public_property_tours \
+    --require-all-provider-modes \
+    --write /data/artifacts/property-tour-controls-release-gate-live-container.json \
+    --summary-only
+  docker cp "${property_api_container}:/data/artifacts/property-tour-controls-release-gate-live-container.json" \
+    _completion/property_tour_controls/release-gate.json
+fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
   --drop-dir "${tour_export_incoming_dir}" \
   --write _completion/property_tour_exports/release-gate-discovery.json

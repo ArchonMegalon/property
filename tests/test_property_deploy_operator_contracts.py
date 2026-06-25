@@ -140,6 +140,11 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
 
     assert "scripts/materialize_property_tour_export_manifest.py" in release_gate
     assert "tour_export_incoming_dir=" in release_gate
+    assert "property_api_container=\"${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}\"" in release_gate
+    assert "docker exec \"${property_api_container}\" python /app/scripts/verify_property_tour_controls.py" in release_gate
+    assert "--tour-root /data/public_property_tours" in release_gate
+    assert "property-tour-controls-release-gate-live-container.json" in release_gate
+    assert "docker cp \"${property_api_container}:/data/artifacts/property-tour-controls-release-gate-live-container.json\"" in release_gate
     assert "--drop-dir \"${tour_export_incoming_dir}\"" in release_gate
     assert "--incoming-root \"${tour_export_incoming_dir}\"" in release_gate
     assert "_completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
