@@ -23,6 +23,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         "/app/alerts",
         "/app/account",
         "/app/billing",
+    }
+    settings_mobile_surfaces = {
         "/app/settings/google",
         "/app/settings/access",
         "/app/settings/usage",
@@ -33,15 +35,29 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert expected_mobile_surfaces.issubset(routes)
     assert routes["/app/agents"]["duration_ms"] <= routes["/app/agents"]["budget_ms"]
     assert routes["/app/research/perf-candidate-1020"]["duration_ms"] <= routes["/app/research/perf-candidate-1020"]["budget_ms"]
+    content_first_mobile_surfaces = {
+        "/app/agents",
+        "/app/alerts",
+        "/app/account",
+        "/app/billing",
+    }
     for route in routes.values():
         check_names = {str(check["name"]): bool(check["ok"]) for check in route["checks"]}
+        route_path = str(route["path"]).split("?", 1)[0]
         assert check_names["mobile_viewport_meta"]
-        if str(route["path"]).split("?", 1)[0] == "/sign-in":
+        if route_path == "/sign-in":
             assert check_names["public_auth_surface"]
             continue
         assert check_names["shared_top_navigation"]
         assert check_names["property_app_shell"]
-        assert check_names["mobile_dock_target"]
+        if route_path in content_first_mobile_surfaces:
+            assert check_names["mobile_content_first_surface"]
+            assert check_names["mobile_static_switch_suppressed"]
+        elif route_path in settings_mobile_surfaces:
+            assert check_names["mobile_settings_surface"]
+        else:
+            assert check_names["mobile_dock_target"]
+            assert check_names["mobile_dock_touch_target"]
         assert check_names["rybbit_no_identify"]
         assert check_names["rybbit_taxonomy_events_only"]
         assert check_names["rybbit_allowed_attributes_only"]
@@ -99,6 +115,9 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"/app/settings/invitations"' in result.stdout
     assert '"shared_top_navigation"' in result.stdout
     assert '"mobile_dock_target"' in result.stdout
+    assert '"mobile_content_first_surface"' in result.stdout
+    assert '"mobile_static_switch_suppressed"' in result.stdout
+    assert '"mobile_settings_surface"' in result.stdout
     assert '"billing_white_label_copy"' in result.stdout
     assert '"provider_login_implicit_account_creation"' in result.stdout
     assert '"research_visual_requests_honest"' in result.stdout

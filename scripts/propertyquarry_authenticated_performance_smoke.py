@@ -137,6 +137,22 @@ FORBIDDEN_BILLING_SURFACE_TOKENS = (
     "plan unit",
 )
 
+CONTENT_FIRST_MOBILE_PATHS = {
+    "/app/agents",
+    "/app/alerts",
+    "/app/account",
+    "/app/billing",
+}
+
+SETTINGS_MOBILE_PATHS = {
+    "/app/settings/google",
+    "/app/settings/access",
+    "/app/settings/usage",
+    "/app/settings/support",
+    "/app/settings/trust",
+    "/app/settings/invitations",
+}
+
 
 def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
     normalized_path = str(path or "").split("?", 1)[0]
@@ -154,7 +170,7 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
     if not normalized_path.startswith("/app/"):
         return []
     nav_missing = [label for label in SHARED_TOP_NAV_LABELS if label not in body]
-    return [
+    checks = [
         {
             "name": "mobile_viewport_meta",
             "ok": 'name="viewport"' in body and "width=device-width" in body,
@@ -168,22 +184,50 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
             "name": "property_app_shell",
             "ok": "data-property-app-shell" in body and "data-pq-greenfield-shell" in body,
         },
-        {
-            "name": "mobile_dock_target",
-            "ok": "data-property-mobile-dock" in body,
-        },
-        {
-            "name": "mobile_dock_touch_target",
-            "ok": (
-                "min-height: var(--mobile-dock-target)" in body
-                and "var(--mobile-dock-target-coarse)" in body
-            )
-            or (
-                "pqx-mobile-switch .pqx-mode-button" in body
-                and "min-height: 56px" in body
-            ),
-        },
     ]
+    if normalized_path in CONTENT_FIRST_MOBILE_PATHS:
+        checks.extend(
+            (
+                {
+                    "name": "mobile_content_first_surface",
+                    "ok": 'data-pqx-mobile-panel="brief"' in body and "pqx-brief-drawer-panel" in body,
+                },
+                {
+                    "name": "mobile_static_switch_suppressed",
+                    "ok": ".pqx-shell[data-pqx-surface=\"account\"] .pqx-mobile-switch" in body
+                    and ".pqx-shell[data-pqx-surface=\"billing\"] .pqx-mobile-switch" in body
+                    and ".pqx-shell[data-pqx-surface=\"alerts\"] .pqx-mobile-switch" in body,
+                },
+            )
+        )
+    elif normalized_path in SETTINGS_MOBILE_PATHS:
+        checks.append(
+            {
+                "name": "mobile_settings_surface",
+                "ok": "data-property-research-topnav" in body and "/app/settings/" in body,
+            }
+        )
+    else:
+        checks.extend(
+            (
+                {
+                    "name": "mobile_dock_target",
+                    "ok": "data-property-mobile-dock" in body,
+                },
+                {
+                    "name": "mobile_dock_touch_target",
+                    "ok": (
+                        "min-height: var(--mobile-dock-target)" in body
+                        and "var(--mobile-dock-target-coarse)" in body
+                    )
+                    or (
+                        "pqx-mobile-switch .pqx-mode-button" in body
+                        and "min-height: 56px" in body
+                    ),
+                },
+            )
+        )
+    return checks
 
 
 def _rybbit_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
@@ -650,7 +694,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "notes": [
             "This smoke is local, authenticated, provider-free and non-networked.",
             "It guards first-paint route budgets for sign-in, search, agents, results, research, alerts, account, billing, and settings surfaces.",
-            "It also asserts the shared top navigation, viewport metadata, app shell and mobile dock targets render on every measured app surface.",
+            "It also asserts shared top navigation, viewport metadata, app shell, mobile docks for active search/result surfaces, and content-first mobile layouts for static account/billing/settings surfaces.",
         ],
     }
 
