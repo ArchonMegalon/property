@@ -290,6 +290,10 @@ def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
     return bool(markers.get("video_stream") and markers.get("duration_positive"))
 
 
+def _magicfit_local_video_ready(bundle_dir: Path, payload: dict[str, object]) -> bool:
+    return _magicfit_provider_declared(payload) and _local_video_asset_is_playable(bundle_dir, _magicfit_video_relpath(payload))
+
+
 def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
     receipt_path = bundle_dir / "tour.private.json"
     if not receipt_path.is_file():
@@ -390,7 +394,7 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
 
     magicfit_relpath = _magicfit_video_relpath(payload)
     magicfit_url = _magicfit_video_url(payload)
-    if not (magicfit_url or (_magicfit_provider_declared(payload) and _local_video_asset_is_playable(bundle_dir, magicfit_relpath))):
+    if not _magicfit_local_video_ready(bundle_dir, payload):
         provider = str(
             payload.get("video_provider")
             or payload.get("video_provider_key")
@@ -400,6 +404,9 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
         if provider and provider != "magicfit":
             reason = "walkthrough_provider_not_magicfit"
             action = "render and import a MagicFit walkthrough with provider=magicfit"
+        elif magicfit_url:
+            reason = "magicfit_remote_video_needs_live_probe"
+            action = "run verify_property_tour_controls.py with --live-probe or import the MagicFit video as a local playable asset"
         elif magicfit_relpath:
             reason = "magicfit_video_missing_or_unplayable"
             action = "run import_magicfit_walkthrough.py with a receipt-backed playable MP4/M4V/MOV/WebM"
@@ -477,13 +484,23 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
 
     magicfit_relpath = _magicfit_video_relpath(payload)
     magicfit_url = _magicfit_video_url(payload)
-    if magicfit_url or (_magicfit_provider_declared(payload) and _local_video_asset_is_playable(bundle_dir, magicfit_relpath)):
+    if _magicfit_local_video_ready(bundle_dir, payload):
         rows.append(
             {
                 "provider": "magicfit",
                 "status": "ready",
-                "control_path": f"/tours/files/{slug}/{magicfit_relpath}" if magicfit_relpath else "",
-                "evidence": "local_magicfit_playable_video" if magicfit_relpath else "allowlisted_magicfit_video_url",
+                "control_path": f"/tours/files/{slug}/{magicfit_relpath}",
+                "evidence": "local_magicfit_playable_video",
+            }
+        )
+    elif magicfit_url:
+        rows.append(
+            {
+                "provider": "magicfit",
+                "status": "probe_required",
+                "control_path": "",
+                "evidence": "allowlisted_magicfit_video_url_pending_probe",
+                "_probe_url": magicfit_url,
             }
         )
     return rows
@@ -578,8 +595,9 @@ def build_property_tour_control_receipt(
         controls = _control_candidates(slug=slug, bundle_dir=bundle_dir, payload=payload)
         for control in controls:
             provider = str(control.get("provider") or "").strip().lower()
-            if live_probe and base_url and control.get("control_path"):
-                probe_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", str(control["control_path"]).lstrip("/"))
+            internal_probe_url = str(control.pop("_probe_url", "") or "").strip()
+            if live_probe and ((base_url and control.get("control_path")) or internal_probe_url):
+                probe_url = internal_probe_url or urllib.parse.urljoin(base_url.rstrip("/") + "/", str(control["control_path"]).lstrip("/"))
                 probe = _probe_url(
                     probe_url,
                     timeout_seconds=timeout_seconds,
@@ -591,14 +609,31 @@ def build_property_tour_control_receipt(
                 if int(probe.get("http_status") or 0) != 200 or playback_failed:
                     control["status"] = "probe_failed"
                     failed_probes += 1
+                elif str(control.get("status") or "").strip().lower() == "probe_required":
+                    control["status"] = "ready"
+                    control["evidence"] = "live_probed_magicfit_video_url"
             if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
                 provider_counts[provider] += 1
-        missing_evidence = _provider_missing_evidence(bundle_dir, payload)
+        ready_control_providers = {
+            str(control.get("provider") or "").strip().lower()
+            for control in controls
+            if str(control.get("status") or "").strip().lower() == "ready"
+        }
+        missing_evidence = [
+            row
+            for row in _provider_missing_evidence(bundle_dir, payload)
+            if str(row.get("provider") or "").strip().lower() not in ready_control_providers
+        ]
         for row in missing_evidence:
             provider = str(row.get("provider") or "").strip().lower()
             if provider in action_counts:
                 action_counts[provider] += 1
-        missing_public_evidence = [] if controls else missing_evidence
+        ready_controls = [
+            control
+            for control in controls
+            if str(control.get("status") or "").strip().lower() == "ready"
+        ]
+        missing_public_evidence = [] if ready_controls else missing_evidence
         tour_missing_provider_modes = sorted(
             {
                 str(row.get("provider") or "").strip().lower()
@@ -610,8 +645,8 @@ def build_property_tour_control_receipt(
             {
                 "slug": slug,
                 "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
-                "status": "ready" if controls else "blocked_missing_verified_controls",
-                "blocked_reason": "" if controls else _blocked_control_reason(payload),
+                "status": "ready" if ready_controls else "blocked_missing_verified_controls",
+                "blocked_reason": "" if ready_controls else _blocked_control_reason(payload),
                 "controls": controls,
                 "missing_evidence": missing_public_evidence,
                 "missing_provider_modes": tour_missing_provider_modes,
@@ -661,7 +696,7 @@ def build_property_tour_control_receipt(
         "tours": tours,
         "notes": [
             "Matterport, 3DVista, Pano2VR, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
-            "MagicFit is ready only when the manifest points to a local public video asset or an allowlisted PropertyQuarry-hosted video URL with provider=magicfit.",
+            "MagicFit is ready only when the manifest points to a local playable video asset or a live-probed allowlisted hosted video URL with provider=magicfit.",
             "The receipt intentionally omits raw external provider URLs and private listing/source fields.",
         ],
     }

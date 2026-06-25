@@ -368,6 +368,115 @@ def test_property_tour_control_verifier_rejects_magicfit_signature_only_stub(tmp
     assert missing["magicfit"]["reason"] == "magicfit_video_missing_or_unplayable"
 
 
+def test_property_tour_control_verifier_requires_live_probe_for_remote_magicfit_video(tmp_path: Path) -> None:
+    _write_tour(
+        tmp_path,
+        "remote-magicfit",
+        {
+            "video_provider": "magicfit",
+            "video_url": "https://propertyquarry.com/tours/files/remote-magicfit/walkthrough.mp4",
+        },
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "blocked_missing_verified_controls"
+    assert receipt["provider_counts"]["magicfit"] == 0
+    assert receipt["ready_provider_modes"] == []
+    control = receipt["tours"][0]["controls"][0]
+    assert control["provider"] == "magicfit"
+    assert control["status"] == "probe_required"
+    assert control["evidence"] == "allowlisted_magicfit_video_url_pending_probe"
+    assert "_probe_url" not in control
+    missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
+    assert missing["magicfit"]["reason"] == "magicfit_remote_video_needs_live_probe"
+    assert "remote-magicfit/walkthrough.mp4" not in json.dumps(receipt)
+
+
+def test_property_tour_control_verifier_counts_remote_magicfit_after_successful_live_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "remote-magicfit-ready",
+        {
+            "video_provider": "magicfit",
+            "video_url": "https://propertyquarry.com/tours/files/remote-magicfit-ready/walkthrough.mp4",
+        },
+    )
+    seen_urls: list[str] = []
+
+    def _successful_probe(url: str, *_args, **_kwargs) -> dict[str, object]:
+        seen_urls.append(url)
+        return {
+            "http_status": 200,
+            "content_type": "video/mp4",
+            "playback_markers": {
+                "video_content_type": True,
+                "video_signature": True,
+                "video_stream": True,
+                "duration_positive": True,
+            },
+        }
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _successful_probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["provider_counts"]["magicfit"] == 1
+    assert receipt["ready_provider_modes"] == ["magicfit"]
+    assert seen_urls == ["https://propertyquarry.com/tours/files/remote-magicfit-ready/walkthrough.mp4"]
+    control = receipt["tours"][0]["controls"][0]
+    assert control["status"] == "ready"
+    assert control["evidence"] == "live_probed_magicfit_video_url"
+    assert "_probe_url" not in control
+    assert "remote-magicfit-ready/walkthrough.mp4" not in json.dumps(receipt)
+
+
+def test_property_tour_control_verifier_rejects_remote_magicfit_failed_live_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "remote-magicfit-failed",
+        {
+            "video_provider": "magicfit",
+            "video_url": "https://propertyquarry.com/tours/files/remote-magicfit-failed/walkthrough.mp4",
+        },
+    )
+
+    def _failed_probe(*_args, **_kwargs) -> dict[str, object]:
+        return {
+            "http_status": 200,
+            "content_type": "text/html",
+            "playback_markers": {
+                "video_content_type": False,
+                "video_signature": False,
+            },
+        }
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _failed_probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
+
+    assert receipt["status"] == "fail"
+    assert receipt["provider_counts"]["magicfit"] == 0
+    assert "magicfit" not in receipt["ready_provider_modes"]
+    assert receipt["tours"][0]["status"] == "blocked_missing_verified_controls"
+    assert receipt["tours"][0]["controls"][0]["status"] == "probe_failed"
+
+
 def test_property_tour_control_verifier_rejects_placeholder_local_3d_exports(tmp_path: Path) -> None:
     _write_tour(
         tmp_path,
