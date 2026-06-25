@@ -56,8 +56,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         elif route_path in settings_mobile_surfaces:
             assert check_names["mobile_settings_surface"]
         else:
-            assert check_names["mobile_dock_target"]
-            assert check_names["mobile_dock_touch_target"]
+            assert check_names["mobile_top_navigation_only"]
+            assert check_names["mobile_top_navigation_touch_targets"]
         assert check_names["rybbit_no_identify"]
         assert check_names["rybbit_taxonomy_events_only"]
         assert check_names["rybbit_allowed_attributes_only"]
@@ -116,7 +116,8 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"/app/settings/trust"' in result.stdout
     assert '"/app/settings/invitations"' in result.stdout
     assert '"shared_top_navigation"' in result.stdout
-    assert '"mobile_dock_target"' in result.stdout
+    assert '"mobile_top_navigation_only"' in result.stdout
+    assert '"mobile_top_navigation_touch_targets"' in result.stdout
     assert '"mobile_content_first_surface"' in result.stdout
     assert '"mobile_static_switch_suppressed"' in result.stdout
     assert '"mobile_settings_surface"' in result.stdout

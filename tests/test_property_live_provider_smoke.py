@@ -22,6 +22,35 @@ def _all_search_ready_countries() -> tuple[str, ...]:
     )
 
 
+def _sanitized_cross_country_response(payload: dict[str, object], _timeout: float = 0.0) -> dict[str, object]:
+    requested = [
+        str(value or "").strip()
+        for value in list(payload.get("selected_platforms") or [])
+        if str(value or "").strip()
+    ]
+    if len(requested) < 2:
+        return {
+            "run_id": "run-sanitized",
+            "status_url": "/app/api/property/search-runs/run-sanitized",
+            "status": "queued",
+            "selected_platforms": requested,
+            "summary": {
+                "provider_country_filter_applied": False,
+                "provider_country_filter_removed": [],
+            },
+        }
+    return {
+        "run_id": "run-sanitized",
+        "status_url": "/app/api/property/search-runs/run-sanitized",
+        "status": "queued",
+        "selected_platforms": [requested[1]],
+        "summary": {
+            "provider_country_filter_applied": True,
+            "provider_country_filter_removed": [requested[0]],
+        },
+    }
+
+
 def test_live_provider_smoke_is_skipped_by_default(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", raising=False)
 
@@ -168,7 +197,11 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
     def _fetcher(country: str, _timeout: float) -> dict[str, object]:
         return payloads[country]
 
-    receipt = build_live_provider_smoke_receipt(countries=("AT", "CR"), fetcher=_fetcher)
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT", "CR"),
+        fetcher=_fetcher,
+        search_executor=_sanitized_cross_country_response,
+    )
 
     assert receipt["status"] == "blocked_targeted_search_matrix_not_executed"
     rows = {row["country_code"]: row for row in receipt["checks"]}
@@ -272,6 +305,9 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     checkpoint_path = tmp_path / "provider-matrix-checkpoint.json"
 
     def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
+        selected_platforms = list(payload.get("selected_platforms") or [])
+        if len(selected_platforms) > 1:
+            return _sanitized_cross_country_response(payload)
         observed_payloads.append(dict(payload))
         provider = str((payload.get("selected_platforms") or ["provider"])[0])
         preferences = dict(payload.get("property_preferences") or {})
@@ -340,6 +376,63 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
         dict(payload.get("property_preferences") or {}).get("property_commercial", {}).get("active_plan_key") == "agent"
         for payload in observed_payloads
     )
+    sanitization_summary = receipt["cross_country_sanitization_summary"]
+    assert sanitization_summary["sanitization_ok"] is True
+    assert sanitization_summary["status_counts"] == {"pass": 1}
+    sanitization_row = receipt["cross_country_sanitization_checks"][0]
+    assert sanitization_row["status"] == "pass"
+    assert sanitization_row["foreign_provider"] not in sanitization_row["sanitized_platforms"]
+    assert sanitization_row["foreign_provider"] in sanitization_row["removed_platforms"]
+
+
+def test_live_provider_smoke_fails_when_cross_country_sanitization_does_not_remove_foreign_provider(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+
+    catalog_payload = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "property_type": "apartment",
+        "default_platforms": [
+            "willhaben",
+            "derstandard_at",
+            "immoscout_at",
+            "public_housing_at",
+            "genossenschaften_at",
+            "immmo",
+        ],
+        "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
+    }
+
+    def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
+        requested = [
+            str(value or "").strip()
+            for value in list(payload.get("selected_platforms") or [])
+            if str(value or "").strip()
+        ]
+        return {
+            "run_id": "run-unsanitized",
+            "status_url": "/app/api/property/search-runs/run-unsanitized",
+            "status": "queued",
+            "selected_platforms": requested,
+            "summary": {
+                "provider_country_filter_applied": False,
+                "provider_country_filter_removed": [],
+            },
+        }
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        fetcher=lambda _country, _timeout: catalog_payload,
+        search_executor=_search_executor,
+    )
+
+    assert receipt["status"] == "fail"
+    assert receipt["cross_country_sanitization_summary"]["sanitization_ok"] is False
+    row = receipt["cross_country_sanitization_checks"][0]
+    assert row["status"] == "fail"
+    assert row["foreign_provider"] in row["sanitized_platforms"]
+    assert row["summary_filter_applied"] is False
 
 
 def test_live_provider_smoke_can_resume_passed_targeted_search_cases(monkeypatch, tmp_path) -> None:
@@ -387,6 +480,9 @@ def test_live_provider_smoke_can_resume_passed_targeted_search_cases(monkeypatch
     observed_payloads: list[dict[str, object]] = []
 
     def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
+        selected_platforms = list(payload.get("selected_platforms") or [])
+        if len(selected_platforms) > 1:
+            return _sanitized_cross_country_response(payload)
         observed_payloads.append(dict(payload))
         provider = str((payload.get("selected_platforms") or ["provider"])[0])
         preferences = dict(payload.get("property_preferences") or {})

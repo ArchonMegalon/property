@@ -278,6 +278,131 @@ def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeo
     return json.loads(body.decode("utf-8", errors="replace"))
 
 
+def _first_search_ready_provider(country_code: str) -> dict[str, object]:
+    options = _search_ready_provider_options(str(country_code or "").strip().upper())
+    return dict(options[0]) if options else {}
+
+
+def _first_foreign_search_ready_provider(country_code: str) -> dict[str, object]:
+    normalized_country = str(country_code or "").strip().upper()
+    for foreign_country in _all_search_ready_country_codes():
+        if foreign_country == normalized_country:
+            continue
+        provider = _first_search_ready_provider(foreign_country)
+        if provider:
+            return provider
+    return {}
+
+
+def _cross_country_sanitization_payload(
+    *,
+    country_code: str,
+    local_provider_key: str,
+    foreign_provider_key: str,
+) -> dict[str, object]:
+    context = _target_context_for_country(country_code)
+    return {
+        "selected_platforms": [str(foreign_provider_key or "").strip(), str(local_provider_key or "").strip()],
+        "property_preferences": {
+            "country_code": str(country_code or "").strip().upper(),
+            "listing_mode": "rent",
+            "search_goal": "home",
+            "location_query": str(context["location_query"]),
+            "selected_location_values": list(context["selected_location_values"]),
+            "language_code": "en",
+            "preference_person_id": "self",
+            "search_mode": "strict",
+            "property_commercial": _agent_unlimited_commercial_state(),
+        },
+        "force_refresh": True,
+        "dispatch_only": True,
+    }
+
+
+def _build_cross_country_sanitization_checks(
+    *,
+    countries: Iterable[str],
+    base_url: str,
+    enabled: bool,
+    dry_run: bool,
+    timeout_seconds: float,
+    search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    executor = search_executor or (lambda payload, timeout: _post_search_run_payload(base_url=base_url, payload=payload, timeout_seconds=timeout))
+    rows: list[dict[str, object]] = []
+    for country in countries:
+        normalized_country = str(country or "").strip().upper()
+        local_provider = _first_search_ready_provider(normalized_country)
+        foreign_provider = _first_foreign_search_ready_provider(normalized_country)
+        local_provider_key = str(local_provider.get("value") or "").strip()
+        foreign_provider_key = str(foreign_provider.get("value") or "").strip()
+        row: dict[str, object] = {
+            "country_code": normalized_country,
+            "local_provider": local_provider_key,
+            "local_provider_country_code": str(local_provider.get("country_code") or "").strip().upper(),
+            "foreign_provider": foreign_provider_key,
+            "foreign_provider_country_code": str(foreign_provider.get("country_code") or "").strip().upper(),
+            "endpoint": "/app/api/property/search-runs",
+            "status": "skipped" if not enabled else "dry_run" if dry_run else "planned",
+        }
+        if not local_provider_key or not foreign_provider_key:
+            row.update(
+                {
+                    "status": "skipped_no_cross_country_case",
+                    "sanitization_ok": True,
+                }
+            )
+            rows.append(row)
+            continue
+        payload = _cross_country_sanitization_payload(
+            country_code=normalized_country,
+            local_provider_key=local_provider_key,
+            foreign_provider_key=foreign_provider_key,
+        )
+        row["requested_platforms"] = list(payload.get("selected_platforms") or [])
+        if enabled and not dry_run:
+            try:
+                response = dict(executor(payload, timeout_seconds) or {})
+                selected_platforms = [
+                    str(value or "").strip()
+                    for value in list(response.get("selected_platforms") or [])
+                    if str(value or "").strip()
+                ]
+                summary = dict(response.get("summary") or {})
+                removed = [
+                    str(value or "").strip()
+                    for value in list(summary.get("provider_country_filter_removed") or [])
+                    if str(value or "").strip()
+                ]
+                sanitization_ok = (
+                    local_provider_key in selected_platforms
+                    and foreign_provider_key not in selected_platforms
+                    and bool(summary.get("provider_country_filter_applied"))
+                    and foreign_provider_key in removed
+                )
+                row.update(
+                    {
+                        "status": "pass" if sanitization_ok else "fail",
+                        "run_id": str(response.get("run_id") or "").strip(),
+                        "runtime_status": str(response.get("status") or "").strip().lower(),
+                        "sanitized_platforms": selected_platforms,
+                        "removed_platforms": removed,
+                        "summary_filter_applied": bool(summary.get("provider_country_filter_applied")),
+                        "sanitization_ok": sanitization_ok,
+                    }
+                )
+            except Exception as exc:
+                row.update(
+                    {
+                        "status": "fail",
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "sanitization_ok": False,
+                    }
+                )
+        rows.append(row)
+    return rows
+
+
 def _fetch_search_run_status_payload(*, base_url: str, status_url: str, run_id: str, timeout_seconds: float) -> dict[str, object]:
     raw_status_url = str(status_url or "").strip()
     if raw_status_url:
@@ -769,6 +894,14 @@ def build_live_provider_smoke_receipt(
         checkpoint_writer=_write_checkpoint if should_execute_search_matrix and enabled and not dry_run else None,
         resume_rows=resume_rows if should_execute_search_matrix and enabled and not dry_run else (),
     )
+    cross_country_sanitization_checks = _build_cross_country_sanitization_checks(
+        countries=normalized_countries,
+        base_url=base_url,
+        enabled=enabled,
+        dry_run=dry_run,
+        timeout_seconds=timeout_seconds,
+        search_executor=search_executor,
+    )
     search_matrix_summary = _targeted_search_matrix_summary(
         search_matrix,
         countries=normalized_countries,
@@ -778,9 +911,11 @@ def build_live_provider_smoke_receipt(
     )
     statuses = {str(row.get("status") or "").strip().lower() for row in checks}
     search_statuses = {str(row.get("status") or "").strip().lower() for row in search_matrix}
-    if "fail" in statuses or "fail" in search_statuses:
+    sanitization_statuses = {str(row.get("status") or "").strip().lower() for row in cross_country_sanitization_checks}
+    sanitization_ok = all(bool(row.get("sanitization_ok", True)) for row in cross_country_sanitization_checks)
+    if "fail" in statuses or "fail" in search_statuses or "fail" in sanitization_statuses or not sanitization_ok:
         status = "fail"
-    elif enabled and not dry_run and statuses == {"pass"} and search_statuses == {"pass"}:
+    elif enabled and not dry_run and statuses == {"pass"} and search_statuses == {"pass"} and sanitization_statuses == {"pass"}:
         status = "pass"
     elif enabled and not dry_run and statuses == {"pass"} and search_statuses == {"planned"}:
         status = "blocked_targeted_search_matrix_not_executed"
@@ -802,6 +937,15 @@ def build_live_provider_smoke_receipt(
         "targeted_search_matrix": search_matrix,
         "targeted_search_matrix_summary": search_matrix_summary,
         "targeted_search_matrix_count": len(search_matrix),
+        "cross_country_sanitization_checks": cross_country_sanitization_checks,
+        "cross_country_sanitization_summary": {
+            "case_count": len(cross_country_sanitization_checks),
+            "status_counts": {
+                status_key: sum(1 for row in cross_country_sanitization_checks if str(row.get("status") or "").strip().lower() == status_key)
+                for status_key in sorted(sanitization_statuses)
+            },
+            "sanitization_ok": sanitization_ok,
+        },
         "targeted_search_matrix_status": (
             "fail"
             if "fail" in search_statuses
@@ -822,6 +966,7 @@ def build_live_provider_smoke_receipt(
             "Live mode probes the runtime provider catalog endpoint and checks provider/default-provider parity.",
             "The targeted search matrix covers every search-ready provider with one strict no-soft-filter payload and one discovery soft-filter payload.",
             "When the targeted matrix is executed, each accepted dispatch must also return a readable search-run status receipt.",
+            "The cross-country sanitization probe deliberately submits a foreign provider with a local provider and expects the runtime to remove the foreign provider before dispatch.",
             "Use --resume-from with a checkpoint/final receipt to reuse passed targeted search rows and rerun only missing or failed cases.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES=1 or pass --all-search-ready-countries to expand the matrix to every country with search-ready providers.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 with live mode to execute the targeted search matrix against /app/api/property/search-runs.",

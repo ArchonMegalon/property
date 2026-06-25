@@ -65,6 +65,7 @@ def property_search_run_default_summary(
     match_score_cap: Callable[[dict[str, object] | None], float],
 ) -> dict[str, object]:
     min_match_score = effective_min_match_score(property_preferences)
+    preferences = dict(property_preferences or {})
     return {
         "generated_at": now_iso(),
         "status": "queued",
@@ -91,7 +92,13 @@ def property_search_run_default_summary(
         "public_property_cache_refresh_total": 0,
         "high_match_min_score": min_match_score,
         "max_match_score": match_score_cap(property_preferences),
-        "min_area_m2": dict(property_preferences or {}).get("min_area_m2") or 0,
+        "min_area_m2": preferences.get("min_area_m2") or 0,
+        "provider_country_filter_applied": bool(preferences.get("provider_country_filter_applied")),
+        "provider_country_filter_removed": [
+            str(value or "").strip()
+            for value in list(preferences.get("provider_country_filter_removed") or [])
+            if str(value or "").strip()
+        ],
         "watch_notified_total": 0,
         "top_fit_score": 0.0,
         "sources_completed": 0,

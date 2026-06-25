@@ -211,18 +211,20 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
         checks.extend(
             (
                 {
-                    "name": "mobile_dock_target",
-                    "ok": "data-property-mobile-dock" in body,
+                    "name": "mobile_top_navigation_only",
+                    "ok": "data-property-mobile-dock" not in body and "class=\"pq-mobile-nav\"" not in body,
                 },
                 {
-                    "name": "mobile_dock_touch_target",
+                    "name": "mobile_top_navigation_touch_targets",
                     "ok": (
-                        "min-height: var(--mobile-dock-target)" in body
-                        and "var(--mobile-dock-target-coarse)" in body
-                    )
-                    or (
-                        "pqx-mobile-switch .pqx-mode-button" in body
-                        and "min-height: 56px" in body
+                        "data-property-research-topnav" in body
+                        and (
+                            "min-height: 44px" in body
+                            or "min-height: 46px" in body
+                            or "min-height: 48px" in body
+                            or "min-height: 52px" in body
+                            or "min-height: 56px" in body
+                        )
                     ),
                 },
             )
@@ -717,7 +719,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "notes": [
             "This smoke is local, authenticated, provider-free and non-networked.",
             "It guards first-paint route budgets for sign-in, search, agents, results, research, alerts, account, billing, and settings surfaces.",
-            "It also asserts shared top navigation, viewport metadata, app shell, mobile docks for active search/result surfaces, and content-first mobile layouts for static account/billing/settings surfaces.",
+            "It also asserts shared top navigation, viewport metadata, app shell, no legacy mobile bottom dock, and content-first mobile layouts for static account/billing/settings surfaces.",
         ],
     }
 
