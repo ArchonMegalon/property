@@ -566,6 +566,32 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     elif not billing_fail_closed_ok:
         checks.extend(_mobile_surface_contract_checks(path, body))
         checks.extend(_rybbit_surface_contract_checks(path, body))
+    if path == "/app/search":
+        checks.extend(
+            (
+                {
+                    "name": "what_matters_distance_controls_compact",
+                    "ok": (
+                        "grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));" in body
+                        and "justify-content: start;" in body
+                        and "max-width: 150px;" in body
+                        and "max-width: 132px;" in body
+                        and "grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));" not in body
+                    ),
+                },
+                {
+                    "name": "what_matters_school_distance_controls",
+                    "ok": (
+                        'name="school_distance__kindergarten"' in body
+                        and 'name="school_distance__ganztags_volksschule"' in body
+                        and 'name="school_distance__halbtags_volksschule"' in body
+                        and 'data-distance-field="max_distance_to_kindergarten_m"' in body
+                        and 'data-distance-field="max_distance_to_ganztags_volksschule_m"' in body
+                        and 'data-distance-field="max_distance_to_halbtags_volksschule_m"' in body
+                    ),
+                },
+            )
+        )
     if path == "/app/agents":
         checks.extend(
             (

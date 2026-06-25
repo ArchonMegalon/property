@@ -79,6 +79,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "results_ranking_only_no_compare_cards" and check["ok"] for check in routes["/app/properties"]["checks"])
     assert any(check["name"] == "results_ranking_only_no_compare_cards" and check["ok"] for check in routes["/app/shortlist"]["checks"])
     assert any(check["name"] == "results_ranked_not_compare_copy" and check["ok"] for check in routes["/app/properties"]["checks"])
+    assert any(check["name"] == "what_matters_distance_controls_compact" and check["ok"] for check in routes["/app/search"]["checks"])
+    assert any(check["name"] == "what_matters_school_distance_controls" and check["ok"] for check in routes["/app/search"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
     assert any(check["name"] == "provider_login_implicit_account_creation" and check["ok"] for check in routes["/sign-in"]["checks"])
     assert any(check["name"] == "provider_login_copy_is_customer_safe" and check["ok"] for check in routes["/sign-in"]["checks"])
@@ -138,6 +140,8 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"research_no_fake_visual_ready"' in result.stdout
     assert '"research_ranking_only_no_compare_cards"' in result.stdout
     assert '"results_ranking_only_no_compare_cards"' in result.stdout
+    assert '"what_matters_distance_controls_compact"' in result.stdout
+    assert '"what_matters_school_distance_controls"' in result.stdout
     assert '"notification_destination_controls"' in result.stdout
     assert '"account_direct_logout_strip"' in result.stdout
     assert '"account_single_logout_action"' in result.stdout

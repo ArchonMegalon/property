@@ -2182,7 +2182,10 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '.pqx-what-matters-panel .pqx-choice-groupbox {\n      grid-column: 1 / -1;' in html
     assert '.pqx-what-matters-panel .pqx-choice-groupbox[data-mobile-distance-control-active="true"]' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));' in html
-    assert 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));' in html
+    assert 'grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));' in html
+    assert 'justify-content: start;' in html
+    assert "max-width: 150px;" in html
+    assert "max-width: 132px;" in html
     assert '.pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div' in html
     assert 'padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));' in html
     assert "overflow-wrap: break-word;" in html
