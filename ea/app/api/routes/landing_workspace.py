@@ -1972,9 +1972,9 @@ def settings_google_detail(
         object_title=primary_email or "Google not connected",
         object_summary=sync_summary,
         object_meta=object_meta,
-        object_sidebar_title="What this view answers",
+        object_sidebar_title="Google sign-in" if is_property_brand else "What this view answers",
         object_sidebar_copy=(
-            "This view shows which Google account is primary, what other Google accounts are connected, and whether the connection needs reauth. Continue with Google creates or opens the PropertyQuarry account automatically."
+            "Use Google to create or reopen the same PropertyQuarry account. No extra inbox scope is required here."
             if is_property_brand
             else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
         ),
@@ -2297,9 +2297,9 @@ def settings_access_detail(
         object_title=access_object_title,
         object_summary=access_object_summary,
         object_meta=[
-            {"label": "Active sessions", "value": str(len(active_sessions))},
-            {"label": "Access opens", "value": str(total_opens)},
-            {"label": "Revoked sessions", "value": str(len(revoked_sessions))},
+            {"label": "Active links" if is_property_brand else "Active sessions", "value": str(len(active_sessions))},
+            *([] if is_property_brand else [{"label": "Access opens", "value": str(total_opens)}]),
+            {"label": "Revoked links" if is_property_brand else "Revoked sessions", "value": str(len(revoked_sessions))},
             {
                 "label": "Role mix",
                 "value": ", ".join(
