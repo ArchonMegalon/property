@@ -382,8 +382,8 @@
     </form>
     {% else %}
     <div class="access-feedback">
-      <strong>Email sign-in links are temporarily unavailable.</strong>
-      <p class="copy">Use an existing invite, access link, or connected identity while email delivery is unavailable.</p>
+      <strong>Email link delivery needs setup.</strong>
+      <p class="copy">Continue with Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time provider sign-in still creates the account automatically.</p>
     </div>
     {% endif %}
     {% if sign_in_link_status %}
@@ -398,7 +398,7 @@
       <strong>We could not send a sign-in link.</strong>
       <p class="copy">
         {% if sign_in_link_error == 'workspace_sign_in_email_delivery_not_configured' %}
-        Email sign-in links are temporarily unavailable. Use an existing invite, access link, or connected identity while email delivery is unavailable.
+        Email link delivery needs setup. Continue with Google, Facebook, ID Austria, an existing invite, or a saved access link. First-time provider sign-in still creates the account automatically.
         {% else %}
         {{ sign_in_link_error or 'Use an existing invite or ask the account owner to issue a new link.' }}
         {% endif %}

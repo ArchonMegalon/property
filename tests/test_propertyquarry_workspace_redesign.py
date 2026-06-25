@@ -1019,8 +1019,10 @@ def test_propertyquarry_email_link_unavailable_uses_live_service_language() -> N
     )
 
     assert response.status_code == 200
-    assert "Email sign-in links are temporarily unavailable." in response.text
-    assert "Use an existing invite, access link, or connected identity while email delivery is unavailable." in response.text
+    assert "Email link delivery needs setup." in response.text
+    assert "First-time provider sign-in still creates the account automatically." in response.text
+    assert "Email sign-in links are temporarily unavailable." not in response.text
+    assert "email delivery is unavailable" not in response.text
     assert "Email return links are not enabled on this deployment yet." not in response.text
     assert "workspace_sign_in_email_delivery_not_configured" not in response.text
 
