@@ -276,7 +276,11 @@
       || 'free'
     ).trim().toLowerCase();
     const currentResultCap = () => Number(meta?.commercial?.max_results_per_source ?? 0);
-    const hasUnlimitedProviderResults = () => currentPlanKey() === 'agent' && currentResultCap() <= 0;
+    const isAgentPlanKey = (planKey) => {
+      const normalized = String(planKey || 'free').trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+      return ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime'].includes(normalized);
+    };
+    const hasUnlimitedProviderResults = () => isAgentPlanKey(currentPlanKey()) && currentResultCap() <= 0;
     const limitRowsForPlan = (rows, limit) => {
       const normalized = Array.isArray(rows) ? rows : [];
       return hasUnlimitedProviderResults() ? normalized.slice() : normalized.slice(0, limit);
@@ -1643,7 +1647,7 @@
       const liveInfo = latestFractionInfo(runPayload);
       const liveFraction = liveInfo.fraction;
       const planKey = currentPlanKey();
-      const planCap = planKey === 'agent' ? 4 : (planKey === 'plus' ? 2 : 1);
+      const planCap = isAgentPlanKey(planKey) ? 4 : (planKey === 'plus' ? 2 : 1);
       const configuredWorkers = Math.max(1, Number(summary?.provider_workers?.worker_concurrency || planCap));
       const workerTooltip = 'Selected sources keep moving in parallel. Saved searches are separate.';
       const sourceChips = limitRowsForPlan(summary.sources, 8).map((source) => {

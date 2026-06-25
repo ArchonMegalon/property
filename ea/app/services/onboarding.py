@@ -33,7 +33,12 @@ except ImportError:
         }
         return any(scope in supported_signal_scopes for scope in effective_scopes)
 from app.services.memory_runtime import MemoryRuntimeService
-from app.services.property_billing import normalize_property_commercial, property_commercial_snapshot
+from app.services.property_billing import (
+    normalize_property_commercial,
+    normalize_property_plan_key,
+    property_commercial_snapshot,
+    property_plan_has_unlimited_provider_results,
+)
 from app.services.property_market_catalog import (
     filter_selectable_property_platforms,
     normalize_country_code,
@@ -121,7 +126,7 @@ def _property_commercial_has_billing_evidence(commercial: dict[str, object] | No
 
 
 def _property_commercial_is_paid(commercial: dict[str, object] | None) -> bool:
-    return str(dict(commercial or {}).get("active_plan_key") or "").strip().lower() in {"plus", "agent"}
+    return normalize_property_plan_key(dict(commercial or {}).get("active_plan_key")) in {"plus", "agent"}
 
 
 def _property_commercial_restore_candidate_from_teable(fields: dict[str, object] | None) -> dict[str, object]:
@@ -2023,7 +2028,7 @@ class OnboardingService(AssistantOnboardingService):
             plan_result_cap = int(commercial_snapshot.get("max_results_per_source") or 0)
         except Exception:
             plan_result_cap = 0
-        if active_plan_key == "agent" and plan_result_cap <= 0:
+        if property_plan_has_unlimited_provider_results(active_plan_key, plan_result_cap):
             normalized_max = None
         elif normalized_max is not None:
             normalized_max = max(1, min(plan_result_cap or 10, normalized_max))
@@ -2329,7 +2334,7 @@ class OnboardingService(AssistantOnboardingService):
         )
         if not preferences_json:
             preferences_json = OnboardingService._search_agent_preferences_payload(base)
-        if plan_key == "agent" and plan_result_cap <= 0:
+        if property_plan_has_unlimited_provider_results(plan_key, plan_result_cap):
             preferences_json.pop("max_results_per_source", None)
         elif "max_results_per_source" in preferences_json:
             try:

@@ -1470,7 +1470,7 @@
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   };
 
-  const hasUnlimitedProviderResults = () => {% if (commercial.get('current_plan_key') == 'agent') and ((commercial.get('max_results_per_source') or 0)|int <= 0) %}true{% else %}false{% endif %};
+  const hasUnlimitedProviderResults = () => {% if (commercial.get('current_plan_key') in ['agent', 'agency', 'agency_tier', 'agency_lifetime', 'agency_tier_lifetime', 'agent_lifetime', 'agent_tier_lifetime']) and ((commercial.get('max_results_per_source') or 0)|int <= 0) %}true{% else %}false{% endif %};
 
   const maxResultsPerSourceValue = (form) => (
     form?.querySelector('[name="max_results_per_source"]')

@@ -9,6 +9,8 @@ import urllib.parse
 
 import requests
 
+from app.services.property_billing import normalize_property_plan_key
+
 
 PROPERTYQUARRY_TEABLE_TABLE_NAMES = (
     "propertyquarry_tenants",
@@ -1041,7 +1043,7 @@ def build_propertyquarry_teable_projection_records(
             "last_projected_at": projected_at,
         }
         projected_max_results_per_source = _number(effective_preferences.get("max_results_per_source"))
-        if _text(safe_commercial_json.get("active_plan_key"), limit=80).lower() == "agent":
+        if normalize_property_plan_key(_text(safe_commercial_json.get("active_plan_key"), limit=80)) == "agent":
             projected_max_results_per_source = None
         preference_rows[f"preferences:{normalized_tenant}:{normalized_principal}:{preference_person_id}"] = {
             "projection_id": f"preferences:{normalized_tenant}:{normalized_principal}:{preference_person_id}",

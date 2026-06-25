@@ -4,7 +4,7 @@ import re
 import urllib.parse
 from typing import Callable
 
-from app.services.property_billing import property_commercial_snapshot
+from app.services.property_billing import normalize_property_plan_key, property_commercial_snapshot, property_plan_has_unlimited_provider_results
 from app.services.property_market_catalog import supported_currency_codes
 
 from app.product.models import (
@@ -753,7 +753,8 @@ def build_property_run_live_board_snapshot(
             continue
         seen_groups.add(key)
         worker_queue.append(row)
-    plan_cap = 4 if plan_key == "agent" else (2 if plan_key == "plus" else 1)
+    normalized_plan_key = normalize_property_plan_key(plan_key)
+    plan_cap = 4 if normalized_plan_key == "agent" else (2 if normalized_plan_key == "plus" else 1)
     run_active = progress > 0 or status in {"queued", "in_progress", "running", "processing", "starting"}
     actual_worker_count = min(plan_cap, len(worker_queue))
     worker_count = actual_worker_count if actual_worker_count > 0 else (1 if run_active else 0)
@@ -1694,7 +1695,7 @@ def build_property_recurring_watch_snapshot(
             "search_agent_notification_period": agent_notification_period,
         }
     )
-    if plan_key == "agent" and plan_result_cap <= 0:
+    if property_plan_has_unlimited_provider_results(plan_key, plan_result_cap):
         base_load_payload.pop("max_results_per_source", None)
     elif "max_results_per_source" in base_load_payload:
         try:

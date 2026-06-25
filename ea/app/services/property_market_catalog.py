@@ -3784,7 +3784,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["provider_selection_filter_applied"] = True
         payload["provider_selection_filter_removed"] = list(removed_platforms)
     try:
-        from app.services.property_billing import property_commercial_snapshot
+        from app.services.property_billing import property_commercial_snapshot, property_plan_has_unlimited_provider_results
 
         commercial_snapshot = property_commercial_snapshot(payload)
         plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
@@ -3796,7 +3796,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         requested_max_results = int(float(str(payload.get("max_results_per_source") or "").strip()))
     except Exception:
         requested_max_results = 0
-    if plan_key == "agent" and plan_result_cap <= 0:
+    if property_plan_has_unlimited_provider_results(plan_key, plan_result_cap):
         payload.pop("max_results_per_source", None)
     elif requested_max_results > 0:
         payload["max_results_per_source"] = max(1, min(plan_result_cap or 10, requested_max_results))

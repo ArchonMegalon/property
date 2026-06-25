@@ -60,6 +60,24 @@ def test_agent_property_plan_exposes_unlimited_results_per_provider() -> None:
     assert snapshot["max_results_per_source"] == 0
 
 
+def test_agency_lifetime_alias_maps_to_agent_unlimited_results() -> None:
+    snapshot = property_commercial_snapshot(
+        {
+            "property_commercial": {
+                "active_plan_key": "agency_lifetime",
+                "status": "active",
+            }
+        }
+    )
+
+    assert snapshot["current_plan_key"] == "agent"
+    assert snapshot["current_plan_label"] == "Agent"
+    assert snapshot["max_results_per_source"] == 0
+    assert snapshot["search_agent_limit"] == 0
+    assert snapshot["active_until"].startswith("2999-01-01")
+    assert property_worker_cap("agency") == property_worker_cap("agent")
+
+
 def test_property_notification_price_signal_uses_catalog_currencies() -> None:
     assert product_service._property_candidate_notification_price_signal(  # type: ignore[attr-defined]
         {},

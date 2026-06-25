@@ -52,6 +52,7 @@ from app.product.property_surface_state import (
 )
 from app.product.property_score_methodology import build_property_score_methodology
 from app.product.property_delivery_governance import property_delivery_governance_rows
+from app.services.property_billing import normalize_property_plan_key
 
 
 def _candidate_external_listing_url(candidate: dict[str, object]) -> str:
@@ -2541,7 +2542,7 @@ def property_workspace_payload(
             )
         ]
     plan_catalog = [dict(plan) for plan in list(commercial.get("plan_catalog") or []) if isinstance(plan, dict)]
-    current_plan_key = str(commercial.get("current_plan_key") or "free").strip().lower() or "free"
+    current_plan_key = normalize_property_plan_key(commercial.get("current_plan_key") or "free")
     current_plan_spec = next((plan for plan in plan_catalog if str(plan.get("plan_key") or "").strip().lower() == current_plan_key), {})
     current_platform_cap = int(current_plan_spec.get("max_platforms") or commercial.get("max_platforms") or 0)
     current_result_cap = int(current_plan_spec.get("max_results_per_source") or commercial.get("max_results_per_source") or 0)

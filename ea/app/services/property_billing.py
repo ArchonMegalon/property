@@ -12,6 +12,15 @@ from typing import Any
 
 import requests
 
+_AGENT_PLAN_ALIASES = {
+    "agency": "agent",
+    "agency_tier": "agent",
+    "agency_lifetime": "agent",
+    "agency_tier_lifetime": "agent",
+    "agent_lifetime": "agent",
+    "agent_tier_lifetime": "agent",
+}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -41,8 +50,22 @@ def _hash_public_identifier(value: object) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def normalize_property_plan_key(plan_key: object) -> str:
+    normalized = str(plan_key or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return _AGENT_PLAN_ALIASES.get(normalized, normalized or "free")
+
+
+def property_plan_has_unlimited_provider_results(plan_key: object, max_results_per_source: object) -> bool:
+    normalized = normalize_property_plan_key(plan_key)
+    try:
+        result_cap = int(max_results_per_source or 0)
+    except Exception:
+        result_cap = 0
+    return normalized == "agent" and result_cap <= 0
+
+
 def property_worker_cap(plan_key: object) -> int:
-    normalized = str(plan_key or "").strip().lower() or "free"
+    normalized = normalize_property_plan_key(plan_key)
     return {"free": 1, "plus": 2, "agent": 4}.get(normalized, 1)
 
 
@@ -152,7 +175,7 @@ def property_plan_catalog() -> tuple[PropertyPlanSpec, ...]:
 
 
 def property_plan_spec(plan_key: str) -> PropertyPlanSpec:
-    normalized = str(plan_key or "").strip().lower()
+    normalized = normalize_property_plan_key(plan_key)
     if normalized == "free":
         return _FREE_PLAN
     if normalized in _PAID_PLANS:
@@ -162,10 +185,14 @@ def property_plan_spec(plan_key: str) -> PropertyPlanSpec:
 
 def normalize_property_commercial(value: dict[str, object] | None) -> dict[str, object]:
     raw = dict(value or {})
-    requested_plan_key = str(raw.get("active_plan_key") or raw.get("plan_key") or "free").strip().lower() or "free"
+    raw_requested_plan_key = str(raw.get("active_plan_key") or raw.get("plan_key") or "free").strip().lower().replace("-", "_").replace(" ", "_")
+    requested_plan_key = normalize_property_plan_key(raw_requested_plan_key)
     if requested_plan_key not in {"free", *tuple(_PAID_PLANS.keys())}:
         requested_plan_key = "free"
+    raw_status = str(raw.get("status") or "").strip().lower()
     active_until = _parse_iso(raw.get("active_until"))
+    if raw_requested_plan_key in _AGENT_PLAN_ALIASES and active_until is None and raw_status in {"", "active", "captured", "lifetime"}:
+        active_until = datetime(2999, 1, 1, tzinfo=timezone.utc)
     expired = requested_plan_key != "free" and (active_until is None or active_until <= _now())
     effective_plan_key = "free" if expired else requested_plan_key
     status = str(raw.get("status") or ("expired" if expired else ("active" if effective_plan_key != "free" else "free"))).strip().lower()
@@ -184,7 +211,7 @@ def normalize_property_commercial(value: dict[str, object] | None) -> dict[str, 
         "last_payer_email": str(raw.get("last_payer_email") or "").strip(),
         "captured_at": str(raw.get("captured_at") or "").strip(),
         "pending_order_id": str(raw.get("pending_order_id") or "").strip(),
-        "pending_plan_key": str(raw.get("pending_plan_key") or "").strip().lower(),
+        "pending_plan_key": normalize_property_plan_key(raw.get("pending_plan_key") or "") if str(raw.get("pending_plan_key") or "").strip() else "",
         "pending_approval_url": str(raw.get("pending_approval_url") or "").strip(),
         "plan_source": str(raw.get("plan_source") or "").strip(),
         "last_billing_event_type": str(raw.get("last_billing_event_type") or "").strip(),

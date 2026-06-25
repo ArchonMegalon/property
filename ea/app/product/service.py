@@ -52,7 +52,13 @@ except Exception:  # pragma: no cover - optional OCR fallback
 
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
-from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot, property_worker_cap
+from app.services.property_billing import (
+    enforce_property_plan_limits,
+    normalize_property_plan_key,
+    property_commercial_snapshot,
+    property_plan_has_unlimited_provider_results,
+    property_worker_cap,
+)
 from app.services.onboarding import normalize_property_notification_channel, normalize_property_notification_channels
 from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
 from app.services.property_media_factory import MediaRequirement, route_property_media_task
@@ -938,9 +944,9 @@ def _property_search_resolve_max_results_per_source(
 ) -> int | None:
     try:
         snapshot = property_commercial_snapshot(preferences)
-        plan_key = str(snapshot.get("current_plan_key") or "free").strip().lower() or "free"
+        plan_key = normalize_property_plan_key(snapshot.get("current_plan_key") or "free")
         plan_result_cap = int(snapshot.get("max_results_per_source") or 0)
-        if plan_key == "agent" and plan_result_cap <= 0:
+        if property_plan_has_unlimited_provider_results(plan_key, plan_result_cap):
             return None
         return max(1, min(plan_result_cap or 10, int(requested_value))) if requested_value else None
     except Exception:
@@ -2037,7 +2043,7 @@ def _property_search_provider_worker_warm_limit() -> int:
 
 
 def _property_search_floorplan_worker_concurrency_for_plan(plan_key: object) -> int:
-    normalized_plan = str(plan_key or "free").strip().lower() or "free"
+    normalized_plan = normalize_property_plan_key(plan_key or "free")
     desired = {"free": 1, "plus": 2, "agent": 3}.get(normalized_plan, 1)
     configured = _property_search_provider_worker_concurrency()
     return max(1, min(desired, configured if configured > 0 else desired))
@@ -33218,8 +33224,11 @@ class ProductService:
                     requested_max,
                 )
         commercial_snapshot = property_commercial_snapshot(request_preferences)
-        plan_key = str(commercial_snapshot.get("current_plan_key") or "free").strip().lower() or "free"
-        unlimited_provider_results = plan_key == "agent" and resolved_max_results is None
+        plan_key = normalize_property_plan_key(commercial_snapshot.get("current_plan_key") or "free")
+        unlimited_provider_results = property_plan_has_unlimited_provider_results(
+            plan_key,
+            commercial_snapshot.get("max_results_per_source"),
+        ) and resolved_max_results is None
 
         preference_person_id = str(
             request_preferences.get("preference_person_id")
@@ -36068,7 +36077,7 @@ class ProductService:
                     "filter_near_miss_notified_total": filter_near_miss_notified_for_source,
                     "filter_near_misses": filter_near_misses_for_source[:5],
                     "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
-                    "top_candidates": sorted_top_candidates_for_source if plan_key == "agent" else sorted_top_candidates_for_source[:5],
+                    "top_candidates": sorted_top_candidates_for_source if unlimited_provider_results else sorted_top_candidates_for_source[:5],
                     "research_candidates": sorted_top_candidates_for_source,
                     "timing_ms": {
                         "provider_fetch": round(provider_fetch_ms, 2),

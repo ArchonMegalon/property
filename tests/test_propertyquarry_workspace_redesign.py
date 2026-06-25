@@ -1273,6 +1273,34 @@ def test_propertyquarry_agent_search_form_uses_visible_unlimited_provider_cap() 
     assert max_results_field["upgrade_hint"] == ""
 
 
+def test_propertyquarry_agency_alias_search_form_uses_visible_unlimited_provider_cap() -> None:
+    payload = landing_routes._property_workspace_payload(
+        "search",
+        status={"workspace": {"name": "Agency Search"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "rent"},
+            "commercial": {
+                "current_plan_label": "Agency lifetime",
+                "current_plan_key": "agency_lifetime",
+                "max_results_per_source": 0,
+            },
+            "preference_bundle": {},
+            "search_agents": [],
+        },
+    )
+
+    form_schema = list(((payload.get("console_form") or {}).get("fields") or []))
+    max_results_field = next(
+        field
+        for field in form_schema
+        if isinstance(field, dict) and str(field.get("name") or "").strip() == "max_results_per_source"
+    )
+
+    assert max_results_field["display_value"] == "All ranked"
+    assert max_results_field["display_only"] is True
+    assert max_results_field["display_note"] == "Agent includes all ranked results per provider in every run."
+
+
 def test_propertyquarry_agent_search_brief_summary_uses_all_ranked_provider_copy() -> None:
     payload = landing_routes._property_workspace_payload(
         "properties",
@@ -2907,7 +2935,9 @@ def test_property_workspace_billing_shows_agent_unlimited_provider_results() -> 
 def test_property_workbench_script_keeps_agent_provider_results_uncapped() -> None:
     script_source = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
 
-    assert "const hasUnlimitedProviderResults = () => currentPlanKey() === 'agent' && currentResultCap() <= 0;" in script_source
+    assert "const isAgentPlanKey = (planKey) => {" in script_source
+    assert "'agency_lifetime'" in script_source
+    assert "const hasUnlimitedProviderResults = () => isAgentPlanKey(currentPlanKey()) && currentResultCap() <= 0;" in script_source
     assert "const limitRowsForPlan = (rows, limit) => {" in script_source
     assert "const rows = limitRowsForPlan(sources, 8);" in script_source
     assert "const sourceChips = limitRowsForPlan(summary.sources, 8).map((source) => {" in script_source

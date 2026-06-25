@@ -21,6 +21,7 @@ from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
 )
+from app.services.property_billing import property_plan_has_unlimited_provider_results
 from app.api.routes.landing_property_saved_searches import (
     build_agent_management_rows,
     build_property_search_agents,
@@ -3355,7 +3356,10 @@ def app_section_payload(
         property_plan_raw_max_results = int(property_state.get("commercial", {}).get("max_results_per_source") or 0)
     except Exception:
         property_plan_raw_max_results = 0
-    property_plan_has_unlimited_results = property_current_plan_key == "agent" and property_plan_raw_max_results <= 0
+    property_plan_has_unlimited_results = property_plan_has_unlimited_provider_results(
+        property_current_plan_key,
+        property_plan_raw_max_results,
+    )
     try:
         property_plan_max_results = (
             property_visible_max_results_per_source
