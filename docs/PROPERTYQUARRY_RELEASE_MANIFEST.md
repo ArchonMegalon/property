@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `d83c174401381fc116f91edfb552df64d2fe88b3` |
+| Runtime commit SHA | `3936f9e84261ac626dd1f1de8f9ebe714b28c115` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, automatic provider/listing fact confirmation, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer packaged into the runtime image, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route and authenticated local reconciliation, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, all-search-ready provider matrix candidate with live status-probe enforcement, hardened mobile phone browser gates for app secondary/settings surfaces, Playwright browser performance budgets for shortlist-to-research navigation, actionable tour-control missing-evidence receipts, and provider-matrix dispatch/readback summary receipts |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, automatic provider/listing fact confirmation, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer packaged into the runtime image, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route and authenticated local reconciliation, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, all-search-ready provider matrix candidate with live status-probe enforcement, hardened mobile phone browser gates for app secondary/settings surfaces, Playwright browser performance budgets for shortlist-to-research navigation, actionable tour-control missing-evidence receipts, provider-matrix dispatch/readback summary receipts, expanded mobile settings audit coverage, and scheduler recovery heartbeat hardening |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `d83c174` passed:
+The candidate at `3936f9e` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -176,6 +176,17 @@ The candidate at `d83c174` passed:
 - Live public smoke against `http://127.0.0.1:8097` after the `d83c174` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
 - Live authenticated smoke against `http://127.0.0.1:8097` after the `d83c174` deploy returned `status=pass`, `failed_count=0`, and one-attempt `200` responses for `/app/account`, `/app/billing`, and `/sign-in` with security headers and paid-plan/sign-in checks intact.
 - Hosted tour-control verifier after the `d83c174` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls.
+- Mobile settings audit expansion after `a4f398f` extends the phone-specific Playwright layout gate to `/app/settings/usage`, `/app/settings/support`, `/app/settings/trust`, and `/app/settings/invitations` in addition to agents, alerts, account, billing, Google settings, and access settings.
+- Focused mobile browser receipts after `a4f398f` returned `1 passed` for the expanded secondary-surface phone audit and `3 passed` for the adjacent mobile subset covering secondary surfaces, mobile dark mode, and settings top navigation.
+- Scheduler recovery heartbeat hardening after `3936f9e` wraps property search recovery in the existing scheduler heartbeat watchdog and adds `EA_SCHEDULER_PROPERTY_SEARCH_RECOVERY_TIMEOUT_SECONDS`, preventing long stale-run recovery work from making the scheduler container unhealthy.
+- Focused runner receipts after `3936f9e` returned `3 passed` for scheduler heartbeat healthcheck, duplicate-safe heartbeat watchdog behavior, and property-search-recovery heartbeat wrapping.
+- `python3 -m py_compile ea/app/runner.py ea/app/scheduler_healthcheck.py` and `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py` passed after `3936f9e`.
+- A redeploy attempt before `3936f9e` failed because `propertyquarry-scheduler` stayed `unhealthy` with stale heartbeat output; after redeploying from `3936f9e`, `EA_HOST_PORT=8097 make deploy` exited cleanly and scheduler health returned `status=healthy`, `failing_streak=0`, `scheduler heartbeat ok`.
+- After redeploying from `3936f9e`, local readiness returned `{"status":"ready","reason":"postgres_ready"}`.
+- Live public smoke against `http://127.0.0.1:8097` after the `3936f9e` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
+- Live authenticated smoke against `http://127.0.0.1:8097` after the `3936f9e` deploy returned `status=pass`, `failed_count=0`, and one-attempt `200` responses for `/app/account`, `/app/billing`, and `/sign-in` with security headers and paid-plan/sign-in checks intact.
+- All-search-ready provider matrix dry-run after the `3936f9e` deploy returned `status=dry_run`, 17 countries, 121 search-ready providers, 242 cases, and `status_readback_complete=True` with live readback not required in dry-run mode.
+- Hosted tour-control verifier after the `3936f9e` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls.
 
 Observed route timings after the latest deploy:
 
