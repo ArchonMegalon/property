@@ -32490,6 +32490,7 @@ class ProductService:
                 "source_ranking",
                 "source_shortlist",
                 "source_review_packet",
+                "source_review_packet_failed",
             }:
                 return False
             if current_step == "sources_resolved" and not _property_search_sources_resolved_pickup_can_resume(payload):
@@ -32511,6 +32512,7 @@ class ProductService:
                 "source_ranking",
                 "source_shortlist",
                 "source_review_packet",
+                "source_review_packet_failed",
             }
             if current_step not in active_checkpoint_steps:
                 return False
@@ -33102,6 +33104,7 @@ class ProductService:
             "source_ranking",
             "source_shortlist",
             "source_review_packet",
+            "source_review_packet_failed",
         }:
             if current_step == "sources_resolved" and not _property_search_sources_resolved_pickup_can_resume(state):
                 return False, (), ""
