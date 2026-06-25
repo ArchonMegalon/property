@@ -165,7 +165,9 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert ".pqx-account-logout-strip-form .pqx-link-button" in workbench
     assert "min-height: 46px;" in workbench
 
-    assert "<h2>Plan and payments</h2>" in billing
+    assert "<h2>Plan access</h2>" in billing
+    assert "Payment management opens in the external account lane" in billing
+    assert "Compare plans" not in billing
     assert ">Open</a>" not in billing
 
 
@@ -12848,7 +12850,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Edit search" in account.text
     assert account.text.count("Edit search") == 1
     assert "Open automation" not in account.text
-    assert account.text.count("Open billing") == 1
+    assert account.text.count("Billing account") == 1
     assert "Account" in account.text
     assert "Automation and reports" not in account.text
     assert "Recurring intelligence leaving this account" not in account.text
@@ -12857,7 +12859,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Operating posture" not in account.text
     assert 'id="plans"' in account.text
     assert 'id="profile"' in account.text
-    assert "Open billing" in account.text
+    assert "Billing account" in account.text
     account_with_run = client.get("/app/account", params={"run_id": "run-account-billing"}, headers={"host": "propertyquarry.com"})
     assert 'href="/app/billing?run_id=run-account-billing"' in account_with_run.text
     assert 'href="/app/properties?run_id=run-account-billing"' in account_with_run.text

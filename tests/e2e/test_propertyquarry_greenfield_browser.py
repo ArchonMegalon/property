@@ -3929,7 +3929,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             elif route == "/app/account":
                 expect(page.locator("body", has_text="Notifications")).to_be_visible()
                 expect(page.locator("body", has_text="Export account data")).to_be_visible()
-                expect(page.get_by_role("link", name="Open billing")).to_be_visible()
+                expect(page.get_by_role("link", name="Billing account")).to_be_visible()
                 expect(page.locator("body", has_text="Access and shared pages")).to_be_visible()
                 expect(page.locator("body", has_text="Connections and privacy")).to_be_visible()
                 expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()

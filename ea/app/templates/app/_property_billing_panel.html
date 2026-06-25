@@ -7,17 +7,17 @@
   {% set card_title = card.get('title') or '' %}
   {% set card_eyebrow = card.get('eyebrow') or '' %}
   {% if card_eyebrow == 'Plan' or card_title == 'Current access' %}{% set plan_card.value = card %}{% endif %}
-  {% if card_eyebrow == 'Account' or card_title in ['Payment', 'Account', 'Billing account', 'Access status', 'Compare plans'] %}{% set account_card.value = card %}{% endif %}
+  {% if card_eyebrow == 'Account' or card_title in ['Payment', 'Account', 'Billing account', 'Access status'] %}{% set account_card.value = card %}{% endif %}
   {% if card.get('title') == 'Tier changes' %}{% set upgrade_card.value = card %}{% endif %}
-  {% if card.get('title') == 'Billing history' %}{% set history_card.value = card %}{% endif %}
+  {% if card.get('title') == 'Account events' %}{% set history_card.value = card %}{% endif %}
 {% endfor %}
 
 <section class="pqx-card pqx-billing-board">
   <div class="pqx-section-head">
     <div>
       <div class="pqx-small">Billing</div>
-      <h2>Plan and payments</h2>
-      <div class="pqx-note">Plan, invoices, and account access without leaving the workspace.</div>
+      <h2>Plan access</h2>
+      <div class="pqx-note">Current access is summarized here. Payment management opens in the external account lane.</div>
     </div>
   </div>
 
@@ -37,7 +37,7 @@
       <div class="pqx-section-head">
         <div>
           {% if card.get('eyebrow') %}<div class="pqx-small">{{ card.get('eyebrow') }}</div>{% endif %}
-          <h2>{% if card.get('title') == 'Current access' %}Your plan{% else %}{{ card.get('title') }}{% endif %}</h2>
+          <h2>{% if card.get('title') == 'Current access' %}Plan access{% else %}{{ card.get('title') }}{% endif %}</h2>
           {% if card.get('body') %}<div class="pqx-note">{{ card.get('body') }}</div>{% endif %}
         </div>
       </div>

@@ -18,7 +18,7 @@
 {% set plan_items = plan_card.value.get('items') or [] %}
 {% set plan_item = plan_items[0] if plan_items else {} %}
 {% set plan_value = (plan_item.get('detail') or '').split('|')[0].strip() or 'Free' %}
-{% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Plan and payments.' %}
+{% set plan_detail = (plan_item.get('detail') or '').split('|', 1)[1].strip() if '|' in (plan_item.get('detail') or '') else 'Plan access.' %}
 {% set rendered_account_status = account_status if account_status is defined and account_status else (status if status is defined and status else {}) %}
 {% set delivery_preferences = rendered_account_status.get('delivery_preferences') or {} %}
 {% set property_notifications = delivery_preferences.get('property_notifications') or {} %}
@@ -176,10 +176,10 @@
       <div>
         <span class="pqx-small">Plan</span>
         <h2>{{ plan_value }}</h2>
-        <p>{{ plan_detail or 'Plan and payments.' }}</p>
-        <div class="pqx-note">Billing stays separate from alerts so account routing and plan state stay easy to reason about.</div>
+        <p>{{ plan_detail or 'Plan access.' }}</p>
+        <div class="pqx-note">Payment management opens in the external account lane; this page only summarizes access.</div>
       </div>
-      <a class="pqx-link-button" href="/app/billing{{ query_suffix }}">Open billing</a>
+      <a class="pqx-link-button" href="/app/billing{{ query_suffix }}">Billing account</a>
     </section>
 
     <section class="pqx-account-action-card" id="data-export">
