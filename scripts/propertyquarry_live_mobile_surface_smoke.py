@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -162,6 +163,7 @@ def build_live_mobile_surface_receipt(
     base_url: str,
     api_token: str,
     principal_id: str,
+    host_header: str = "",
     routes: tuple[str, ...] = DEFAULT_ROUTES,
     viewport_width: int = 390,
     viewport_height: int = 844,
@@ -185,9 +187,23 @@ def build_live_mobile_surface_receipt(
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
+    browser_args: list[str] = []
+    navigation_base_url = base_url
+    normalized_host_header = str(host_header or "").strip()
+    if normalized_host_header:
+        parsed_base = urllib.parse.urlparse(base_url)
+        original_host = str(parsed_base.hostname or "").strip()
+        branded_host = normalized_host_header.split(":", 1)[0].strip()
+        if branded_host:
+            branded_netloc = normalized_host_header
+            if ":" not in branded_netloc and parsed_base.port:
+                branded_netloc = f"{branded_host}:{parsed_base.port}"
+            navigation_base_url = urllib.parse.urlunparse(parsed_base._replace(netloc=branded_netloc))
+            if original_host and original_host != branded_host:
+                browser_args.append(f"--host-resolver-rules=MAP {branded_host} {original_host}")
     rows: list[dict[str, Any]] = []
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(headless=True, args=browser_args)
         try:
             context = browser.new_context(
                 viewport={"width": viewport_width, "height": viewport_height},
@@ -197,7 +213,7 @@ def build_live_mobile_surface_receipt(
             )
             for route in routes:
                 page = context.new_page()
-                url = base_url.rstrip("/") + "/" + route.lstrip("/")
+                url = navigation_base_url.rstrip("/") + "/" + route.lstrip("/")
                 try:
                     response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                     page.wait_for_timeout(350)
@@ -245,6 +261,8 @@ def build_live_mobile_surface_receipt(
         "status": "pass" if not failed else "fail",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
+        "host_header": host_header,
+        "navigation_base_url": navigation_base_url,
         "principal_id": principal_id,
         "viewport": {"width": viewport_width, "height": viewport_height},
         "route_count": len(rows),
@@ -260,6 +278,7 @@ def build_live_mobile_surface_receipt(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a live mobile UI smoke against PropertyQuarry app surfaces.")
     parser.add_argument("--base-url", default=_env("PROPERTYQUARRY_LIVE_BASE_URL", "http://localhost:8097"))
+    parser.add_argument("--host-header", default=_env("PROPERTYQUARRY_LIVE_HOST_HEADER"))
     parser.add_argument("--api-token", default=_env("PROPERTYQUARRY_LIVE_API_TOKEN") or _env("EA_API_TOKEN"))
     parser.add_argument("--principal-id", default=_env("PROPERTYQUARRY_LIVE_PRINCIPAL_ID", "pq-live-mobile-smoke"))
     parser.add_argument("--routes", default=",".join(DEFAULT_ROUTES))
@@ -275,6 +294,7 @@ def main() -> int:
         base_url=str(args.base_url).strip(),
         api_token=str(args.api_token or "").strip(),
         principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
+        host_header=str(args.host_header or "").strip(),
         routes=routes or DEFAULT_ROUTES,
         viewport_width=width,
         viewport_height=height,
