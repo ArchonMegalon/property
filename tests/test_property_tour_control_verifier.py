@@ -166,6 +166,7 @@ def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_
     assert receipt["status"] == "blocked_missing_provider_modes"
     assert receipt["tours"][0]["status"] == "ready"
     assert receipt["tours"][0]["missing_evidence"] == []
+    assert set(receipt["tours"][0]["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
     assert actions["3dvista"]["blocked_tour_count"] == 1
     assert actions["pano2vr"]["blocked_tour_count"] == 1
     assert actions["krpano"]["blocked_tour_count"] == 1

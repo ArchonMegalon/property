@@ -36,6 +36,32 @@ def test_materialize_property_tour_export_manifest_writes_operator_drop_paths(tm
     assert "import_property_tour_exports.py" in manifest["next_command"]
 
 
+def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(tmp_path: Path) -> None:
+    tour_root = tmp_path / "public_tours"
+    incoming_root = tmp_path / "incoming"
+    _write_base_tour(tour_root, "blocked-needs-exports")
+    ready_bundle = tour_root / "matterport-ready"
+    ready_bundle.mkdir(parents=True)
+    (ready_bundle / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "matterport-ready",
+                "display_title": "Matterport Ready",
+                "matterport_url": "https://my.matterport.com/show/?m=READY123",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = build_export_manifest(tour_root=tour_root, incoming_root=incoming_root, limit_per_provider=1)
+
+    assert manifest["status"] == "ready_for_exports"
+    assert manifest["import_count"] == 2
+    assert {row["slug"] for row in manifest["imports"]} == {"matterport-ready"}
+    assert {row["current_control_providers"] for row in manifest["imports"]} == {"matterport"}
+    assert {row["title"] for row in manifest["imports"]} == {"Matterport Ready"}
+
+
 def test_materialize_property_tour_export_manifest_cli_writes_receipt(tmp_path: Path) -> None:
     tour_root = tmp_path / "public_tours"
     incoming_root = tmp_path / "incoming"

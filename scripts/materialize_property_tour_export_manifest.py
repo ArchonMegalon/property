@@ -32,18 +32,56 @@ def _provider_target_subdir(provider: str) -> str:
     return "3dvista" if provider == "3dvista" else "pano2vr"
 
 
+def _default_missing_action(provider: str) -> str:
+    if provider == "3dvista":
+        return "run import_3dvista_export.py with a verified 3DVista export or add an allowlisted 3dvista.com URL"
+    if provider == "pano2vr":
+        return "run import_pano2vr_export.py with a verified Pano2VR export"
+    return ""
+
+
+def _default_missing_reason(provider: str) -> str:
+    if provider == "3dvista":
+        return "missing_3dvista_export"
+    if provider == "pano2vr":
+        return "missing_pano2vr_export"
+    return ""
+
+
+def _tour_sort_key(tour: dict[str, Any]) -> tuple[int, int, str]:
+    controls = [row for row in list(tour.get("controls") or []) if isinstance(row, dict)]
+    is_ready = str(tour.get("status") or "").strip().lower() == "ready"
+    return (0 if is_ready else 1, -len(controls), str(tour.get("slug") or ""))
+
+
 def _missing_import_targets(receipt: dict[str, Any], *, providers: set[str], incoming_root: Path, limit_per_provider: int) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     counts = {provider: 0 for provider in providers}
-    for tour in list(receipt.get("tours") or []):
+    tours = [tour for tour in list(receipt.get("tours") or []) if isinstance(tour, dict)]
+    for tour in sorted(tours, key=_tour_sort_key):
         if not isinstance(tour, dict):
             continue
         slug = str(tour.get("slug") or "").strip()
         if not slug:
             continue
-        for missing in list(tour.get("missing_evidence") or []):
-            if not isinstance(missing, dict):
-                continue
+        missing_rows = [row for row in list(tour.get("missing_evidence") or []) if isinstance(row, dict)]
+        if not missing_rows:
+            missing_rows = [
+                {
+                    "provider": provider,
+                    "reason": _default_missing_reason(provider),
+                    "action": _default_missing_action(provider),
+                }
+                for provider in list(tour.get("missing_provider_modes") or [])
+            ]
+        current_control_providers = sorted(
+            {
+                str(control.get("provider") or "").strip().lower()
+                for control in list(tour.get("controls") or [])
+                if isinstance(control, dict) and str(control.get("provider") or "").strip()
+            }
+        )
+        for missing in missing_rows:
             provider = str(missing.get("provider") or "").strip().lower()
             if provider not in providers or provider not in IMPORTABLE_PROVIDERS:
                 continue
@@ -53,12 +91,14 @@ def _missing_import_targets(receipt: dict[str, Any], *, providers: set[str], inc
             rows.append(
                 {
                     "slug": slug,
+                    "title": str(tour.get("title") or slug).strip(),
                     "provider": provider,
                     "export_dir": str(export_dir),
                     "entry": "",
                     "target_subdir": _provider_target_subdir(provider),
                     "reason": str(missing.get("reason") or ""),
                     "action": str(missing.get("action") or ""),
+                    "current_control_providers": ",".join(current_control_providers),
                 }
             )
             counts[provider] = counts.get(provider, 0) + 1

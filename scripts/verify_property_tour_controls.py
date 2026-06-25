@@ -493,6 +493,13 @@ def build_property_tour_control_receipt(
             if provider in action_counts:
                 action_counts[provider] += 1
         missing_public_evidence = [] if controls else missing_evidence
+        tour_missing_provider_modes = sorted(
+            {
+                str(row.get("provider") or "").strip().lower()
+                for row in missing_evidence
+                if str(row.get("provider") or "").strip().lower() in PROVIDER_MODES
+            }
+        )
         tours.append(
             {
                 "slug": slug,
@@ -501,6 +508,7 @@ def build_property_tour_control_receipt(
                 "blocked_reason": "" if controls else _blocked_control_reason(payload),
                 "controls": controls,
                 "missing_evidence": missing_public_evidence,
+                "missing_provider_modes": tour_missing_provider_modes,
             }
         )
     ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
