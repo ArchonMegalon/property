@@ -89,6 +89,21 @@ def _file_exists(bundle_dir: Path, relpath: str) -> bool:
     return bundle_dir.resolve() in candidate.parents and candidate.is_file()
 
 
+def _local_html_asset_has_marker(bundle_dir: Path, relpath: str, *, markers: Iterable[str]) -> bool:
+    if not relpath:
+        return False
+    candidate = (bundle_dir / relpath).resolve()
+    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+        return False
+    if PurePosixPath(relpath).suffix.lower() not in {".html", ".htm"}:
+        return False
+    try:
+        body = candidate.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
+    except OSError:
+        return False
+    return any(str(marker or "").strip().lower() in body for marker in markers if str(marker or "").strip())
+
+
 def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
     if not relpath:
         return False
@@ -132,7 +147,12 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
         if three_d_vista_url:
             break
     three_d_vista_entry = _three_d_vista_entry_relpath(payload)
-    if three_d_vista_url or _file_exists(bundle_dir, three_d_vista_entry):
+    three_d_vista_entry_ready = _local_html_asset_has_marker(
+        bundle_dir,
+        three_d_vista_entry,
+        markers=("3dvista", "tdvplayer", "tdvplayerapi", "tourviewer", "panorama"),
+    )
+    if three_d_vista_url or three_d_vista_entry_ready:
         rows.append(
             {
                 "provider": "3dvista",
@@ -143,7 +163,12 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
         )
 
     pano2vr_entry = _pano2vr_entry_relpath(payload)
-    if _file_exists(bundle_dir, pano2vr_entry):
+    pano2vr_entry_ready = _local_html_asset_has_marker(
+        bundle_dir,
+        pano2vr_entry,
+        markers=("pano2vr", "ggpkg", "ggskin", "pano.xml", "tour.js"),
+    )
+    if pano2vr_entry_ready:
         rows.append(
             {
                 "provider": "pano2vr",

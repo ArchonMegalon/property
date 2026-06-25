@@ -76,6 +76,28 @@ def test_property_tour_control_verifier_rejects_magicfit_placeholder_video(tmp_p
     assert receipt["tours"][0]["blocked_reason"] == "missing_verified_provider_control"
 
 
+def test_property_tour_control_verifier_rejects_placeholder_local_3d_exports(tmp_path: Path) -> None:
+    _write_tour(
+        tmp_path,
+        "placeholder-3dvista",
+        {"three_d_vista_entry_relpath": "3dvista/index.html"},
+        {"3dvista/index.html": "<html><body>Coming soon</body></html>"},
+    )
+    _write_tour(
+        tmp_path,
+        "placeholder-pano2vr",
+        {"pano2vr_entry_relpath": "pano/index.html"},
+        {"pano/index.html": "<html><body>Static placeholder</body></html>"},
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "blocked_missing_verified_controls"
+    assert receipt["provider_counts"]["3dvista"] == 0
+    assert receipt["provider_counts"]["pano2vr"] == 0
+    assert {tour["blocked_reason"] for tour in receipt["tours"]} == {"missing_verified_provider_control"}
+
+
 def test_property_tour_control_verifier_blocks_when_no_verified_controls(tmp_path: Path) -> None:
     _write_tour(tmp_path, "fallback-tour", {"scene_strategy": "pure_360_cube"})
 
