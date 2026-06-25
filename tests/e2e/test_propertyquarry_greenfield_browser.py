@@ -704,6 +704,47 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
     assert offenders == []
 
 
+def _assert_mobile_dock_tap_targets(page: Page) -> None:
+    metrics = page.evaluate(
+        """
+        () => {
+          const dock = document.querySelector('[data-property-mobile-dock]');
+          if (!dock) return { dockVisible: false, targets: [] };
+          const dockRect = dock.getBoundingClientRect();
+          const targetNodes = Array.from(dock.querySelectorAll('a, button'));
+          return {
+            dockVisible: dockRect.width > 0 && dockRect.height > 0,
+            dockLeft: Math.round(dockRect.left),
+            dockRight: Math.round(dockRect.right),
+            viewportWidth: window.innerWidth,
+            targets: targetNodes.map((node) => {
+              const rect = node.getBoundingClientRect();
+              const style = window.getComputedStyle(node);
+              return {
+                text: String(node.textContent || node.getAttribute('aria-label') || '').trim().slice(0, 60),
+                visible: rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none',
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                left: Math.round(rect.left),
+                right: Math.round(rect.right),
+              };
+            }).filter((row) => row.visible),
+          };
+        }
+        """
+    )
+    assert metrics["dockVisible"] is True, metrics
+    assert metrics["dockLeft"] >= 0, metrics
+    assert metrics["dockRight"] <= metrics["viewportWidth"] + 1, metrics
+    assert len(metrics["targets"]) >= 2, metrics
+    undersized = [
+        target
+        for target in metrics["targets"]
+        if target["height"] < 40 or target["width"] < 44 or target["left"] < -1 or target["right"] > metrics["viewportWidth"] + 1
+    ]
+    assert undersized == []
+
+
 def _assert_visible_component_contrast(page: Page, selectors: list[str], *, minimum_ratio: float) -> None:
     offenders = page.evaluate(
         """
@@ -3023,8 +3064,11 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
     context = _new_context(browser, mobile=True, width=390, height=844)
     routes = [
         ("/app/agents", "Saved searches", "propertyquarry-agents-mobile.png"),
+        ("/app/alerts", "Alerts", "propertyquarry-alerts-mobile.png"),
         ("/app/account", "Account", "propertyquarry-account-mobile.png"),
         ("/app/billing", "Billing", "propertyquarry-billing-mobile.png"),
+        ("/app/settings/google", "Google", "propertyquarry-google-settings-mobile.png"),
+        ("/app/settings/access", "Access", "propertyquarry-access-settings-mobile.png"),
     ]
     try:
         page = context.new_page()
@@ -3036,19 +3080,26 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
 
             switch = page.locator("[data-property-mobile-dock]").first
             expect(switch).to_be_visible()
-            expect(page.get_by_role("button", name=mobile_mode_name)).to_be_visible()
+            if page.get_by_role("button", name=mobile_mode_name).count():
+                expect(page.get_by_role("button", name=mobile_mode_name)).to_be_visible()
+            else:
+                expect(page.locator("body", has_text=mobile_mode_name)).to_be_visible()
+            _assert_mobile_dock_tap_targets(page)
             expect(page.locator("[data-pqx-launch-top]")).to_have_count(0)
 
             if route == "/app/agents":
                 expect(page.locator("[data-property-search-agent-grid]")).to_be_visible()
                 expect(page.locator(".pqx-automation-thumbnail").first).to_be_visible()
+            elif route == "/app/alerts":
+                expect(page.locator("body", has_text="Alerts")).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"Delivery rules|Notifications", re.I))).to_be_visible()
             elif route == "/app/account":
                 expect(page.locator("body", has_text="Notifications")).to_be_visible()
                 expect(page.locator("body", has_text="Export account data")).to_be_visible()
                 expect(page.get_by_role("link", name="Open billing")).to_be_visible()
                 expect(page.locator("body", has_text="Access and shared pages")).to_be_visible()
                 expect(page.locator("body", has_text="Connections and privacy")).to_be_visible()
-            else:
+            elif route == "/app/billing":
                 expect(page.locator("body", has_text="Billing history")).to_be_visible()
                 expect(page.locator("body", has_text="Cancellation and refunds")).to_be_visible()
                 billing_mobile_metrics = page.evaluate(
@@ -3078,6 +3129,13 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 assert billing_mobile_metrics["visibleGenericLinks"] == 0
                 assert billing_mobile_metrics["tallestCard"] <= 120
                 assert "When to upgrade" not in billing_mobile_metrics["bodyText"]
+            elif route == "/app/settings/google":
+                expect(page.locator("body", has_text=re.compile(r"Google connection|PropertyQuarry account", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"Connect Google|Add Google account", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"account", re.I))).to_be_visible()
+            else:
+                expect(page.locator("body", has_text=re.compile(r"Access|Identity and return access", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"Invite|access", re.I))).to_be_visible()
 
             screenshot_path = tmp_path / screenshot_name
             page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
