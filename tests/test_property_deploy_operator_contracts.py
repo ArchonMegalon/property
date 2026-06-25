@@ -113,6 +113,14 @@ def test_property_release_gate_runs_offline_ranking_benchmark() -> None:
     assert "scripts/check_property_ranking_benchmark.py" in release_gate
 
 
+def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "scripts/materialize_property_tour_export_manifest.py" in release_gate
+    assert "_completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
+    assert "--import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
+
+
 def test_readme_documents_hardened_deploy_and_port_override() -> None:
     readme = _read("README.md")
 

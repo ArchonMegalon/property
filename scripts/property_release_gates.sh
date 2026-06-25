@@ -68,6 +68,9 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --summary-only
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
   --write _completion/property_tour_exports/release-gate-discovery.json
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_property_tour_export_manifest.py \
+  --prepare-dirs \
+  --write _completion/property_tour_exports/release-gate-import-manifest.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
@@ -89,6 +92,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --performance-receipt _completion/smoke/property-auth-performance-release-gate.json \
   --tour-control-receipt _completion/property_tour_controls/release-gate.json \
   --export-discovery-receipt _completion/property_tour_exports/release-gate-discovery.json \
+  --import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json \
   --repair-canary-receipt _completion/repair/propertyquarry-repair-canary-release-gate.json \
   --provider-matrix-receipt _completion/provider_smoke/release-gate-provider-matrix.json \
   --write _completion/property_gold_status/release-gate.json \
