@@ -745,6 +745,15 @@ def _assert_mobile_dock_tap_targets(page: Page) -> None:
     assert undersized == []
 
 
+def _goto_with_browser_budget(page: Page, url: str, *, wait_until: str, budget_ms: int) -> tuple[object, int]:
+    started = time.perf_counter()
+    response = page.goto(url, wait_until=wait_until)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    assert response is not None and response.ok
+    assert duration_ms <= budget_ms, {"url": url, "duration_ms": duration_ms, "budget_ms": budget_ms}
+    return response, duration_ms
+
+
 def _assert_visible_component_contrast(page: Page, selectors: list[str], *, minimum_ratio: float) -> None:
     offenders = page.evaluate(
         """
@@ -2431,6 +2440,44 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         dark_screenshot_path = tmp_path / "property_research_detail_first_screen_dark.png"
         page.screenshot(path=str(dark_screenshot_path), full_page=False, animations="disabled", caret="hide")
         assert dark_screenshot_path.exists() and dark_screenshot_path.stat().st_size > 20_000
+    finally:
+        context.close()
+
+
+def test_propertyquarry_shortlist_and_research_have_browser_performance_budget(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    try:
+        _, shortlist_ms = _goto_with_browser_budget(
+            page,
+            f"{base_url}/app/shortlist?run_id=run-42",
+            wait_until="networkidle",
+            budget_ms=3200,
+        )
+        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
+        expect(page.locator("[data-property-app-shell]")).to_be_visible()
+        expect(page.locator('a[href*="/app/research/"]').first).to_be_visible()
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
+
+        packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+        _, research_ms = _goto_with_browser_budget(
+            page,
+            packet_url,
+            wait_until="networkidle",
+            budget_ms=3600,
+        )
+        expect(page.locator("[data-property-research-detail]")).to_be_visible()
+        expect(page.locator("[data-research-ranking-list]")).to_be_visible()
+        expect(page.locator(".prd-media-frame")).to_be_visible()
+        _assert_research_packet_360_first(page, min_stage_height=190, max_stage_height=380)
+        _assert_no_horizontal_overflow(page)
+        assert shortlist_ms > 0 and research_ms > 0
     finally:
         context.close()
 
