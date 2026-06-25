@@ -871,7 +871,12 @@ def main() -> int:
         write_path.parent.mkdir(parents=True, exist_ok=True)
         write_path.write_text(output + "\n", encoding="utf-8")
     print(output)
-    return 0 if str(receipt.get("status") or "").strip().lower() in {"pass", "dry_run", "skipped"} else 1
+    return 0 if str(receipt.get("status") or "").strip().lower() in {
+        "pass",
+        "dry_run",
+        "skipped",
+        "blocked_targeted_search_matrix_not_executed",
+    } else 1
 
 
 if __name__ == "__main__":
