@@ -2231,12 +2231,24 @@ def property_workspace_payload(
             if identity
         }
         if "ranked_candidates" in run_summary_for_surface:
-            run_summary_for_surface["ranked_candidates"] = [
+            raw_surface_ranked_candidates = [
                 dict(candidate)
                 for candidate in list(run_summary_for_surface.get("ranked_candidates") or [])
                 if isinstance(candidate, dict)
-                and _shortlist_identity(candidate) in admitted_identities
             ]
+            held_back_ranked_candidates = [
+                candidate
+                for candidate in raw_surface_ranked_candidates
+                if _shortlist_identity(candidate) not in admitted_identities
+            ]
+            run_summary_for_surface["ranked_candidates"] = [
+                candidate
+                for candidate in raw_surface_ranked_candidates
+                if _shortlist_identity(candidate) in admitted_identities
+            ]
+            if held_back_ranked_candidates:
+                run_summary_for_surface["held_back_ranked_total"] = len(held_back_ranked_candidates)
+                run_summary_for_surface["held_back_ranked_reason"] = "outside_selected_area_or_hard_scope"
         if "sources" in run_summary_for_surface:
             surface_sources: list[dict[str, object]] = []
             for source in list(run_summary_for_surface.get("sources") or []):

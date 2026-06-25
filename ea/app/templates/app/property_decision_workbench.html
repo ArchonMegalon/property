@@ -8948,6 +8948,7 @@
       {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
       {% set hard_filtered_total = (run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or 0)|int %}
       {% set soft_demoted_total = (run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0)|int %}
+      {% set held_back_ranked_total = (run_summary.get('held_back_ranked_total') or 0)|int %}
       {% set soft_only_empty_state = hard_filtered_total == 0 and soft_demoted_total > 0 %}
       <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results" data-pqx-screenfit-target="run-progress">
@@ -8967,6 +8968,8 @@
                 {{ empty_eta_feedback or empty_still_worked or 'Repair is checking the run.' }}
               {% elif soft_only_empty_state %}
                 {{ soft_demoted_total }} home{% if soft_demoted_total != 1 %}s{% endif %} stayed below the current shortlist score for the current brief.
+              {% elif held_back_ranked_total > 0 %}
+                {{ held_back_ranked_total }} reviewed home{% if held_back_ranked_total != 1 %}s{% endif %} appeared during the run but stayed outside the selected area or another hard scope rule.
               {% else %}
                 {{ empty_eta_feedback or empty_still_worked or 'No strong matches cleared the current brief.' }}
               {% endif %}
@@ -8985,7 +8988,7 @@
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
               {% if empty_active_rule %}<span class="pqx-pill">{{ empty_active_rule }}</span>{% endif %}
-              <span class="pqx-small">{{ 'Lower the shortlist score or inspect the reviewed homes.' if soft_only_empty_state else (empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.')) }}</span>
+              <span class="pqx-small">{{ 'Lower the shortlist score or inspect the reviewed homes.' if soft_only_empty_state else ('Open the area choices if you want to include those homes; otherwise keep the hard scope.' if held_back_ranked_total > 0 else (empty_next_move or ('Restart the same brief and let repair retry the interrupted search.' if run_status == 'failed' else 'Widen one hard rule first, then rerun.'))) }}</span>
             </div>
             {% endif %}
             <div class="pqx-actions">
