@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `66ca1faf6ff251df69386b5a5b6fc5baabffe96f` |
+| Runtime commit SHA | `d34b2ba054c722af6749a5f1860bf7e6e8ecd745` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route, stricter 3DVista/Pano2VR local-export verifier gates, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `66ca1fa` passed:
+The candidate at `d34b2ba` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -96,6 +96,12 @@ The candidate at `66ca1fa` passed:
 - Authenticated multi-surface performance smoke after the `66ca1fa` deploy returned `status=pass`, `failed_count=0`, and 10 routes under the 1200 ms first-paint budget: `/app/search`, `/app/agents`, `/app/properties`, `/app/shortlist`, `/app/research/<fixture>`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access`.
 - Public Cloudflare smoke after the `66ca1fa` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
 - Hosted tour-control verifier after the `66ca1fa` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
+- Hosted tour-control verifier hardening now rejects placeholder local 3DVista and Pano2VR entry files. Local 3DVista exports must contain provider/export markers such as `3dvista`, `tdvplayer`, `tdvplayerapi`, `tourviewer`, or `panorama`; local Pano2VR exports must contain markers such as `pano2vr`, `ggpkg`, `ggskin`, `pano.xml`, or `tour.js`.
+- Focused verifier tests after `d34b2ba` returned 7 passing tests and prove Matterport, 3DVista, Pano2VR, krpano, and MagicFit can pass only with verified evidence, while MagicFit placeholder videos, local 3DVista/Pano2VR placeholder HTML, pure cube fallbacks, unsafe private paths, and photo-gallery tours fail closed.
+- After redeploying from `d34b2ba`, local readiness returned `{"status":"ready","reason":"postgres_ready"}`.
+- Authenticated multi-surface performance smoke after the `d34b2ba` deploy returned `status=pass`, `failed_count=0`, and 10 routes under the 1200 ms first-paint budget: `/app/search`, `/app/agents`, `/app/properties`, `/app/shortlist`, `/app/research/<fixture>`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access`.
+- Public Cloudflare smoke after the `d34b2ba` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
+- Hosted tour-control verifier after the `d34b2ba` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
 
 Observed route timings after the latest deploy:
 
