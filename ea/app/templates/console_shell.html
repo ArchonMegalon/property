@@ -1285,7 +1285,7 @@
             {% if commercial.get('active_until') %} | active until {{ commercial.get('active_until') }}{% endif %}
           </small>
           <small class="console-run-note">
-            {{ commercial.get('max_platforms') or 1 }} platform{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}
+            {% if (commercial.get('max_platforms') or 0)|int <= 0 %}All providers{% else %}{{ commercial.get('max_platforms') }} provider{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}{% endif %}
             | {% if (commercial.get('max_results_per_source') or 0)|int <= 0 %}all ranked results per provider{% else %}up to {{ commercial.get('max_results_per_source') or 2 }} results per provider{% endif %}
           </small>
           <div class="console-inline-status" data-property-billing-status></div>

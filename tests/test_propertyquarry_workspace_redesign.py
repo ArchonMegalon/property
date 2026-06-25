@@ -1582,6 +1582,14 @@ def test_propertyquarry_agent_search_scripts_submit_null_when_result_slider_is_a
     assert "max_results_per_source: hasUnlimitedProviderResults() ? null : (Number(nextPreferences?.max_results_per_source || 0) || null)," in workbench_script
 
 
+def test_propertyquarry_console_plan_copy_shows_unlimited_provider_access() -> None:
+    console_shell = (Path(__file__).resolve().parents[1] / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+
+    assert "All providers" in console_shell
+    assert "all ranked results per provider" in console_shell
+    assert "{{ commercial.get('max_platforms') or 1 }} platform" not in console_shell
+
+
 def test_propertyquarry_support_and_trust_pages_cut_developer_voice() -> None:
     client = build_property_client(principal_id="exec-property-support-trust-copy")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
