@@ -17,6 +17,11 @@ DEFAULT_ROUTES = (
     "/app/account",
     "/app/billing",
     "/app/settings/google",
+    "/app/settings/access",
+    "/app/settings/usage",
+    "/app/settings/support",
+    "/app/settings/trust",
+    "/app/settings/invitations",
     "/app/research",
     "/app/properties/packets",
 )

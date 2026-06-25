@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.propertyquarry_live_mobile_surface_smoke import evaluate_mobile_metrics
+from scripts.propertyquarry_live_mobile_surface_smoke import DEFAULT_ROUTES, evaluate_mobile_metrics
 
 
 def _base_metrics() -> dict[str, object]:
@@ -50,6 +50,17 @@ def test_live_mobile_smoke_accepts_research_and_packets_surfaces_without_search_
 
     assert _failed_names("/app/research", metrics) == set()
     assert _failed_names("/app/properties/packets", metrics) == set()
+
+
+def test_live_mobile_smoke_default_routes_cover_settings_surfaces() -> None:
+    assert {
+        "/app/settings/google",
+        "/app/settings/access",
+        "/app/settings/usage",
+        "/app/settings/support",
+        "/app/settings/trust",
+        "/app/settings/invitations",
+    }.issubset(set(DEFAULT_ROUTES))
 
 
 def test_live_mobile_smoke_rejects_horizontal_overflow_and_noisy_chrome() -> None:
