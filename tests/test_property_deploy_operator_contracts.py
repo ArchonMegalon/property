@@ -36,12 +36,14 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "PROPERTYQUARRY_API_CONTAINER_NAME",
         "PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME",
         "PROPERTYQUARRY_DB_CONTAINER_NAME",
+        "PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME",
         "docker compose",
         "DC+=(-f",
         "docker-compose.property.yml",
         "propertyquarry-api",
         "propertyquarry-scheduler",
         "propertyquarry-db",
+        "propertyquarry-cloudflared",
         "/health",
         "/health/ready",
         "/version",
@@ -58,6 +60,9 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> N
         "storage_backend",
         "postgres",
         "--preflight-only",
+        "restart_existing_cloudflared_tunnel",
+        "docker restart",
+        "did not restart cleanly after API deploy",
     ):
         assert required in script
 

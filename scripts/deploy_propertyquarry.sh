@@ -238,9 +238,11 @@ db_service="${db_service:-propertyquarry-db}"
 api_container_name="${PROPERTYQUARRY_API_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_API_CONTAINER_NAME)}"
 scheduler_container_name="${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME)}"
 db_container_name="${PROPERTYQUARRY_DB_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_DB_CONTAINER_NAME)}"
+cloudflared_container_name="${PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME:-$(effective_env_value PROPERTYQUARRY_CLOUDFLARED_CONTAINER_NAME)}"
 api_container_name="${api_container_name:-propertyquarry-api}"
 scheduler_container_name="${scheduler_container_name:-propertyquarry-scheduler}"
 db_container_name="${db_container_name:-propertyquarry-db}"
+cloudflared_container_name="${cloudflared_container_name:-propertyquarry-cloudflared}"
 
 port_owners="$(
   docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null \
@@ -351,6 +353,29 @@ wait_for_http_ready() {
 
 curl -fsS --connect-timeout 2 --max-time 8 "${base_url}/health" >/dev/null
 wait_for_http_ready
+
+restart_existing_cloudflared_tunnel() {
+  local cid=""
+  cid="$(docker ps -q --filter "name=^/${cloudflared_container_name}$" 2>/dev/null | head -n 1 || true)"
+  if [[ -z "${cid}" ]]; then
+    return 0
+  fi
+  docker restart "${cid}" >/dev/null
+  local deadline=$((SECONDS + 60))
+  while (( SECONDS < deadline )); do
+    local status
+    status="$(docker inspect -f '{{.State.Status}}' "${cid}" 2>/dev/null || true)"
+    if [[ "${status}" == "running" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Cloudflare tunnel ${cloudflared_container_name} did not restart cleanly after API deploy." >&2
+  docker logs --tail=80 "${cloudflared_container_name}" >&2 2>/dev/null || true
+  exit 1
+}
+
+restart_existing_cloudflared_tunnel
 
 version_json="$(curl -fsS --connect-timeout 2 --max-time 8 "${base_url}/version")"
 if ! printf '%s' "${version_json}" | grep -q '"storage_backend"[[:space:]]*:[[:space:]]*"postgres"'; then
