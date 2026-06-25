@@ -9721,11 +9721,24 @@ def test_propertyquarry_dark_mode_covers_nested_search_controls() -> None:
         ".pqx-results-summary-link",
         ".pqx-empty",
         ".pqx-results-empty-state",
-        ".pqx-bottom-nav",
     )
 
     for selector in required_selectors:
         assert selector in dark_block
+    assert ".pqx-bottom-nav" not in body
+
+
+def test_property_search_shell_does_not_use_sticky_bottom_action_bar() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    body = (repo_root / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+    mobile_start = body.find("@media (max-width: 720px)")
+    assert mobile_start > 0
+    mobile_block = body[mobile_start:body.find("@media", mobile_start + 1)]
+
+    assert ".console-form[data-console-form-variant=\"property_search\"] .console-action-row" in mobile_block
+    assert "position: sticky;" not in mobile_block
+    assert "bottom: 0;" not in mobile_block
+    assert "background: transparent;" in mobile_block
 
 
 def test_propertyquarry_mobile_top_nav_uses_core_loop_instead_of_noisy_tab_strip() -> None:
