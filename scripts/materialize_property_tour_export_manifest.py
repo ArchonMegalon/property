@@ -211,6 +211,36 @@ def build_drop_status_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _drop_status_summary(drop_status: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {
+        "ready_for_import": 0,
+        "waiting_for_assets": 0,
+        "other": 0,
+    }
+    for row in drop_status:
+        status = str(row.get("status") or "").strip().lower()
+        if status == "ready_for_import":
+            summary["ready_for_import"] += 1
+        elif status == "waiting_for_assets":
+            summary["waiting_for_assets"] += 1
+        else:
+            summary["other"] += 1
+    return summary
+
+
+def _manifest_status(*, imports: list[dict[str, str]], selected_providers: set[str], drop_status: list[dict[str, Any]]) -> str:
+    if not selected_providers:
+        return "pass"
+    if not imports:
+        return "blocked_no_import_targets"
+    summary = _drop_status_summary(drop_status)
+    if summary["ready_for_import"] == 0:
+        return "waiting_for_verified_assets"
+    if summary["ready_for_import"] < len(imports):
+        return "partial_ready_for_import"
+    return "ready_for_import"
+
+
 def _tour_sort_key(tour: dict[str, Any]) -> tuple[int, int, str]:
     controls = [row for row in list(tour.get("controls") or []) if isinstance(row, dict)]
     is_ready = str(tour.get("status") or "").strip().lower() == "ready"
@@ -291,7 +321,9 @@ def build_export_manifest(
         incoming_root=resolved_incoming_root,
         limit_per_provider=max(1, int(limit_per_provider or 1)),
     )
-    status = "ready_for_exports" if imports else ("pass" if not selected_providers else "blocked_no_import_targets")
+    drop_status = build_drop_status_rows({"imports": imports})
+    drop_status_summary = _drop_status_summary(drop_status)
+    status = _manifest_status(imports=imports, selected_providers=selected_providers, drop_status=drop_status)
     return {
         "status": status,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -301,7 +333,8 @@ def build_export_manifest(
         "providers": sorted(selected_providers),
         "import_count": len(imports),
         "imports": imports,
-        "drop_status": build_drop_status_rows({"imports": imports}),
+        "drop_status": drop_status,
+        "drop_status_summary": drop_status_summary,
         "next_command": "python /app/scripts/import_property_tour_exports.py --manifest /data/artifacts/property-tour-export-import-manifest.json --write /data/artifacts/property-tour-export-import-receipt.json",
         "notes": [
             "Copy each real provider export or asset into its export_dir before running the import command.",
@@ -390,8 +423,8 @@ def main() -> int:
     write_path = Path(args.write).expanduser().resolve() if str(args.write or "").strip() else _artifact_dir() / "property-tour-export-import-manifest.json"
     write_path.parent.mkdir(parents=True, exist_ok=True)
     write_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({key: manifest[key] for key in ("status", "tour_root", "incoming_root", "missing_provider_modes", "import_count", "imports", "next_command")}, indent=2, sort_keys=True))
-    return 0 if manifest["status"] in {"pass", "ready_for_exports"} else 1
+    print(json.dumps({key: manifest[key] for key in ("status", "tour_root", "incoming_root", "missing_provider_modes", "import_count", "drop_status_summary", "imports", "next_command")}, indent=2, sort_keys=True))
+    return 0 if manifest["status"] in {"pass", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"} else 1
 
 
 if __name__ == "__main__":

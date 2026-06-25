@@ -421,8 +421,9 @@ def build_gold_status_receipt(
         import_manifest,
         expected_providers=expected_import_providers,
     )
+    import_manifest_status = str(import_manifest.get("status") or "").strip()
     operator_import_manifest_ready = (
-        import_manifest.get("status") == "ready_for_exports"
+        import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"}
         and int(import_manifest.get("import_count") or 0) >= len(expected_import_providers)
         and expected_import_providers.issubset(manifest_providers)
         and expected_import_providers.issubset(prepared_drop_providers)
@@ -501,7 +502,7 @@ def build_gold_status_receipt(
                 "action": "configure the white-label Brilliant Directories billing host so /app/billing redirects to a resolving external account lane",
             }
         )
-    if import_manifest_receipt_path is not None and import_manifest.get("status") == "ready_for_exports" and not hardened_readmes_ok:
+    if import_manifest_receipt_path is not None and import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"} and not hardened_readmes_ok:
         blockers.append(
             {
                 "area": "tour_operator_drop_readmes",
@@ -653,6 +654,7 @@ def build_gold_status_receipt(
             "status": import_manifest.get("status") or ("not_configured" if import_manifest_receipt_path is None else "missing"),
             "ready_for_exports": operator_import_manifest_ready,
             "import_count": import_manifest.get("import_count"),
+            "drop_status_summary": import_manifest.get("drop_status_summary") or {},
             "providers": sorted(manifest_providers),
             "prepared_drop_provider_count": len(prepared_drop_providers),
             "missing_prepared_providers": sorted(expected_import_providers - prepared_drop_providers),

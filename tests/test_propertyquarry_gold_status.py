@@ -173,9 +173,10 @@ def _import_manifest_payload(tmp_path: Path, *, hardened_readmes: bool = True) -
             readme.write_text("Old placeholder instructions", encoding="utf-8")
             prepared_drop_dirs.append({"provider": provider, "export_dir": str(export_dir), "readme": str(readme)})
     return {
-        "status": "ready_for_exports",
+        "status": "waiting_for_verified_assets",
         "import_count": len(providers),
         "providers": providers,
+        "drop_status_summary": {"ready_for_import": 0, "waiting_for_assets": len(providers), "other": 0},
         "prepared_drop_dirs": prepared_drop_dirs,
         "next_command": "python /app/scripts/import_property_tour_exports.py --manifest manifest.json",
     }
@@ -252,6 +253,8 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["provider_matrix"]["targeted_search_matrix_executed"] is True
     assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano", "magicfit"]
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
+    assert receipt["operator_import_manifest"]["status"] == "waiting_for_verified_assets"
+    assert receipt["operator_import_manifest"]["drop_status_summary"]["waiting_for_assets"] == 4
     assert receipt["operator_import_manifest"]["missing_prepared_providers"] == []
     assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is True
     assert receipt["operator_import_manifest"]["hardened_readme_provider_count"] == 4

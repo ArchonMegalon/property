@@ -16,6 +16,13 @@ from scripts.materialize_property_tour_export_manifest import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _write_equirectangular_image(path: Path) -> None:
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (2048, 1024), color=(28, 42, 36)).save(path, format="JPEG")
+
+
 def _write_base_tour(root: Path, slug: str) -> None:
     bundle = root / slug
     bundle.mkdir(parents=True)
@@ -29,7 +36,7 @@ def test_materialize_property_tour_export_manifest_writes_operator_drop_paths(tm
 
     manifest = build_export_manifest(tour_root=tour_root, incoming_root=incoming_root, limit_per_provider=1)
 
-    assert manifest["status"] == "ready_for_exports"
+    assert manifest["status"] == "waiting_for_verified_assets"
     assert manifest["tour_root"] == str(tour_root.resolve())
     assert manifest["incoming_root"] == str(incoming_root.resolve())
     assert set(manifest["providers"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
@@ -42,6 +49,7 @@ def test_materialize_property_tour_export_manifest_writes_operator_drop_paths(tm
     assert len(manifest["drop_status"]) == 4
     assert {row["status"] for row in manifest["drop_status"]} == {"waiting_for_assets"}
     assert {row["missing"][0] for row in manifest["drop_status"]} == {"drop_folder"}
+    assert manifest["drop_status_summary"] == {"ready_for_import": 0, "waiting_for_assets": 4, "other": 0}
     assert "import_property_tour_exports.py" in manifest["next_command"]
 
 
@@ -64,7 +72,7 @@ def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(t
 
     manifest = build_export_manifest(tour_root=tour_root, incoming_root=incoming_root, limit_per_provider=1)
 
-    assert manifest["status"] == "ready_for_exports"
+    assert manifest["status"] == "waiting_for_verified_assets"
     assert manifest["import_count"] == 4
     assert {row["slug"] for row in manifest["imports"]} == {"matterport-ready"}
     assert {row["current_control_providers"] for row in manifest["imports"]} == {"matterport"}
@@ -128,7 +136,7 @@ def test_materialize_property_tour_export_manifest_reports_ready_drop_status(tmp
     krpano_row = next(row for row in manifest["imports"] if row["provider"] == "krpano")
     asset_dir = Path(krpano_row["asset_dir"])
     asset_dir.mkdir(parents=True)
-    (asset_dir / "panorama.jpg").write_bytes(b"\xff\xd8\xff\xe0real-panorama-candidate")
+    _write_equirectangular_image(asset_dir / "panorama.jpg")
 
     status_rows = build_drop_status_rows({"imports": [krpano_row]})
 
@@ -175,9 +183,11 @@ def test_materialize_property_tour_export_manifest_cli_writes_receipt(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     manifest = json.loads(output.read_text(encoding="utf-8"))
-    assert manifest["status"] == "ready_for_exports"
+    assert manifest["status"] == "waiting_for_verified_assets"
     assert manifest["import_count"] == 4
     assert len(manifest["drop_status"]) == 4
+    assert manifest["drop_status_summary"] == {"ready_for_import": 0, "waiting_for_assets": 4, "other": 0}
+    assert '"drop_status_summary"' in result.stdout
     assert "cli-needs-exports" in result.stdout
 
 
