@@ -362,6 +362,36 @@ def _property_search_run_status_payload(
         normalized["created_at"] = str(normalized.get("generated_at") or fallback_timestamp).strip()
     if not str(normalized.get("generated_at") or "").strip():
         normalized["generated_at"] = str(normalized.get("updated_at") or normalized.get("created_at") or "")
+    def _is_internal_generic_listing_suppression(event: dict[str, object]) -> bool:
+        step = str(event.get("step") or "").strip().lower()
+        message = str(event.get("message") or "").strip().lower()
+        resolution = str(event.get("resolution") or "").strip().lower()
+        return (
+            step == "repair_receipt"
+            and (
+                "suppressed_generic_listing_page" in message
+                or resolution == "suppressed_generic_listing_page"
+            )
+        )
+
+    def _current_progress_event() -> dict[str, object]:
+        step = str(normalized.get("current_step") or summary.get("current_step") or "status_refresh").strip() or "status_refresh"
+        message = str(normalized.get("message") or summary.get("message") or summary.get("status_note") or "").strip()
+        if not message:
+            reviewed = summary.get("reviewed_listing_total") or summary.get("listing_total") or 0
+            provider_total = summary.get("provider_total") or summary.get("source_variant_total") or 0
+            message = f"Search is still running across {provider_total} provider checks; {reviewed} homes reviewed so far."
+        return {
+            "step": step,
+            "status": str(normalized.get("status") or summary.get("status") or "in_progress").strip() or "in_progress",
+            "message": message,
+            "created_at": str(normalized.get("updated_at") or normalized.get("generated_at") or ""),
+        }
+
+    existing_events = [dict(item) for item in list(normalized.get("events") or []) if isinstance(item, dict)]
+    if existing_events:
+        visible_events = [event for event in existing_events if not _is_internal_generic_listing_suppression(event)]
+        normalized["events"] = visible_events or [_current_progress_event()]
     if not [item for item in list(normalized.get("events") or []) if isinstance(item, dict)]:
         synthesized_events: list[dict[str, object]] = []
         repair_label = str(summary.get("repair_status_label") or summary.get("repair_status") or "").strip()
@@ -378,6 +408,8 @@ def _property_search_run_status_payload(
         for receipt in [dict(item) for item in list(summary.get("repair_receipts") or []) if isinstance(item, dict)][-3:]:
             source_label = str(receipt.get("source_label") or "Provider").strip()
             resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
+            if resolution.strip().lower() == "suppressed_generic_listing_page":
+                continue
             synthesized_events.append(
                 {
                     "step": "repair_receipt",
@@ -388,6 +420,8 @@ def _property_search_run_status_payload(
             )
         if synthesized_events:
             normalized["events"] = synthesized_events
+        else:
+            normalized["events"] = [_current_progress_event()]
     if summary:
         ranked_candidates = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
         if not ranked_candidates:

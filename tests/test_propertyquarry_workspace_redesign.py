@@ -7046,7 +7046,54 @@ def test_property_search_status_synthesizes_repair_events_for_compact_failed_run
     payload = response.json()
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "Repairing interrupted run." in messages
-    assert "Willhaben: suppressed_generic_listing_page." in messages
+    assert "Willhaben: suppressed_generic_listing_page." not in messages
+
+
+def test_property_search_status_replaces_internal_suppression_only_compact_events(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-compact-suppression-events")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Suppression Events Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert lightweight is True
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "current_step": "source_shortlist",
+            "message": "Built shortlist of 1 listing(s) for RE/MAX Austria.",
+            "updated_at": "2026-06-25T15:40:41+00:00",
+            "summary": {
+                "provider_total": 29,
+                "reviewed_listing_total": 179,
+            },
+            "events": [
+                {
+                    "step": "repair_receipt",
+                    "status": "repaired",
+                    "message": "Willhaben: suppressed_generic_listing_page.",
+                    "created_at": "2026-06-25T15:40:32+00:00",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/api/signals/property/search/run/run-suppression-events?lightweight=1",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["events"] == [
+        {
+            "step": "source_shortlist",
+            "status": "in_progress",
+            "message": "Built shortlist of 1 listing(s) for RE/MAX Austria.",
+            "created_at": "2026-06-25T15:40:41+00:00",
+        }
+    ]
 
 
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
