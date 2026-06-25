@@ -518,6 +518,28 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
     return rows
 
 
+def _summarize_provider_blockers(reason_counts: dict[str, dict[str, dict[str, object]]]) -> dict[str, dict[str, object]]:
+    summary: dict[str, dict[str, object]] = {}
+    for provider in PROVIDER_MODES:
+        rows = []
+        for reason, payload in sorted(
+            reason_counts.get(provider, {}).items(),
+            key=lambda item: (-int(item[1].get("count") or 0), item[0]),
+        ):
+            rows.append(
+                {
+                    "reason": reason,
+                    "count": int(payload.get("count") or 0),
+                    "action": str(payload.get("action") or "").strip(),
+                }
+            )
+        summary[provider] = {
+            "blocked_count": sum(int(row["count"]) for row in rows),
+            "reasons": rows,
+        }
+    return summary
+
+
 def _blocked_control_reason(payload: dict[str, object]) -> str:
     scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
     creation_mode = str(payload.get("creation_mode") or "").strip().lower()
@@ -589,6 +611,7 @@ def build_property_tour_control_receipt(
     tours: list[dict[str, object]] = []
     provider_counts = {provider: 0 for provider in PROVIDER_MODES}
     action_counts = {provider: 0 for provider in PROVIDER_MODES}
+    provider_blocker_reason_counts: dict[str, dict[str, dict[str, object]]] = {provider: {} for provider in PROVIDER_MODES}
     magicfit_playback_evidence_count = 0
     magicfit_playback_evidence: list[dict[str, object]] = []
     failed_probes = 0
@@ -654,6 +677,12 @@ def build_property_tour_control_receipt(
             provider = str(row.get("provider") or "").strip().lower()
             if provider in action_counts:
                 action_counts[provider] += 1
+                reason = str(row.get("reason") or "unknown").strip() or "unknown"
+                existing = provider_blocker_reason_counts[provider].setdefault(
+                    reason,
+                    {"count": 0, "action": str(row.get("action") or "").strip()},
+                )
+                existing["count"] = int(existing.get("count") or 0) + 1
         ready_controls = [
             control
             for control in controls
@@ -698,6 +727,7 @@ def build_property_tour_control_receipt(
         "tour_count": len(manifests),
         "ready_tour_count": sum(1 for tour in tours if tour.get("status") == "ready"),
         "provider_counts": provider_counts,
+        "provider_blockers": _summarize_provider_blockers(provider_blocker_reason_counts),
         "magicfit_playback": {
             "playback_ok": provider_counts.get("magicfit", 0) == 0 or magicfit_playback_evidence_count == provider_counts.get("magicfit", 0),
             "playable_count": magicfit_playback_evidence_count,
@@ -742,6 +772,7 @@ def _receipt_summary(receipt: dict[str, object]) -> dict[str, object]:
         "tour_count": receipt.get("tour_count"),
         "ready_tour_count": receipt.get("ready_tour_count"),
         "provider_counts": receipt.get("provider_counts"),
+        "provider_blockers": receipt.get("provider_blockers"),
         "ready_provider_modes": receipt.get("ready_provider_modes"),
         "required_provider_modes": receipt.get("required_provider_modes"),
         "missing_provider_modes": receipt.get("missing_provider_modes"),

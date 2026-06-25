@@ -666,6 +666,7 @@ def build_gold_status_receipt(
         "tour_controls": {
             "status": tour_controls.get("status"),
             "provider_counts": tour_controls.get("provider_counts"),
+            "provider_blockers": tour_controls.get("provider_blockers"),
             "magicfit_playback": magicfit_playback,
             "magicfit_playback_ok": magicfit_playback_ok,
             "ready_provider_modes": tour_controls.get("ready_provider_modes"),

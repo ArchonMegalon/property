@@ -281,6 +281,11 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
         {
             "status": "blocked_missing_provider_modes",
             "provider_counts": {"matterport": 29, "magicfit": 8, "3dvista": 0, "pano2vr": 0, "krpano": 0},
+            "provider_blockers": {
+                "3dvista": {"blocked_count": 12, "reasons": [{"reason": "missing_3dvista_export", "count": 12, "action": "import a verified 3DVista export"}]},
+                "pano2vr": {"blocked_count": 12, "reasons": [{"reason": "missing_pano2vr_export", "count": 12, "action": "import a verified Pano2VR export"}]},
+                "krpano": {"blocked_count": 9, "reasons": [{"reason": "missing_walkable_scene", "count": 9, "action": "provide a real walkable_scene"}]},
+            },
             "ready_provider_modes": ["matterport", "magicfit"],
             "missing_provider_modes": ["3dvista", "pano2vr", "krpano"],
             "next_required_actions": [
@@ -327,6 +332,7 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "verified_tour_provider_modes")
     assert blocker["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano"]
+    assert receipt["tour_controls"]["provider_blockers"]["krpano"]["reasons"][0]["reason"] == "missing_walkable_scene"
     assert "MagicFit" not in blocker["action"]
     assert "Matterport" not in blocker["action"]
     assert "3DVista" in blocker["action"]

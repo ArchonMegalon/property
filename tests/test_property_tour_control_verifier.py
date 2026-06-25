@@ -203,6 +203,10 @@ def test_property_tour_control_verifier_can_require_all_provider_modes_for_gold_
         "krpano",
         "magicfit",
     }
+    assert summary["provider_blockers"]["3dvista"]["blocked_count"] == 1
+    assert summary["provider_blockers"]["3dvista"]["reasons"][0]["reason"] == "missing_3dvista_export"
+    assert summary["provider_blockers"]["pano2vr"]["reasons"][0]["reason"] == "missing_pano2vr_export"
+    assert summary["provider_blockers"]["magicfit"]["reasons"][0]["reason"] == "missing_magicfit_walkthrough"
 
 
 def test_property_tour_control_verifier_cli_fails_closed_for_blocked_gold_gate(
