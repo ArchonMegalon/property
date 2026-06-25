@@ -84,6 +84,23 @@ def test_propertyquarry_deploy_wrapper_stays_property_only() -> None:
         assert forbidden not in script
 
 
+def test_propertyquarry_compose_mounts_operator_tour_export_drop() -> None:
+    compose = _read("docker-compose.property.yml")
+
+    assert "PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR: /data/incoming_property_tours" in compose
+    assert "PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR: /data/incoming_property_tours" in compose
+    assert "./state/incoming_property_tours:/data/incoming_property_tours" in compose
+
+
+def test_property_tour_export_scripts_share_container_incoming_path() -> None:
+    discovery = _read("scripts/discover_property_tour_exports.py")
+    manifest = _read("scripts/materialize_property_tour_export_manifest.py")
+
+    assert 'or "/data/incoming_property_tours"' in discovery
+    assert 'or "/data/incoming_property_tours"' in manifest
+    assert "/data/property_tour_export_drop" not in discovery
+
+
 def test_property_release_gate_runs_payfunnels_billing_contracts() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 

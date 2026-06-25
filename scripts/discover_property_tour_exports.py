@@ -47,7 +47,11 @@ MAX_MARKER_SCAN_FILES = 240
 
 
 def _default_drop_dir() -> Path:
-    return Path(os.getenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR") or "/data/property_tour_export_drop").expanduser()
+    return Path(
+        os.getenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR")
+        or os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR")
+        or "/data/incoming_property_tours"
+    ).expanduser()
 
 
 def _artifact_dir() -> Path:

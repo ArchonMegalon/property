@@ -68,6 +68,7 @@ decision_brief.md
 
 # Local runtime proxy pool secrets
 state/fastestvpn-proxy-pool/
+state/incoming_property_tours/
 state/public_property_tours/
 state/property_investment_external_cache.json
 state/property_investment_external_cache.json.lock
