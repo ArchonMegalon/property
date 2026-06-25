@@ -2599,11 +2599,14 @@
           <span class="prd-tag">Optional</span>
         </summary>
         <div class="prd-collapse-body">
-          {% if research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
+          {% if research_evidence_overlay_rows or research_official_evidence_rows or research_official_posture_rows or research_future_research_rows or research_provenance_rows %}
           <section class="prd-stack">
             <h2 class="prd-section-title">What the wider evidence says</h2>
-            <p class="prd-section-copy">Evidence added beyond the listing so the surrounding risk, demand, and future-change picture is visible before you commit.</p>
+            <p class="prd-section-copy">Cached area overlays and source-backed evidence beyond the listing. Missing layers stay unavailable until verified data is indexed.</p>
             <div class="object-list">
+              {% for row in research_evidence_overlay_rows[:8] %}
+              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
+              {% endfor %}
               {% for row in research_official_evidence_rows[:4] %}
               <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ row.get('tag') }}</span></div>
               {% endfor %}

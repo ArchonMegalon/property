@@ -4060,6 +4060,7 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
         official_evidence_rows=[{"title": "Cadastre", "detail": "Linked"}],
         official_posture_rows=[{"title": "Risk", "detail": "Clear"}],
         future_research_rows=[{"title": "School", "detail": "Atlas linked"}],
+        evidence_overlay_rows=[{"title": "Summer heat", "detail": "Cached overlay", "tag": "Verified"}],
         provenance_rows=[{"title": "Source", "detail": "Listing"}],
         timeline_rows=[{"title": "Ranked", "detail": "Now"}],
         everyday_fit_rows=[{"title": "Transit", "detail": "Strong"}],
@@ -4079,6 +4080,86 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
     assert snapshot["research_score_rows"][0]["title"] == "Facts confirmed"
     assert snapshot["research_feedback"]["save_endpoint"] == "/app/api/property-feedback"
     assert snapshot["research_official_evidence_rows"][0]["title"] == "Cadastre"
+    assert snapshot["research_evidence_overlay_rows"][0]["title"] == "Summer heat"
+
+
+def test_property_research_packet_renders_cached_evidence_overlays(monkeypatch, tmp_path: Path) -> None:
+    rollup_path = tmp_path / "evidence-overlays.json"
+    rollup_path.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "layer_key": "media_attention",
+                        "match": {"postal_code": "1020"},
+                        "summary": "12 local articles in the last 90 days, mostly transport and development.",
+                        "source_name": "Terms-safe media index",
+                        "source_url": "https://news.example.test/search?q=1020",
+                        "article_url": "https://news.example.test/article/1",
+                        "cache_updated_at": "2026-06-25T08:00:00+00:00",
+                        "source_updated_at": "2026-06-24T08:00:00+00:00",
+                        "uncertainty_label": "topic aggregate",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_EVIDENCE_OVERLAY_ROLLUP_PATH", str(rollup_path))
+    principal_id = "pq-research-evidence-overlays"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Overlay-ready flat",
+        "summary": "EUR 1,180 · 62 m² · 1020 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/overlay-ready-flat",
+        "source_ref": "willhaben:overlay-ready-flat",
+        "fit_score": 80.0,
+        "property_facts": {
+            "price_eur": 1180.0,
+            "area_m2": 62.0,
+            "postal_code": "1020",
+            "street": "Praterstrasse",
+            "postal_name": "1020 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [{"source_label": "Willhaben | Austria | Rent | Wien", "listing_total": 1, "top_candidates": [candidate]}],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | Wien",
+        }
+    )
+    packet = client.get(f"/app/research/{packet_ref}", params={"run_id": "run-overlays"}, headers={"host": "propertyquarry.com"})
+
+    assert packet.status_code == 200
+    assert "Cached area overlays and source-backed evidence beyond the listing" in packet.text
+    assert "Media attention" in packet.text
+    assert "12 local articles in the last 90 days" in packet.text
+    assert "Verified" in packet.text
+    assert "Environmental quality" in packet.text
+    assert "No verified cached rollup is available yet" in packet.text
+    assert "Search did not crawl or index this source inline" in packet.text
 
 
 def test_property_workbench_templates_render_provider_homepage_links_in_new_tabs() -> None:

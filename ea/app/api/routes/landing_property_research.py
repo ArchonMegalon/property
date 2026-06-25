@@ -13,6 +13,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_preview_image,
 )
 from app.product.property_location_research import property_school_context_summary
+from app.product.property_evidence_overlays import build_property_evidence_overlay_rows
 from app.product.projections.common import compact_text
 from app.product.service import (
     _property_currency_code_from_facts,
@@ -982,6 +983,26 @@ def _property_packet_future_research_rows(facts: dict[str, object]) -> list[dict
     investment_impact = str(future.get("investment_impact") or "").strip()
     if investment_impact:
         rows.append(_object_detail_row("Long-term impact", investment_impact.replace("_", " ").title(), "Impact"))
+    return rows
+
+
+def _property_packet_evidence_overlay_rows(
+    *,
+    facts: dict[str, object],
+    candidate: dict[str, object],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for overlay in build_property_evidence_overlay_rows(facts=facts, candidate=candidate):
+        source_url = str(overlay.get("source_url") or "").strip()
+        article_url = str(overlay.get("article_url") or "").strip()
+        rows.append(
+            _object_detail_row(
+                str(overlay.get("title") or "Area evidence").strip(),
+                str(overlay.get("detail") or "No cached evidence overlay is available yet.").strip(),
+                str(overlay.get("tag") or "Unavailable").strip(),
+                href=article_url or source_url,
+            )
+        )
     return rows
 
 

@@ -550,6 +550,7 @@ class PropertyResearchPacketSnapshot:
     research_official_evidence_rows: list[dict[str, object]] = field(default_factory=list)
     research_official_posture_rows: list[dict[str, object]] = field(default_factory=list)
     research_future_research_rows: list[dict[str, object]] = field(default_factory=list)
+    research_evidence_overlay_rows: list[dict[str, object]] = field(default_factory=list)
     research_provenance_rows: list[dict[str, object]] = field(default_factory=list)
     research_timeline_rows: list[dict[str, object]] = field(default_factory=list)
     research_everyday_fit_rows: list[dict[str, object]] = field(default_factory=list)

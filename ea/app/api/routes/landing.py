@@ -73,6 +73,7 @@ from app.api.routes.landing_property_research import (
     _property_missing_fact_items,
     _property_packet_decision_rows,
     _property_packet_everyday_fit_rows,
+    _property_packet_evidence_overlay_rows,
     _property_packet_future_research_rows,
     _property_packet_missing_rows,
     _property_packet_official_evidence_rows,
@@ -3634,6 +3635,7 @@ def property_research_packet(
     official_evidence_rows = _property_packet_official_evidence_rows(facts)
     official_posture_rows = _property_packet_official_posture_rows(facts)
     future_research_rows = _property_packet_future_research_rows(facts)
+    evidence_overlay_rows = _property_packet_evidence_overlay_rows(facts=facts, candidate=candidate)
     investment_rows, investment_risk_rows = _property_investment_research_rows(
         property_url=property_url,
         facts=facts,
@@ -4186,6 +4188,7 @@ def property_research_packet(
         official_evidence_rows=official_evidence_rows,
         official_posture_rows=official_posture_rows,
         future_research_rows=future_research_rows,
+        evidence_overlay_rows=evidence_overlay_rows,
         provenance_rows=provenance_rows,
         timeline_rows=timeline_rows,
         everyday_fit_rows=everyday_fit_rows,
