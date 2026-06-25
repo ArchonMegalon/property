@@ -23559,6 +23559,138 @@ def test_property_payfunnels_webhook_is_public_but_requires_pending_checkout(
     assert bad_signature.status_code == 401
 
 
+def test_property_brilliant_directories_billing_webhook_is_public_advisory_and_persistent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.app import create_app
+
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET", "bd-secret")
+    monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
+
+    principal_id = "exec-property-bd-public-callback"
+    payload = {
+        "event_id": "bd_evt_route_1",
+        "event_type": "invoice.paid",
+        "principal_id": principal_id,
+        "plan_key": "agent",
+        "order_id": "bd_order_1",
+        "invoice_id": "bd_invoice_1",
+        "invoice_url": "https://billing.propertyquarry.com/invoices/bd_invoice_1",
+        "payment_status": "paid",
+        "amount_eur": "99.00",
+        "currency": "EUR",
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+    signature = hmac.new(b"bd-secret", f"{timestamp}.".encode("utf-8") + raw, hashlib.sha256).hexdigest()
+    client = TestClient(create_app())
+
+    webhook = client.post(
+        "/app/api/signals/property/billing/brilliant-directories/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-brilliant-directories-signature": signature,
+            "x-brilliant-directories-timestamp": timestamp,
+        },
+    )
+
+    assert webhook.status_code == 200, webhook.text
+    body = webhook.json()
+    assert body["status"] == "accepted_advisory_receipt"
+    assert body["provider"] == "brilliant_directories"
+    assert body["advisory_only"] is True
+    assert body["entitlement_mutation_allowed"] is False
+    assert body["local_reconciliation_required"] is True
+    assert body["current_plan_key"] == "free"
+
+    preferences_after_webhook = product_api_delivery_routes._property_preferences(  # noqa: SLF001
+        client.app.state.container,
+        principal_id=principal_id,
+    )
+    commercial = preferences_after_webhook["property_commercial"]
+    assert commercial["active_plan_key"] == "free"
+    assert commercial["status"] == "free"
+    assert commercial["last_billing_event_id"] == "bd_evt_route_1"
+    assert commercial["billing_events_json"][-1]["provider"] == "brilliant_directories"
+    assert commercial["billing_events_json"][-1]["accounting_status"] == "external_advisory"
+
+    replayed = client.post(
+        "/app/api/signals/property/billing/brilliant-directories/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-brilliant-directories-signature": signature,
+            "x-brilliant-directories-timestamp": timestamp,
+        },
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["status"] == "replayed"
+    assert replayed.json()["replayed"] is True
+
+    preferences_after_replay = product_api_delivery_routes._property_preferences(  # noqa: SLF001
+        client.app.state.container,
+        principal_id=principal_id,
+    )
+    replay_commercial = preferences_after_replay["property_commercial"]
+    assert replay_commercial["active_plan_key"] == "free"
+    assert len(replay_commercial["billing_events_json"]) == 1
+
+
+def test_property_brilliant_directories_billing_webhook_rejects_bad_signature_without_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.app import create_app
+
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET", "bd-secret")
+    monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
+
+    principal_id = "exec-property-bd-bad-signature"
+    raw = json.dumps(
+        {
+            "event_id": "bd_evt_bad_sig",
+            "event_type": "invoice.paid",
+            "principal_id": principal_id,
+            "plan_key": "agent",
+            "payment_status": "paid",
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    client = TestClient(create_app())
+
+    webhook = client.post(
+        "/app/api/signals/property/billing/brilliant-directories/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-brilliant-directories-signature": "bad-signature",
+            "x-brilliant-directories-timestamp": str(int(datetime.now(timezone.utc).timestamp())),
+        },
+    )
+
+    assert webhook.status_code == 401
+    assert webhook.json()["error"]["details"] == "brilliant_directories_signature_invalid"
+
+    preferences_after_webhook = product_api_delivery_routes._property_preferences(  # noqa: SLF001
+        client.app.state.container,
+        principal_id=principal_id,
+    )
+    commercial = dict(preferences_after_webhook.get("property_commercial") or {})
+    assert commercial.get("active_plan_key", "free") == "free"
+    assert commercial.get("billing_events_json", []) == []
+
+
 def test_property_payfunnels_webhook_rejects_amount_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

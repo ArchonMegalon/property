@@ -67,6 +67,7 @@ from app.api.routes.landing_property_research import _property_candidate_ref
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.property_billing import (
+    brilliant_directories_billing_webhook_receipt,
     capture_paypal_property_order,
     create_payfunnels_property_checkout,
     create_paypal_property_order,
@@ -1449,6 +1450,70 @@ async def payfunnels_property_billing_webhook(
         "principal_id": principal_id,
         "plan_key": spec.plan_key,
         "payment_status": payment_status or event_type or "pending",
+    }
+
+
+@public_payfunnels_router.post("/signals/property/billing/brilliant-directories/webhook")
+async def brilliant_directories_property_billing_webhook(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> dict[str, object]:
+    body_bytes = await request.body()
+    signature = str(
+        request.headers.get("x-brilliant-directories-signature")
+        or request.headers.get("x-propertyquarry-signature")
+        or ""
+    ).strip()
+    timestamp = str(
+        request.headers.get("x-brilliant-directories-timestamp")
+        or request.headers.get("x-propertyquarry-webhook-timestamp")
+        or ""
+    ).strip()
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="brilliant_directories_webhook_invalid_json") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="brilliant_directories_webhook_invalid_json")
+    metadata = dict(payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {}
+    principal_id = str(
+        metadata.get("principal_id")
+        or payload.get("principal_id")
+        or payload.get("client_reference_id")
+        or payload.get("customer_id")
+        or ""
+    ).strip()
+    if not principal_id:
+        raise HTTPException(status_code=400, detail="brilliant_directories_principal_required")
+    preferences_before = _property_preferences(container, principal_id=principal_id)
+    commercial_before = dict(preferences_before.get("property_commercial") or {})
+    receipt = brilliant_directories_billing_webhook_receipt(
+        commercial_before,
+        payload=payload,
+        body_bytes=body_bytes,
+        signature=signature,
+        timestamp=timestamp,
+    )
+    if not bool(receipt.get("signature_verified")):
+        raise HTTPException(status_code=401, detail="brilliant_directories_signature_invalid")
+    if str(receipt.get("status") or "") == "accepted_advisory_receipt":
+        event_updates = dict(receipt.get("billing_event_updates") or {})
+        if event_updates:
+            updated = merge_property_commercial(preferences_before, updates=event_updates)
+            _save_property_preferences(container, principal_id=principal_id, property_preferences=updated)
+    preferences_after = _property_preferences(container, principal_id=principal_id)
+    commercial_after = dict(preferences_after.get("property_commercial") or {})
+    return {
+        "status": str(receipt.get("status") or ""),
+        "provider": "brilliant_directories",
+        "principal_id": principal_id,
+        "event_id": str(receipt.get("event_id") or ""),
+        "event_type": str(receipt.get("event_type") or ""),
+        "advisory_only": True,
+        "entitlement_mutation_allowed": False,
+        "local_reconciliation_required": True,
+        "current_plan_key": str(commercial_after.get("active_plan_key") or "free"),
+        "replayed": bool(receipt.get("replayed")),
     }
 
 
