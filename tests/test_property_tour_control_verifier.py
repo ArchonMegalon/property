@@ -134,6 +134,52 @@ def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: 
     }
     assert receipt["tours"][0]["blocked_reason"] == "gallery_only_not_3d"
     assert receipt["tours"][0]["controls"] == []
+    assert {row["provider"] for row in receipt["tours"][0]["missing_evidence"]} == {
+        "matterport",
+        "3dvista",
+        "pano2vr",
+        "krpano",
+        "magicfit",
+    }
+    assert {row["provider"] for row in receipt["next_required_actions"]} == {
+        "matterport",
+        "3dvista",
+        "pano2vr",
+        "krpano",
+        "magicfit",
+    }
+
+
+def test_property_tour_control_verifier_reports_actionable_missing_evidence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("KRPANO_LICENSE_DOMAIN", raising=False)
+    monkeypatch.delenv("KRPANO_LICENSE_KEY", raising=False)
+    _write_tour(
+        tmp_path,
+        "partial-provider-tour",
+        {
+            "matterport_url": "https://tracker.example/show/?m=abc",
+            "three_d_vista_entry_relpath": "3dvista/index.html",
+            "pano2vr_entry_relpath": "pano/index.html",
+            "video_provider": "stock",
+            "video_relpath": "walkthrough.mp4",
+            "walkable_scene": {"rooms": []},
+        },
+        {
+            "3dvista/index.html": "<html><body>placeholder</body></html>",
+            "pano/index.html": "<html><body>placeholder</body></html>",
+            "walkthrough.mp4": b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom",
+        },
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
+    assert missing["matterport"]["reason"] == "matterport_url_not_allowlisted_or_invalid"
+    assert missing["3dvista"]["reason"] == "3dvista_entry_missing_or_not_verified"
+    assert missing["pano2vr"]["reason"] == "pano2vr_entry_missing_or_not_verified"
+    assert missing["krpano"]["reason"] == "missing_krpano_license_environment"
+    assert missing["magicfit"]["reason"] == "walkthrough_provider_not_magicfit"
+    assert "tracker.example" not in json.dumps(receipt)
 
 
 def test_property_tour_control_verifier_does_not_treat_private_or_missing_assets_as_ready(

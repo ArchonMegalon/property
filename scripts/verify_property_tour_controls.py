@@ -71,15 +71,19 @@ def _magicfit_video_relpath(payload: dict[str, object]) -> str:
 
 
 def _magicfit_video_url(payload: dict[str, object]) -> str:
+    if not _magicfit_provider_declared(payload):
+        return ""
+    return _safe_http_url(payload.get("video_url"), allowed_hosts=("propertyquarry.com", "myexternalbrain.com"))
+
+
+def _magicfit_provider_declared(payload: dict[str, object]) -> bool:
     provider = str(
         payload.get("video_provider")
         or payload.get("video_provider_key")
         or payload.get("video_render_provider")
         or ""
     ).strip().lower()
-    if provider != "magicfit":
-        return ""
-    return _safe_http_url(payload.get("video_url"), allowed_hosts=("propertyquarry.com", "myexternalbrain.com"))
+    return provider == "magicfit"
 
 
 def _file_exists(bundle_dir: Path, relpath: str) -> bool:
@@ -122,6 +126,91 @@ def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
     if suffix == ".webm":
         return header.startswith(b"\x1aE\xdf\xa3")
     return False
+
+
+def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+
+    matterport_candidate = any(
+        str(payload.get(key) or "").strip()
+        for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url")
+    )
+    if matterport_candidate:
+        reason = "matterport_url_not_allowlisted_or_invalid"
+        action = "replace with a public Matterport URL on my.matterport.com or matterport.com"
+    else:
+        reason = "missing_matterport_url"
+        action = "add matterport_url or source_virtual_tour_url from a real Matterport model"
+    if not any(
+        _safe_http_url(payload.get(key), allowed_hosts=("matterport.com",))
+        for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url")
+    ):
+        rows.append({"provider": "matterport", "reason": reason, "action": action})
+
+    three_d_vista_entry = _three_d_vista_entry_relpath(payload)
+    three_d_vista_url_ready = any(
+        _safe_http_url(payload.get(key), allowed_hosts=("3dvista.com",))
+        for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url")
+    )
+    three_d_vista_entry_ready = _local_html_asset_has_marker(
+        bundle_dir,
+        three_d_vista_entry,
+        markers=("3dvista", "tdvplayer", "tdvplayerapi", "tourviewer", "panorama"),
+    )
+    if not (three_d_vista_url_ready or three_d_vista_entry_ready):
+        if three_d_vista_entry:
+            reason = "3dvista_entry_missing_or_not_verified"
+            action = "import a real 3DVista export whose entry HTML contains 3DVista runtime markers"
+        else:
+            reason = "missing_3dvista_export"
+            action = "run import_3dvista_export.py with a verified 3DVista export or add an allowlisted 3dvista.com URL"
+        rows.append({"provider": "3dvista", "reason": reason, "action": action})
+
+    pano2vr_entry = _pano2vr_entry_relpath(payload)
+    pano2vr_entry_ready = _local_html_asset_has_marker(
+        bundle_dir,
+        pano2vr_entry,
+        markers=("pano2vr", "ggpkg", "ggskin", "pano.xml", "tour.js"),
+    )
+    if not pano2vr_entry_ready:
+        if pano2vr_entry:
+            reason = "pano2vr_entry_missing_or_not_verified"
+            action = "import a real Pano2VR export whose entry HTML contains Pano2VR runtime markers"
+        else:
+            reason = "missing_pano2vr_export"
+            action = "run import_pano2vr_export.py with a verified Pano2VR export"
+        rows.append({"provider": "pano2vr", "reason": reason, "action": action})
+
+    if not (os.getenv("KRPANO_LICENSE_DOMAIN") and os.getenv("KRPANO_LICENSE_KEY") and isinstance(payload.get("walkable_scene"), dict)):
+        if not isinstance(payload.get("walkable_scene"), dict):
+            reason = "missing_walkable_scene"
+            action = "generate or import a real walkable_scene before enabling the licensed krpano control"
+        else:
+            reason = "missing_krpano_license_environment"
+            action = "set KRPANO_LICENSE_DOMAIN and KRPANO_LICENSE_KEY for the property runtime"
+        rows.append({"provider": "krpano", "reason": reason, "action": action})
+
+    magicfit_relpath = _magicfit_video_relpath(payload)
+    magicfit_url = _magicfit_video_url(payload)
+    if not (magicfit_url or (_magicfit_provider_declared(payload) and _local_video_asset_is_playable(bundle_dir, magicfit_relpath))):
+        provider = str(
+            payload.get("video_provider")
+            or payload.get("video_provider_key")
+            or payload.get("video_render_provider")
+            or ""
+        ).strip().lower()
+        if provider and provider != "magicfit":
+            reason = "walkthrough_provider_not_magicfit"
+            action = "render and import a MagicFit walkthrough with provider=magicfit"
+        elif magicfit_relpath:
+            reason = "magicfit_video_missing_or_unplayable"
+            action = "run import_magicfit_walkthrough.py with a receipt-backed playable MP4/M4V/MOV/WebM"
+        else:
+            reason = "missing_magicfit_walkthrough"
+            action = "render and import a receipt-backed playable MagicFit walkthrough"
+        rows.append({"provider": "magicfit", "reason": reason, "action": action})
+
+    return rows
 
 
 def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, object]]:
@@ -190,7 +279,7 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
 
     magicfit_relpath = _magicfit_video_relpath(payload)
     magicfit_url = _magicfit_video_url(payload)
-    if magicfit_url or _local_video_asset_is_playable(bundle_dir, magicfit_relpath):
+    if magicfit_url or (_magicfit_provider_declared(payload) and _local_video_asset_is_playable(bundle_dir, magicfit_relpath)):
         rows.append(
             {
                 "provider": "magicfit",
@@ -265,6 +354,7 @@ def build_property_tour_control_receipt(
     manifests = sorted(root.glob("*/tour.json")) if root.is_dir() else []
     tours: list[dict[str, object]] = []
     provider_counts = {provider: 0 for provider in PROVIDER_MODES}
+    action_counts = {provider: 0 for provider in PROVIDER_MODES}
     failed_probes = 0
     for manifest_path in manifests:
         bundle_dir = manifest_path.parent.resolve()
@@ -297,6 +387,11 @@ def build_property_tour_control_receipt(
                 if int(probe.get("http_status") or 0) != 200 or playback_failed:
                     control["status"] = "probe_failed"
                     failed_probes += 1
+        missing_evidence = [] if controls else _provider_missing_evidence(bundle_dir, payload)
+        for row in missing_evidence:
+            provider = str(row.get("provider") or "").strip().lower()
+            if provider in action_counts:
+                action_counts[provider] += 1
         tours.append(
             {
                 "slug": slug,
@@ -304,6 +399,7 @@ def build_property_tour_control_receipt(
                 "status": "ready" if controls else "blocked_missing_verified_controls",
                 "blocked_reason": "" if controls else _blocked_control_reason(payload),
                 "controls": controls,
+                "missing_evidence": missing_evidence,
             }
         )
     ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
@@ -326,6 +422,21 @@ def build_property_tour_control_receipt(
         "ready_provider_modes": ready_provider_modes,
         "required_provider_modes": list(PROVIDER_MODES),
         "missing_provider_modes": [provider for provider in PROVIDER_MODES if provider not in ready_provider_modes],
+        "next_required_actions": [
+            {
+                "provider": provider,
+                "blocked_tour_count": action_counts[provider],
+                "action": {
+                    "matterport": "add a verified Matterport model URL to at least one hosted tour manifest",
+                    "3dvista": "import a verified 3DVista export or add an allowlisted 3dvista.com tour URL",
+                    "pano2vr": "import a verified Pano2VR export",
+                    "krpano": "provide a real walkable_scene and krpano license environment",
+                    "magicfit": "import a receipt-backed playable MagicFit walkthrough video",
+                }[provider],
+            }
+            for provider in PROVIDER_MODES
+            if action_counts[provider] > 0
+        ],
         "live_probe": bool(live_probe),
         "base_url": base_url if live_probe else "",
         "tours": tours,
