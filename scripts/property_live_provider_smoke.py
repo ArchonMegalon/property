@@ -386,6 +386,35 @@ def _targeted_search_matrix_summary(
     strict_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_no_soft_filters"]
     soft_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_soft_filters"]
     executed = bool(execute_requested and enabled and not dry_run)
+    executed_rows = [
+        row
+        for row in rows
+        if str(row.get("status") or "").strip().lower() in {"pass", "fail"}
+    ] if executed else []
+    accepted_dispatch_rows = [
+        row
+        for row in executed_rows
+        if str(row.get("run_id") or "").strip()
+        and str(row.get("status_url") or "").strip()
+        and str(row.get("runtime_status") or "").strip().lower()
+        in {"queued", "in_progress", "processed", "completed", "completed_partial"}
+    ]
+    status_readback_ok_rows = [row for row in executed_rows if bool(row.get("status_probe_ok"))]
+    failed_cases = [
+        {
+            "country_code": str(row.get("country_code") or "").strip().upper(),
+            "provider": str(row.get("provider") or "").strip(),
+            "mode": str(row.get("mode") or "").strip(),
+            "status": str(row.get("status") or "").strip().lower(),
+            "runtime_status": str(row.get("runtime_status") or "").strip().lower(),
+            "status_probe_status": str(row.get("status_probe_status") or "").strip().lower(),
+            "status_probe_ok": bool(row.get("status_probe_ok")),
+            "payload_contract_ok": bool(row.get("payload_contract_ok")),
+            **({"error": str(row.get("error") or "").strip()} if str(row.get("error") or "").strip() else {}),
+        }
+        for row in rows
+        if str(row.get("status") or "").strip().lower() == "fail"
+    ][:25]
     return {
         "country_codes": list(normalized_countries),
         "case_count": len(rows),
@@ -398,12 +427,21 @@ def _targeted_search_matrix_summary(
         "status_counts": dict(sorted(status_counts.items())),
         "execution_requested": bool(execute_requested),
         "executed": executed,
-        "executed_case_count": sum(1 for row in rows if str(row.get("status") or "").strip().lower() in {"pass", "fail"}) if executed else 0,
+        "executed_case_count": len(executed_rows),
         "passed_case_count": status_counts.get("pass", 0),
         "failed_case_count": status_counts.get("fail", 0),
+        "failed_cases": failed_cases,
+        "failed_case_sample_count": len(failed_cases),
+        "failed_case_sample_limit": 25,
         "planned_case_count": status_counts.get("planned", 0),
         "dry_run_case_count": status_counts.get("dry_run", 0),
         "skipped_case_count": status_counts.get("skipped", 0),
+        "dispatch_accepted_count": len(accepted_dispatch_rows),
+        "dispatch_acceptance_complete": (not executed) or len(accepted_dispatch_rows) == len(rows),
+        "status_readback_required": executed,
+        "status_readback_case_count": len(executed_rows),
+        "status_readback_ok_count": len(status_readback_ok_rows),
+        "status_readback_complete": (not executed) or len(status_readback_ok_rows) == len(rows),
         "all_search_ready_providers_covered": not missing_mode_pairs,
         "missing_mode_pairs": missing_mode_pairs,
         "payload_contracts_ok": all(bool(row.get("payload_contract_ok")) for row in rows) if rows else True,

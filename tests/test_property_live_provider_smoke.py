@@ -255,6 +255,13 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert summary["executed_case_count"] == 2 * _search_ready_provider_count("AT")
     assert summary["passed_case_count"] == 2 * _search_ready_provider_count("AT")
     assert summary["failed_case_count"] == 0
+    assert summary["failed_cases"] == []
+    assert summary["dispatch_accepted_count"] == 2 * _search_ready_provider_count("AT")
+    assert summary["dispatch_acceptance_complete"] is True
+    assert summary["status_readback_required"] is True
+    assert summary["status_readback_case_count"] == 2 * _search_ready_provider_count("AT")
+    assert summary["status_readback_ok_count"] == 2 * _search_ready_provider_count("AT")
+    assert summary["status_readback_complete"] is True
     assert summary["all_search_ready_providers_covered"] is True
     assert summary["agent_unlimited_results_ok"] is True
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
@@ -318,4 +325,16 @@ def test_live_provider_smoke_execution_fails_when_status_probe_is_unreadable(mon
     summary = receipt["targeted_search_matrix_summary"]
     assert summary["execution_requested"] is True
     assert summary["failed_case_count"] == 2 * _search_ready_provider_count("AT")
+    assert summary["dispatch_accepted_count"] == 2 * _search_ready_provider_count("AT")
+    assert summary["dispatch_acceptance_complete"] is True
+    assert summary["status_readback_required"] is True
+    assert summary["status_readback_ok_count"] == 0
+    assert summary["status_readback_complete"] is False
+    assert len(summary["failed_cases"]) == 25
+    assert summary["failed_case_sample_count"] == 25
+    assert summary["failed_case_sample_limit"] == 25
+    assert {
+        row["mode"]
+        for row in summary["failed_cases"]
+    } == {"targeted_no_soft_filters", "targeted_soft_filters"}
     assert all(row["status_probe_ok"] is False for row in receipt["targeted_search_matrix"])
