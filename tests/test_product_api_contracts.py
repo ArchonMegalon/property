@@ -25263,6 +25263,53 @@ def test_public_tour_control_3dvista_route_rejects_placeholder_entry(
     assert response.json()["error"]["code"] == "tour_control_3dvista_export_missing"
 
 
+def test_public_tour_control_3dvista_route_serves_only_declared_export(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "3dvista-route-export"
+    bundle_dir = tmp_path / slug
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.htm").write_text(
+        "<!doctype html><title>3DVista</title><script src='tdvplayer.js'></script>",
+        encoding="utf-8",
+    )
+    (export_dir / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (bundle_dir / "other").mkdir()
+    (bundle_dir / "other" / "index.htm").write_text("<!doctype html><title>Other</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "3DVista Route Export",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_export_root_relpath": "3dvista",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-3dvista-export")
+    control_response = client.get(f"/tours/{slug}/control/3dvista")
+    entry_response = client.get(f"/tours/3dvista/{slug}/3dvista/index.htm")
+    script_response = client.get(f"/tours/3dvista/{slug}/3dvista/tdvplayer.js")
+    other_response = client.get(f"/tours/3dvista/{slug}/other/index.htm")
+    private_response = client.get(f"/tours/3dvista/{slug}/3dvista/private.json")
+
+    assert control_response.status_code == 200
+    assert "3DVista Control" in control_response.text
+    assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control_response.text
+    assert entry_response.status_code == 200
+    assert "3DVista" in entry_response.text
+    assert script_response.status_code == 200
+    assert "TDVPlayer" in script_response.text
+    assert other_response.status_code == 404
+    assert private_response.status_code == 404
+
+
 def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

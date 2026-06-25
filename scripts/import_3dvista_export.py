@@ -120,6 +120,7 @@ def main() -> int:
     payload["control_mode"] = "3dvista"
     payload["viewer_provider"] = "3dvista_vt_pro"
     payload["three_d_vista_entry_relpath"] = entry_relpath
+    payload["three_d_vista_export_root_relpath"] = target_subdir
     payload["three_d_vista_import"] = {
         "source": "3dvista_vt_pro_export",
         "entry_relpath": entry_relpath,

@@ -94,6 +94,27 @@ _PANO2VR_EXPORT_ALLOWED_EXTENSIONS = frozenset(
     }
 )
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
+_3DVISTA_EXPORT_ALLOWED_EXTENSIONS = frozenset(
+    {
+        ".css",
+        ".gif",
+        ".htm",
+        ".html",
+        ".jpeg",
+        ".jpg",
+        ".js",
+        ".json",
+        ".m4v",
+        ".mjs",
+        ".mov",
+        ".mp4",
+        ".png",
+        ".svg",
+        ".webm",
+        ".webp",
+        ".xml",
+    }
+)
 _PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
 _KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 _KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
@@ -463,6 +484,37 @@ def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
         raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
     if not candidate.exists() or not candidate.is_file():
         raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
+    return candidate
+
+
+def _3dvista_export_file(slug: str, asset_path: str) -> Path:
+    payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    entry_relpath = _3dvista_entry_relpath(payload)
+    safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    bundle_dir = _tour_bundle_dir(slug)
+    if not entry_relpath or not safe_relpath or bundle_dir is None:
+        raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
+    if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
+        raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
+    suffix = PurePosixPath(safe_relpath).suffix.lower()
+    if suffix not in _3DVISTA_EXPORT_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
+    export_root = _3dvista_export_root_relpath(payload)
+    if export_root:
+        allowed = safe_relpath == entry_relpath or safe_relpath.startswith(f"{export_root}/")
+    else:
+        allowed = safe_relpath == entry_relpath
+    if not allowed:
+        raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
+    candidate = (bundle_dir / safe_relpath).resolve()
+    resolved_bundle = bundle_dir.resolve()
+    if candidate == resolved_bundle or resolved_bundle not in candidate.parents:
+        raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
     return candidate
 
 
@@ -1412,6 +1464,26 @@ def _pano2vr_entry_relpath(payload: dict[str, object]) -> str:
         if relpath:
             return relpath
     return ""
+
+
+def _3dvista_entry_relpath(payload: dict[str, object]) -> str:
+    for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
+        relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
+        if relpath:
+            return relpath
+    return ""
+
+
+def _3dvista_export_root_relpath(payload: dict[str, object]) -> str:
+    for key in ("three_d_vista_export_root_relpath", "threedvista_export_root_relpath", "3dvista_export_root_relpath"):
+        relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
+        if relpath:
+            return relpath.rstrip("/")
+    entry_relpath = _3dvista_entry_relpath(payload)
+    if not entry_relpath:
+        return ""
+    parent = str(PurePosixPath(entry_relpath).parent)
+    return "" if parent == "." else parent.rstrip("/")
 
 
 def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
@@ -4898,6 +4970,18 @@ def public_tour_pano2vr_file(slug: str, asset_path: str):
     )
 
 
+@router.get("/tours/3dvista/{slug}/{asset_path:path}")
+@router.head("/tours/3dvista/{slug}/{asset_path:path}")
+def public_tour_3dvista_file(slug: str, asset_path: str):
+    file_path = _3dvista_export_file(slug, asset_path)
+    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers=_public_tour_security_headers(cache_control="public, max-age=86400"),
+    )
+
+
 def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> str:
     forced_mode = str(viewer_mode or "").strip().lower()
     if forced_mode == "marzipano":
@@ -5300,19 +5384,12 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
         external_url = _safe_3dvista_external_url(payload.get(key))
         if external_url:
             break
-    entry_relpath = _public_tour_safe_asset_relpath(
-        str(
-            payload.get("three_d_vista_entry_relpath")
-            or payload.get("threedvista_entry_relpath")
-            or payload.get("3dvista_entry_relpath")
-            or ""
-        ).strip()
-    )
+    entry_relpath = _3dvista_entry_relpath(payload)
     iframe_src = external_url
     if not iframe_src and entry_relpath and slug:
         if not _local_tour_html_asset_has_marker(raw_slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
             raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
-        iframe_src = f"/tours/files/{slug}/{entry_relpath}"
+        iframe_src = f"/tours/3dvista/{slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
     if iframe_src:
         return _tour_control_external_iframe_html(
             title=title,

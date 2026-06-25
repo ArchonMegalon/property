@@ -122,6 +122,7 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert manifest["control_mode"] == "3dvista"
     assert manifest["viewer_provider"] == "3dvista_vt_pro"
     assert manifest["three_d_vista_entry_relpath"] == "3dvista/index.html"
+    assert manifest["three_d_vista_export_root_relpath"] == "3dvista"
     assert (bundle_dir / "3dvista" / "runtime" / "app.js").exists()
 
 
