@@ -28,6 +28,9 @@
         {% set provisional_facts = provisional.get('property_facts') or {} %}
         {% set provisional_snapshot = provisional_facts.get('listing_research_snapshot') if provisional_facts.get('listing_research_snapshot') is mapping else {} %}
         {% set provisional_location = provisional.get('location_label') or provisional_snapshot.get('district') or provisional_snapshot.get('postal_name') or provisional_snapshot.get('city') or provisional_snapshot.get('address') or provisional_facts.get('district') or provisional_facts.get('postal_name') or provisional_facts.get('city') or provisional_facts.get('address') or provisional.get('source_label') or 'Source match' %}
+        {% set provisional_title_raw = (provisional.get('title') or '')|trim %}
+        {% set provisional_title_lower = provisional_title_raw|lower %}
+        {% set provisional_title = provisional_title_raw if provisional_title_raw and not (provisional_title_lower.startswith('http://') or provisional_title_lower.startswith('https://') or provisional_title_lower.startswith('www.')) else (provisional_location or 'Property candidate') %}
         <div class="pqx-section-head">
           <div>
             <h2>Current best so far</h2>
@@ -40,7 +43,7 @@
         <div class="pqx-pref-list">
           <div class="pqx-pref-row">
             <div>
-              <strong>{{ provisional.get('title') or 'Property candidate' }}</strong>
+              <strong>{{ provisional_title }}</strong>
               <small>{{ provisional.get('fit_summary') or provisional.get('compare_reason') or provisional.get('summary') or 'Top-ranked home in the current run.' }}</small>
             </div>
           </div>

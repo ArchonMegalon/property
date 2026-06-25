@@ -2198,6 +2198,8 @@
       const location = String(candidate?.location_label || candidate?.source_label || '').trim() || 'Source match';
       const reason = String(candidate?.fit_summary || candidate?.compare_reason || candidate?.summary || '').trim() || 'Top-ranked home in the current run.';
       const href = String(candidate?.packet_url || candidate?.property_url || '').trim();
+      const rawTitle = String(candidate?.title || '').trim();
+      const title = /^(https?:\/\/|www\.)/i.test(rawTitle) ? location : (rawTitle || 'Property candidate');
       const action = href
         ? (String(candidate?.packet_url || '').trim()
             ? `<a class="pqx-link-button primary" href="${escapeHtml(href)}">Open property</a>`
@@ -2215,7 +2217,7 @@
           <div class="pqx-pref-list">
             <div class="pqx-pref-row">
               <div>
-                <strong>${escapeHtml(candidate?.title || 'Property candidate')}</strong>
+                <strong>${escapeHtml(title)}</strong>
                 <small>${escapeHtml(reason)}</small>
               </div>
             </div>

@@ -2035,6 +2035,51 @@ def test_propertyquarry_running_panel_formats_numeric_rent_without_still_verifyi
     assert "Still verifying" not in response.text
 
 
+def test_propertyquarry_running_panel_does_not_use_raw_url_as_best_title(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-url-title")
+    start_workspace(client, mode="personal", workspace_name="Running Url Title Office")
+
+    raw_url_title = "https://www.remax.at/properties/propertysearch?q=1010+Vienna&maxPrice=1200"
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-url-title", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 37,
+            "message": "Checking current leaders.",
+            "summary": {
+                "status": "in_progress",
+                "reviewed_listing_total": 12,
+                "ranked_candidates": [
+                    {
+                        "title": raw_url_title,
+                        "fit_score": 71.0,
+                        "source_label": "RE/MAX Austria · 1010 Vienna",
+                        "location_label": "1010 Vienna",
+                        "fit_summary": "Best ranked provider result so far.",
+                        "property_facts": {"total_rent_eur": 1180.0},
+                    }
+                ],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-live-url-title"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "Current best so far" in response.text
+    assert raw_url_title not in response.text
+    assert "1010 Vienna" in response.text
+
+
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
     client = build_property_client(principal_id="pq-what-matters-comboboxes")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -7447,8 +7492,11 @@ def test_property_workbench_sparse_candidates_do_not_display_raw_urls() -> None:
     assert "candidate.get('title') or candidate.get('property_url')" not in body
     assert "candidate?.title || candidate?.property_url" not in body
     assert "source?.source_label || source?.platform || source?.source_url" not in body
-    assert "candidate.get('title') or 'Property candidate'" in body
-    assert "candidate?.title || 'Property candidate'" in body
+    assert "provisional_title_lower.startswith('http://')" in (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_running_panel.html"
+    ).read_text(encoding="utf-8")
+    assert "const rawTitle = String(candidate?.title || '').trim();" in body
+    assert "const title = /^(https?:\\/\\/|www\\.)/i.test(rawTitle) ? location : (rawTitle || 'Property candidate');" in body
 
 
 def test_property_workspace_source_cards_do_not_display_raw_source_urls() -> None:
