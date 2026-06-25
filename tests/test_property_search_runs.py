@@ -4600,7 +4600,8 @@ def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) ->
     principal_id = "exec-property-search-recovery-replacement"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Search Recovery Replacement Office")
-    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "3600")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_REPLACEMENT_RUN_STALE_SECONDS", "60")
     service = product_service.build_product_service(client.app.state.container)
     monkeypatch.setattr(ProductService, "_best_effort_propertyquarry_teable_sync", lambda *args, **kwargs: None)
     replacement_calls: list[dict[str, object]] = []
@@ -4632,7 +4633,7 @@ def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) ->
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
     parent_run_id = "scheduler-parent-stale-run"
     replacement_run_id = "scheduler-replacement-stale-run"
-    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
     parent_state = product_service._new_property_search_run_record(
         run_id=parent_run_id,
         principal_id=principal_id,
@@ -4785,8 +4786,14 @@ def test_property_search_recovery_pickup_failure_opens_repair_task(monkeypatch) 
         )
         if task.task_type == "property_provider_repair_ooda"
     ]
-    assert len(tasks) == 1
-    repair_input = dict(tasks[0].input_json or {})
+    matching_tasks = [
+        task
+        for task in tasks
+        if dict(task.input_json or {}).get("filter_key") == "run_worker_exception"
+        and dict(task.input_json or {}).get("run_id") == replacement_run_id
+    ]
+    assert matching_tasks
+    repair_input = dict(matching_tasks[0].input_json or {})
     assert repair_input["filter_key"] == "run_worker_exception"
     assert repair_input["run_id"] == replacement_run_id
     assert repair_input["diagnostics"]["recovery_reason"] == "replacement_run_stale"

@@ -1031,6 +1031,17 @@ def _property_search_run_stale_seconds() -> int:
     return _state_property_search_run_stale_seconds(default_seconds=_PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS)
 
 
+def _property_search_replacement_run_stale_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SEARCH_REPLACEMENT_RUN_STALE_SECONDS") or "").strip()
+    if not raw_value:
+        return 120
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 120
+    return max(30, min(parsed, _property_search_run_stale_seconds()))
+
+
 def _property_search_review_open_timeout_seconds() -> float:
     return _state_property_search_review_open_timeout_seconds(default_seconds=20.0)
 
@@ -1053,6 +1064,16 @@ def _property_search_run_is_stale(state: dict[str, object]) -> bool:
         terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
         parse_utcish=_parse_utcish,
         stale_seconds=_property_search_run_stale_seconds(),
+    )
+
+
+def _property_search_replacement_run_is_stale(state: dict[str, object]) -> bool:
+    liveness_state = dict(state)
+    return _state_property_search_run_is_stale(
+        liveness_state,
+        terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
+        parse_utcish=_parse_utcish,
+        stale_seconds=_property_search_replacement_run_stale_seconds(),
     )
 
 
@@ -33200,13 +33221,15 @@ class ProductService:
             if normalized_principal and state_principal != normalized_principal:
                 continue
             scanned += 1
-            if not _property_search_run_is_stale(dict(record)):
-                continue
-            stale_total += 1
             try:
                 should_pick_up, parent_run_ids, pickup_reason = self._property_search_run_should_pick_up_execution(
                     dict(record)
                 )
+                run_is_stale = _property_search_run_is_stale(dict(record))
+                replacement_is_stale = bool(parent_run_ids) and _property_search_replacement_run_is_stale(dict(record))
+                if not run_is_stale and not replacement_is_stale:
+                    continue
+                stale_total += 1
                 if should_pick_up:
                     pickup = self._pick_up_property_search_run_execution(
                         record=dict(record),
