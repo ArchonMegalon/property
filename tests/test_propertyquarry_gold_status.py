@@ -64,6 +64,7 @@ def _performance_payload(*, include_research_checks: bool = True, include_analyt
         {"name": "research_no_fake_visual_ready", "ok": True},
         {"name": "research_confirmed_listing_facts", "ok": True},
         {"name": "research_confirmed_price_signal", "ok": True},
+        {"name": "research_ranking_only_no_compare_cards", "ok": True},
         {"name": "research_mobile_open_property_compact_layout", "ok": True},
         {"name": "research_mobile_visual_frame_compact", "ok": True},
     ]

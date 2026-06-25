@@ -142,6 +142,13 @@ FORBIDDEN_BILLING_SURFACE_TOKENS = (
     "plan unit",
     "your plan",
 )
+FORBIDDEN_COMPARE_CARD_TOKENS = (
+    "compare cards",
+    "prd-compare",
+    "Decision support",
+    "The next-best properties from this run",
+    "Other ranked homes from this run",
+)
 
 CONTENT_FIRST_MOBILE_PATHS = {
     "/app/agents",
@@ -566,6 +573,21 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "map_only_thumbnails", "ok": "osm_district_overlay" in body and "Map preview unavailable" not in body},
             )
         )
+    if path.startswith("/app/properties") or path.startswith("/app/shortlist"):
+        compare_hits = [token for token in FORBIDDEN_COMPARE_CARD_TOKENS if token in body]
+        checks.extend(
+            (
+                {
+                    "name": "results_ranking_only_no_compare_cards",
+                    "ok": 'data-workbench-results-table' in body and "pqx-rank" in body and not compare_hits,
+                    "detail": ", ".join(compare_hits[:5]),
+                },
+                {
+                    "name": "results_ranked_not_compare_copy",
+                    "ok": "ranked homes" in lowered_body or "ranked opportunities" in lowered_body or "shortlisted homes" in lowered_body,
+                },
+            )
+        )
     if path.startswith("/app/research/"):
         unevidenced_visual_ready = (
             'data-prd-visual-card="tour"' in body
@@ -577,6 +599,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         mobile_css_start = body.find("@media (max-width: 760px)", research_css_anchor if research_css_anchor >= 0 else 0)
         mobile_css_end = body.find("</style>", mobile_css_start) if mobile_css_start >= 0 else -1
         mobile_detail_css = body[mobile_css_start:mobile_css_end] if mobile_css_start >= 0 and mobile_css_end > mobile_css_start else ""
+        compare_hits = [token for token in FORBIDDEN_COMPARE_CARD_TOKENS if token in body]
         checks.extend(
             (
                 {"name": "research_candidate", "ok": "Performance smoke apartment in 1020 Vienna" in body},
@@ -586,6 +609,11 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "research_no_fake_visual_ready", "ok": not unevidenced_visual_ready},
                 {"name": "research_confirmed_listing_facts", "ok": "Facts confirmed" in body and "confirmed automatically from provider evidence" in body},
                 {"name": "research_confirmed_price_signal", "ok": "Budget signal" in body and "EUR 1,290" in body},
+                {
+                    "name": "research_ranking_only_no_compare_cards",
+                    "ok": "Performance smoke apartment in 1020 Vienna" in body and not compare_hits,
+                    "detail": ", ".join(compare_hits[:5]),
+                },
                 {
                     "name": "research_mobile_open_property_compact_layout",
                     "ok": (
