@@ -421,6 +421,23 @@ def _host_readme_path(readme_path_text: str) -> Path:
     return host_incoming_root / relative
 
 
+def _read_first_available_readme(row: dict[str, Any]) -> tuple[str, str, str]:
+    attempted: list[str] = []
+    for key in ("readme", "artifact_readme", "drop_readme"):
+        readme_path_text = str(row.get(key) or "").strip()
+        if not readme_path_text or readme_path_text in attempted:
+            continue
+        attempted.append(readme_path_text)
+        readme_path = _host_readme_path(readme_path_text)
+        try:
+            return readme_path.read_text(encoding="utf-8"), str(readme_path), key
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            return "", str(readme_path), f"{key}:{type(exc).__name__}: {exc}"
+    return "", ", ".join(attempted), ""
+
+
 def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
     handoff = billing_receipt.get("billing_handoff")
     if not isinstance(handoff, dict):
@@ -452,22 +469,36 @@ def _operator_drop_readme_status(
             failures.append({"provider": provider, "status": "missing_manifest_row", "missing_tokens": ["readme_path"]})
             continue
         readme_path_text = str(row.get("readme") or "").strip()
-        if not readme_path_text:
+        artifact_readme_path_text = str(row.get("artifact_readme") or "").strip()
+        if not readme_path_text and not artifact_readme_path_text:
             failures.append({"provider": provider, "status": "missing_readme_path", "missing_tokens": ["readme_path"]})
             continue
-        readme_path = _host_readme_path(readme_path_text)
-        try:
-            body = readme_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            failures.append({"provider": provider, "status": "missing_readme_file", "missing_tokens": ["readme_file"]})
-            continue
-        except Exception as exc:
-            failures.append({"provider": provider, "status": "invalid_readme_file", "error": f"{type(exc).__name__}: {exc}", "missing_tokens": ["readme_file"]})
+        body, resolved_readme_path, readme_source = _read_first_available_readme(row)
+        if not body:
+            failures.append(
+                {
+                    "provider": provider,
+                    "status": "missing_readme_file",
+                    "readme": resolved_readme_path,
+                    "readme_source": readme_source,
+                    "readme_write_error": str(row.get("readme_write_error") or ""),
+                    "artifact_readme_write_error": str(row.get("artifact_readme_write_error") or ""),
+                    "missing_tokens": ["readme_file"],
+                }
+            )
             continue
         required_tokens = (*COMMON_OPERATOR_DROP_README_TOKENS, *PROVIDER_OPERATOR_DROP_README_TOKENS[provider])
         missing_labels = [label for label, token in required_tokens if token not in body]
         if missing_labels:
-            failures.append({"provider": provider, "status": "stale_readme", "missing_tokens": missing_labels})
+            failures.append(
+                {
+                    "provider": provider,
+                    "status": "stale_readme",
+                    "readme": resolved_readme_path,
+                    "readme_source": readme_source,
+                    "missing_tokens": missing_labels,
+                }
+            )
             continue
         verified_providers.add(provider)
     missing_providers = sorted(expected_providers - verified_providers)

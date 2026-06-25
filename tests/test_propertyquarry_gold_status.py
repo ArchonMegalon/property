@@ -1243,6 +1243,45 @@ import_krpano_walkable_scene.py
     assert failures == []
 
 
+def test_gold_status_accepts_operator_readme_artifact_fallback(tmp_path: Path) -> None:
+    from scripts.propertyquarry_gold_status import _operator_drop_readme_status
+
+    artifact_readme = tmp_path / "artifacts" / "slug" / "3dvista" / "README.propertyquarry-export.txt"
+    artifact_readme.parent.mkdir(parents=True)
+    artifact_readme.write_text(
+        """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example:
+Gold only passes when verify_property_tour_controls reports ready provider modes
+Copy the complete 3DVista export folder
+tdvplayer
+import_3dvista_export.py
+""",
+        encoding="utf-8",
+    )
+
+    ok, count, missing, failures = _operator_drop_readme_status(
+        {
+            "providers": ["3dvista"],
+            "prepared_drop_dirs": [
+                {
+                    "provider": "3dvista",
+                    "readme": str(tmp_path / "incoming" / "slug" / "3dvista" / "README.propertyquarry-export.txt"),
+                    "artifact_readme": str(artifact_readme),
+                    "readme_write_error": "PermissionError: drop readme is not writable",
+                }
+            ],
+        },
+        expected_providers={"3dvista"},
+    )
+
+    assert ok is True
+    assert count == 1
+    assert missing == []
+    assert failures == []
+
+
 def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_checks(tmp_path: Path) -> None:
     performance = _write_json(
         tmp_path / "performance.json",

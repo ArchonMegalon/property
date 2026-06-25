@@ -31,14 +31,14 @@ PROVIDER_ENTRY_MARKERS = {
 }
 PROVIDER_DROP_CHECKLISTS = {
     "3dvista": (
-        "Copy the complete extracted 3DVista export folder into this directory, or drop one verified 3DVista .zip export here.",
+        "Copy the complete 3DVista export folder into this directory, or drop one verified 3DVista .zip export here.",
         "Accepted entry files: index.html, index.htm, tour.html, virtualtour.html, or output/index.html.",
         "The entry HTML must contain a 3DVista runtime marker: tdvplayer, tdvplayerapi, or tourviewer.",
         "Keep sibling JS/CSS/media folders next to the entry file; the importer copies the whole export tree.",
         "If using a zip, keep the export tree intact inside the archive; unsafe paths and placeholder entries are rejected.",
     ),
     "pano2vr": (
-        "Copy the complete extracted Pano2VR output folder into this directory, or drop one verified Pano2VR .zip export here.",
+        "Copy the complete Pano2VR output folder into this directory, or drop one verified Pano2VR .zip export here.",
         "Accepted entry files: index.html, index.htm, tour.html, virtualtour.html, or output/index.html.",
         "The entry HTML must contain a Pano2VR runtime marker: ggpkg, ggskin, pano.xml, or tour.js.",
         "Keep generated tiles, skin files, XML, JS, and media folders next to the entry file.",
@@ -118,6 +118,59 @@ def _provider_import_example(row: dict[str, str]) -> str:
     if provider == "magicfit":
         return f"python /app/scripts/import_magicfit_walkthrough.py --slug {slug} --video-path {export_dir}/magicfit-walkthrough.mp4 --source-receipt {export_dir}/magicfit-receipt.json"
     return ""
+
+
+def _drop_readme_body(*, row: dict[str, Any], provider: str, slug: str, drop_status: dict[str, Any], manifest: dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            "PropertyQuarry provider export drop folder",
+            "",
+            f"Slug: {slug}",
+            f"Title: {str(row.get('title') or slug).strip()}",
+            f"Provider: {provider}",
+            f"Current verified controls: {str(row.get('current_control_providers') or 'none').strip()}",
+            f"Expected entry: {PROVIDER_ENTRY_MARKERS[provider]}",
+            f"Current drop status: {drop_status.get('status')}",
+            f"Missing now: {', '.join(list(drop_status.get('missing') or [])) or 'nothing'}",
+            "",
+            "Checklist:",
+            *[f"- {item}" for item in PROVIDER_DROP_CHECKLISTS[provider]],
+            "",
+            "Copy the real provider export or asset contents into this directory.",
+            "Do not copy placeholder HTML, flat listing photos, or fake videos; the importers reject unverified entries.",
+            "",
+            f"Single-provider dry import example: {_provider_import_example({**row, 'provider': provider, 'slug': slug})}",
+            "",
+            f"After exports are copied, run: {manifest.get('next_command')}",
+            "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
+            "Gold only passes when verify_property_tour_controls reports ready provider modes for matterport, 3dvista, pano2vr, krpano, and magicfit.",
+            "",
+        ]
+    )
+
+
+def _fallback_readme_paths(*, slug: str, provider: str) -> list[Path]:
+    relative = Path("property-tour-export-drop-readmes") / slug / provider / "README.propertyquarry-export.txt"
+    repo_local = Path.cwd() / "_completion" / "property_tour_exports" / "drop-readmes" / slug / provider / "README.propertyquarry-export.txt"
+    paths = [_artifact_dir() / relative, repo_local]
+    deduped: list[Path] = []
+    for path in paths:
+        resolved = path.expanduser()
+        if resolved not in deduped:
+            deduped.append(resolved)
+    return deduped
+
+
+def _write_first_available_fallback_readme(*, slug: str, provider: str, body: str) -> tuple[Path, str]:
+    errors: list[str] = []
+    for path in _fallback_readme_paths(slug=slug, provider=provider):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body, encoding="utf-8")
+            return path, ""
+        except OSError as exc:
+            errors.append(f"{path}: {type(exc).__name__}: {exc}")
+    return _fallback_readme_paths(slug=slug, provider=provider)[0], "; ".join(errors)
 
 
 def _relative_file_sample(export_dir: Path, *, limit: int = 8) -> list[str]:
@@ -358,48 +411,34 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         drop_status = _drop_preflight({str(key): str(value) for key, value in row.items()})
         readme_path = export_dir / "README.propertyquarry-export.txt"
+        artifact_readme_path = _fallback_readme_paths(slug=slug, provider=provider)[0]
         readme_write_error = ""
+        artifact_readme_write_error = ""
+        active_readme_path = readme_path
+        readme_body = _drop_readme_body(row=row, provider=provider, slug=slug, drop_status=drop_status, manifest=manifest)
         try:
             export_dir.mkdir(parents=True, exist_ok=True)
-            readme_path.write_text(
-                "\n".join(
-                    [
-                        "PropertyQuarry provider export drop folder",
-                        "",
-                        f"Slug: {slug}",
-                        f"Title: {str(row.get('title') or slug).strip()}",
-                        f"Provider: {provider}",
-                        f"Current verified controls: {str(row.get('current_control_providers') or 'none').strip()}",
-                        f"Expected entry: {PROVIDER_ENTRY_MARKERS[provider]}",
-                        f"Current drop status: {drop_status.get('status')}",
-                        f"Missing now: {', '.join(list(drop_status.get('missing') or [])) or 'nothing'}",
-                        "",
-                        "Checklist:",
-                        *[f"- {item}" for item in PROVIDER_DROP_CHECKLISTS[provider]],
-                        "",
-                        "Copy the real provider export or asset contents into this directory.",
-                        "Do not copy placeholder HTML, flat listing photos, or fake videos; the importers reject unverified entries.",
-                        "",
-                        f"Single-provider dry import example: {_provider_import_example({**row, 'provider': provider, 'slug': slug})}",
-                        "",
-                        f"After exports are copied, run: {manifest.get('next_command')}",
-                        "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
-                        "Gold only passes when verify_property_tour_controls reports ready provider modes for matterport, 3dvista, pano2vr, krpano, and magicfit.",
-                        "",
-                    ]
-                ),
-                encoding="utf-8",
-            )
+            readme_path.write_text(readme_body, encoding="utf-8")
         except OSError as exc:
             readme_write_error = f"{type(exc).__name__}: {exc}"
+            artifact_readme_path, artifact_readme_write_error = _write_first_available_fallback_readme(
+                slug=slug,
+                provider=provider,
+                body=readme_body,
+            )
+            if not artifact_readme_write_error:
+                active_readme_path = artifact_readme_path
         prepared.append(
             {
                 "slug": slug,
                 "provider": provider,
                 "export_dir": str(export_dir),
-                "readme": str(readme_path),
+                "readme": str(active_readme_path),
+                "drop_readme": str(readme_path),
+                "artifact_readme": str(artifact_readme_path),
                 "drop_status": drop_status,
                 "readme_write_error": readme_write_error,
+                "artifact_readme_write_error": artifact_readme_write_error,
             }
         )
     return prepared

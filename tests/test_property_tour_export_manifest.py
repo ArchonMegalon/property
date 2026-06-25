@@ -125,6 +125,85 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
         assert row["drop_status"]["missing"]
 
 
+def test_materialize_property_tour_export_manifest_falls_back_when_drop_readme_is_unwritable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    tour_root = tmp_path / "public_tours"
+    incoming_root = tmp_path / "incoming"
+    artifact_root = tmp_path / "artifacts"
+    _write_base_tour(tour_root, "needs-exports")
+    monkeypatch.setenv("EA_ARTIFACT_DIR", str(artifact_root))
+    original_write_text = Path.write_text
+
+    def write_text_with_drop_permission_error(self: Path, *args, **kwargs):
+        if self.name == "README.propertyquarry-export.txt" and incoming_root in self.parents:
+            raise PermissionError("drop readme is not writable")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", write_text_with_drop_permission_error)
+
+    manifest = build_export_manifest(
+        tour_root=tour_root,
+        incoming_root=incoming_root,
+        providers={"3dvista"},
+        limit_per_provider=1,
+    )
+    prepared = prepare_export_drop_dirs(manifest)
+
+    assert len(prepared) == 1
+    row = prepared[0]
+    assert row["provider"] == "3dvista"
+    assert "PermissionError" in row["readme_write_error"]
+    assert row["artifact_readme_write_error"] == ""
+    assert Path(row["readme"]) == Path(row["artifact_readme"])
+    assert Path(row["artifact_readme"]).is_file()
+    body = Path(row["artifact_readme"]).read_text(encoding="utf-8")
+    assert "PropertyQuarry provider export drop folder" in body
+    assert "Copy the complete 3DVista export folder" in body
+    assert "import_3dvista_export.py" in body
+
+
+def test_materialize_property_tour_export_manifest_uses_repo_local_readme_fallback(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    tour_root = tmp_path / "public_tours"
+    incoming_root = tmp_path / "incoming"
+    artifact_root = tmp_path / "unwritable_artifacts"
+    _write_base_tour(tour_root, "needs-exports")
+    monkeypatch.setenv("EA_ARTIFACT_DIR", str(artifact_root))
+    monkeypatch.chdir(tmp_path)
+    original_write_text = Path.write_text
+
+    def write_text_with_permission_errors(self: Path, *args, **kwargs):
+        if self.name == "README.propertyquarry-export.txt" and (
+            incoming_root in self.parents or artifact_root in self.parents
+        ):
+            raise PermissionError("configured readme target is not writable")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", write_text_with_permission_errors)
+
+    manifest = build_export_manifest(
+        tour_root=tour_root,
+        incoming_root=incoming_root,
+        providers={"pano2vr"},
+        limit_per_provider=1,
+    )
+    prepared = prepare_export_drop_dirs(manifest)
+
+    assert len(prepared) == 1
+    row = prepared[0]
+    assert row["provider"] == "pano2vr"
+    assert Path(row["readme"]) == tmp_path / "_completion" / "property_tour_exports" / "drop-readmes" / "needs-exports" / "pano2vr" / "README.propertyquarry-export.txt"
+    assert row["artifact_readme"] == row["readme"]
+    assert row["artifact_readme_write_error"] == ""
+    body = Path(row["readme"]).read_text(encoding="utf-8")
+    assert "Copy the complete Pano2VR output folder" in body
+    assert "import_pano2vr_export.py" in body
+
+
 def test_materialize_property_tour_export_manifest_reports_ready_drop_status(tmp_path: Path) -> None:
     tour_root = tmp_path / "public_tours"
     incoming_root = tmp_path / "incoming"
