@@ -152,6 +152,7 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     account = (repo_root / "ea/app/templates/app/_property_account_panel.html").read_text(encoding="utf-8")
     billing = (repo_root / "ea/app/templates/app/_property_billing_panel.html").read_text(encoding="utf-8")
+    workbench = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
     assert "Signal later" not in account
     assert "PropertyQuarry bot <small>Telegram</small>" not in account
@@ -159,6 +160,10 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert ">Save notification routing</button>" in account
     assert "preferred_notification_channel and preferred_notification_channel not in selected_notification_channels" in account
     assert "preferred_notification_channel == 'telegram' and preferred_notification_channel not in selected_notification_channels" not in account
+    assert "pqx-account-logout-strip" in account
+    assert 'aria-label="Current session"' in account
+    assert ".pqx-account-logout-strip-form .pqx-link-button" in workbench
+    assert "min-height: 56px;" in workbench
 
     assert "<h2>Plan and payments</h2>" in billing
     assert ">Open</a>" not in billing

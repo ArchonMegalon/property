@@ -50,6 +50,20 @@
     </div>
   </div>
 
+  {% if account_nav %}
+  <section class="pqx-account-logout-strip" aria-label="Current session">
+    <div>
+      <span class="pqx-small">Signed in</span>
+      <strong>{{ account_nav.label or account_nav.menu_label or 'PropertyQuarry account' }}</strong>
+      <small>Use this when you want this phone or browser out of the account.</small>
+    </div>
+    <form class="pqx-account-logout-strip-form" method="post" action="{{ account_nav.sign_out_action }}" data-account-page-sign-out>
+      <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
+      <button class="pqx-link-button danger" type="submit">Log out</button>
+    </form>
+  </section>
+  {% endif %}
+
   <div class="pqx-account-action-grid">
     {% if account_nav %}
     <section class="pqx-account-action-card pqx-account-session-card" id="session">

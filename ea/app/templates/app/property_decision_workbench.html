@@ -3909,6 +3909,40 @@
       gap: 12px;
       align-items: start;
     }
+    .pqx-account-logout-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid rgba(167, 64, 48, 0.22);
+      border-radius: 14px;
+      background:
+        linear-gradient(135deg, rgba(255, 253, 248, 0.98), rgba(255, 246, 242, 0.96));
+      box-shadow: 0 14px 34px rgba(41, 37, 30, 0.08);
+    }
+    .pqx-account-logout-strip strong {
+      display: block;
+      margin-top: 2px;
+      color: var(--pq-ink);
+      font-size: 1rem;
+      line-height: 1.18;
+      overflow-wrap: anywhere;
+    }
+    .pqx-account-logout-strip small {
+      display: block;
+      margin-top: 4px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .pqx-account-logout-strip-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      margin: 0;
+    }
     .pqx-account-action-card {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -5537,6 +5571,7 @@
     html[data-pq-theme="dark"] .pqx-automation-card,
     html[data-pq-theme="dark"] .pqx-automation-thumbnail,
     html[data-pq-theme="dark"] .pqx-automation-delete,
+    html[data-pq-theme="dark"] .pqx-account-logout-strip,
     html[data-pq-theme="dark"] .pqx-account-action-card,
     html[data-pq-theme="dark"] .pqx-account-channel-option,
     html[data-pq-theme="dark"] .pqx-account-channel-detail,
@@ -7040,6 +7075,22 @@
         grid-template-columns: minmax(0, 1fr);
         align-items: stretch;
         scroll-margin-top: 86px;
+      }
+      .pqx-account-logout-strip {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 12px;
+        padding: 14px;
+        border-radius: 20px;
+      }
+      .pqx-account-logout-strip-form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+      }
+      .pqx-account-logout-strip-form .pqx-link-button {
+        width: 100%;
+        min-height: 56px;
+        border-radius: 18px;
       }
       .pqx-account-board,
       .pqx-account-action-grid,
