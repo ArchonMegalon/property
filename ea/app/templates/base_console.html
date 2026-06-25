@@ -1354,7 +1354,7 @@
     {'href': '/app/billing' ~ query_suffix, 'label': 'Billing', 'key': 'billing'},
     {'href': '/app/account' ~ query_suffix, 'label': 'Account', 'key': 'account'},
   ) %}
-  <div class="pq-shell" data-property-app-shell>
+  <div class="pq-shell" data-pq-greenfield-shell data-property-app-shell>
     <aside class="pq-rail">
       <div class="pq-rail-brand">
         <a class="brand" href="{{ brand_home_href }}" aria-label="{{ brand.name }} home">
@@ -1402,7 +1402,7 @@
           <span>{{ brand.name }}</span>
           <span>{{ active_shell_label.value }}</span>
         </div>
-        <nav class="pq-appbar-mobile-nav" aria-label="PropertyQuarry sections" data-property-console-topnav>
+        <nav class="pq-appbar-mobile-nav" aria-label="PropertyQuarry sections" data-property-console-topnav data-property-research-topnav>
           {% for item in property_top_nav_items %}
             {% if shell_nav_key == item.key %}
             <span aria-current="page">{{ item.label }}</span>

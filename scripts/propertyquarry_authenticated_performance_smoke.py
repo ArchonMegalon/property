@@ -24,8 +24,11 @@ DEFAULT_ROUTE_BUDGET_MS = {
     "/app/agents": 1200,
     "/app/properties": 1200,
     "/app/shortlist": 1200,
+    "/app/alerts": 1200,
     "/app/account": 1200,
     "/app/billing": 1200,
+    "/app/settings/google": 1200,
+    "/app/settings/access": 1200,
 }
 
 FORBIDDEN_CUSTOMER_NOISE = (
@@ -323,6 +326,27 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "media_requests_explicit", "ok": "Request" in body and "tour" in body.lower()},
             )
         )
+    if path.startswith("/app/alerts"):
+        checks.extend(
+            (
+                {"name": "alerts_heading", "ok": "Alerts" in body},
+                {"name": "delivery_controls", "ok": "Delivery rules" in body or "Notifications" in body},
+            )
+        )
+    if path == "/app/settings/google":
+        checks.extend(
+            (
+                {"name": "google_settings_heading", "ok": "Google sign-in" in body or "PropertyQuarry Google connection" in body},
+                {"name": "implicit_account_creation_copy", "ok": "Continue with Google" in body or "Google sign-in" in body},
+            )
+        )
+    if path == "/app/settings/access":
+        checks.extend(
+            (
+                {"name": "access_settings_heading", "ok": "Access" in body or "Identity and return access" in body},
+                {"name": "account_access_controls", "ok": "Invite" in body or "access" in lowered_body},
+            )
+        )
     return {
         "path": path,
         "status_code": response.status_code,
@@ -351,8 +375,11 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         f"/app/properties?run_id={run_id}",
         f"/app/shortlist?run_id={run_id}",
         f"/app/research/perf-candidate-1020?run_id={run_id}",
+        f"/app/alerts?run_id={run_id}",
         "/app/account",
         "/app/billing",
+        "/app/settings/google",
+        "/app/settings/access",
     ]
     rows = [
         _measure_route(client, route, budget_ms=_route_budget_for(route, route_budget_ms=route_budget_ms))
@@ -369,7 +396,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "routes": rows,
         "notes": [
             "This smoke is local, authenticated, provider-free and non-networked.",
-            "It guards first-paint route budgets for search, agents, results, research, account and billing surfaces.",
+            "It guards first-paint route budgets for search, agents, results, research, alerts, account, billing, and settings surfaces.",
             "It also asserts the shared top navigation, viewport metadata, app shell and mobile dock targets render on every measured app surface.",
         ],
     }

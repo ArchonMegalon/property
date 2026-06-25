@@ -13,6 +13,19 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert receipt["status"] == "pass"
     assert receipt["failed_count"] == 0
     routes = {str(row["path"]).split("?", 1)[0]: row for row in receipt["routes"]}
+    expected_mobile_surfaces = {
+        "/app/search",
+        "/app/agents",
+        "/app/properties",
+        "/app/shortlist",
+        "/app/research/perf-candidate-1020",
+        "/app/alerts",
+        "/app/account",
+        "/app/billing",
+        "/app/settings/google",
+        "/app/settings/access",
+    }
+    assert expected_mobile_surfaces.issubset(routes)
     assert routes["/app/agents"]["duration_ms"] <= routes["/app/agents"]["budget_ms"]
     assert routes["/app/research/perf-candidate-1020"]["duration_ms"] <= routes["/app/research/perf-candidate-1020"]["budget_ms"]
     for route in routes.values():
@@ -23,6 +36,9 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         assert check_names["mobile_dock_target"]
     assert any(check["name"] == "map_only_thumbnails" and check["ok"] for check in routes["/app/agents"]["checks"])
     assert any(check["name"] == "media_requests_explicit" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
+    assert any(check["name"] == "implicit_account_creation_copy" and check["ok"] for check in routes["/app/settings/google"]["checks"])
+    assert any(check["name"] == "account_access_controls" and check["ok"] for check in routes["/app/settings/access"]["checks"])
 
 
 def test_property_authenticated_performance_smoke_script_emits_receipt() -> None:
@@ -39,6 +55,9 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert result.returncode == 0, result.stderr
     assert '"status": "pass"' in result.stdout
     assert '"/app/agents"' in result.stdout
+    assert '"/app/alerts' in result.stdout
+    assert '"/app/settings/google"' in result.stdout
+    assert '"/app/settings/access"' in result.stdout
     assert '"shared_top_navigation"' in result.stdout
     assert '"mobile_dock_target"' in result.stdout
 
@@ -46,6 +65,8 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
 def test_property_authenticated_performance_smoke_budget_override_applies_to_default_routes() -> None:
     assert _route_budget_for("/app/search", route_budget_ms=250) == 250
     assert _route_budget_for("/app/agents", route_budget_ms=250) == 250
+    assert _route_budget_for("/app/alerts?run_id=abc", route_budget_ms=250) == 250
+    assert _route_budget_for("/app/settings/google", route_budget_ms=250) == 250
     assert _route_budget_for("/app/research/perf-candidate-1020?run_id=abc", route_budget_ms=250) == 250
 
 

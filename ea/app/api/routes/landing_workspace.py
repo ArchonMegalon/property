@@ -1724,7 +1724,7 @@ def settings_google_detail(
         object_meta=object_meta,
         object_sidebar_title="What this view answers",
         object_sidebar_copy=(
-            "This view shows which Google account is primary, what other Google accounts are connected, and whether the connection needs reauth."
+            "This view shows which Google account is primary, what other Google accounts are connected, and whether the connection needs reauth. Continue with Google creates or opens the PropertyQuarry account automatically."
             if is_property_brand
             else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
         ),
