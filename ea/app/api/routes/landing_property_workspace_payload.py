@@ -2697,13 +2697,13 @@ def property_workspace_payload(
     billing_account_title = (
         "Billing account"
         if billing_handoff_available
-        else ("Account status" if has_active_paid_plan else "Compare plans")
+        else ("Access status" if has_active_paid_plan else "Compare plans")
     )
     billing_account_detail = (
-        "Open the account and payment lane."
+        "Open the Brilliant Directories account and payment lane."
         if billing_handoff_available
         else (
-            "Your current access is active. External account management appears here when the white-label billing lane is configured."
+            "Your current access is active. External account management appears here as soon as the billing lane is configured."
             if has_active_paid_plan
             else (
                 "Review limits before the next upgrade."
@@ -2730,7 +2730,7 @@ def property_workspace_payload(
             "Limits",
         ),
         row_item(
-            "Payment",
+            "Account",
             payment_status_detail,
             payment_status_tag,
         ),
@@ -3296,22 +3296,22 @@ def property_workspace_payload(
         },
         "billing": {
             "title": "Billing",
-            "summary": "Plan and payments.",
+            "summary": "Plan, access, and account management.",
             "hero_kicker": "Billing",
-            "hero_title": "Your plan.",
-            "hero_summary": "Current access and payments.",
+            "hero_title": "Plan and access.",
+            "hero_summary": "Current tier, ranked-result access, and billing account status.",
             "hero_actions": hero_actions["billing"],
             "hero_highlights": hero_highlights["billing"],
             "primary_cards": [
                 {
                     "eyebrow": "Plan",
-                    "title": "Plan",
+                    "title": "Current access",
                     "body": "",
                     "items": billing_rows,
                 },
                 {
-                    "eyebrow": "Payment",
-                    "title": "Account",
+                    "eyebrow": "Account",
+                    "title": billing_account_title,
                     "body": "",
                     "items": [
                         *billing_payment_rows,

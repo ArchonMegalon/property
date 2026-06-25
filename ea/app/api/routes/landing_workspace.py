@@ -1754,8 +1754,8 @@ def settings_google_detail(
     accounts_section_title = "Connected Google accounts" if is_property_brand else "Connected inboxes and send defaults"
     if is_property_brand:
         sync_summary = (
-            f"{connected_account_total} connected Google account{'s' if connected_account_total != 1 else ''} · "
-            f"token {str(sync.get('token_status') or 'missing').replace('_', ' ')}"
+            f"{connected_account_total} connected · "
+            f"{str(sync.get('token_status') or 'missing').replace('_', ' ')} token"
         )
     else:
         sync_summary = (
@@ -1781,36 +1781,77 @@ def settings_google_detail(
         last_manual_sync_detail = "Not recorded"
     object_meta = [
         {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
-        {"label": connected_accounts_label, "value": str(connected_account_total)},
-        {"label": active_accounts_label, "value": str(active_account_total)},
         {"label": primary_account_label, "value": primary_email or "Not connected"},
         {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
     ]
     if not is_property_brand:
+        object_meta.extend([
+            {"label": connected_accounts_label, "value": str(connected_account_total)},
+            {"label": active_accounts_label, "value": str(active_account_total)},
+        ])
+    if not is_property_brand:
         object_meta.append({"label": "Sync runs", "value": str(sync.get("sync_completed") or 0)})
-    return _render_console_object_detail(
-        request=request,
-        context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-        page_title="PropertyQuarry Google connection",
-        current_nav="settings",
-        console_title="Google connection",
-        console_summary=(
-            "Google should stay narrowly scoped on PropertyQuarry: sign-in, the connected account, token health, and whether reauth is needed."
-            if is_property_brand
-            else "Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop."
-        ),
-        object_kind="Connection" if is_property_brand else "Sync state",
-        object_title=primary_email or "Google not connected",
-        object_summary=sync_summary,
-        object_meta=object_meta,
-        object_sidebar_title="What this view answers",
-        object_sidebar_copy=(
-            "This view shows which Google account is primary, what other Google accounts are connected, and whether the connection needs reauth. Continue with Google creates or opens the PropertyQuarry account automatically."
-            if is_property_brand
-            else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
-        ),
-        object_sidebar_rows=[
+    if is_property_brand:
+        object_sidebar_rows = [
+            _object_detail_row(
+                "Connect another Google account",
+                "Google sign-in creates or opens the same PropertyQuarry account automatically.",
+                "Google",
+                action_href=connect_another_href,
+                action_label=add_account_label,
+                action_method="get",
+            ),
+            _object_detail_row(
+                "Next action",
+                action["detail"],
+                "Action",
+                href="/app/settings/google",
+                action_href=action["href"],
+                action_label=action["label"],
+                action_method=action["method"],
+                return_to="/app/settings/google",
+            ),
+            _object_detail_row("Reauth", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
+        ]
+        object_sections = [
+            {
+                "eyebrow": "Connection",
+                "title": "Google identity",
+                "items": [
+                    _object_detail_row("Primary account", primary_email or "Not connected", "Google"),
+                    _object_detail_row("Connected Google accounts", str(connected_account_total), "Google"),
+                    _object_detail_row("Active Google accounts", str(active_account_total), "Google"),
+                    _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
+                ],
+            },
+            {
+                "eyebrow": "Accounts",
+                "title": accounts_section_title,
+                "items": [
+                    _google_account_row(
+                        account,
+                        return_to="/app/settings/google",
+                        is_property_brand=is_property_brand,
+                        verification=verification_by_binding.get(str(account.binding.binding_id or "").strip()),
+                        sync_row=account_sync_by_email.get(str(account.google_email or "").strip().lower()),
+                        change_row=account_change_by_binding.get(str(account.binding.binding_id or "").strip()),
+                    )
+                    for account in google_accounts[:3]
+                ]
+                or [
+                    _object_detail_row(
+                        "No connected Google account",
+                        "Connect Google when you want account sign-in and verified return access from this device.",
+                        "Empty",
+                        action_href=connect_another_href,
+                        action_label="Connect Google",
+                        action_method="get",
+                    )
+                ],
+            },
+        ]
+    else:
+        object_sidebar_rows = [
             _object_detail_row(
                 connected_accounts_label,
                 connected_accounts_detail,
@@ -1820,11 +1861,9 @@ def settings_google_detail(
                 action_method="get",
             ),
             _object_detail_row(primary_account_label, primary_email or "Not connected", "Google"),
-            *([] if is_property_brand else [
-                _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
-                _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
-                _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
-            ]),
+            _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
+            _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+            _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
             _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
             _object_detail_row("Last send verification", verify_detail, "Verify"),
             _object_detail_row(
@@ -1840,11 +1879,11 @@ def settings_google_detail(
             _object_detail_row("Last manual sync", last_manual_sync_detail, "Action"),
             _object_detail_row("Last account change", account_change_detail, "Accounts"),
             _object_detail_row("Last emailed connect link", email_link_detail, "Email"),
-        ],
-        object_sections=[
+        ]
+        object_sections = [
             {
                 "eyebrow": "Connection",
-                "title": "Google binding and token state" if not is_property_brand else "Google identity and account",
+                "title": "Google binding and token state",
                 "items": [
                     _object_detail_row("Connected", "Yes" if connected_account_total else "No", "Google"),
                     _object_detail_row(primary_account_label, primary_email or "Not connected", "Google"),
@@ -1884,45 +1923,63 @@ def settings_google_detail(
                 or [
                     _object_detail_row(
                         "No connected Google account",
-                        (
-                            "Connect Google when you want account sign-in and verified delivery from this device."
-                            if is_property_brand
-                            else "Attach a Google inbox before the memo, queue, and approval loop can use live workspace signals."
-                        ),
+                        "Attach a Google inbox before the memo, queue, and approval loop can use live workspace signals.",
                         "Empty",
                         action_href=connect_another_href,
-                        action_label="Connect Google" if is_property_brand else "Connect inbox",
+                        action_label="Connect inbox",
                         action_method="get",
                     )
                 ],
             },
-            *([] if is_property_brand else [
-                {
-                    "eyebrow": "Freshness",
-                    "title": "Latest sync run and queued commitment work",
-                    "items": [
-                        _object_detail_row("Freshness", str(sync.get("freshness_state") or "watch").replace("_", " "), "Sync"),
-                        _object_detail_row("Last completed", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
-                        _object_detail_row("Age seconds", str(sync.get("age_seconds") if sync.get("age_seconds") is not None else "n/a"), "Sync"),
-                        _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
-                        _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
-                        _object_detail_row("Office signals ingested", str(sync.get("office_signal_ingested") or 0), "Signals"),
-                    ],
-                },
-                {
-                    "eyebrow": "Volume",
-                    "title": "What the latest sync actually pulled in",
-                    "items": [
-                        _object_detail_row("Sync runs", str(sync.get("sync_completed") or 0), "Sync"),
-                        _object_detail_row("Last synced total", str(sync.get("last_synced_total") or 0), "Signals"),
-                        _object_detail_row("Last deduplicated total", str(sync.get("last_deduplicated_total") or 0), "Signals"),
-                        _object_detail_row("Last suppressed total", str(sync.get("last_suppressed_total") or 0), "Signals"),
-                        _object_detail_row("Gmail signals", str(sync.get("last_gmail_total") or 0), "Gmail"),
-                        _object_detail_row("Calendar signals", str(sync.get("last_calendar_total") or 0), "Calendar"),
-                    ],
-                },
-            ]),
-        ],
+            {
+                "eyebrow": "Freshness",
+                "title": "Latest sync run and queued commitment work",
+                "items": [
+                    _object_detail_row("Freshness", str(sync.get("freshness_state") or "watch").replace("_", " "), "Sync"),
+                    _object_detail_row("Last completed", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
+                    _object_detail_row("Age seconds", str(sync.get("age_seconds") if sync.get("age_seconds") is not None else "n/a"), "Sync"),
+                    _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+                    _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
+                    _object_detail_row("Office signals ingested", str(sync.get("office_signal_ingested") or 0), "Signals"),
+                ],
+            },
+            {
+                "eyebrow": "Volume",
+                "title": "What the latest sync actually pulled in",
+                "items": [
+                    _object_detail_row("Sync runs", str(sync.get("sync_completed") or 0), "Sync"),
+                    _object_detail_row("Last synced total", str(sync.get("last_synced_total") or 0), "Signals"),
+                    _object_detail_row("Last deduplicated total", str(sync.get("last_deduplicated_total") or 0), "Signals"),
+                    _object_detail_row("Last suppressed total", str(sync.get("last_suppressed_total") or 0), "Signals"),
+                    _object_detail_row("Gmail signals", str(sync.get("last_gmail_total") or 0), "Gmail"),
+                    _object_detail_row("Calendar signals", str(sync.get("last_calendar_total") or 0), "Calendar"),
+                ],
+            },
+        ]
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+        page_title="PropertyQuarry Google connection",
+        current_nav="settings",
+        console_title="Google connection",
+        console_summary=(
+            "Google should stay narrowly scoped on PropertyQuarry: sign-in, the connected account, token health, and whether reauth is needed."
+            if is_property_brand
+            else "Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop."
+        ),
+        object_kind="Connection" if is_property_brand else "Sync state",
+        object_title=primary_email or "Google not connected",
+        object_summary=sync_summary,
+        object_meta=object_meta,
+        object_sidebar_title="What this view answers",
+        object_sidebar_copy=(
+            "This view shows which Google account is primary, what other Google accounts are connected, and whether the connection needs reauth. Continue with Google creates or opens the PropertyQuarry account automatically."
+            if is_property_brand
+            else "This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop."
+        ),
+        object_sidebar_rows=object_sidebar_rows,
+        object_sections=object_sections,
     )
 
 
@@ -2187,6 +2244,47 @@ def settings_access_detail(
             else "Issue and revoke secure account links from this page."
         )
     )
+    visible_active_sessions = active_sessions[:3] if is_property_brand else active_sessions[:12]
+    hidden_active_total = max(0, len(active_sessions) - len(visible_active_sessions))
+    visible_revoked_sessions = revoked_sessions[:3] if is_property_brand else revoked_sessions[:8]
+    access_object_title = "Access links" if is_property_brand else f"{len(active_sessions)} active sessions"
+    access_object_summary = (
+        f"{len(active_sessions)} active · {len(revoked_sessions)} revoked"
+        if is_property_brand
+        else f"{total_opens} access opens recorded · {len(revoked_sessions)} revoked sessions"
+    )
+    active_access_items = [
+        _object_detail_row(
+            str(item.get("email") or "unknown"),
+            (
+                (
+                    "collaborator"
+                    if is_property_brand and str(item.get("role") or "principal").strip() == "operator"
+                    else ("account owner" if is_property_brand else str(item.get("role") or "principal").replace("_", " "))
+                )
+                + f" · {('/app/agents' if is_property_brand and str(item.get('default_target') or '') == '/admin/office' else str(item.get('default_target') or '/app/properties'))} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}"
+            ),
+            str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
+            action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
+            action_label="Revoke",
+            action_method="post",
+            return_to="/app/settings/access",
+            secondary_action_href=str(item.get("access_url") or "").strip(),
+            secondary_action_label="Open link" if str(item.get("access_url") or "").strip() else "",
+            secondary_action_method="get",
+        )
+        for item in visible_active_sessions
+    ]
+    if hidden_active_total:
+        active_access_items.append(
+            _object_detail_row(
+                "More active links",
+                f"{hidden_active_total} additional active access link{'s' if hidden_active_total != 1 else ''}. Use search or revoke from the full ledger when needed.",
+                "Hidden",
+            )
+        )
+    if not active_access_items:
+        active_access_items = [_object_detail_row("No active access sessions", "Issue an account access link when someone needs direct entry into PropertyQuarry.", "Clear")]
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -2194,10 +2292,10 @@ def settings_access_detail(
         page_title="PropertyQuarry access",
         current_nav="settings",
         console_title="Access",
-        console_summary="Active access sessions are visible and revocable from the browser, not buried in API payloads or support tooling.",
+        console_summary="Give someone access, check who still has it, and revoke links without exposing an operational ledger first.",
         object_kind="Access",
-        object_title=f"{len(active_sessions)} active sessions",
-        object_summary=f"{total_opens} access opens recorded · {len(revoked_sessions)} revoked sessions",
+        object_title=access_object_title,
+        object_summary=access_object_summary,
         object_meta=[
             {"label": "Active sessions", "value": str(len(active_sessions))},
             {"label": "Access opens", "value": str(total_opens)},
@@ -2215,47 +2313,19 @@ def settings_access_detail(
                 ),
             },
         ],
-        object_sidebar_title="What this makes easy",
-        object_sidebar_copy="Access stays reviewable in product language: who still has a live link, where it lands, and whether an old session has been revoked cleanly.",
+        object_sidebar_title="Access control",
+        object_sidebar_copy="Create one clean link, then revoke it when the account no longer needs that entry point.",
         object_sidebar_rows=[
-            _object_detail_row("Active sessions", str(len(active_sessions)), "Access"),
-            _object_detail_row("Access opens", str(total_opens), "Telemetry"),
-            _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
+            _object_detail_row("Active links", str(len(active_sessions)), "Access"),
+            _object_detail_row("Revoked links", str(len(revoked_sessions)), "Access"),
             _object_detail_row("Default collaborator target" if is_property_brand else "Default operator target", "/app/agents" if is_property_brand else "/admin/office", "Access"),
-            _object_detail_row("Default account target" if is_property_brand else "Default principal target", "/app/properties", "Access"),
             _object_detail_row("Latest access action", access_detail, "Access"),
-            _object_detail_row(
-                "Latest revocation",
-                f"Revoked {access_email}" if access_status == "revoked" and access_email else "No access revocation recorded from this view.",
-                "Access",
-            ),
         ],
         object_sections=[
             {
                 "eyebrow": "Active sessions",
                 "title": "Live access links",
-                "items": [
-                    _object_detail_row(
-                        str(item.get("email") or "unknown"),
-                        (
-                            (
-                                "collaborator"
-                                if is_property_brand and str(item.get("role") or "principal").strip() == "operator"
-                                else ("account owner" if is_property_brand else str(item.get("role") or "principal").replace("_", " "))
-                            )
-                            + f" · {('/app/agents' if is_property_brand and str(item.get('default_target') or '') == '/admin/office' else str(item.get('default_target') or '/app/properties'))} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}"
-                        ),
-                        str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
-                        action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
-                        action_label="Revoke",
-                        action_method="post",
-                        return_to="/app/settings/access",
-                        secondary_action_href=str(item.get("access_url") or "").strip(),
-                        secondary_action_label="Open link" if str(item.get("access_url") or "").strip() else "",
-                        secondary_action_method="get",
-                    )
-                    for item in active_sessions[:12]
-                ] or [_object_detail_row("No active access sessions", "Issue an account access link when someone needs direct entry into PropertyQuarry.", "Clear")],
+                "items": active_access_items,
             },
             {
                 "eyebrow": "Recently revoked",
@@ -2266,7 +2336,7 @@ def settings_access_detail(
                         f"revoked by {str(item.get('revoked_by') or 'workspace')} · {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
                         "Revoked",
                     )
-                    for item in revoked_sessions[:8]
+                    for item in visible_revoked_sessions
                 ] or [_object_detail_row("No revoked sessions", "Revoked links and sessions will appear here when access is withdrawn.", "History")],
             },
         ],

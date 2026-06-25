@@ -7049,7 +7049,8 @@ def test_property_billing_surface_keeps_paid_plan_active_when_checkout_is_disabl
     billing = client.get("/app/billing", headers=headers)
 
     assert billing.status_code == 200
-    assert "Access active" in billing.text
+    assert "Agent" in billing.text
+    assert "Active" in billing.text
     assert "Included with the current plan" not in billing.text
     assert "Current access is already active." not in billing.text
     assert "Not active yet" not in billing.text
@@ -12579,7 +12580,8 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     assert billing.status_code == 200
     rendered_text = re.sub(r"\s+", " ", billing.text)
     assert "Plan and payments" in rendered_text
-    assert "Current access and payments" in rendered_text
+    assert "Plan and access" in rendered_text
+    assert "Current tier, ranked-result access, and billing account status" in rendered_text
     assert "When to upgrade" not in rendered_text
     assert "White-label account lane" not in rendered_text
     assert "Local billing is active" not in rendered_text

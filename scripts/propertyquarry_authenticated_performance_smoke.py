@@ -592,7 +592,10 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         billing_noise_hits = [token for token in FORBIDDEN_BILLING_SURFACE_TOKENS if token in lowered_body]
         checks.extend(
             (
-                {"name": "billing_heading", "ok": "Plan and payments" in body and "Your plan" in body},
+                {
+                    "name": "billing_heading",
+                    "ok": "Plan and payments" in body and ("Plan and access" in body or "Your plan" in body),
+                },
                 {"name": "billing_history_visible", "ok": "Billing history" in body and "Invoices" in body},
                 {"name": "billing_white_label_copy", "ok": not billing_noise_hits, "detail": ", ".join(billing_noise_hits[:5])},
             )
