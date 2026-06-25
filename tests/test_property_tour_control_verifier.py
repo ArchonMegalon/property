@@ -253,6 +253,26 @@ def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_
     assert actions["magicfit"]["blocked_tour_count"] == 1
 
 
+def test_property_tour_control_verifier_distinguishes_empty_provider_placeholder_fields(tmp_path: Path) -> None:
+    _write_tour(
+        tmp_path,
+        "placeholder-fields",
+        {
+            "matterport_url": "https://my.matterport.com/show/?m=READY123",
+            "three_d_vista_url": "",
+            "pano2vr_entry_relpath": "",
+        },
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path, require_all_provider_modes=True)
+
+    missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
+    assert missing["3dvista"]["reason"] == "3dvista_placeholder_field_empty_or_unusable"
+    assert "empty 3DVista placeholder" in missing["3dvista"]["action"]
+    assert missing["pano2vr"]["reason"] == "pano2vr_placeholder_field_empty_or_unusable"
+    assert "empty Pano2VR placeholder" in missing["pano2vr"]["action"]
+
+
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     tmp_path: Path,
     monkeypatch,

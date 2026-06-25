@@ -56,6 +56,10 @@ def _safe_http_url(value: object, *, allowed_hosts: Iterable[str]) -> str:
     return ""
 
 
+def _has_key(payload: dict[str, object], *keys: str) -> bool:
+    return any(key in payload for key in keys)
+
+
 def _pano2vr_entry_relpath(payload: dict[str, object]) -> str:
     for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
         relpath = _safe_asset_relpath(payload.get(key))
@@ -360,6 +364,9 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
         if three_d_vista_entry:
             reason = "3dvista_entry_missing_or_not_verified"
             action = "import a real 3DVista export whose entry HTML contains 3DVista runtime markers"
+        elif _has_key(payload, "three_d_vista_url", "threedvista_url", "3dvista_url"):
+            reason = "3dvista_placeholder_field_empty_or_unusable"
+            action = "replace the empty 3DVista placeholder field with an allowlisted 3dvista.com URL or import a verified 3DVista export"
         else:
             reason = "missing_3dvista_export"
             action = "run import_3dvista_export.py with a verified 3DVista export or add an allowlisted 3dvista.com URL"
@@ -375,6 +382,9 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
         if pano2vr_entry:
             reason = "pano2vr_entry_missing_or_not_verified"
             action = "import a real Pano2VR export whose entry HTML contains Pano2VR runtime markers"
+        elif _has_key(payload, "pano2vr_entry_relpath", "pano2vr_export_entry_relpath", "pano2vr_export_root_relpath", "pano2vr_root_relpath"):
+            reason = "pano2vr_placeholder_field_empty_or_unusable"
+            action = "replace the empty Pano2VR placeholder field with a verified local Pano2VR export entry"
         else:
             reason = "missing_pano2vr_export"
             action = "run import_pano2vr_export.py with a verified Pano2VR export"
