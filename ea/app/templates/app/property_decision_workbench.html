@@ -2308,6 +2308,9 @@
       display: grid;
       gap: 8px;
     }
+    .pqx-mobile-helper {
+      display: none;
+    }
     .pqx-check {
       min-height: 36px;
       display: grid;
@@ -5706,10 +5709,10 @@
       .pqx-primary-nav :is(a, span) {
         flex: 0 0 auto;
         scroll-snap-align: start;
-        min-height: 30px;
-        padding: 0 9px;
+        min-height: 40px;
+        padding: 0 13px;
         border-radius: 999px;
-        font-size: 11.5px;
+        font-size: 12px;
       }
       .pqx-brand {
         gap: 8px;
@@ -5722,9 +5725,7 @@
         display: none;
       }
       .pqx-top-actions {
-        grid-area: actions;
-        justify-content: flex-end;
-        gap: 6px;
+        display: none;
       }
       .pqx-top-actions > .pqx-link-button,
       .pqx-top-actions > .pqx-context-actions,
@@ -5741,7 +5742,7 @@
       .pqx-top-actions .pqx-account-menu-panel .pqx-link-button,
       .pqx-top-actions .pqx-button {
         flex: 1 1 0;
-        min-height: 34px;
+        min-height: 44px;
       }
       .pqx-account-menu {
         margin-left: auto;
@@ -5771,8 +5772,8 @@
       .pqx-surface-search .pqx-workflow-step {
         flex: 0 0 clamp(76px, 22vw, 104px);
         scroll-snap-align: start;
-        min-height: 34px;
-        padding: 4px 5px;
+        min-height: 48px;
+        padding: 6px 7px;
       }
       .pqx-workflow-step strong,
       .pqx-surface-search .pqx-workflow-step strong {
@@ -5823,7 +5824,7 @@
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-step-head-actions .pqx-button {
         flex: 1 1 0;
-        min-height: 38px;
+        min-height: 48px;
       }
       .pqx-surface-search [data-property-actions]:not([hidden]) {
         display: grid !important;
@@ -5880,9 +5881,13 @@
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-field input:not([type="checkbox"]),
       .pqx-shell[data-pqx-surface="search"] .pqx-field select {
-        min-height: 42px;
-        border-radius: 11px;
+        min-height: 56px;
+        border-radius: 14px;
+        font-size: 16px;
         background: #fffefa;
+      }
+      .pqx-tooltip {
+        display: none;
       }
       html[data-pq-theme="dark"] .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
         background:
@@ -5922,10 +5927,10 @@
         box-shadow: 0 10px 24px rgba(41, 37, 30, 0.08);
       }
       .pqx-mobile-switch .pqx-mode-button {
-        min-height: 44px;
+        min-height: 56px;
         padding-block: 10px;
         border-radius: 999px;
-        font-size: 12px;
+        font-size: 13px;
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-switch,
@@ -5991,9 +5996,9 @@
         box-shadow: 0 18px 42px rgba(41, 37, 30, 0.16);
       }
       .pqx-bottom-nav .pqx-mode-button {
-        min-height: 38px;
+        min-height: 56px;
         border-radius: 14px;
-        font-size: 12px;
+        font-size: 13px;
       }
       .pqx-run-hero {
         gap: 14px;
@@ -6099,12 +6104,12 @@
         grid-template-columns: minmax(0, 1fr);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] {
-        gap: 6px;
-        max-height: 306px;
+        gap: 10px;
+        max-height: min(54svh, 480px);
         overflow-y: auto;
         overscroll-behavior: contain;
-        padding-right: 2px;
-        scroll-padding-bottom: 8px;
+        padding: 2px 2px 10px;
+        scroll-padding-bottom: 16px;
         -webkit-overflow-scrolling: touch;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"]::-webkit-scrollbar {
@@ -6122,27 +6127,46 @@
         width: 0;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check {
-        min-height: 46px;
-        grid-template-columns: 24px minmax(0, 1fr);
+        min-height: 64px;
+        grid-template-columns: 34px minmax(0, 1fr);
         align-items: center;
-        padding: 7px 9px;
+        padding: 11px 12px;
         border: 1px solid rgba(185, 173, 154, 0.58);
-        border-radius: 10px;
+        border-radius: 16px;
         background: rgba(255, 253, 248, 0.72);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check:has(input:checked) {
-        border-color: rgba(200, 156, 72, 0.5);
-        background: rgba(255, 244, 214, 0.74);
+        border-color: rgba(137, 93, 28, 0.58);
+        background: linear-gradient(180deg, rgba(255, 244, 214, 0.95), rgba(255, 250, 238, 0.9));
+        box-shadow: inset 0 0 0 1px rgba(137, 93, 28, 0.12);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check input {
-        width: 17px;
-        height: 17px;
+        width: 24px;
+        height: 24px;
         margin: 0;
         justify-self: center;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check span span {
-        font-size: 14px;
-        line-height: 1.2;
+        font-size: 16px;
+        line-height: 1.15;
+      }
+      .pqx-mobile-helper {
+        display: block;
+        flex: 1 1 100%;
+        margin: 0 0 2px;
+        color: var(--pq-muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .pqx-choice-groupbox-head .pqx-choice-groupbox-actions {
+        width: 100%;
+        justify-content: stretch;
+      }
+      .pqx-field-tools .pqx-field-action {
+        flex: 1 1 0;
+        min-height: 48px;
+        padding: 0 14px;
+        font-size: 13px;
       }
       .pqx-billing-note-rail {
         align-items: flex-start;
@@ -6234,8 +6258,17 @@
       .pqx-result-fact,
       .pqx-result-open,
       .pqx-progress-button {
-        min-height: 32px;
-        padding-inline: 10px;
+        min-height: 44px;
+        padding-inline: 12px;
+        border-radius: 14px;
+        font-size: 12px;
+      }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-open,
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-progress-button {
+        min-height: 44px;
+        padding-inline: 12px;
+        border-radius: 14px;
+        font-size: 12px;
       }
       .pqx-score-bts-head,
       .pqx-score-bts-grid {
@@ -6304,15 +6337,25 @@
       .pqx-button,
       .pqx-link-button {
         width: 100%;
+        min-height: 48px;
+        border-radius: 14px;
+      }
+      .pqx-shell :is(button, summary, select, textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), .console-action):not(.pqx-tooltip) {
+        min-height: 48px !important;
+      }
+      .pqx-shell .console-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 14px;
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] {
-        position: sticky;
-        bottom: max(6px, env(safe-area-inset-bottom, 0px));
+        position: static;
         z-index: 30;
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 6px;
-        margin: 4px -2px 0;
+        margin: 4px 0 0;
         padding: 6px;
         border: 1px solid var(--pq-line);
         border-radius: 10px;
@@ -6328,8 +6371,9 @@
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button {
         width: auto;
         flex: 1 1 0;
-        min-height: 38px;
+        min-height: 56px;
         padding: 0 12px;
+        border-radius: 14px;
       }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button.subtle {
         flex: 0 0 auto;
@@ -7145,10 +7189,11 @@
                   <div class="pqx-choice-groupbox-head">
                     <div class="pqx-choice-groupbox-actions pqx-field-tools">
                       {% if field.name == 'selected_platforms' %}
-                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select providers</button>
+                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all providers">All providers</button>
                       {% else %}
-                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}">Select all areas</button>
-                      <button class="pqx-field-action" type="button" data-checkbox-group-clear-all="{{ field.name }}">Deselect all areas</button>
+                      <p class="pqx-mobile-helper">Tap only the areas you want. Big rows are easier than map pins on a phone.</p>
+                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all areas">All areas</button>
+                      <button class="pqx-field-action" type="button" data-checkbox-group-clear-all="{{ field.name }}" aria-label="Clear selected areas">Clear</button>
                       {% endif %}
                     </div>
                   </div>

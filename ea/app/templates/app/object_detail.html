@@ -438,6 +438,15 @@
     .object-actions form button {
       width: 100%;
     }
+    :is(button, summary, select, textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), .console-action):not(.object-tooltip) {
+      min-height: 48px !important;
+      border-radius: 14px;
+    }
+    .console-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
     .object-media-toolbar {
       position: static;
       border-width: 0 0 1px 0;

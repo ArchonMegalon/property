@@ -1262,8 +1262,8 @@
     }
     .prd-primary-nav a,
     .prd-primary-nav span {
-      min-height: 34px;
-      padding: 0 10px;
+      min-height: 42px;
+      padding: 0 13px;
       font-size: 0.8rem;
     }
     .prd-top-context {
@@ -1419,12 +1419,23 @@
     .prd-actions .console-action,
     .prd-actions .pqx-button,
     .prd-media-actions .console-action {
-      min-height: 42px;
-      padding: 8px 10px;
-      font-size: 12px;
+      min-height: 56px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      font-size: 13px;
       line-height: 1.15;
       justify-content: center;
       text-align: center;
+    }
+    [data-property-research-detail] :is(button, summary, select, textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), .console-action, .object-feedback-button, .object-feedback-chip):not(.prd-map-tooltip) {
+      min-height: 48px !important;
+      min-width: 48px;
+      border-radius: 14px;
+    }
+    [data-property-research-detail] :is(.console-action, .object-feedback-button, .object-feedback-chip) {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     .prd-visual-console {
       gap: 8px;
@@ -1798,7 +1809,7 @@
       <div class="prd-visual-toolbar">
         <div class="prd-visual-heading">
           <div class="prd-kicker">Visual review</div>
-          <p class="prd-copy">Open the 3D tour or walkthrough from one focused place after you have the basic property read.</p>
+          <p class="prd-copy">Review verified 3D media here, or request a tour and walkthrough when the source evidence is not ready yet.</p>
         </div>
         {% if research_media.get('show_status_line') %}
         <span class="prd-status-badge">{{ research_media.get('status_label') or 'Review ready' }}</span>

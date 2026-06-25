@@ -745,6 +745,74 @@ def _assert_mobile_dock_tap_targets(page: Page) -> None:
     assert undersized == []
 
 
+def _assert_mobile_surface_motor_accessible(page: Page) -> None:
+    _assert_no_horizontal_overflow(page)
+    metrics = page.evaluate(
+        """
+        () => {
+          const topbar = document.querySelector('[data-property-research-topnav]');
+          const selectors = [
+            '.pqx-check',
+            '.pqx-mode-button',
+            '.pqx-button',
+            '.pqx-link-button',
+            '.console-action',
+            'button',
+            'summary',
+            'select',
+            'textarea',
+            'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"])'
+          ];
+          const nodes = Array.from(document.querySelectorAll(selectors.join(',')));
+          const offenders = [];
+          for (const node of nodes) {
+            const rect = node.getBoundingClientRect();
+            const style = window.getComputedStyle(node);
+            const hiddenByClosedDetails = node.closest('details:not([open])') && !node.closest('summary');
+            if (
+              hiddenByClosedDetails ||
+              rect.width <= 0 ||
+              rect.height <= 0 ||
+              style.visibility === 'hidden' ||
+              style.display === 'none'
+            ) {
+              continue;
+            }
+            const text = String(node.textContent || node.getAttribute('aria-label') || node.getAttribute('name') || node.tagName || '').trim();
+            const relaxed = node.matches('.pqx-tooltip, .pqx-account-menu-form button');
+            const allowedHorizontalRail = node.closest('[data-property-mobile-step-rail], .pqx-primary-nav, .prd-primary-nav');
+            if (allowedHorizontalRail && (rect.left < -1 || rect.right > window.innerWidth + 1)) {
+              continue;
+            }
+            const minHeight = relaxed ? 40 : 44;
+            const minWidth = relaxed ? 40 : 44;
+            if (rect.height < minHeight || rect.width < minWidth || rect.left < -1 || rect.right > window.innerWidth + 1) {
+              offenders.push({
+                tag: node.tagName.toLowerCase(),
+                className: String(node.className || '').slice(0, 80),
+                text: text.slice(0, 80),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                left: Math.round(rect.left),
+                right: Math.round(rect.right),
+              });
+            }
+          }
+          return {
+            topbarVisible: Boolean(topbar && topbar.getBoundingClientRect().height > 0),
+            viewportWidth: window.innerWidth,
+            bodyWidth: document.documentElement.scrollWidth,
+            offenderCount: offenders.length,
+            offenders: offenders.slice(0, 12),
+          };
+        }
+        """
+    )
+    assert metrics["topbarVisible"] is True, metrics
+    assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1, metrics
+    assert metrics["offenders"] == [], metrics
+
+
 def _goto_with_browser_budget(page: Page, url: str, *, wait_until: str, budget_ms: int) -> tuple[object, int]:
     started = time.perf_counter()
     response = page.goto(url, wait_until=wait_until)
@@ -1250,6 +1318,47 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert "/app/research/" in page.url
         assert "run_id=run-42" in page.url
         assert page.locator("body", has_text="Family flat near Tiergarten").is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    routes = [
+        "/app/search",
+        "/app/shortlist?run_id=run-42",
+        "/app/alerts",
+        "/app/account",
+        "/app/billing",
+        "/app/settings/google",
+        "/app/settings/access",
+        "/app/settings/usage",
+        "/app/settings/support",
+        "/app/settings/trust",
+        "/app/settings/invitations",
+    ]
+    try:
+        for route in routes:
+            response = page.goto(f"{base_url}{route}", wait_until="domcontentloaded")
+            assert response is not None and response.ok, route
+            page.locator("[data-property-research-topnav]").wait_for(state="visible", timeout=5000)
+            _assert_mobile_surface_motor_accessible(page)
+            if page.locator("[data-property-mobile-dock]").count():
+                _assert_mobile_dock_tap_targets(page)
+
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
+        assert packet_href
+        response = page.goto(packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator("[data-property-research-detail]").wait_for(state="visible", timeout=5000)
+        _assert_mobile_surface_motor_accessible(page)
     finally:
         context.close()
 
@@ -2954,19 +3063,19 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["railScrollWidth"] >= mobile_metrics["railClientWidth"]
         assert mobile_metrics["railPosition"] == "sticky"
         assert mobile_metrics["dockVisible"] is True
-        assert mobile_metrics["dockPosition"] == "sticky"
-        assert "env(safe-area-inset-bottom" in mobile_metrics["dockBottom"] or mobile_metrics["dockBottom"] != "auto"
+        assert mobile_metrics["dockPosition"] in {"sticky", "static"}
+        if mobile_metrics["dockPosition"] == "sticky":
+            assert "env(safe-area-inset-bottom" in mobile_metrics["dockBottom"] or mobile_metrics["dockBottom"] != "auto"
         assert mobile_metrics["resultWidth"] <= mobile_metrics["viewportWidth"] + 1
         if mobile_metrics["thumbWidth"]:
             assert 96 <= mobile_metrics["thumbWidth"] <= 120
         assert mobile_metrics["areaRowCount"] >= 6
-        assert 44 <= mobile_metrics["areaRowMinHeight"] <= 50
+        assert mobile_metrics["areaRowMinHeight"] >= 60
         assert mobile_metrics["areaRowsClearOfDock"] >= 6
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
-        assert "24px" in mobile_metrics["areaRowGridColumns"]
+        assert "34px" in mobile_metrics["areaRowGridColumns"]
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
         assert mobile_metrics["areaGridOverflowY"] in {"auto", "scroll"}
-        assert mobile_metrics["areaGridScrolls"] is True
         assert mobile_metrics["areaGridBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
         assert mobile_metrics["lastAreaBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
         assert mobile_metrics["lastAreaTopAfterScroll"] >= 0

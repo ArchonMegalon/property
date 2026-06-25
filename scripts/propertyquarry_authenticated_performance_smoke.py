@@ -467,10 +467,19 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             )
         )
     if path.startswith("/app/research/"):
+        unevidenced_visual_ready = (
+            'data-prd-visual-card="tour"' in body
+            and 'data-prd-visual-card="walkthrough"' in body
+            and 'data-pw-visual-state="ready"' in body
+            and ("Request 3D tour" in body or "Request walkthrough" in body)
+        )
         checks.extend(
             (
                 {"name": "research_candidate", "ok": "Performance smoke apartment in 1020 Vienna" in body},
                 {"name": "media_requests_explicit", "ok": "Request" in body and "tour" in body.lower()},
+                {"name": "research_visual_cards_present", "ok": 'data-prd-visual-card="tour"' in body and 'data-prd-visual-card="walkthrough"' in body},
+                {"name": "research_visual_requests_honest", "ok": 'data-pw-visual-request="tour"' in body and 'data-pw-visual-request="flythrough"' in body and 'data-pw-visual-state="idle"' in body},
+                {"name": "research_no_fake_visual_ready", "ok": not unevidenced_visual_ready},
                 {"name": "research_confirmed_listing_facts", "ok": "Facts confirmed" in body and "confirmed automatically from provider evidence" in body},
                 {"name": "research_confirmed_price_signal", "ok": "Budget signal" in body and "EUR 1,290" in body},
             )

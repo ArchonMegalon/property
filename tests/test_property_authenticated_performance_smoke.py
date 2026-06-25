@@ -48,6 +48,9 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         assert check_names["rybbit_no_private_payload"]
     assert any(check["name"] == "map_only_thumbnails" and check["ok"] for check in routes["/app/agents"]["checks"])
     assert any(check["name"] == "media_requests_explicit" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_visual_cards_present" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_visual_requests_honest" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_no_fake_visual_ready" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_confirmed_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_confirmed_price_signal" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
@@ -94,6 +97,8 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"mobile_dock_target"' in result.stdout
     assert '"billing_white_label_copy"' in result.stdout
     assert '"provider_login_implicit_account_creation"' in result.stdout
+    assert '"research_visual_requests_honest"' in result.stdout
+    assert '"research_no_fake_visual_ready"' in result.stdout
     assert '"notification_destination_controls"' in result.stdout
     assert '"rybbit_taxonomy_events_only"' in result.stdout
     assert '"rybbit_no_private_payload"' in result.stdout
