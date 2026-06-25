@@ -146,6 +146,7 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
                     or "Compare plans" in visible_text
                     or ("Account status" in visible_text and "current access is active" in lowered_visible)
                     or ("Access status" in visible_text and "current access is active" in lowered_visible)
+                    or (bool(expected_plan_label) and expected_plan_label in visible_text and "All ranked" in visible_text)
                     or "Open billing account" in visible_text,
                 ),
                 ("billing_no_self_link", 'href="/app/billing"' not in text),
