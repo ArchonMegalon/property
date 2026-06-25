@@ -1042,6 +1042,17 @@ def _property_search_replacement_run_stale_seconds() -> int:
     return max(30, min(parsed, _property_search_run_stale_seconds()))
 
 
+def _property_search_active_run_stale_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SEARCH_ACTIVE_RUN_STALE_SECONDS") or "").strip()
+    if not raw_value:
+        return _property_search_replacement_run_stale_seconds()
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return _property_search_replacement_run_stale_seconds()
+    return max(30, min(parsed, _property_search_run_stale_seconds()))
+
+
 def _property_search_review_open_timeout_seconds() -> float:
     return _state_property_search_review_open_timeout_seconds(default_seconds=20.0)
 
@@ -1074,6 +1085,27 @@ def _property_search_replacement_run_is_stale(state: dict[str, object]) -> bool:
         terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
         parse_utcish=_parse_utcish,
         stale_seconds=_property_search_replacement_run_stale_seconds(),
+    )
+
+
+def _property_search_active_run_is_stale(state: dict[str, object]) -> bool:
+    liveness_state = dict(state)
+    event_times: list[datetime] = []
+    for event in list(liveness_state.get("events") or []):
+        if not isinstance(event, dict):
+            continue
+        parsed_event_at = _parse_utcish(str(event.get("at") or ""))
+        if parsed_event_at is not None:
+            event_times.append(parsed_event_at)
+    latest_event_at = max(event_times) if event_times else None
+    row_updated_at = _parse_utcish(str(liveness_state.get("updated_at") or ""))
+    if latest_event_at is not None and (row_updated_at is None or latest_event_at < row_updated_at):
+        liveness_state["updated_at"] = latest_event_at.isoformat()
+    return _state_property_search_run_is_stale(
+        liveness_state,
+        terminal_statuses=_PROPERTY_SEARCH_TERMINAL_STATUSES,
+        parse_utcish=_parse_utcish,
+        stale_seconds=_property_search_active_run_stale_seconds(),
     )
 
 
@@ -32432,6 +32464,25 @@ class ProductService:
                 return False
             return _property_search_replacement_run_is_stale(dict(payload))
 
+        def _has_stale_active_execution(payload: dict[str, object]) -> bool:
+            status = str(payload.get("status") or dict(payload.get("summary") or {}).get("status") or "").strip().lower()
+            if not status or status in _PROPERTY_SEARCH_TERMINAL_STATUSES or status == "initialization_required":
+                return False
+            current_step = str(payload.get("current_step") or dict(payload.get("summary") or {}).get("current_step") or "").strip().lower()
+            active_checkpoint_steps = {
+                "source_fetching",
+                "source_extracting",
+                "source_rank_prep",
+                "source_previewing",
+                "source_assessing",
+                "source_ranking",
+                "source_shortlist",
+                "source_review_packet",
+            }
+            if current_step not in active_checkpoint_steps:
+                return False
+            return _property_search_active_run_is_stale(dict(payload))
+
         if lightweight:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
             if isinstance(compact_snapshot, dict) and compact_snapshot:
@@ -32443,7 +32494,11 @@ class ProductService:
                 )
                 summary = self._apply_property_search_run_repair_receipts(summary=summary)
                 compact_snapshot["summary"] = summary
-                if _has_pending_worker_exception_repair(summary) or _has_stale_replacement_execution(compact_snapshot):
+                if (
+                    _has_pending_worker_exception_repair(summary)
+                    or _has_stale_replacement_execution(compact_snapshot)
+                    or _has_stale_active_execution(compact_snapshot)
+                ):
                     full_snapshot = self.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=run_id,
@@ -32482,11 +32537,12 @@ class ProductService:
         )
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         replacement_parent_refs = _replacement_parent_refs_from_payload(snapshot)
-        if replacement_parent_refs and _has_stale_replacement_execution(snapshot):
+        if (replacement_parent_refs and _has_stale_replacement_execution(snapshot)) or _has_stale_active_execution(snapshot):
+            pickup_reason = "replacement_run_stale" if replacement_parent_refs else "active_run_checkpoint_stale"
             pickup = self._pick_up_property_search_run_execution(
                 record=dict(snapshot),
                 actor="property_search_status_recovery",
-                reason="replacement_run_stale",
+                reason=pickup_reason,
                 parent_run_ids=replacement_parent_refs,
             )
             if str(pickup.get("status") or "").strip() == "started":
@@ -32980,6 +33036,17 @@ class ProductService:
             if step not in {"queued", "starting", "recovery_pickup_started"}
         ):
             return True, (), "startup_checkpoint_stale"
+        if current_step in {
+            "source_fetching",
+            "source_extracting",
+            "source_rank_prep",
+            "source_previewing",
+            "source_assessing",
+            "source_ranking",
+            "source_shortlist",
+            "source_review_packet",
+        }:
+            return True, parent_refs, "replacement_run_stale" if parent_refs else "active_run_checkpoint_stale"
         return False, (), ""
 
     def _pick_up_property_search_run_execution(
@@ -33002,14 +33069,23 @@ class ProductService:
             current_state = _PROPERTY_SEARCH_RUN_REGISTRY.get(run_id)
             if not isinstance(current_state, dict) or str(current_state.get("principal_id") or "").strip() != principal_id:
                 _PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
-        pickup_started = len(
+        run_events = [event for event in list(state.get("events") or []) if isinstance(event, dict)]
+        total_pickup_started = len(
             [
                 event
-                for event in list(state.get("events") or [])
-                if isinstance(event, dict) and str(event.get("step") or "").strip() == "recovery_pickup_started"
+                for event in run_events
+                if str(event.get("step") or "").strip() == "recovery_pickup_started"
             ]
         )
-        if pickup_started >= 2:
+        consecutive_pickup_started = 0
+        for event in reversed(run_events):
+            step = str(event.get("step") or "").strip()
+            if step == "recovery_pickup_started":
+                consecutive_pickup_started += 1
+                continue
+            if step:
+                break
+        if consecutive_pickup_started >= 2:
             return {"status": "skipped", "reason": "pickup_retry_limit_exceeded"}
         selected_platforms = tuple(
             str(item or "").strip()
@@ -33034,7 +33110,8 @@ class ProductService:
         summary_updates: dict[str, object] = {
             "execution_pickup_status": "started",
             "execution_pickup_reason": reason,
-            "execution_pickup_attempt": pickup_started + 1,
+            "execution_pickup_attempt": total_pickup_started + 1,
+            "execution_pickup_consecutive_attempt": consecutive_pickup_started + 1,
         }
         if parent_refs:
             summary_updates["repair_parent_run_id"] = parent_refs[0]
@@ -33268,8 +33345,9 @@ class ProductService:
                     dict(record)
                 )
                 run_is_stale = _property_search_run_is_stale(dict(record))
+                active_run_is_stale = _property_search_active_run_is_stale(dict(record))
                 replacement_is_stale = bool(parent_run_ids) and _property_search_replacement_run_is_stale(dict(record))
-                if not run_is_stale and not replacement_is_stale:
+                if not run_is_stale and not replacement_is_stale and not active_run_is_stale:
                     continue
                 stale_total += 1
                 if should_pick_up:

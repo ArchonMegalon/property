@@ -4778,6 +4778,140 @@ def test_property_search_status_picks_up_stale_replacement_run_from_lightweight_
     assert pickup_calls[0]["record"]["run_id"] == replacement_run_id
 
 
+def test_property_search_status_picks_up_stale_active_checkpoint_from_lightweight_poll(monkeypatch) -> None:
+    principal_id = "exec-property-search-status-recovery-active"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Status Active Recovery Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "3600")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_ACTIVE_RUN_STALE_SECONDS", "60")
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = "status-active-stale-run"
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        force_refresh=True,
+    )
+    state["status"] = "in_progress"
+    state["current_step"] = "source_previewing"
+    state["message"] = "Reviewing candidate 12 of 34 for Willhaben."
+    state["updated_at"] = stale_timestamp
+    state["events"] = [
+        {
+            "at": stale_timestamp,
+            "step": "source_previewing",
+            "status": "in_progress",
+            "message": "Reviewing candidate 12 of 34 for Willhaben.",
+        }
+    ]
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+    product_service._store_property_search_run_record(dict(state))
+
+    pickup_calls: list[dict[str, object]] = []
+
+    def _fake_pickup(self, **kwargs):
+        pickup_calls.append(dict(kwargs))
+        return {
+            "status": "started",
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "reason": "active_run_checkpoint_stale",
+            "parent_run_ids": [],
+        }
+
+    monkeypatch.setattr(ProductService, "_pick_up_property_search_run_execution", _fake_pickup)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    assert pickup_calls
+    assert pickup_calls[0]["reason"] == "active_run_checkpoint_stale"
+    assert pickup_calls[0]["parent_run_ids"] == ()
+    assert pickup_calls[0]["record"]["run_id"] == run_id
+
+
+def test_property_search_recovery_allows_pickup_after_real_progress(monkeypatch) -> None:
+    principal_id = "exec-property-search-recovery-after-progress"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Recovery After Progress Office")
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setattr(ProductService, "_best_effort_propertyquarry_teable_sync", lambda *args, **kwargs: None)
+
+    scout_calls: list[dict[str, object]] = []
+
+    def _fake_scout(self, **kwargs):
+        scout_calls.append(dict(kwargs))
+        return {
+            "status": "processed",
+            "sources_total": 1,
+            "sources_completed": 1,
+            "ranked_candidates": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_scout)
+
+    run_id = "recovery-after-progress-run"
+    older = (datetime.now(timezone.utc) - timedelta(minutes=8)).isoformat()
+    recent_progress = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        force_refresh=True,
+    )
+    state["status"] = "in_progress"
+    state["current_step"] = "source_previewing"
+    state["updated_at"] = recent_progress
+    state["events"] = [
+        {
+            "at": older,
+            "step": "recovery_pickup_started",
+            "status": "in_progress",
+            "message": "Scheduler picked up the stale active search run for live execution.",
+        },
+        {
+            "at": older,
+            "step": "recovery_pickup_started",
+            "status": "in_progress",
+            "message": "Scheduler picked up the stale active search run for live execution.",
+        },
+        {
+            "at": recent_progress,
+            "step": "source_previewing",
+            "status": "in_progress",
+            "message": "Reviewing candidate 12 of 34 for Willhaben.",
+        },
+    ]
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    pickup = service._pick_up_property_search_run_execution(
+        record=dict(state),
+        actor="property_search_status_recovery",
+        reason="active_run_checkpoint_stale",
+    )
+
+    assert pickup["status"] == "started"
+    for _ in range(60):
+        status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+        summary = dict(status.get("summary") or {}) if isinstance(status, dict) else {}
+        if summary.get("execution_pickup_status") == "completed":
+            break
+        time.sleep(0.02)
+    assert scout_calls
+    assert status["summary"]["execution_pickup_attempt"] == 3
+    assert status["summary"]["execution_pickup_consecutive_attempt"] == 1
+    assert status["summary"]["execution_pickup_reason"] == "active_run_checkpoint_stale"
+
+
 def test_property_search_recovery_pickup_failure_opens_repair_task(monkeypatch) -> None:
     principal_id = "exec-property-search-recovery-pickup-failure"
     client = build_property_client(principal_id=principal_id)
