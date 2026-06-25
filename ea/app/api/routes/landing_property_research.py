@@ -1109,6 +1109,31 @@ def _property_packet_missing_rows(
     return rows
 
 
+def _property_research_distance_detail(
+    facts: dict[str, object],
+    *,
+    distance_key: str,
+    name_keys: tuple[str, ...],
+    source_keys: tuple[str, ...],
+) -> str:
+    raw_value = facts.get(distance_key)
+    if raw_value in (None, "", []):
+        return ""
+    try:
+        meters = int(float(raw_value))
+    except Exception:
+        return ""
+    if meters <= 0:
+        return ""
+    name = next((str(facts.get(key) or "").strip() for key in name_keys if str(facts.get(key) or "").strip()), "")
+    source = next((str(facts.get(key) or "").strip() for key in source_keys if str(facts.get(key) or "").strip()), "")
+    subject = name or "nearest confirmed option"
+    parts = [f"{subject}: {meters} m away"]
+    if source:
+        parts.append(f"source: {source}")
+    return " | ".join(parts)
+
+
 def _property_packet_everyday_fit_rows(
     *,
     facts: dict[str, object],
@@ -1116,30 +1141,88 @@ def _property_packet_everyday_fit_rows(
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     family_context = _property_family_context_active(preferences)
-    for key, title, tag, family_only in (
-        ("nearest_supermarket_m", "Supermarket", "Errands", False),
-        ("nearest_playground_m", "Playground", "Family", True),
-        ("nearest_library_m", "Library", "Family", True),
-        ("nearest_zoo_m", "Zoo", "Family", True),
-        ("nearest_medical_care_m", "Medical care", "Family", True),
-        ("nearest_market_m", "Market", "District life", False),
-        ("nearest_hardware_store_m", "Baumarkt", "Practical", False),
-        ("nearest_shopping_center_m", "Shopping center", "Errands", False),
-        ("nearest_shopping_street_m", "Flaniermeile", "City life", False),
-        ("nearest_theatre_m", "Theatre", "Culture", False),
-        ("nearest_public_pool_m", "Public pool", "Family", True),
-        ("nearest_subway_m", "Underground", "Transit", False),
-    ):
+    everyday_specs = (
+        (
+            "nearest_supermarket_m",
+            "Supermarket",
+            "Errands",
+            False,
+            ("nearest_supermarket_name", "supermarket_name"),
+            ("nearest_supermarket_source", "supermarket_source"),
+        ),
+        (
+            "nearest_playground_m",
+            "Playground",
+            "Family",
+            True,
+            ("nearest_playground_name", "playground_name"),
+            ("nearest_playground_source", "playground_source"),
+        ),
+        ("nearest_library_m", "Library", "Family", True, ("nearest_library_name", "library_name"), ("nearest_library_source", "library_source")),
+        ("nearest_zoo_m", "Zoo", "Family", True, ("nearest_zoo_name", "zoo_name"), ("nearest_zoo_source", "zoo_source")),
+        (
+            "nearest_medical_care_m",
+            "Medical care",
+            "Family",
+            True,
+            ("nearest_medical_care_name", "medical_care_name"),
+            ("nearest_medical_care_source", "medical_care_source"),
+        ),
+        ("nearest_market_m", "Market", "District life", False, ("nearest_market_name", "market_name"), ("nearest_market_source", "market_source")),
+        (
+            "nearest_hardware_store_m",
+            "Baumarkt",
+            "Practical",
+            False,
+            ("nearest_hardware_store_name", "hardware_store_name"),
+            ("nearest_hardware_store_source", "hardware_store_source"),
+        ),
+        (
+            "nearest_shopping_center_m",
+            "Shopping center",
+            "Errands",
+            False,
+            ("nearest_shopping_center_name", "shopping_center_name"),
+            ("nearest_shopping_center_source", "shopping_center_source"),
+        ),
+        (
+            "nearest_shopping_street_m",
+            "Flaniermeile",
+            "City life",
+            False,
+            ("nearest_shopping_street_name", "shopping_street_name"),
+            ("nearest_shopping_street_source", "shopping_street_source"),
+        ),
+        ("nearest_theatre_m", "Theatre", "Culture", False, ("nearest_theatre_name", "theatre_name"), ("nearest_theatre_source", "theatre_source")),
+        (
+            "nearest_public_pool_m",
+            "Public pool",
+            "Family",
+            True,
+            ("nearest_public_pool_name", "public_pool_name"),
+            ("nearest_public_pool_source", "public_pool_source"),
+        ),
+        (
+            "nearest_subway_m",
+            "Underground",
+            "Transit",
+            False,
+            ("nearest_subway_name", "subway_station_name"),
+            ("nearest_subway_source", "subway_source"),
+        ),
+    )
+    for key, title, tag, family_only, name_keys, source_keys in everyday_specs:
         if family_only and not family_context:
             continue
-        raw_value = facts.get(key)
-        if raw_value in (None, "", []):
+        detail = _property_research_distance_detail(
+            facts,
+            distance_key=key,
+            name_keys=name_keys,
+            source_keys=source_keys,
+        )
+        if not detail:
             continue
-        try:
-            meters = int(float(raw_value))
-        except Exception:
-            continue
-        rows.append(_object_detail_row(title, f"About {meters} m away.", tag))
+        rows.append(_object_detail_row(title, detail, tag))
     if bool(preferences.get("enable_commute_research")):
         commute_rows: list[str] = []
         for key, label in (

@@ -696,6 +696,29 @@ def test_propertyquarry_research_rows_use_auto_confirmed_listing_facts() -> None
     assert tags_by_title["Facts confirmed"] == "Confirmed"
 
 
+def test_propertyquarry_research_everyday_fit_rows_use_named_confirmed_distances() -> None:
+    rows = landing_property_research._property_packet_everyday_fit_rows(
+        facts={
+            "nearest_supermarket_m": 951,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+            "nearest_pharmacy_m": 0,
+            "nearest_subway_m": "unknown",
+        },
+        preferences={},
+    )
+
+    assert rows == [
+        {
+            "title": "Supermarket",
+            "detail": "BILLA Praterstern: 951 m away | source: OpenStreetMap",
+            "tag": "Errands",
+        }
+    ]
+    assert "Supermarket distance" not in json.dumps(rows)
+    assert "with no value" not in json.dumps(rows)
+
+
 def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_code() -> None:
     assert _property_source_display_label("DER STANDARD Immobilien | Austria | Rent | 1010 Vienna") == "DER STANDARD Immobilien"
     assert _property_source_display_label("Willhaben | Austria | Rent | Salzburg") == "Willhaben"
