@@ -57,6 +57,33 @@ def test_live_mobile_smoke_accepts_external_billing_handoff() -> None:
     assert _failed_names("/app/billing", metrics) == set()
 
 
+def test_live_mobile_smoke_accepts_fail_closed_billing_recovery() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "status_code": 503,
+            "billing_visible_text": "PropertyQuarry Billing handoff unavailable. Billing is handled in the external account lane. Configure the white-label billing URL.",
+        }
+    )
+
+    assert _failed_names("/app/billing", metrics) == set()
+
+
+def test_live_mobile_smoke_rejects_local_billing_page() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "status_code": 503,
+            "billing_visible_text": "PropertyQuarry Plan Agent Billing history Compare plans Open pricing",
+        }
+    )
+
+    assert _failed_names("/app/billing", metrics) == {
+        "billing_fail_closed_recovery",
+        "billing_local_page_deleted",
+    }
+
+
 def test_live_mobile_smoke_rejects_local_billing_redirect_loop() -> None:
     metrics = _base_metrics()
     metrics.update({"status_code": 303, "redirect_location": "/app/billing"})

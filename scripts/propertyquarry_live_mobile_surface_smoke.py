@@ -79,6 +79,12 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
             {"name": "billing_external_handoff", "ok": redirect_location.startswith("https://") and "/app/billing" not in redirect_location},
             {"name": "billing_local_page_deleted", "ok": True},
         ]
+    if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) == 503:
+        billing_text = str(metrics.get("billing_visible_text") or "").strip().lower()
+        return [
+            {"name": "billing_fail_closed_recovery", "ok": all(marker in billing_text for marker in ("billing handoff unavailable", "external account lane", "white-label billing url"))},
+            {"name": "billing_local_page_deleted", "ok": not any(marker in billing_text for marker in ("open pricing", "compare plans", "plus checkout", "billing history"))},
+        ]
     expectations = _route_expectations(route)
     viewport_width = int(metrics.get("viewport_width") or 0)
     body_width = int(metrics.get("body_width") or 0)
@@ -279,6 +285,12 @@ def build_live_mobile_surface_receipt(
                     try:
                         response = context.request.get(request_url, headers=request_headers, max_redirects=0, timeout=timeout_ms)
                         status_code = int(response.status)
+                        billing_text = ""
+                        if status_code == 503:
+                            try:
+                                billing_text = str(response.text() or "")
+                            except Exception:
+                                billing_text = ""
                         metrics = {
                             "status_code": status_code,
                             "viewport_width": viewport_width,
@@ -286,6 +298,7 @@ def build_live_mobile_surface_receipt(
                             "topbar_height": 0,
                             "min_action_height": 44,
                             "redirect_location": str(response.headers.get("location") or ""),
+                            "billing_visible_text": billing_text,
                         }
                         checks = evaluate_mobile_metrics(route, metrics)
                         rows.append(

@@ -30,6 +30,19 @@ FORBIDDEN_CUSTOMER_NOISE = (
     "main blocker",
     "best next move",
 )
+BILLING_FAIL_CLOSED_MARKERS = (
+    "billing handoff unavailable",
+    "external account lane",
+    "white-label billing url",
+)
+BILLING_LOCAL_BOARD_MARKERS = (
+    "open pricing",
+    "compare plans",
+    "plus checkout",
+    "billing history",
+    "current commercial state",
+    "plan posture",
+)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -146,16 +159,14 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
         checks.extend(
             (
                 (
-                    "billing_has_pricing_action",
-                    "Open pricing" in visible_text
-                    or "Request access" in visible_text
-                    or "Compare plans" in visible_text
-                    or ("Account status" in visible_text and "current access is active" in lowered_visible)
-                    or ("Access status" in visible_text and "current access is active" in lowered_visible)
-                    or (bool(expected_plan_label) and expected_plan_label in visible_text and "All ranked" in visible_text)
-                    or "Open billing account" in visible_text,
+                    "billing_fail_closed_recovery",
+                    all(marker in lowered_visible for marker in BILLING_FAIL_CLOSED_MARKERS),
                 ),
                 ("billing_no_self_link", 'href="/app/billing"' not in text),
+                (
+                    "billing_local_board_deleted",
+                    not any(marker in lowered_visible for marker in BILLING_LOCAL_BOARD_MARKERS),
+                ),
                 ("billing_no_customer_noise", not any(noise in lowered_visible for noise in FORBIDDEN_CUSTOMER_NOISE)),
             )
         )
@@ -221,7 +232,14 @@ def build_live_authenticated_smoke_receipt(
                 ("status_ok", True),
                 *_security_header_checks(headers=headers),
                 ("billing_external_handoff", location.startswith("https://") and "/app/billing" not in location),
+                ("billing_local_board_deleted", True),
                 ("billing_no_customer_noise", True),
+            ]
+        elif path == "/app/billing" and status_code == 503:
+            route_checks = [
+                ("status_ok", True),
+                *_security_header_checks(headers=headers),
+                *_route_checks(path=path, text=text, expected_plan_label=expected_plan_label),
             ]
         else:
             route_checks = [
