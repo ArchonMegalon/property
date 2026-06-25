@@ -15,7 +15,6 @@ def _base_metrics() -> dict[str, object]:
         "viewport_width": 390,
         "topbar_height": 72,
         "topnav_visible": True,
-        "mobile_dock_visible": True,
         "min_action_height": 46,
         "visible_card_count": 12,
         "heavy_shadow_count": 0,
@@ -45,9 +44,8 @@ def test_live_mobile_smoke_accepts_compact_search_surface_metrics() -> None:
     assert _failed_names("/app/search", _base_metrics()) == set()
 
 
-def test_live_mobile_smoke_accepts_empty_shortlist_without_mode_dock() -> None:
+def test_live_mobile_smoke_accepts_empty_shortlist_with_top_navigation_only() -> None:
     metrics = _base_metrics()
-    metrics.update({"mobile_dock_visible": False})
 
     assert _failed_names("/app/shortlist", metrics) == set()
 
@@ -70,7 +68,6 @@ def test_live_mobile_smoke_accepts_research_and_packets_surfaces_without_search_
     metrics = _base_metrics()
     metrics.update(
         {
-            "mobile_dock_visible": False,
             "district_picker_available": False,
             "district_map_popup_available": False,
             "district_list_hidden_in_map_mode": False,

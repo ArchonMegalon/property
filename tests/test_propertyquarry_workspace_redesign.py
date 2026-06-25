@@ -13299,7 +13299,7 @@ def test_property_workspace_primary_internal_links_resolve() -> None:
     assert "/sign-in" in audited_page_paths
 
 
-def test_property_settings_subpages_keep_property_shell_and_mobile_dock() -> None:
+def test_property_settings_subpages_keep_property_shell_and_top_mobile_nav() -> None:
     client = build_property_client(principal_id="pq-settings-shell-contract")
     start_workspace(client, mode="personal", workspace_name="Property Office")
     headers = {"host": "propertyquarry.com"}

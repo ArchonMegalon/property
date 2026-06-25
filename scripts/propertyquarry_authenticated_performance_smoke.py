@@ -518,25 +518,40 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     response = client.get(
         path,
         headers={"host": "propertyquarry.com"},
-        follow_redirects=not path.startswith("/app/research/"),
+        follow_redirects=not (path.startswith("/app/research/") or path == "/app/billing"),
     )
     duration_ms = round((time.perf_counter() - started) * 1000)
     body = response.text or ""
     lowered_body = body.lower()
+    billing_redirect_location = str(response.headers.get("location") or "").strip()
+    billing_handoff_redirect_ok = (
+        path == "/app/billing"
+        and response.status_code in {303, 307}
+        and billing_redirect_location.startswith("https://billing.propertyquarry.test/")
+    )
     noise_hits = [
         phrase
         for phrase in FORBIDDEN_CUSTOMER_NOISE
         if phrase in lowered_body
     ]
     checks = [
-        {"name": "status_200", "ok": response.status_code == 200},
+        {"name": "status_ok", "ok": response.status_code == 200 or billing_handoff_redirect_ok},
         {"name": "under_budget", "ok": duration_ms <= budget_ms},
-        {"name": "contains_propertyquarry", "ok": "PropertyQuarry" in body},
+        {"name": "contains_propertyquarry", "ok": "PropertyQuarry" in body or billing_handoff_redirect_ok},
         {"name": "no_generic_ea_copy", "ok": "Executive Assistant" not in body and "Morning Memo" not in body},
         {"name": "no_customer_jargon", "ok": not noise_hits, "detail": ", ".join(noise_hits[:5])},
     ]
-    checks.extend(_mobile_surface_contract_checks(path, body))
-    checks.extend(_rybbit_surface_contract_checks(path, body))
+    if billing_handoff_redirect_ok:
+        checks.append(
+            {
+                "name": "billing_external_handoff_redirect",
+                "ok": True,
+                "location_host": "billing.propertyquarry.test",
+            }
+        )
+    else:
+        checks.extend(_mobile_surface_contract_checks(path, body))
+        checks.extend(_rybbit_surface_contract_checks(path, body))
     if path == "/app/agents":
         checks.extend(
             (
@@ -588,7 +603,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "delivery_controls", "ok": "Delivery rules" in body or "Notifications" in body},
             )
         )
-    if path == "/app/billing":
+    if path == "/app/billing" and not billing_handoff_redirect_ok:
         billing_noise_hits = [token for token in FORBIDDEN_BILLING_SURFACE_TOKENS if token in lowered_body]
         checks.extend(
             (
@@ -682,6 +697,13 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
     os.environ["EA_API_TOKEN"] = ""
     os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED"] = "1"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED"] = "1"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED"] = "0"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL"] = "https://billing.propertyquarry.test"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS"] = "billing.propertyquarry.test"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL"] = "https://billing.propertyquarry.test/account"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY"] = "performance-smoke-local-key"
     principal_id = "pq-auth-performance-smoke"
     client = TestClient(create_app(), base_url="https://propertyquarry.com")
     client.headers.update({"X-EA-Principal-ID": principal_id, "host": "propertyquarry.com"})

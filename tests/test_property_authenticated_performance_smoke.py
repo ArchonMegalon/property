@@ -44,6 +44,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     for route in routes.values():
         check_names = {str(check["name"]): bool(check["ok"]) for check in route["checks"]}
         route_path = str(route["path"]).split("?", 1)[0]
+        if route_path == "/app/billing" and check_names.get("billing_external_handoff_redirect"):
+            continue
         assert check_names["mobile_viewport_meta"]
         if route_path == "/sign-in":
             assert check_names["public_auth_surface"]
@@ -74,9 +76,7 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
     assert any(check["name"] == "provider_login_implicit_account_creation" and check["ok"] for check in routes["/sign-in"]["checks"])
     assert any(check["name"] == "provider_login_copy_is_customer_safe" and check["ok"] for check in routes["/sign-in"]["checks"])
-    assert any(check["name"] == "billing_heading" and check["ok"] for check in routes["/app/billing"]["checks"])
-    assert any(check["name"] == "billing_history_visible" and check["ok"] for check in routes["/app/billing"]["checks"])
-    assert any(check["name"] == "billing_white_label_copy" and check["ok"] for check in routes["/app/billing"]["checks"])
+    assert any(check["name"] == "billing_external_handoff_redirect" and check["ok"] for check in routes["/app/billing"]["checks"])
     assert any(check["name"] == "notification_destination_controls" and check["ok"] for check in routes["/app/account"]["checks"])
     assert any(check["name"] == "notification_primary_channel_controls" and check["ok"] for check in routes["/app/account"]["checks"])
     assert any(check["name"] == "notification_opt_in_copy" and check["ok"] for check in routes["/app/account"]["checks"])
@@ -121,9 +121,9 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"mobile_content_first_surface"' in result.stdout
     assert '"mobile_static_switch_suppressed"' in result.stdout
     assert '"mobile_settings_surface"' in result.stdout
+    assert '"billing_external_handoff_redirect"' in result.stdout
     assert '"research_mobile_open_property_compact_layout"' in result.stdout
     assert '"research_mobile_visual_frame_compact"' in result.stdout
-    assert '"billing_white_label_copy"' in result.stdout
     assert '"provider_login_implicit_account_creation"' in result.stdout
     assert '"research_visual_requests_honest"' in result.stdout
     assert '"research_no_fake_visual_ready"' in result.stdout
