@@ -9088,7 +9088,7 @@
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
             <h1>
               {% if run_status == 'failed' %}
-                {{ empty_happened or (run_reliability.get('repair_step_label') and 'Search paused. Repair is working.' or 'Search paused before ranking.') }}
+                {{ empty_happened or (run_reliability.get('repair_step_label') and 'Search paused. Repair is retrying the saved search.' or 'Search paused before ranking.') }}
               {% elif soft_only_empty_state %}
                 No homes cleared the shortlist score for the current brief.
               {% else %}

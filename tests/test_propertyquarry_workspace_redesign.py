@@ -9685,6 +9685,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     template_path = repo_root / "ea/app/templates/app/property_decision_workbench.html"
     running_partial = repo_root / "ea/app/templates/app/_property_running_panel.html"
     script_partial = repo_root / "ea/app/templates/app/_property_workbench_script.html"
+    state_source = (repo_root / "ea/app/product/property_surface_state.py").read_text(encoding="utf-8")
     body = template_path.read_text(encoding="utf-8")
     running_body = running_partial.read_text(encoding="utf-8")
     script_body = script_partial.read_text(encoding="utf-8")
@@ -9720,6 +9721,9 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "source lanes" not in body
     assert "0 lanes in progress" not in body
     assert "lanes in progress" not in body
+    combined_state_copy = body + "\n" + state_source
+    assert "Repair is retrying it" not in combined_state_copy
+    assert "Repair is retrying the saved search" in combined_state_copy
 
 
 def test_property_current_best_omits_unknown_fact_placeholders() -> None:
@@ -11971,7 +11975,7 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert page.status_code == 200
     assert 'data-pqx-state="empty_results"' in page.text
     assert "The search could not finish." not in page.text
-    assert "Search paused." in page.text
+    assert "Search paused. Repair is retrying the saved search." in page.text
     assert "Retrying Willhaben provider check" in page.text
     empty_section = re.search(r'<section class="pqx-stage pqx-empty-results.*?</section>', page.text, re.S)
     assert empty_section is not None
@@ -12044,7 +12048,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
     )
 
     combined = " ".join(str(value) for value in summary.values())
-    assert summary["happened"] == "Search paused. Repair is retrying it."
+    assert summary["happened"] == "Search paused. Repair is retrying the saved search."
     assert "The brief and selected providers were still saved." in combined
     assert "Repair took over before any listing inspection completed." in combined
     assert "repair receipt" not in combined.lower()

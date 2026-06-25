@@ -1234,10 +1234,8 @@ def build_property_empty_outcome_summary(
     elif status_value == "failed":
         if source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
-            if repair_task_open:
-                happened = "Search paused. Repair is retrying it."
-            elif repair_step_label or repair_status_label:
-                happened = "Search paused. Repair is working through the interruption."
+            if repair_task_open or repair_step_label or repair_status_label:
+                happened = "Search paused. Repair is retrying the saved search."
             else:
                 happened = "Search paused before a stable shortlist was ready."
             if source_completed <= 0 and listing_total <= 0:
