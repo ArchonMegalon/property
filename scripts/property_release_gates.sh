@@ -37,7 +37,7 @@ Runs the focused PropertyQuarry release bundle:
   - live provider smoke receipt contracts
   - hosted tour control readiness receipts for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
   - consolidated PropertyQuarry gold-status receipt for mobile/performance, provider matrix, tour controls, repair, and export discovery
-  - optional live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack
+  - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
   - privacy-safe Rybbit analytics snippet contracts
@@ -76,6 +76,20 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
   > _completion/smoke/property-auth-performance-release-gate.json
+live_mobile_base_url="${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:-${PROPERTYQUARRY_LIVE_SMOKE_BASE_URL:-}}"
+if [[ -z "${live_mobile_base_url}" ]]; then
+  echo "error: set PROPERTYQUARRY_LIVE_MOBILE_BASE_URL or PROPERTYQUARRY_LIVE_SMOKE_BASE_URL before running the gold release gate" >&2
+  exit 2
+fi
+if [[ -z "${EA_API_TOKEN:-}" ]]; then
+  echo "error: set EA_API_TOKEN before running the live mobile gold release gate" >&2
+  exit 2
+fi
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.py \
+  --base-url "${live_mobile_base_url}" \
+  --api-token "${EA_API_TOKEN}" \
+  --write _completion/smoke/property-live-mobile-release-gate.json \
+  > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \
   > _completion/repair/propertyquarry-repair-canary-release-gate.json
 if [[ -f _completion/provider_smoke/all-search-ready-current-resumed.json ]]; then
@@ -98,6 +112,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json \
   --repair-canary-receipt _completion/repair/propertyquarry-repair-canary-release-gate.json \
   --provider-matrix-receipt _completion/provider_smoke/release-gate-provider-matrix.json \
+  --live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
