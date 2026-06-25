@@ -495,7 +495,8 @@ def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() ->
     landing = client.get("/")
     assert landing.status_code == 200
     assert "PropertyQuarry" in landing.text
-    assert "Find the right properties. Compare them clearly. Decide with evidence." in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Compare them clearly" not in landing.text
     assert "Executive Assistant" not in landing.text
 
     register = client.get("/register")

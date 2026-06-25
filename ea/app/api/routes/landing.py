@@ -2703,7 +2703,7 @@ def pricing_page(
                 "pricing_checkout_enabled_plans": checkout_enabled_plans,
                 "pricing_order_endpoints_by_plan": checkout_order_endpoints_by_plan,
                 "pricing_checkout_session_ready": checkout_session_ready,
-                "meta_description": "Compare PropertyQuarry plans by search breadth, shortlist density, research depth, and the quality of the property review page.",
+                "meta_description": "Choose a PropertyQuarry plan by search breadth, shortlist density, research depth, and the quality of the property review page.",
                 "structured_data_json": [
                     {
                         "@context": "https://schema.org",

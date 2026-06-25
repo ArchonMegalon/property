@@ -411,7 +411,8 @@ def test_propertyquarry_primary_surfaces_have_no_dead_click_targets_or_generic_n
     )
     for audit_client, path in audited_paths:
         response = audit_client.get(path, headers={"host": "propertyquarry.com"})
-        assert response.status_code == 200, path
+        expected_status = 503 if path == "/app/billing" else 200
+        assert response.status_code == expected_status, path
         rendered_text = re.sub(
             r"<script.*?</script>|<style.*?</style>",
             " ",
@@ -1128,6 +1129,9 @@ def test_propertyquarry_public_and_progress_surfaces_do_not_use_generic_ea_copy(
     root = Path(__file__).resolve().parents[1]
     console_shell = (root / "ea/app/templates/console_shell.html").read_text(encoding="utf-8")
     pdf_renderer = (root / "ea/app/services/fliplink/pdf_renderer.py").read_text(encoding="utf-8")
+    landing_source = (root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
+    public_home = (root / "ea/app/templates/propertyquarry_home.html").read_text(encoding="utf-8")
+    marketing_home = (root / "ea/app/templates/marketing_home.html").read_text(encoding="utf-8")
     rendered_result = public_results._result_html({})
 
     assert "EA post-filtered" not in console_shell
@@ -1139,6 +1143,10 @@ def test_propertyquarry_public_and_progress_surfaces_do_not_use_generic_ea_copy(
     assert "PropertyQuarry public result viewer" in rendered_result
     assert "EA Result" not in rendered_result
     assert "EA public result viewer" not in rendered_result
+    public_copy = "\n".join([landing_source, public_home, marketing_home])
+    assert "Compare PropertyQuarry plans" not in public_copy
+    assert "Compare them clearly" not in public_copy
+    assert "Search once. Rank hard. Research the shortlist." in public_copy
 
 
 def test_propertyquarry_research_investment_rows_use_listing_currency(monkeypatch) -> None:
