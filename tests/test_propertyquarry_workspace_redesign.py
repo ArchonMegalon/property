@@ -12768,6 +12768,27 @@ def test_property_settings_subpages_keep_property_shell_and_mobile_dock() -> Non
         assert 'class="active" href="/app/account' in dock, path
 
 
+def test_property_mobile_browser_gate_explicitly_covers_required_customer_surfaces() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    browser_gate = (repo_root / "tests/e2e/test_propertyquarry_greenfield_browser.py").read_text(encoding="utf-8")
+
+    for route in (
+        "/app/search",
+        "/app/shortlist?run_id=run-42",
+        "/app/research",
+        "/app/billing",
+        "/app/account",
+        "/app/alerts",
+        "/app/settings/google",
+        "/app/settings/access",
+        "/app/settings/usage",
+        "/app/settings/support",
+        "/app/settings/trust",
+        "/app/settings/invitations",
+    ):
+        assert route in browser_gate
+
+
 def test_property_google_settings_uses_fast_local_status(monkeypatch) -> None:
     def _blocked_google_sync_status(*args, **kwargs):
         raise AssertionError("PropertyQuarry Google settings must not block on workspace diagnostics")

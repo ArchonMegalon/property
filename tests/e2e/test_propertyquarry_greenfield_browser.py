@@ -3110,6 +3110,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=True, width=390, height=844)
     routes = [
+        ("/app/shortlist?run_id=run-42", "Shortlist", "propertyquarry-shortlist-mobile.png"),
         ("/app/agents", "Saved searches", "propertyquarry-agents-mobile.png"),
         ("/app/alerts", "Alerts", "propertyquarry-alerts-mobile.png"),
         ("/app/account", "Account", "propertyquarry-account-mobile.png"),
@@ -3138,7 +3139,11 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             _assert_mobile_dock_tap_targets(page)
             expect(page.locator("[data-pqx-launch-top]")).to_have_count(0)
 
-            if route == "/app/agents":
+            if route.startswith("/app/shortlist"):
+                expect(page.locator("body", has_text=re.compile(r"Shortlist|No shortlist yet|Ranked homes", re.I))).to_be_visible()
+                expect(page.locator("[data-property-mobile-dock]")).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"Search|Research|Properties", re.I))).to_be_visible()
+            elif route == "/app/agents":
                 expect(page.locator("[data-property-search-agent-grid]")).to_be_visible()
                 expect(page.locator(".pqx-automation-thumbnail").first).to_be_visible()
             elif route == "/app/alerts":
