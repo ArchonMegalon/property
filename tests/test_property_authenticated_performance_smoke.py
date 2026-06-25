@@ -69,6 +69,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "research_no_fake_visual_ready" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_confirmed_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_confirmed_price_signal" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_mobile_open_property_compact_layout" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_mobile_visual_frame_compact" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
     assert any(check["name"] == "provider_login_implicit_account_creation" and check["ok"] for check in routes["/sign-in"]["checks"])
     assert any(check["name"] == "provider_login_copy_is_customer_safe" and check["ok"] for check in routes["/sign-in"]["checks"])
@@ -118,6 +120,8 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"mobile_content_first_surface"' in result.stdout
     assert '"mobile_static_switch_suppressed"' in result.stdout
     assert '"mobile_settings_surface"' in result.stdout
+    assert '"research_mobile_open_property_compact_layout"' in result.stdout
+    assert '"research_mobile_visual_frame_compact"' in result.stdout
     assert '"billing_white_label_copy"' in result.stdout
     assert '"provider_login_implicit_account_creation"' in result.stdout
     assert '"research_visual_requests_honest"' in result.stdout

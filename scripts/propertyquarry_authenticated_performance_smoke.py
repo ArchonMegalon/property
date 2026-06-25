@@ -549,6 +549,10 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             and 'data-pw-visual-state="ready"' in body
             and ("Request 3D tour" in body or "Request walkthrough" in body)
         )
+        research_css_anchor = body.find(".prd-topbar")
+        mobile_css_start = body.find("@media (max-width: 760px)", research_css_anchor if research_css_anchor >= 0 else 0)
+        mobile_css_end = body.find("</style>", mobile_css_start) if mobile_css_start >= 0 else -1
+        mobile_detail_css = body[mobile_css_start:mobile_css_end] if mobile_css_start >= 0 and mobile_css_end > mobile_css_start else ""
         checks.extend(
             (
                 {"name": "research_candidate", "ok": "Performance smoke apartment in 1020 Vienna" in body},
@@ -558,6 +562,21 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "research_no_fake_visual_ready", "ok": not unevidenced_visual_ready},
                 {"name": "research_confirmed_listing_facts", "ok": "Facts confirmed" in body and "confirmed automatically from provider evidence" in body},
                 {"name": "research_confirmed_price_signal", "ok": "Budget signal" in body and "EUR 1,290" in body},
+                {
+                    "name": "research_mobile_open_property_compact_layout",
+                    "ok": (
+                        ".prd-hero {\n      grid-template-columns: minmax(0, 1fr);\n      gap: 6px;" in mobile_detail_css
+                        and ".prd-current-read {\n      display: none;" in mobile_detail_css
+                        and ".prd-media-frame {\n      height: min(46vw, 176px);" in mobile_detail_css
+                    ),
+                },
+                {
+                    "name": "research_mobile_visual_frame_compact",
+                    "ok": (
+                        ".prd-media-frame.prd-media-frame-live {\n      height: min(58vw, 224px);" in mobile_detail_css
+                        and ".prd-media-gradient,\n    .prd-media-caption {\n      display: none;" in mobile_detail_css
+                    ),
+                },
             )
         )
     if path.startswith("/app/alerts"):
