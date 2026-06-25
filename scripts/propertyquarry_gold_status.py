@@ -19,6 +19,22 @@ REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_mobile_open_property_compact_layout",
     "research_mobile_visual_frame_compact",
 )
+REQUIRED_LIVE_MOBILE_ROUTES = (
+    "/app/search",
+    "/app/shortlist",
+    "/app/agents",
+    "/app/alerts",
+    "/app/account",
+    "/app/billing",
+    "/app/settings/google",
+    "/app/settings/access",
+    "/app/settings/usage",
+    "/app/settings/support",
+    "/app/settings/trust",
+    "/app/settings/invitations",
+    "/app/research",
+    "/app/properties/packets",
+)
 COMMON_OPERATOR_DROP_README_TOKENS = (
     ("title", "PropertyQuarry provider export drop folder"),
     ("no_placeholders", "Do not copy placeholder HTML"),
@@ -98,6 +114,17 @@ def _performance_research_detail_checks(performance: dict[str, Any]) -> tuple[bo
         missing = [name for name in REQUIRED_RESEARCH_PERFORMANCE_CHECKS if name not in passed_checks]
         return (not missing, missing, path)
     return (False, list(REQUIRED_RESEARCH_PERFORMANCE_CHECKS), "")
+
+
+def _covered_live_mobile_routes(live_mobile: dict[str, Any]) -> set[str]:
+    covered: set[str] = set()
+    for row in list(live_mobile.get("routes") or []):
+        if not isinstance(row, dict) or row.get("ok") is not True:
+            continue
+        route = str(row.get("route") or "").split("?", 1)[0].strip()
+        if route:
+            covered.add(route)
+    return covered
 
 
 def _operator_drop_readme_status(import_manifest: dict[str, Any]) -> tuple[bool, int, list[str], list[dict[str, Any]]]:
@@ -184,12 +211,17 @@ def build_gold_status_receipt(
         and int(performance.get("failed_count") or 0) == 0
         and research_performance_ok
     )
+    live_mobile_covered_routes = _covered_live_mobile_routes(live_mobile)
+    missing_live_mobile_routes = [
+        route for route in REQUIRED_LIVE_MOBILE_ROUTES if route not in live_mobile_covered_routes
+    ]
     live_mobile_ok = (
         live_mobile_receipt_path is None
         or (
             live_mobile.get("status") == "pass"
             and int(live_mobile.get("failed_count") or 0) == 0
-            and int(live_mobile.get("route_count") or 0) >= 9
+            and int(live_mobile.get("route_count") or 0) >= len(REQUIRED_LIVE_MOBILE_ROUTES)
+            and not missing_live_mobile_routes
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
@@ -252,6 +284,7 @@ def build_gold_status_receipt(
             {
                 "area": "live_mobile_surfaces",
                 "status": live_mobile.get("status") or "unknown",
+                "missing_routes": missing_live_mobile_routes,
                 "action": "run propertyquarry_live_mobile_surface_smoke.py against the deployed stack and fix any overflow, chrome, touch-target, or logout regressions",
             }
         )
@@ -326,6 +359,8 @@ def build_gold_status_receipt(
             "status": live_mobile.get("status") or ("not_configured" if live_mobile_receipt_path is None else "missing"),
             "failed_count": live_mobile.get("failed_count"),
             "route_count": live_mobile.get("route_count"),
+            "required_route_count": len(REQUIRED_LIVE_MOBILE_ROUTES),
+            "missing_routes": missing_live_mobile_routes,
             "viewport": live_mobile.get("viewport"),
             "receipt_path": str(live_mobile_receipt_path) if live_mobile_receipt_path is not None else "",
         },
