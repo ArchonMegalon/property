@@ -2583,6 +2583,7 @@
     .pqx-location-mode-toggle {
       display: inline-flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 4px;
       padding: 3px;
       border: 1px solid rgba(137, 93, 28, 0.18);
@@ -6810,6 +6811,22 @@
       .pqx-surface-search .pqx-location-map-launch {
         margin-top: 2px;
       }
+      .pqx-surface-search .pqx-location-mode-toggle {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        width: 100%;
+        border-radius: 22px;
+      }
+      .pqx-surface-search .pqx-location-mode-toggle .pqx-field-action {
+        width: 100%;
+        min-height: 52px;
+        justify-content: center;
+        border-radius: 18px;
+      }
+      .pqx-surface-search .pqx-location-map-open {
+        min-height: 108px;
+        padding: 20px;
+      }
       .pqx-surface-search .pqx-location-map-dialog {
         width: calc(100vw - 18px);
         max-width: calc(100vw - 18px);
@@ -8122,8 +8139,8 @@
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all providers">All providers</button>
                       {% else %}
                       <div class="pqx-location-mode-toggle" role="group" aria-label="Area selection mode">
-                        <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Map</button>
-                        <button class="pqx-field-action" type="button" data-location-mode-button="list" aria-pressed="false">List</button>
+                        <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Choose on map</button>
+                        <button class="pqx-field-action" type="button" data-location-mode-button="list" aria-pressed="false">Choose from list</button>
                       </div>
                       <p class="pqx-mobile-helper">Use either the real-border map or the manual list. They stay separate to keep selection simple.</p>
                       <p class="pqx-location-selected-summary" data-location-selected-summary>0 districts selected</p>
@@ -8169,8 +8186,8 @@
                   {% if field.name == 'location_query' %}
                   <div class="pqx-location-map-launch" data-location-map-launch>
                     <button class="pqx-location-map-open" type="button" data-location-map-open>
-                      <span>Open district map</span>
-                      <small data-location-map-launch-note>Real Vienna district borders. Select by tapping a shape.</small>
+                      <span>Open large district map</span>
+                      <small data-location-map-launch-note>Tap real district borders. Pan and zoom in a separate popup.</small>
                     </button>
                   </div>
                   <dialog class="pqx-location-map-dialog" data-location-map-dialog aria-label="District map picker">
@@ -8178,7 +8195,7 @@
                       <div class="pqx-location-map-dialog-head">
                         <div>
                           <strong data-location-map-dialog-title>Select districts</strong>
-                          <span>Pan and zoom the map, tap a district, then close.</span>
+                          <span>Tap districts, then press Done.</span>
                         </div>
                         <button class="pqx-location-map-close" type="button" data-location-map-close aria-label="Close district map">Close</button>
                       </div>
@@ -8186,7 +8203,7 @@
                         <div class="pqx-location-map-head">
                           <div>
                             <strong data-location-map-title>District map</strong>
-                            <span data-location-map-caption>Tap a district to add it. Drag to pan.</span>
+                            <span data-location-map-caption>Tap to add. Drag to pan.</span>
                           </div>
                         </div>
                         <div class="pqx-location-map-controls" aria-label="Map controls">

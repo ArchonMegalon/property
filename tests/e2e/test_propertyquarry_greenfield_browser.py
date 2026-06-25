@@ -2206,8 +2206,8 @@ def test_propertyquarry_what_matters_section_renders_as_comboboxes_in_live_brows
         assert distance_row.evaluate("node => node.closest('[data-what-matters-group]')?.dataset.activeDistanceRows") == "true"
         preference_box = distance_preference.bounding_box()
         distance_box = distance_select.bounding_box()
-        assert preference_box and preference_box["width"] >= 128
-        assert distance_box and distance_box["width"] >= 108
+        assert preference_box and 108 <= preference_box["width"] <= 180
+        assert distance_box and 88 <= distance_box["width"] <= 180
         school_parent = section.locator('[data-school-priority-row][data-school-value="volksschule"] [data-school-preference-select]')
         school_detail = section.locator('[data-school-priority-row][data-school-parent-value="volksschule"]').first
         expect(school_detail).to_be_hidden()
@@ -3242,8 +3242,11 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const areaSummary = document.querySelector('[data-location-selected-summary]');
                 const areaMapButton = locationField?.querySelector('[data-location-mode-button="map"]') || null;
                 const areaListButton = locationField?.querySelector('[data-location-mode-button="list"]') || null;
+                const areaMapButtonRect = areaMapButton ? areaMapButton.getBoundingClientRect() : null;
+                const areaListButtonRect = areaListButton ? areaListButton.getBoundingClientRect() : null;
                 const areaMapLaunch = locationField?.querySelector('[data-location-map-launch]') || null;
                 const areaMapOpen = locationField?.querySelector('[data-location-map-open]') || null;
+                const areaMapOpenRect = areaMapOpen ? areaMapOpen.getBoundingClientRect() : null;
                 const areaSelectAllButton = locationField?.querySelector('[data-checkbox-group-select-all="location_query"]') || null;
                 const areaClearButton = locationField?.querySelector('[data-checkbox-group-clear-all="location_query"]') || null;
                 const areaDialog = locationField?.querySelector('[data-location-map-dialog]') || null;
@@ -3308,9 +3311,15 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     resultWidth: resultRect ? resultRect.width : 0,
                     thumbWidth: thumbRect ? thumbRect.width : 0,
                     areaModeInMap: areaModeInMapValue,
+                    areaMapButtonText: areaMapButton ? areaMapButton.textContent || '' : '',
+                    areaListButtonText: areaListButton ? areaListButton.textContent || '' : '',
+                    areaMapButtonHeight: areaMapButtonRect ? areaMapButtonRect.height : 0,
+                    areaListButtonHeight: areaListButtonRect ? areaListButtonRect.height : 0,
                     areaMapAvailable: areaMapAvailableValue,
                     areaGridDisplayInMap: areaGridDisplayInMapValue,
                     areaMapLaunchDisplay: areaMapLaunchDisplayValue,
+                    areaMapOpenText: areaMapOpen ? areaMapOpen.textContent || '' : '',
+                    areaMapOpenHeight: areaMapOpenRect ? areaMapOpenRect.height : 0,
                     areaSelectAllDisplayInMap: areaSelectAllDisplayInMapValue,
                     areaClearDisplayInMap: areaClearDisplayInMapValue,
                     areaDialogOpen: dialogWasOpen,
@@ -3362,9 +3371,16 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         if mobile_metrics["thumbWidth"]:
             assert 96 <= mobile_metrics["thumbWidth"] <= 120
         assert mobile_metrics["areaModeInMap"] == "map"
+        assert "Choose on map" in mobile_metrics["areaMapButtonText"]
+        assert "Choose from list" in mobile_metrics["areaListButtonText"]
+        assert mobile_metrics["areaMapButtonHeight"] >= 52
+        assert mobile_metrics["areaListButtonHeight"] >= 52
         assert mobile_metrics["areaMapAvailable"] == "true"
         assert mobile_metrics["areaGridDisplayInMap"] == "none"
         assert mobile_metrics["areaMapLaunchDisplay"] != "none"
+        assert "Open large district map" in mobile_metrics["areaMapOpenText"]
+        assert "separate popup" in mobile_metrics["areaMapOpenText"]
+        assert mobile_metrics["areaMapOpenHeight"] >= 108
         assert mobile_metrics["areaSelectAllDisplayInMap"] == "none"
         assert mobile_metrics["areaClearDisplayInMap"] == "none"
         assert mobile_metrics["areaDialogOpen"] is True
