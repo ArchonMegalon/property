@@ -128,6 +128,33 @@ def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
     return False
 
 
+def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
+    receipt_path = bundle_dir / "tour.private.json"
+    if not receipt_path.is_file():
+        return {}
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(receipt, dict):
+        return {}
+    allowed_keys = {
+        "crezlo_public_url",
+        "source_virtual_tour_url",
+        "source_virtual_tour_origin",
+        "three_d_vista_url",
+        "matterport_url",
+    }
+    return {key: receipt.get(key) for key in allowed_keys if str(receipt.get(key) or "").strip()}
+
+
+def _payload_with_private_provider_receipt(bundle_dir: Path, payload: dict[str, object]) -> dict[str, object]:
+    receipt = _load_provider_receipt(bundle_dir)
+    if not receipt:
+        return payload
+    return {**payload, **receipt}
+
+
 def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
 
@@ -368,6 +395,7 @@ def build_property_tour_control_receipt(
             tours.append({"slug": manifest_path.parent.name, "status": "invalid_manifest"})
             failed_probes += 1
             continue
+        payload = _payload_with_private_provider_receipt(bundle_dir, payload)
         slug = str(payload.get("slug") or manifest_path.parent.name).strip()
         controls = _control_candidates(slug=slug, bundle_dir=bundle_dir, payload=payload)
         for control in controls:

@@ -20,6 +20,22 @@ def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[s
             target.write_text(content, encoding="utf-8")
 
 
+def test_property_tour_control_verifier_accepts_private_receipt_matterport_without_url_leak(tmp_path: Path) -> None:
+    _write_tour(tmp_path, "private-matterport", {})
+    private_receipt = tmp_path / "private-matterport" / "tour.private.json"
+    private_receipt.write_text(
+        json.dumps({"matterport_url": "https://my.matterport.com/show/?m=PRIVATE123"}),
+        encoding="utf-8",
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "pass"
+    assert receipt["provider_counts"]["matterport"] == 1
+    assert receipt["ready_provider_modes"] == ["matterport"]
+    assert "PRIVATE123" not in json.dumps(receipt)
+
+
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     tmp_path: Path,
     monkeypatch,
