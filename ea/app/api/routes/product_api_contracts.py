@@ -1883,6 +1883,8 @@ class PropertySearchResearchTaskUpdateIn(BaseModel):
 
 class PropertySearchRunStatusOut(BaseModel):
     generated_at: str
+    created_at: str = ""
+    updated_at: str = ""
     run_id: str = ""
     principal_id: str = ""
     status: str = "queued"

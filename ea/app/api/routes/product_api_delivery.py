@@ -233,12 +233,24 @@ def _property_search_status_url(run_id: object, *, canonical: bool) -> str:
 
 def _property_search_payload_with_status_url(payload: dict[str, object], *, canonical: bool) -> dict[str, object]:
     copied = dict(payload or {})
-    copied.setdefault("generated_at", now_iso())
-    copied.setdefault("updated_at", copied.get("generated_at") or now_iso())
+    summary = dict(copied.get("summary") or {}) if isinstance(copied.get("summary"), dict) else {}
+    fallback_timestamp = str(
+        copied.get("updated_at")
+        or summary.get("updated_at")
+        or copied.get("generated_at")
+        or copied.get("created_at")
+        or now_iso()
+    ).strip()
+    if not str(copied.get("generated_at") or "").strip():
+        copied["generated_at"] = fallback_timestamp
+    if not str(copied.get("created_at") or "").strip():
+        copied["created_at"] = str(copied.get("generated_at") or fallback_timestamp).strip()
+    if not str(copied.get("updated_at") or "").strip():
+        copied["updated_at"] = fallback_timestamp
     copied.setdefault("status", "queued")
     copied.setdefault("progress", 0)
     copied.setdefault("message", "")
-    copied.setdefault("summary", dict(copied.get("summary") or {}))
+    copied.setdefault("summary", summary)
     copied.setdefault("events", list(copied.get("events") or []))
     run_id = str(copied.get("run_id") or "").strip()
     if not run_id:
@@ -336,9 +348,20 @@ def _property_search_run_status_payload(
     if not payload:
         raise HTTPException(status_code=404, detail="property_search_run_not_found")
     normalized = dict(payload)
+    summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
+    fallback_timestamp = str(
+        normalized.get("updated_at")
+        or summary.get("updated_at")
+        or normalized.get("generated_at")
+        or normalized.get("created_at")
+        or ""
+    ).strip()
+    if fallback_timestamp and not str(normalized.get("updated_at") or "").strip():
+        normalized["updated_at"] = fallback_timestamp
+    if fallback_timestamp and not str(normalized.get("created_at") or "").strip():
+        normalized["created_at"] = str(normalized.get("generated_at") or fallback_timestamp).strip()
     if not str(normalized.get("generated_at") or "").strip():
         normalized["generated_at"] = str(normalized.get("updated_at") or normalized.get("created_at") or "")
-    summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
     if not [item for item in list(normalized.get("events") or []) if isinstance(item, dict)]:
         synthesized_events: list[dict[str, object]] = []
         repair_label = str(summary.get("repair_status_label") or summary.get("repair_status") or "").strip()

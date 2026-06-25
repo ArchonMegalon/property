@@ -18,6 +18,8 @@ import pytest
 import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
+from app.api.routes.product_api_contracts import PropertySearchRunStatusOut
+from app.api.routes.product_api_delivery import _property_search_payload_with_status_url
 from app.api.routes.landing_property_workspace_payload import _property_distance_evidence_rows
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
@@ -11670,6 +11672,22 @@ def test_property_search_status_polling_retries_refresh_failures() -> None:
     assert "Status: refresh retrying" in source
     assert "Retrying quietly" in source
     assert "throw new Error(String(body.detail || 'Could not load property search status.'));" not in source
+
+
+def test_property_search_status_api_preserves_backfilled_updated_at() -> None:
+    payload = _property_search_payload_with_status_url(
+        {
+            "generated_at": "2026-06-25T15:00:00+00:00",
+            "updated_at": None,
+            "run_id": "status-api-timestamp-run",
+            "summary": {"updated_at": "2026-06-25T15:09:37.641749+00:00"},
+        },
+        canonical=False,
+    )
+    response = PropertySearchRunStatusOut(**payload)
+
+    assert payload["updated_at"] == "2026-06-25T15:09:37.641749+00:00"
+    assert response.updated_at == "2026-06-25T15:09:37.641749+00:00"
 
 
 def test_property_search_run_schema_ready_does_not_backfill_existing_compact_columns(monkeypatch: pytest.MonkeyPatch) -> None:
