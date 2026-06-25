@@ -2185,7 +2185,7 @@ def property_workspace_payload(
         detail_sections = _candidate_detail_sections(facts)
         candidate_investment = dict(candidate.get("investment") or {}) if isinstance(candidate.get("investment"), dict) else {}
         investment_headline_fallback = (
-            "Underwriting is still building from the current listing evidence."
+            "Underwriting is still building from the confirmed listing facts."
             if effective_listing_mode == "buy"
             else ""
         )

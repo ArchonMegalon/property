@@ -9721,6 +9721,8 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     workbench_body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
     workspace_payload = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+    research_payload = (repo_root / "ea/app/api/routes/landing_property_research.py").read_text(encoding="utf-8")
+    product_service = (repo_root / "ea/app/product/service.py").read_text(encoding="utf-8")
     legacy_landing = (repo_root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
 
     assert "Price not published" not in running_body
@@ -9741,6 +9743,10 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     assert "layout ? `<div><strong>Layout</strong>" in script_body
     assert "<div class=\"prd-kicker\">Listing facts</div>" in research_detail
     assert "Listing evidence" not in research_detail
+    generated_copy = "\n".join([workspace_payload, research_payload, product_service])
+    assert "current listing evidence" not in generated_copy
+    assert "Provider listing evidence confirmed" not in generated_copy
+    assert "confirmed listing facts" in generated_copy
 
 
 def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:

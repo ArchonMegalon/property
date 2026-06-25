@@ -1050,7 +1050,7 @@ def _property_packet_score_rows(
         rows.append(
             _object_detail_row(
                 str(confirmation.get("label") or "Listing facts confirmed"),
-                str(confirmation.get("summary") or "Provider listing evidence confirmed the displayed facts automatically."),
+                str(confirmation.get("summary") or "Provider facts confirmed the displayed details automatically."),
                 "Confirmed",
             )
         )
@@ -1523,7 +1523,7 @@ def _property_investment_research_rows(
                             str(underwriting.get("feed_status_detail") or "").strip(),
                         )
                         if part
-                    ) or "External model is still building from the current listing evidence.",
+                    ) or "External model is still building from the confirmed listing facts.",
                     str(external_model.get("confidence_label") or "Mixed"),
                 )
             )

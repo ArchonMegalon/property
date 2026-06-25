@@ -5592,7 +5592,7 @@ def _property_investment_underwriting_payload(
         "feed_status_label": feed_status_label,
         "feed_status_detail": feed_status_detail,
         "external_model": external_model,
-        "headline": compact_text(headline, fallback="Investment read is still building from the current listing evidence.", limit=220),
+        "headline": compact_text(headline, fallback="Investment read is still building from the confirmed listing facts.", limit=220),
         "confidence_label": confidence_label,
         "dimensions": dimensions,
         "underwriting_summary": " · ".join(summary_parts[:4]),
@@ -10673,7 +10673,7 @@ def _property_decision_copilot_answer(
             evidence.append(
                 {
                     "title": compact_text(row.get("title"), fallback="Investment", limit=80),
-                    "detail": compact_text(row.get("detail"), fallback="Signal still building from the current listing evidence.", limit=240),
+                    "detail": compact_text(row.get("detail"), fallback="Signal still building from the confirmed listing facts.", limit=240),
                     "confidence": "Medium" if "pending" in str(row.get("detail") or "").lower() else "High",
                     "source": compact_text(row.get("tag"), fallback="investment", limit=40),
                 }
