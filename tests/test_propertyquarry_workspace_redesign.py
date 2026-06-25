@@ -3133,6 +3133,16 @@ def test_propertyquarry_search_surface_removes_cross_country_saved_providers() -
     assert 'value="realestate_au"' not in response.text
     assert '"selected_platforms": ["realestate_au"' not in response.text
     assert '"selected_platforms": ["willhaben"]' in response.text
+    assert 'value="willhaben" data-country-code="AT"' in response.text
+
+
+def test_property_search_payload_filters_selected_providers_by_active_country() -> None:
+    script = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_workbench_brief_script.html").read_text(encoding="utf-8")
+
+    assert "const checkedProviderValuesForCountry = (form, countryCode) => {" in script
+    assert "if (providerCountry && providerCountry !== normalizedCountry) return;" in script
+    assert "const selectedPlatforms = checkedProviderValuesForCountry(form, countryCode);" in script
+    assert 'data-country-code="${escapeHtml(option.country_code)}"' in script
 
 
 def test_property_surface_state_normalizes_search_run_snapshot() -> None:

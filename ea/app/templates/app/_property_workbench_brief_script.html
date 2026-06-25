@@ -30,6 +30,20 @@
       syncMarketAwareFields,
     } = (() => {
     const checkedValues = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((node) => String(node.value || '').trim()).filter(Boolean);
+    const checkedProviderValuesForCountry = (form, countryCode) => {
+      const normalizedCountry = String(countryCode || 'AT').trim().toUpperCase();
+      const seen = new Set();
+      const values = [];
+      form?.querySelectorAll('input[name="selected_platforms"]:checked').forEach((node) => {
+        const value = String(node.value || '').trim();
+        if (!value || seen.has(value)) return;
+        const providerCountry = String(node.getAttribute('data-country-code') || '').trim().toUpperCase();
+        if (providerCountry && providerCountry !== normalizedCountry) return;
+        seen.add(value);
+        values.push(value);
+      });
+      return values;
+    };
     const fieldValue = (form, name) => String(form.querySelector(`[name="${name}"]`)?.value || '').trim();
     const integerValue = (form, name) => {
       const parsed = Number.parseInt(fieldValue(form, name), 10);
@@ -559,7 +573,8 @@
         const homepageLink = homepageUrl
           ? `<a class="pqx-provider-link" href="${escapeHtml(homepageUrl)}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>`
           : '';
-        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${locationMapAttrs} ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
+        const countryAttr = option.country_code ? `data-country-code="${escapeHtml(option.country_code)}"` : '';
+        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${countryAttr} ${locationMapAttrs} ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
       };
       const optionRows = Array.isArray(options) ? options : [];
       if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
@@ -901,12 +916,12 @@
         return persisted || userSelected ? 'discovery' : 'strict';
       })();
       const rawPlatformCap = Number(meta?.commercial?.max_platforms ?? 3);
-      const selectedPlatforms = checkedValues(form, 'selected_platforms');
+      const countryCode = fieldValue(form, 'country_code') || 'AT';
+      const selectedPlatforms = checkedProviderValuesForCountry(form, countryCode);
       const platformCap = Number.isFinite(rawPlatformCap) && rawPlatformCap > 0 ? rawPlatformCap : selectedPlatforms.length;
       const effectiveSelectedPlatforms = selectedPlatforms.slice(0, platformCap);
       const storedFeedbackPreferencesEnabled = false;
       const personId = 'self';
-      const countryCode = fieldValue(form, 'country_code') || 'AT';
       const regionCode = fieldValue(form, 'region_code') || '';
       const searchGoal = fieldValue(form, 'search_goal') || 'home';
       const listingMode = searchGoal === 'investment' ? 'buy' : (fieldValue(form, 'listing_mode') || 'rent');
