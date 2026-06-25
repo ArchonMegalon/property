@@ -114,6 +114,9 @@ def test_scheduler_property_search_recovery_is_heartbeat_wrapped(
     assert runner._scheduler_property_search_recovery_timeout_seconds() == 45.0
 
     source = inspect.getsource(runner._run_execution_worker)
+    assert "now_at_startup = time.time()" in source
+    assert "last_property_search_recovery_at = now_at_startup" in source
+    assert "last_property_results_finalize_at = now_at_startup" in source
     recovery_block = source[
         source.rindex("_run_scheduler_step_with_heartbeat", 0, source.index('step_name="property_search_recovery"')) :
         source.index('if not property_only_scheduler and now - last_horizon_scan_at')

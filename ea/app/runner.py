@@ -1604,9 +1604,10 @@ def _run_execution_worker(role: str) -> None:
     last_horizon_scan_at = 0.0
     last_onemin_refresh_at = 0.0
     last_google_signal_sync_at = 0.0
+    now_at_startup = time.time()
     last_property_scout_at = 0.0
-    last_property_search_recovery_at = 0.0
-    last_property_results_finalize_at = 0.0
+    last_property_search_recovery_at = now_at_startup
+    last_property_results_finalize_at = now_at_startup
     last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
     last_telegram_async_recovery_at = 0.0
