@@ -316,6 +316,81 @@ def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_ex
     assert verifier["provider_counts"]["pano2vr"] == 1
 
 
+def test_batch_tour_export_importer_materializes_krpano_and_magicfit_assets(tmp_path: Path, monkeypatch) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "batch-krpano")
+    _write_base_tour(tmp_path, "batch-magicfit")
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+
+    krpano_assets = tmp_path / "incoming" / "batch-krpano" / "krpano"
+    krpano_assets.mkdir(parents=True)
+    _write_equirectangular_image(krpano_assets / "panorama.jpg")
+
+    magicfit_assets = tmp_path / "incoming" / "batch-magicfit" / "magicfit"
+    magicfit_assets.mkdir(parents=True)
+    video_path = magicfit_assets / "magicfit-walkthrough.mp4"
+    _write_playable_mp4(video_path)
+    receipt_path = magicfit_assets / "magicfit-receipt.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "provider": "magicfit",
+                "target_slug": "batch-magicfit",
+                "output_file": str(video_path.resolve()),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest_path = tmp_path / "tour-imports.json"
+    receipt_out = tmp_path / "tour-import-receipt.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "imports": [
+                    {"slug": "batch-krpano", "provider": "krpano", "asset_dir": str(krpano_assets)},
+                    {"slug": "batch-magicfit", "provider": "magicfit", "asset_dir": str(magicfit_assets)},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["EA_PUBLIC_TOUR_DIR"] = str(public_root)
+    imported = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "import_property_tour_exports.py"),
+            "--manifest",
+            str(manifest_path),
+            "--write",
+            str(receipt_out),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    receipt = json.loads(receipt_out.read_text(encoding="utf-8"))
+    assert receipt["status"] == "pass"
+    assert receipt["imported_count"] == 2
+    krpano_manifest = json.loads((public_root / "batch-krpano" / "tour.json").read_text(encoding="utf-8"))
+    magicfit_manifest = json.loads((public_root / "batch-magicfit" / "tour.json").read_text(encoding="utf-8"))
+    assert krpano_manifest["control_mode"] == "krpano"
+    assert krpano_manifest["walkable_scene"]["panorama_relpath"] == "krpano/panorama.jpg"
+    assert magicfit_manifest["video_provider"] == "magicfit"
+    assert magicfit_manifest["video_relpath"] == "magicfit-walkthrough.mp4"
+    verifier = build_property_tour_control_receipt(tour_root=public_root)
+    assert verifier["provider_counts"]["krpano"] == 1
+    assert verifier["provider_counts"]["magicfit"] == 1
+
+
 def test_batch_tour_export_importer_fails_placeholder_rows_without_false_ready(tmp_path: Path) -> None:
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "batch-placeholder")

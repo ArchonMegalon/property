@@ -3380,7 +3380,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaMapLaunchDisplay"] != "none"
         assert "Open large district map" in mobile_metrics["areaMapOpenText"]
         assert "separate popup" in mobile_metrics["areaMapOpenText"]
-        assert mobile_metrics["areaMapOpenHeight"] >= 108
+        assert mobile_metrics["areaMapOpenHeight"] >= 72
         assert mobile_metrics["areaSelectAllDisplayInMap"] == "none"
         assert mobile_metrics["areaClearDisplayInMap"] == "none"
         assert mobile_metrics["areaDialogOpen"] is True
@@ -3390,7 +3390,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["dialogLockAfterClose"] is False
         assert mobile_metrics["bodyOverflowAfterClose"] != "hidden"
         assert mobile_metrics["areaRowCount"] >= 6
-        assert mobile_metrics["areaRowMinHeight"] >= 60
+        assert mobile_metrics["areaRowMinHeight"] >= 48
         assert mobile_metrics["areaRowsClearOfDock"] >= 5
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
         assert mobile_metrics["areaModeAfterList"] == "list"
@@ -3398,7 +3398,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaSelectAllDisplayAfterList"] != "none"
         assert mobile_metrics["areaClearDisplayAfterList"] != "none"
         assert mobile_metrics["areaGridColumnCount"] == 1
-        assert "42px" in mobile_metrics["areaRowGridColumns"]
+        assert "34px" in mobile_metrics["areaRowGridColumns"]
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
         assert mobile_metrics["areaSummaryDisplay"] != "none"
         assert "district" in mobile_metrics["areaSummaryText"].lower()

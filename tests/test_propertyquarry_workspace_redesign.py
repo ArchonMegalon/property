@@ -8349,7 +8349,7 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert 'scroll-snap-type: x proximity;' in template
     assert '-webkit-overflow-scrolling: touch;' in template
     assert 'env(safe-area-inset-bottom, 0px)' in template
-    assert 'contain-intrinsic-size: 142px;' in template
+    assert 'contain-intrinsic-size: 120px;' in template
 
 
 def test_property_agents_surface_uses_map_only_scope_preview_for_cards_and_history(monkeypatch) -> None:

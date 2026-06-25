@@ -1261,43 +1261,52 @@
     }
   }
   @media (max-width: 760px) {
+    .pq-shell[data-property-app-shell] .pq-surface {
+      padding-bottom: 28px;
+    }
     .prd-topbar {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "brand actions"
+        "nav nav";
       align-items: start;
-      gap: 4px;
+      gap: 2px 8px;
       min-height: 0;
-      padding: calc(5px + env(safe-area-inset-top, 0px)) 9px 6px;
-      border-radius: 0 0 12px 12px;
-      box-shadow: 0 8px 22px color-mix(in srgb, var(--prd-gold) 6%, transparent);
+      padding: calc(3px + env(safe-area-inset-top, 0px)) 8px 4px;
+      border-radius: 0;
+      box-shadow: 0 6px 18px color-mix(in srgb, var(--prd-gold) 5%, transparent);
     }
     .prd-brand {
+      grid-area: brand;
       gap: 8px;
     }
     .prd-brand-mark {
-      width: 30px;
-      height: 30px;
+      width: 28px;
+      height: 28px;
       border-radius: 8px;
     }
     .prd-brand-copy span {
       display: none;
     }
     .prd-primary-nav {
+      grid-area: nav;
       justify-content: flex-start;
-      margin: 0 -4px;
-      padding-bottom: 1px;
+      margin: 0;
+      padding: 0 2px 1px;
     }
     .prd-primary-nav a,
     .prd-primary-nav span {
-      min-height: 36px;
-      padding: 0 11px;
-      font-size: 0.76rem;
+      min-height: 34px;
+      padding: 0 10px;
+      font-size: 0.72rem;
     }
     .prd-top-context {
       display: none;
     }
     .prd-top-actions {
+      grid-area: actions;
       display: flex;
-      width: 100%;
+      width: auto;
       justify-content: flex-end;
     }
     .prd-top-actions > .prd-run-chip {
@@ -1307,9 +1316,9 @@
       margin-left: auto;
     }
     .prd-top-actions .account-menu summary {
-      min-width: 46px;
-      min-height: 42px;
-      padding: 0 13px;
+      min-width: 44px;
+      min-height: 38px;
+      padding: 0 12px;
     }
     .prd-top-actions .account-menu summary span {
       max-width: 9ch;
@@ -1339,9 +1348,9 @@
       justify-content: center;
     }
     .prd-shell {
-      width: calc(100vw - 10px);
-      padding: 3px 0 12px;
-      gap: 6px;
+      width: calc(100vw - 8px);
+      padding: 3px 0 10px;
+      gap: 5px;
     }
     .prd-hero,
     .prd-summary-stack,
@@ -1349,16 +1358,16 @@
     .prd-sections,
     .prd-side-stack,
     .prd-hero-side,
-    .prd-stack,
-    .prd-split {
-      gap: 8px;
+      .prd-stack,
+      .prd-split {
+      gap: 7px;
     }
     .prd-panel,
     .prd-band,
     .prd-map-card,
-    .prd-meta-card,
-    .prd-lightbox-card {
-      padding: 8px;
+      .prd-meta-card,
+      .prd-lightbox-card {
+      padding: 7px;
       border-radius: 12px;
       box-shadow: none;
     }
@@ -1367,10 +1376,10 @@
     }
     .prd-headline-panel .prd-actions {
       grid-template-columns: 1fr;
-      margin-top: 7px !important;
+      margin-top: 6px !important;
     }
     .prd-headline-panel h1 {
-      font-size: 1.08rem;
+      font-size: 1.02rem;
       line-height: 1.08;
       -webkit-line-clamp: 2;
     }
@@ -1386,7 +1395,7 @@
     }
     .prd-section-copy {
       margin-bottom: 8px;
-      font-size: 12px;
+      font-size: 11.5px;
       line-height: 1.32;
     }
     .prd-body .prd-band > .prd-section-copy {
@@ -1425,15 +1434,16 @@
     .prd-current-read {
       padding: 8px;
     }
-    .prd-current-read .prd-kicker,
-    .prd-visual-heading .prd-copy,
-    .prd-visual-card-copy,
-    .prd-media-caption span,
-    .prd-map-meta,
-    .prd-band > .prd-copy,
-    .prd-panel > .prd-copy,
-    .prd-status-line,
-    .prd-gallery-label {
+      .prd-current-read .prd-kicker,
+      .prd-visual-heading .prd-copy,
+      .prd-visual-card-copy,
+      .prd-media-caption span,
+      .prd-map-meta,
+      .prd-band > .prd-copy,
+      .prd-panel > .prd-copy,
+      .prd-headline-panel > .prd-copy,
+      .prd-status-line,
+      .prd-gallery-label {
       display: none;
     }
     .prd-summary-box p,
@@ -1500,18 +1510,18 @@
     .prd-actions .console-action,
     .prd-actions .pqx-button,
     .prd-media-actions .console-action {
-      min-height: 46px;
-      padding: 8px 10px;
-      border-radius: 14px;
+      min-height: 44px;
+      padding: 7px 9px;
+      border-radius: 12px;
       font-size: 12px;
       line-height: 1.15;
       justify-content: center;
       text-align: center;
     }
     [data-property-research-detail] :is(button, summary, select, textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), .console-action, .object-feedback-button, .object-feedback-chip):not(.prd-map-tooltip) {
-      min-height: 48px !important;
-      min-width: 48px;
-      border-radius: 14px;
+      min-height: 46px !important;
+      min-width: 46px;
+      border-radius: 12px;
     }
     [data-property-research-detail] :is(.console-action, .object-feedback-button, .object-feedback-chip) {
       display: inline-flex;
@@ -1519,8 +1529,8 @@
       justify-content: center;
     }
     .prd-visual-console {
-      gap: 7px;
-      padding: 8px;
+      gap: 6px;
+      padding: 7px;
       border-radius: 12px;
       order: 2;
       box-shadow: none;
@@ -1530,8 +1540,8 @@
       gap: 8px;
     }
     .prd-visual-card {
-      padding: 8px;
-      gap: 7px;
+      padding: 7px;
+      gap: 6px;
       border-radius: 12px;
     }
     .prd-visual-toolbar {
@@ -1545,19 +1555,19 @@
       letter-spacing: 0.03em;
     }
     .prd-media-frame {
-      min-height: min(24svh, 158px);
+      min-height: min(20svh, 136px);
       max-height: none;
       border-radius: 12px;
       box-shadow: none;
     }
     .prd-media-frame.prd-media-frame-live {
-      min-height: min(30svh, 190px);
+      min-height: min(24svh, 164px);
       max-height: none;
     }
     .prd-media-caption {
-      left: 10px;
-      right: 10px;
-      bottom: 10px;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
       gap: 3px;
     }
     .prd-media-caption strong {
@@ -1583,7 +1593,7 @@
       display: none;
     }
     .prd-map-card {
-      padding: 8px;
+      padding: 7px;
     }
     .prd-gallery {
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1604,7 +1614,7 @@
       -webkit-overflow-scrolling: touch;
     }
     .prd-current-read .prd-summary-box {
-      min-height: 70px;
+      min-height: 62px;
     }
     .prd-side-stack .object-feedback::-webkit-scrollbar {
       width: 0;
@@ -1616,7 +1626,7 @@
     }
     .object-feedback-button,
     .object-feedback-chip {
-      padding: 7px 10px;
+      padding: 6px 9px;
       font-size: 12px;
     }
   }

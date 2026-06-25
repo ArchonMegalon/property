@@ -28,11 +28,13 @@ def test_materialize_property_tour_export_manifest_writes_operator_drop_paths(tm
     assert manifest["status"] == "ready_for_exports"
     assert manifest["tour_root"] == str(tour_root.resolve())
     assert manifest["incoming_root"] == str(incoming_root.resolve())
-    assert set(manifest["providers"]) == {"3dvista", "pano2vr"}
-    assert manifest["import_count"] == 2
+    assert set(manifest["providers"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert manifest["import_count"] == 4
     imports = {(row["provider"], row["slug"]): row for row in manifest["imports"]}
     assert imports[("3dvista", "needs-exports")]["export_dir"] == str(incoming_root.resolve() / "needs-exports" / "3dvista")
     assert imports[("pano2vr", "needs-exports")]["export_dir"] == str(incoming_root.resolve() / "needs-exports" / "pano2vr")
+    assert imports[("krpano", "needs-exports")]["asset_dir"] == str(incoming_root.resolve() / "needs-exports" / "krpano")
+    assert imports[("magicfit", "needs-exports")]["asset_dir"] == str(incoming_root.resolve() / "needs-exports" / "magicfit")
     assert "import_property_tour_exports.py" in manifest["next_command"]
 
 
@@ -56,7 +58,7 @@ def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(t
     manifest = build_export_manifest(tour_root=tour_root, incoming_root=incoming_root, limit_per_provider=1)
 
     assert manifest["status"] == "ready_for_exports"
-    assert manifest["import_count"] == 2
+    assert manifest["import_count"] == 4
     assert {row["slug"] for row in manifest["imports"]} == {"matterport-ready"}
     assert {row["current_control_providers"] for row in manifest["imports"]} == {"matterport"}
     assert {row["title"] for row in manifest["imports"]} == {"Matterport Ready"}
@@ -70,7 +72,7 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
     manifest = build_export_manifest(tour_root=tour_root, incoming_root=incoming_root, limit_per_provider=1)
     prepared = prepare_export_drop_dirs(manifest)
 
-    assert len(prepared) == 2
+    assert len(prepared) == 4
     for row in prepared:
         readme = Path(row["readme"])
         assert readme.is_file()
@@ -84,6 +86,10 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
             assert "tdvplayer" in body
         if row["provider"] == "pano2vr":
             assert "tour.js" in body
+        if row["provider"] == "krpano":
+            assert "equirectangular" in body
+        if row["provider"] == "magicfit":
+            assert "MagicFit render receipt" in body
 
 
 def test_materialize_property_tour_export_manifest_cli_writes_receipt(tmp_path: Path) -> None:
@@ -116,7 +122,7 @@ def test_materialize_property_tour_export_manifest_cli_writes_receipt(tmp_path: 
     assert result.returncode == 0, result.stderr
     manifest = json.loads(output.read_text(encoding="utf-8"))
     assert manifest["status"] == "ready_for_exports"
-    assert manifest["import_count"] == 2
+    assert manifest["import_count"] == 4
     assert "cli-needs-exports" in result.stdout
 
 
@@ -150,5 +156,5 @@ def test_materialize_property_tour_export_manifest_cli_can_prepare_drop_dirs(tmp
 
     assert result.returncode == 0, result.stderr
     manifest = json.loads(output.read_text(encoding="utf-8"))
-    assert len(manifest["prepared_drop_dirs"]) == 2
+    assert len(manifest["prepared_drop_dirs"]) == 4
     assert all(Path(row["readme"]).is_file() for row in manifest["prepared_drop_dirs"])

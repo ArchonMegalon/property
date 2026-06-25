@@ -13,10 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_property_tour_controls import build_property_tour_control_receipt
 
 
-IMPORTABLE_PROVIDERS = ("3dvista", "pano2vr")
+IMPORTABLE_PROVIDERS = ("3dvista", "pano2vr", "krpano", "magicfit")
 PROVIDER_ENTRY_MARKERS = {
     "3dvista": "index.html/index.htm containing tdvplayer, tdvplayerapi, or tourviewer runtime markers",
     "pano2vr": "index.html/index.htm containing ggpkg, ggskin, pano.xml, or tour.js runtime markers",
+    "krpano": "one real 2:1 equirectangular panorama named panorama.jpg/png/webp, or six square cube-face images named cube-face-1..6",
+    "magicfit": "a playable MagicFit MP4/MOV/WebM plus the matching MagicFit render receipt JSON",
 }
 
 
@@ -33,7 +35,15 @@ def _incoming_root() -> Path:
 
 
 def _provider_target_subdir(provider: str) -> str:
-    return "3dvista" if provider == "3dvista" else "pano2vr"
+    if provider == "3dvista":
+        return "3dvista"
+    if provider == "pano2vr":
+        return "pano2vr"
+    if provider == "krpano":
+        return "krpano"
+    if provider == "magicfit":
+        return "magicfit"
+    return provider
 
 
 def _default_missing_action(provider: str) -> str:
@@ -41,6 +51,10 @@ def _default_missing_action(provider: str) -> str:
         return "run import_3dvista_export.py with a verified 3DVista export or add an allowlisted 3dvista.com URL"
     if provider == "pano2vr":
         return "run import_pano2vr_export.py with a verified Pano2VR export"
+    if provider == "krpano":
+        return "run import_krpano_walkable_scene.py with a real 2:1 panorama or six cube faces and krpano license env"
+    if provider == "magicfit":
+        return "run import_magicfit_walkthrough.py with a playable MagicFit video and matching render receipt"
     return ""
 
 
@@ -49,6 +63,10 @@ def _default_missing_reason(provider: str) -> str:
         return "missing_3dvista_export"
     if provider == "pano2vr":
         return "missing_pano2vr_export"
+    if provider == "krpano":
+        return "missing_krpano_walkable_scene"
+    if provider == "magicfit":
+        return "missing_magicfit_walkthrough"
     return ""
 
 
@@ -98,6 +116,7 @@ def _missing_import_targets(receipt: dict[str, Any], *, providers: set[str], inc
                     "title": str(tour.get("title") or slug).strip(),
                     "provider": provider,
                     "export_dir": str(export_dir),
+                    "asset_dir": str(export_dir),
                     "entry": "",
                     "target_subdir": _provider_target_subdir(provider),
                     "reason": str(missing.get("reason") or ""),
@@ -143,8 +162,8 @@ def build_export_manifest(
         "imports": imports,
         "next_command": "python /app/scripts/import_property_tour_exports.py --manifest /data/artifacts/property-tour-export-import-manifest.json --write /data/artifacts/property-tour-export-import-receipt.json",
         "notes": [
-            "Copy each real provider export into its export_dir before running the import command.",
-            "Do not place placeholder HTML in these directories; the hardened importers reject unverified entries.",
+            "Copy each real provider export or asset into its export_dir before running the import command.",
+            "Do not place placeholder HTML, flat photos, or fake videos in these directories; the hardened importers reject unverified entries.",
             "After import, run verify_property_tour_controls.py with --require-all-provider-modes.",
         ],
     }
@@ -173,8 +192,8 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, str]]:
                     f"Current verified controls: {str(row.get('current_control_providers') or 'none').strip()}",
                     f"Expected entry: {PROVIDER_ENTRY_MARKERS[provider]}",
                     "",
-                    "Copy the real provider export contents into this directory.",
-                    "Do not copy placeholder HTML; the importer rejects unverified entries.",
+                    "Copy the real provider export or asset contents into this directory.",
+                    "Do not copy placeholder HTML, flat listing photos, or fake videos; the importers reject unverified entries.",
                     "",
                     f"After exports are copied, run: {manifest.get('next_command')}",
                     "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
@@ -200,10 +219,10 @@ def _parse_provider_filter(raw: str) -> set[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Materialize a PropertyQuarry 3DVista/Pano2VR export import manifest from current missing tour evidence.")
+    parser = argparse.ArgumentParser(description="Materialize a PropertyQuarry tour/walkthrough import manifest from current missing evidence.")
     parser.add_argument("--tour-root", default="", help="Tour root. Defaults to EA_PUBLIC_TOUR_DIR.")
     parser.add_argument("--incoming-root", default="", help="Where operators should drop exports. Defaults to PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR or /data/incoming_property_tours.")
-    parser.add_argument("--providers", default="3dvista,pano2vr", help="Comma-separated provider filter.")
+    parser.add_argument("--providers", default="3dvista,pano2vr,krpano,magicfit", help="Comma-separated provider filter.")
     parser.add_argument("--limit-per-provider", type=int, default=1)
     parser.add_argument("--prepare-dirs", action="store_true", help="Create incoming export directories with per-provider README instructions.")
     parser.add_argument("--write", default="", help="Output manifest path. Defaults to EA_ARTIFACT_DIR/property-tour-export-import-manifest.json.")
