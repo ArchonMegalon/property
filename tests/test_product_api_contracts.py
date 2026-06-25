@@ -23642,6 +23642,82 @@ def test_property_brilliant_directories_billing_webhook_is_public_advisory_and_p
     assert len(replay_commercial["billing_events_json"]) == 1
 
 
+def test_property_brilliant_directories_billing_event_requires_local_reconciliation_to_activate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.api.app import create_app
+
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_API_TOKEN", "")
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET", "bd-secret")
+    monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
+
+    principal_id = "exec-property-bd-reconcile"
+    client = TestClient(create_app())
+    client.headers.update({"X-EA-Principal-ID": principal_id})
+    payload = {
+        "event_id": "bd_evt_route_reconcile_1",
+        "event_type": "invoice.paid",
+        "principal_id": principal_id,
+        "plan_key": "agent",
+        "order_id": "bd_order_reconcile_1",
+        "invoice_id": "bd_invoice_reconcile_1",
+        "payment_status": "paid",
+        "amount_eur": "99.00",
+        "currency": "EUR",
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+    signature = hmac.new(b"bd-secret", f"{timestamp}.".encode("utf-8") + raw, hashlib.sha256).hexdigest()
+
+    webhook = client.post(
+        "/app/api/signals/property/billing/brilliant-directories/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-brilliant-directories-signature": signature,
+            "x-brilliant-directories-timestamp": timestamp,
+        },
+    )
+    assert webhook.status_code == 200, webhook.text
+    assert webhook.json()["current_plan_key"] == "free"
+
+    reconciled = client.post(
+        "/app/api/signals/property/billing/brilliant-directories/reconcile",
+        json={
+            "event_id": "bd_evt_route_reconcile_1",
+            "decision": "approve",
+            "note": "Payment, invoice, and customer identity matched locally.",
+        },
+    )
+    assert reconciled.status_code == 200, reconciled.text
+    body = reconciled.json()
+    assert body["status"] == "approved_local_entitlement"
+    assert body["entitlement_mutation"] == "activated"
+    assert body["current_plan_key"] == "agent"
+    assert "Payment, invoice" not in json.dumps(body)
+
+    preferences_after_reconciliation = product_api_delivery_routes._property_preferences(  # noqa: SLF001
+        client.app.state.container,
+        principal_id=principal_id,
+    )
+    commercial = preferences_after_reconciliation["property_commercial"]
+    assert commercial["active_plan_key"] == "agent"
+    assert commercial["plan_source"] == "brilliant_directories_local_reconciliation"
+    assert commercial["billing_events_json"][-1]["accounting_status"] == "local_reconciled"
+    assert commercial["billing_reconciliations_json"][-1]["decision"] == "approve"
+
+    replayed_reconciliation = client.post(
+        "/app/api/signals/property/billing/brilliant-directories/reconcile",
+        json={"event_id": "bd_evt_route_reconcile_1", "decision": "reject"},
+    )
+    assert replayed_reconciliation.status_code == 409
+    assert replayed_reconciliation.json()["error"]["details"] == "brilliant_directories_reconciliation_event_already_reconciled"
+
+
 def test_property_brilliant_directories_billing_webhook_rejects_bad_signature_without_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

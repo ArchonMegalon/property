@@ -31,6 +31,7 @@ from app.services import brilliant_directories as brilliant_directories_service
 from app.services.property_billing import (
     brilliant_directories_billing_webhook_receipt,
     normalize_property_commercial,
+    reconcile_brilliant_directories_billing_event,
     verify_brilliant_directories_billing_webhook_signature,
 )
 from tests.product_test_helpers import build_property_client, start_workspace
@@ -314,6 +315,122 @@ def test_brilliant_directories_billing_webhook_replay_does_not_append_or_mutate_
     commercial = normalize_property_commercial(existing)
     assert commercial["active_plan_key"] == "free"
     assert len(commercial["billing_events_json"]) == 1
+
+
+def test_brilliant_directories_local_reconciliation_approves_signed_advisory_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    existing = {
+        "billing_events_json": [
+            {
+                "event_id": "bd_evt_reconcile_1",
+                "event_type": "invoice.paid",
+                "provider": "brilliant_directories",
+                "plan_key": "agent",
+                "order_id": "bd_order_1",
+                "invoice_id": "bd_invoice_1",
+                "accounting_status": "external_advisory",
+                "payment_status": "paid",
+                "amount_eur": "99.00",
+                "recorded_at": "2026-06-25T11:59:00+00:00",
+            }
+        ],
+    }
+    now = datetime(2026, 6, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+    receipt = reconcile_brilliant_directories_billing_event(
+        existing,
+        event_id="bd_evt_reconcile_1",
+        decision="approve",
+        reconciled_by="operator@propertyquarry.com",
+        note="Invoice and account match local customer.",
+        now=now,
+    )
+    commercial = normalize_property_commercial({**existing, **receipt["updates"]})
+
+    assert receipt["status"] == "approved_local_entitlement"
+    assert receipt["entitlement_mutation"] == "activated"
+    assert receipt["reconciliation"]["note_sha256"]
+    assert "operator@propertyquarry.com" not in json.dumps(receipt)
+    assert commercial["active_plan_key"] == "agent"
+    assert commercial["status"] == "active"
+    assert commercial["plan_source"] == "brilliant_directories_local_reconciliation"
+    assert commercial["billing_reconciliations_json"][-1]["decision"] == "approve"
+    assert commercial["billing_events_json"][-1]["accounting_status"] == "local_reconciled"
+
+
+def test_brilliant_directories_local_reconciliation_can_reject_without_entitlement_mutation() -> None:
+    existing = {
+        "active_plan_key": "free",
+        "billing_events_json": [
+            {
+                "event_id": "bd_evt_reject_1",
+                "event_type": "invoice.paid",
+                "provider": "brilliant_directories",
+                "plan_key": "plus",
+                "accounting_status": "external_advisory",
+                "payment_status": "paid",
+            }
+        ],
+    }
+
+    receipt = reconcile_brilliant_directories_billing_event(
+        existing,
+        event_id="bd_evt_reject_1",
+        decision="reject",
+        reconciled_by="billing-operator",
+        note="Customer mismatch.",
+    )
+    commercial = normalize_property_commercial({**existing, **receipt["updates"]})
+
+    assert receipt["status"] == "rejected_no_entitlement_change"
+    assert receipt["entitlement_mutation"] == "none"
+    assert commercial["active_plan_key"] == "free"
+    assert commercial["billing_reconciliations_json"][-1]["decision"] == "reject"
+    assert commercial["billing_events_json"][-1]["accounting_status"] == "local_rejected"
+
+
+def test_brilliant_directories_local_reconciliation_rejects_unpaid_or_replayed_event() -> None:
+    existing = {
+        "billing_events_json": [
+            {
+                "event_id": "bd_evt_failed_1",
+                "provider": "brilliant_directories",
+                "plan_key": "plus",
+                "payment_status": "failed",
+            },
+            {
+                "event_id": "bd_evt_done_1",
+                "provider": "brilliant_directories",
+                "plan_key": "plus",
+                "payment_status": "paid",
+            },
+        ],
+        "billing_reconciliations_json": [
+            {
+                "event_id": "bd_evt_done_1",
+                "provider": "brilliant_directories",
+                "decision": "approve",
+                "status": "approved_local_entitlement",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="payment_not_paid"):
+        reconcile_brilliant_directories_billing_event(
+            existing,
+            event_id="bd_evt_failed_1",
+            decision="approve",
+            reconciled_by="billing-operator",
+        )
+    with pytest.raises(ValueError, match="already_reconciled"):
+        reconcile_brilliant_directories_billing_event(
+            existing,
+            event_id="bd_evt_done_1",
+            decision="reject",
+            reconciled_by="billing-operator",
+        )
 
 
 def test_brilliant_directories_request_builder_supports_explicit_json_without_making_it_default(

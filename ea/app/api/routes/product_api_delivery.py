@@ -78,6 +78,7 @@ from app.services.property_billing import (
     payfunnels_configured,
     paypal_configured,
     property_plan_spec,
+    reconcile_brilliant_directories_billing_event,
     verify_payfunnels_webhook_signature,
 )
 from app.services.property_market_catalog import (
@@ -1515,6 +1516,48 @@ async def brilliant_directories_property_billing_webhook(
         "current_plan_key": str(commercial_after.get("active_plan_key") or "free"),
         "replayed": bool(receipt.get("replayed")),
     }
+
+
+@router.post("/signals/property/billing/brilliant-directories/reconcile")
+async def reconcile_brilliant_directories_property_billing_event(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="brilliant_directories_reconciliation_invalid_json") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="brilliant_directories_reconciliation_invalid_json")
+    requested_principal = str(payload.get("principal_id") or context.principal_id).strip()
+    if requested_principal != context.principal_id:
+        raise HTTPException(status_code=403, detail="principal_scope_mismatch")
+    event_id = str(payload.get("event_id") or "").strip()
+    decision = str(payload.get("decision") or "").strip().lower()
+    note = str(payload.get("note") or "").strip()
+    preferences_before = _property_preferences(container, principal_id=context.principal_id)
+    commercial_before = dict(preferences_before.get("property_commercial") or {})
+    try:
+        receipt = reconcile_brilliant_directories_billing_event(
+            commercial_before,
+            event_id=event_id,
+            decision=decision,
+            reconciled_by=context.operator_id or context.principal_id,
+            note=note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updates = dict(receipt.get("updates") or {})
+    updated = merge_property_commercial(preferences_before, updates=updates)
+    _save_property_preferences(container, principal_id=context.principal_id, property_preferences=updated)
+    preferences_after = _property_preferences(container, principal_id=context.principal_id)
+    commercial_after = dict(preferences_after.get("property_commercial") or {})
+    public_receipt = {key: value for key, value in receipt.items() if key != "updates"}
+    public_receipt["principal_id"] = context.principal_id
+    public_receipt["current_plan_key"] = str(commercial_after.get("active_plan_key") or "free")
+    public_receipt["local_reconciliation_recorded"] = True
+    return public_receipt
 
 
 @router.get("/signals/property/billing/paypal/cancel", include_in_schema=False)

@@ -34,6 +34,13 @@ def _parse_iso(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _hash_public_identifier(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def property_worker_cap(plan_key: object) -> int:
     normalized = str(plan_key or "").strip().lower() or "free"
     return {"free": 1, "plus": 2, "agent": 4}.get(normalized, 1)
@@ -184,6 +191,7 @@ def normalize_property_commercial(value: dict[str, object] | None) -> dict[str, 
         "last_billing_event_id": str(raw.get("last_billing_event_id") or "").strip(),
         "last_billing_event_at": str(raw.get("last_billing_event_at") or "").strip(),
         "billing_events_json": _normalized_property_billing_events(raw.get("billing_events_json")),
+        "billing_reconciliations_json": _normalized_property_billing_reconciliations(raw.get("billing_reconciliations_json")),
     }
 
 
@@ -211,10 +219,39 @@ def _normalized_property_billing_events(value: object) -> list[dict[str, object]
             "vat_amount_eur": str(item.get("vat_amount_eur") or "").strip()[:40],
             "vat_rate": str(item.get("vat_rate") or "").strip()[:40],
             "recorded_at": str(item.get("recorded_at") or "").strip()[:80],
+            "local_reconciliation_status": str(item.get("local_reconciliation_status") or "").strip().lower()[:80],
+            "local_reconciliation_id": str(item.get("local_reconciliation_id") or "").strip()[:160],
+            "local_reconciled_at": str(item.get("local_reconciled_at") or "").strip()[:80],
+            "local_reconciled_by": str(item.get("local_reconciled_by") or "").strip()[:80],
         }
         if any(event.values()):
             events.append(event)
     return events
+
+
+def _normalized_property_billing_reconciliations(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, object]] = []
+    for item in value[-20:]:
+        if not isinstance(item, dict):
+            continue
+        row = {
+            "reconciliation_id": str(item.get("reconciliation_id") or "").strip()[:160],
+            "event_id": str(item.get("event_id") or "").strip()[:160],
+            "provider": str(item.get("provider") or "").strip().lower()[:80],
+            "decision": str(item.get("decision") or "").strip().lower()[:40],
+            "status": str(item.get("status") or "").strip().lower()[:80],
+            "plan_key": str(item.get("plan_key") or "").strip().lower()[:40],
+            "payment_status": str(item.get("payment_status") or "").strip().lower()[:80],
+            "reconciled_at": str(item.get("reconciled_at") or "").strip()[:80],
+            "reconciled_by": str(item.get("reconciled_by") or "").strip()[:80],
+            "note_sha256": str(item.get("note_sha256") or "").strip()[:64],
+            "entitlement_mutation": str(item.get("entitlement_mutation") or "").strip().lower()[:80],
+        }
+        if any(row.values()):
+            rows.append(row)
+    return rows
 
 
 def property_billing_event_updates(
@@ -334,6 +371,136 @@ def property_billing_invoice_handoffs(property_commercial: dict[str, object] | N
             }
         )
     return rows[-10:]
+
+
+def reconcile_brilliant_directories_billing_event(
+    existing_commercial: dict[str, object] | None,
+    *,
+    event_id: str,
+    decision: str,
+    reconciled_by: str,
+    note: str = "",
+    now: datetime | None = None,
+) -> dict[str, object]:
+    normalized = normalize_property_commercial(existing_commercial)
+    compact_event_id = str(event_id or "").strip()
+    compact_decision = str(decision or "").strip().lower()
+    if compact_decision not in {"approve", "reject"}:
+        raise ValueError("brilliant_directories_reconciliation_decision_invalid")
+    if not compact_event_id:
+        raise ValueError("brilliant_directories_reconciliation_event_id_required")
+    events = [dict(item) for item in list(normalized.get("billing_events_json") or []) if isinstance(item, dict)]
+    event_index = next(
+        (
+            index
+            for index, item in enumerate(events)
+            if str(item.get("event_id") or "").strip() == compact_event_id
+            and str(item.get("provider") or "").strip().lower() == "brilliant_directories"
+        ),
+        -1,
+    )
+    if event_index < 0:
+        raise ValueError("brilliant_directories_reconciliation_event_not_found")
+    event = dict(events[event_index])
+    previous_reconciliations = [
+        dict(item)
+        for item in list(normalized.get("billing_reconciliations_json") or [])
+        if isinstance(item, dict)
+    ]
+    if any(str(item.get("event_id") or "").strip() == compact_event_id for item in previous_reconciliations):
+        raise ValueError("brilliant_directories_reconciliation_event_already_reconciled")
+
+    reconciled_at = (now or _now()).isoformat()
+    operator_hash = _hash_public_identifier(reconciled_by)
+    note_hash = hashlib.sha256(str(note or "").strip().encode("utf-8")).hexdigest() if str(note or "").strip() else ""
+    plan_key = str(event.get("plan_key") or "").strip().lower()
+    payment_status = str(event.get("payment_status") or "").strip().lower()
+    payable_statuses = {"paid", "captured", "complete", "completed", "succeeded", "success", "active"}
+    if compact_decision == "approve":
+        try:
+            plan = property_plan_spec(plan_key)
+        except ValueError as exc:
+            raise ValueError("brilliant_directories_reconciliation_plan_invalid") from exc
+        if plan.plan_key == "free":
+            raise ValueError("brilliant_directories_reconciliation_plan_invalid")
+        if payment_status and payment_status not in payable_statuses:
+            raise ValueError("brilliant_directories_reconciliation_payment_not_paid")
+        status = "approved_local_entitlement"
+        entitlement_mutation = "activated"
+    else:
+        plan = property_plan_spec("free")
+        status = "rejected_no_entitlement_change"
+        entitlement_mutation = "none"
+
+    reconciliation_id = hashlib.sha256(
+        "|".join(
+            [
+                "brilliant_directories",
+                compact_event_id,
+                compact_decision,
+                operator_hash,
+                reconciled_at,
+            ]
+        ).encode("utf-8")
+    ).hexdigest()[:24]
+    reconciliation = {
+        "reconciliation_id": reconciliation_id,
+        "event_id": compact_event_id,
+        "provider": "brilliant_directories",
+        "decision": compact_decision,
+        "status": status,
+        "plan_key": plan_key,
+        "payment_status": payment_status,
+        "reconciled_at": reconciled_at,
+        "reconciled_by": operator_hash,
+        "note_sha256": note_hash,
+        "entitlement_mutation": entitlement_mutation,
+    }
+    event.update(
+        {
+            "accounting_status": "local_reconciled" if compact_decision == "approve" else "local_rejected",
+            "local_reconciliation_status": status,
+            "local_reconciliation_id": reconciliation_id,
+            "local_reconciled_at": reconciled_at,
+            "local_reconciled_by": operator_hash,
+        }
+    )
+    events[event_index] = event
+    updates: dict[str, object] = {
+        "billing_events_json": _normalized_property_billing_events(events),
+        "billing_reconciliations_json": _normalized_property_billing_reconciliations(
+            [*previous_reconciliations, reconciliation]
+        ),
+    }
+    if compact_decision == "approve":
+        updates.update(
+            {
+                "active_plan_key": plan.plan_key,
+                "status": "active",
+                "active_until": paid_plan_expiry(plan_key=plan.plan_key, captured_at=now or _now()),
+                "last_order_id": str(event.get("order_id") or ""),
+                "last_capture_id": str(event.get("invoice_id") or ""),
+                "last_payment_status": payment_status or "paid",
+                "last_payment_amount_eur": str(event.get("amount_eur") or plan.amount_eur),
+                "captured_at": reconciled_at,
+                "pending_order_id": "",
+                "pending_plan_key": "",
+                "pending_approval_url": "",
+                "plan_source": "brilliant_directories_local_reconciliation",
+            }
+        )
+    return {
+        "provider": "brilliant_directories",
+        "event_id": compact_event_id,
+        "decision": compact_decision,
+        "status": status,
+        "advisory_event_required": True,
+        "local_reconciliation_required": False,
+        "entitlement_mutation": entitlement_mutation,
+        "current_plan_key": plan.plan_key if compact_decision == "approve" else str(normalized.get("active_plan_key") or "free"),
+        "reconciliation": reconciliation,
+        "updates": updates,
+    }
 
 
 def brilliant_directories_billing_webhook_secret() -> str:
