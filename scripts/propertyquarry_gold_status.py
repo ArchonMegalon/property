@@ -53,8 +53,10 @@ def build_gold_status_receipt(
     import_manifest_receipt_path: Path | None = None,
     repair_canary_receipt_path: Path,
     provider_matrix_receipt_path: Path,
+    live_mobile_receipt_path: Path | None = None,
 ) -> dict[str, Any]:
     performance = _load_json(performance_receipt_path)
+    live_mobile = _load_json(live_mobile_receipt_path) if live_mobile_receipt_path is not None else {}
     tour_controls = _load_json(tour_control_receipt_path)
     export_discovery = _load_json(export_discovery_receipt_path)
     import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
@@ -85,6 +87,14 @@ def build_gold_status_receipt(
         or provider_matrix.get("country_scope") == "all_search_ready"
     )
     performance_ok = performance.get("status") == "pass" and int(performance.get("failed_count") or 0) == 0
+    live_mobile_ok = (
+        live_mobile_receipt_path is None
+        or (
+            live_mobile.get("status") == "pass"
+            and int(live_mobile.get("failed_count") or 0) == 0
+            and int(live_mobile.get("route_count") or 0) >= 7
+        )
+    )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
     expected_import_providers = {"3dvista", "pano2vr", "krpano", "magicfit"}
@@ -137,6 +147,14 @@ def build_gold_status_receipt(
                 "action": "rerun and fix propertyquarry_authenticated_performance_smoke until every measured route passes",
             }
         )
+    if not live_mobile_ok:
+        blockers.append(
+            {
+                "area": "live_mobile_surfaces",
+                "status": live_mobile.get("status") or "unknown",
+                "action": "run propertyquarry_live_mobile_surface_smoke.py against the deployed stack and fix any overflow, chrome, touch-target, or logout regressions",
+            }
+        )
     if missing_provider_modes:
         blockers.append(
             {
@@ -181,7 +199,7 @@ def build_gold_status_receipt(
             }
         )
 
-    status = "pass" if performance_ok and tour_controls_ok and export_discovery_ok and repair_canary_ok and provider_matrix_ok else "blocked"
+    status = "pass" if performance_ok and live_mobile_ok and tour_controls_ok and export_discovery_ok and repair_canary_ok and provider_matrix_ok else "blocked"
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
@@ -190,6 +208,13 @@ def build_gold_status_receipt(
             "failed_count": performance.get("failed_count"),
             "route_count": performance.get("route_count"),
             "receipt_path": str(performance_receipt_path),
+        },
+        "live_mobile_surfaces": {
+            "status": live_mobile.get("status") or ("not_configured" if live_mobile_receipt_path is None else "missing"),
+            "failed_count": live_mobile.get("failed_count"),
+            "route_count": live_mobile.get("route_count"),
+            "viewport": live_mobile.get("viewport"),
+            "receipt_path": str(live_mobile_receipt_path) if live_mobile_receipt_path is not None else "",
         },
         "tour_controls": {
             "status": tour_controls.get("status"),
@@ -251,6 +276,7 @@ def build_gold_status_receipt(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize current PropertyQuarry gold-readiness receipts.")
     parser.add_argument("--performance-receipt", default="_completion/smoke/property-auth-performance-latest.json")
+    parser.add_argument("--live-mobile-receipt", default="_completion/smoke/property-live-mobile-surface-latest.json")
     parser.add_argument("--tour-control-receipt", default="_completion/property_tour_controls/latest-current.json")
     parser.add_argument("--export-discovery-receipt", default="_completion/property_tour_exports/discovery-current.json")
     parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
@@ -262,6 +288,7 @@ def main() -> int:
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=Path(args.performance_receipt),
+        live_mobile_receipt_path=Path(args.live_mobile_receipt),
         tour_control_receipt_path=Path(args.tour_control_receipt),
         export_discovery_receipt_path=Path(args.export_discovery_receipt),
         import_manifest_receipt_path=Path(args.import_manifest_receipt),

@@ -37,6 +37,7 @@ Runs the focused PropertyQuarry release bundle:
   - live provider smoke receipt contracts
   - hosted tour control readiness receipts for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
   - consolidated PropertyQuarry gold-status receipt for mobile/performance, provider matrix, tour controls, repair, and export discovery
+  - optional live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
   - privacy-safe Rybbit analytics snippet contracts
@@ -99,6 +100,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
+  tests/test_property_live_mobile_surface_smoke.py \
   tests/test_property_worker_queues.py \
   tests/test_property_delivery_governance.py \
   tests/test_property_heyy_adapter_contracts.py \

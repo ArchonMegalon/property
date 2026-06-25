@@ -225,3 +225,50 @@ def test_gold_status_blocks_when_provider_matrix_is_not_executed(tmp_path: Path)
 
     assert receipt["status"] == "blocked"
     assert any(row["area"] == "provider_targeted_search_matrix" for row in receipt["blockers"])
+
+
+def test_gold_status_blocks_when_live_mobile_surface_smoke_fails(tmp_path: Path) -> None:
+    performance = _write_json(
+        tmp_path / "performance.json",
+        {"status": "pass", "failed_count": 0, "route_count": 15},
+    )
+    live_mobile = _write_json(
+        tmp_path / "live-mobile.json",
+        {"status": "fail", "failed_count": 1, "route_count": 7, "viewport": {"width": 390, "height": 844}},
+    )
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"status": "ready", "import_count": 2, "rejected_count": 0},
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_mobile_surfaces"]["status"] == "fail"
+    assert any(row["area"] == "live_mobile_surfaces" for row in receipt["blockers"])
