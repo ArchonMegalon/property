@@ -242,15 +242,13 @@ def build_live_mobile_surface_receipt(
                 extra_http_headers=headers,
             )
             for route in routes:
-                page = context.new_page()
                 url = navigation_base_url.rstrip("/") + "/" + route.lstrip("/")
-                try:
-                    wait_until = "commit" if str(route or "").split("?", 1)[0].strip() == "/app/billing" else "domcontentloaded"
-                    response = page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-                    page.wait_for_timeout(350)
-                    status_code = int(response.status) if response is not None else 0
-                    metrics: dict[str, Any]
-                    if str(route or "").split("?", 1)[0].strip() == "/app/billing" and status_code in {303, 307}:
+                if str(route or "").split("?", 1)[0].strip() == "/app/billing":
+                    request_url = base_url.rstrip("/") + "/" + route.lstrip("/")
+                    request_headers = {"Host": normalized_host_header} if normalized_host_header else {}
+                    try:
+                        response = context.request.get(request_url, headers=request_headers, max_redirects=0, timeout=timeout_ms)
+                        status_code = int(response.status)
                         metrics = {
                             "status_code": status_code,
                             "viewport_width": viewport_width,
@@ -259,9 +257,45 @@ def build_live_mobile_surface_receipt(
                             "min_action_height": 44,
                             "redirect_location": str(response.headers.get("location") or ""),
                         }
-                    else:
-                        metrics = dict(page.evaluate(_collect_metrics_script()) or {})
-                        metrics["status_code"] = status_code
+                        checks = evaluate_mobile_metrics(route, metrics)
+                        rows.append(
+                            {
+                                "route": route,
+                                "url": url,
+                                "status_code": status_code,
+                                "ok": all(bool(check.get("ok")) for check in checks),
+                                "checks": checks,
+                                "metrics": metrics,
+                            }
+                        )
+                    except Exception as exc:
+                        metrics = {
+                            "status_code": 0,
+                            "viewport_width": viewport_width,
+                            "body_width": 0,
+                            "topbar_height": 0,
+                            "min_action_height": 0,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                        checks = evaluate_mobile_metrics(route, metrics)
+                        rows.append(
+                            {
+                                "route": route,
+                                "url": url,
+                                "status_code": 0,
+                                "ok": False,
+                                "checks": checks,
+                                "metrics": metrics,
+                            }
+                        )
+                    continue
+                page = context.new_page()
+                try:
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    page.wait_for_timeout(350)
+                    status_code = int(response.status) if response is not None else 0
+                    metrics = dict(page.evaluate(_collect_metrics_script()) or {})
+                    metrics["status_code"] = status_code
                     checks = evaluate_mobile_metrics(route, metrics)
                     rows.append(
                         {
