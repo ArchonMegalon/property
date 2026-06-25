@@ -23,9 +23,10 @@
     {% set run_summary = run.get('summary') or {} %}
     {% set run_reviewed_total = run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0 %}
     {% set run_provider_total = run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0 %}
+    {% set run_provider_label = run_provider_total|string ~ ' provider checks' if run_provider_total else 'selected providers' %}
     {% set run_message_display = run_message_raw %}
     {% if not run_message_display or 'could not load property search status' in run_message_lower or 'checking run status' in run_message_lower or 'suppressed_generic_listing_page' in run_message_lower %}
-      {% set run_message_display = 'Search is still running across ' ~ run_provider_total ~ ' provider checks; ' ~ run_reviewed_total ~ ' homes reviewed so far.' %}
+      {% set run_message_display = 'Search is still running across ' ~ run_provider_label ~ '; ' ~ run_reviewed_total ~ ' homes reviewed so far.' %}
     {% endif %}
     <div class="pqx-note" data-pqx-run-message>{{ run_message_display or 'The search is queued.' }}</div>
     {{ progress_board(run, run_sources, research_task_counts) }}

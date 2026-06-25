@@ -2170,6 +2170,42 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "Search is still running across 29 provider checks; 179 homes reviewed so far." in visible_reliability
 
 
+def test_propertyquarry_running_panel_avoids_zero_provider_copy_when_count_unknown(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-no-provider-count")
+    start_workspace(client, mode="personal", workspace_name="Running No Provider Count Office")
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-no-provider-count", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 0,
+            "message": "Checking run status.",
+            "summary": {
+                "status": "in_progress",
+                "reviewed_listing_total": 0,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-live-no-provider-count"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
+    assert message_match
+    visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
+    assert "0 provider checks" not in visible_message
+    assert "Search is still running across selected providers; 0 homes reviewed so far." in visible_message
+
+
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
     client = build_property_client(principal_id="pq-what-matters-comboboxes")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -7470,6 +7506,47 @@ def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch)
     messages = [str(event.get("message") or "") for event in payload["events"]]
     assert "Could not load property search status." not in messages
     assert "Checking RE/MAX Austria." in messages
+
+
+def test_property_search_status_avoids_zero_provider_copy_when_count_unknown(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-status-no-provider-count")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Status No Provider Count Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert lightweight is True
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "current_step": "status_refresh",
+            "message": "",
+            "updated_at": "2026-06-25T15:44:41+00:00",
+            "summary": {
+                "reviewed_listing_total": 0,
+            },
+            "events": [
+                {
+                    "step": "status_refresh",
+                    "status": "retrying",
+                    "message": "Could not load property search status.",
+                    "created_at": "2026-06-25T15:44:32+00:00",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/api/signals/property/search/run/run-status-no-provider-count?lightweight=1",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    messages = [str(event.get("message") or "") for event in response.json()["events"]]
+    assert "Could not load property search status." not in messages
+    assert not any("0 provider checks" in message for message in messages)
+    assert "Search is still running across selected providers; 0 homes reviewed so far." in messages
 
 
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:

@@ -388,7 +388,8 @@ def _property_search_run_status_payload(
         if not message:
             reviewed = summary.get("reviewed_listing_total") or summary.get("listing_total") or 0
             provider_total = summary.get("provider_total") or summary.get("source_variant_total") or 0
-            message = f"Search is still running across {provider_total} provider checks; {reviewed} homes reviewed so far."
+            provider_label = f"{provider_total} provider checks" if provider_total else "selected providers"
+            message = f"Search is still running across {provider_label}; {reviewed} homes reviewed so far."
         return {
             "step": step,
             "status": str(normalized.get("status") or summary.get("status") or "in_progress").strip() or "in_progress",
