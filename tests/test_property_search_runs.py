@@ -18,6 +18,7 @@ import pytest
 import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
+from app.api.routes.landing_property_workspace_payload import _property_distance_evidence_rows
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
@@ -26,6 +27,55 @@ from app.services.property_billing import property_billing_event_updates, proper
 from app.services import property_market_catalog
 from app.services.heyy_whatsapp_service import redact_phone_number
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
+
+
+def test_property_distance_evidence_rows_include_named_nearest_amenity_and_source() -> None:
+    rows = _property_distance_evidence_rows(
+        {
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "BILLA Praterstern",
+            "nearest_supermarket_source": "OpenStreetMap",
+            "nearest_pharmacy_m": 640,
+            "nearest_pharmacy_name": "Apotheke Nordbahn",
+        },
+        include_family_only=False,
+    )
+
+    assert rows[0]["label"] == "Pharmacy"
+    supermarket = next(row for row in rows if row["label"] == "Supermarket")
+    assert supermarket["title"] == "Supermarket: BILLA Praterstern"
+    assert supermarket["value"] == "280 m"
+    assert supermarket["inline"] == "Supermarket BILLA Praterstern 280 m | 1 min bike"
+    assert supermarket["detail"] == "about 1 min by bike | source: OpenStreetMap"
+
+
+def test_property_distance_evidence_rows_suppress_empty_or_invalid_distance_noise() -> None:
+    rows = _property_distance_evidence_rows(
+        {
+            "nearest_supermarket_m": 0,
+            "nearest_supermarket_name": "BILLA without confirmed distance",
+            "nearest_pharmacy_m": "",
+            "nearest_subway_m": "unknown",
+        },
+        include_family_only=False,
+    )
+
+    assert rows == []
+
+
+def test_property_distance_evidence_rows_keep_family_only_amenities_scoped_to_family_filters() -> None:
+    facts = {
+        "nearest_playground_m": 310,
+        "nearest_playground_name": "Rudolfspark Spielplatz",
+        "nearest_supermarket_m": 280,
+        "nearest_supermarket_name": "BILLA Praterstern",
+    }
+
+    non_family_rows = _property_distance_evidence_rows(facts, include_family_only=False)
+    family_rows = _property_distance_evidence_rows(facts, include_family_only=True)
+
+    assert [row["label"] for row in non_family_rows] == ["Supermarket"]
+    assert [row["label"] for row in family_rows[:2]] == ["Playground", "Supermarket"]
 
 
 def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:

@@ -179,6 +179,174 @@ def _compact_property_account_status(status: dict[str, object]) -> dict[str, obj
     }
 
 
+def _property_distance_evidence_row(
+    facts: dict[str, object],
+    *,
+    label: str,
+    distance_keys: tuple[str, ...],
+    name_keys: tuple[str, ...] = (),
+    source_keys: tuple[str, ...] = (),
+) -> dict[str, str]:
+    raw_value: object = None
+    for key in distance_keys:
+        candidate = facts.get(key)
+        if candidate not in (None, "", []):
+            raw_value = candidate
+            break
+    if raw_value in (None, "", []):
+        return {}
+    try:
+        meters = int(float(raw_value))
+    except Exception:
+        return {}
+    if meters <= 0:
+        return {}
+
+    name = ""
+    for key in name_keys:
+        value = str(facts.get(key) or "").strip()
+        if value:
+            name = value
+            break
+    source = ""
+    for key in source_keys:
+        value = str(facts.get(key) or "").strip()
+        if value:
+            source = value
+            break
+
+    bike_minutes = max(1, int(round(float(meters) / 330.0)))
+    value = f"{meters} m"
+    title = f"{label}: {name}" if name else label
+    detail_parts = [f"about {bike_minutes} min by bike"]
+    if source:
+        detail_parts.append(f"source: {source}")
+    inline = f"{label} {name} {value}" if name else f"{label} {value}"
+    return {
+        "label": label,
+        "title": title,
+        "value": value,
+        "detail": " | ".join(detail_parts),
+        "inline": f"{inline} | {bike_minutes} min bike",
+    }
+
+
+_PROPERTY_DISTANCE_EVIDENCE_SPECS: tuple[dict[str, object], ...] = (
+    {
+        "label": "Playground",
+        "distance_keys": ("nearest_playground_m", "distance_playground_m"),
+        "name_keys": ("nearest_playground_name", "playground_name"),
+        "source_keys": ("nearest_playground_source", "playground_source"),
+        "family_only": True,
+    },
+    {
+        "label": "Library",
+        "distance_keys": ("nearest_library_m",),
+        "name_keys": ("nearest_library_name", "library_name"),
+        "source_keys": ("nearest_library_source", "library_source"),
+        "family_only": True,
+    },
+    {
+        "label": "Zoo",
+        "distance_keys": ("nearest_zoo_m",),
+        "name_keys": ("nearest_zoo_name", "zoo_name"),
+        "source_keys": ("nearest_zoo_source", "zoo_source"),
+        "family_only": True,
+    },
+    {
+        "label": "Pharmacy",
+        "distance_keys": ("nearest_pharmacy_m", "distance_pharmacy_m"),
+        "name_keys": ("nearest_pharmacy_name", "pharmacy_name"),
+        "source_keys": ("nearest_pharmacy_source", "pharmacy_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Medical care",
+        "distance_keys": ("nearest_medical_care_m",),
+        "name_keys": ("nearest_medical_care_name", "medical_care_name"),
+        "source_keys": ("nearest_medical_care_source", "medical_care_source"),
+        "family_only": True,
+    },
+    {
+        "label": "Supermarket",
+        "distance_keys": ("nearest_supermarket_m", "distance_supermarket_m"),
+        "name_keys": ("nearest_supermarket_name", "supermarket_name"),
+        "source_keys": ("nearest_supermarket_source", "supermarket_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Market",
+        "distance_keys": ("nearest_market_m",),
+        "name_keys": ("nearest_market_name", "market_name"),
+        "source_keys": ("nearest_market_source", "market_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Baumarkt",
+        "distance_keys": ("nearest_hardware_store_m",),
+        "name_keys": ("nearest_hardware_store_name", "hardware_store_name"),
+        "source_keys": ("nearest_hardware_store_source", "hardware_store_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Starbucks",
+        "distance_keys": ("nearest_starbucks_m",),
+        "name_keys": ("nearest_starbucks_name", "starbucks_name"),
+        "source_keys": ("nearest_starbucks_source", "starbucks_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Fitness",
+        "distance_keys": ("nearest_fitness_center_m",),
+        "name_keys": ("nearest_fitness_center_name", "fitness_center_name"),
+        "source_keys": ("nearest_fitness_center_source", "fitness_center_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Run or green space",
+        "distance_keys": ("nearest_running_m",),
+        "name_keys": ("nearest_running_name", "running_route_name", "nearest_green_space_name"),
+        "source_keys": ("nearest_running_source", "running_route_source", "nearest_green_space_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Straßenbahn / Bus",
+        "distance_keys": ("nearest_tram_bus_m", "nearest_transit_m"),
+        "name_keys": ("nearest_tram_bus_name", "nearest_transit_name", "transit_stop_name"),
+        "source_keys": ("nearest_tram_bus_source", "nearest_transit_source", "transit_source"),
+        "family_only": False,
+    },
+    {
+        "label": "Underground",
+        "distance_keys": ("nearest_subway_m", "distance_underground_m"),
+        "name_keys": ("nearest_subway_name", "subway_station_name"),
+        "source_keys": ("nearest_subway_source", "subway_source"),
+        "family_only": False,
+    },
+)
+
+
+def _property_distance_evidence_rows(
+    facts: dict[str, object],
+    *,
+    include_family_only: bool,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for spec in _PROPERTY_DISTANCE_EVIDENCE_SPECS:
+        if bool(spec.get("family_only")) and not include_family_only:
+            continue
+        row = _property_distance_evidence_row(
+            facts,
+            label=str(spec.get("label") or "").strip(),
+            distance_keys=tuple(str(item) for item in spec.get("distance_keys", ()) if str(item).strip()),
+            name_keys=tuple(str(item) for item in spec.get("name_keys", ()) if str(item).strip()),
+            source_keys=tuple(str(item) for item in spec.get("source_keys", ()) if str(item).strip()),
+        )
+        if row:
+            rows.append(row)
+    return rows
+
+
 def _compact_property_run_payload_for_template(run_payload: dict[str, object]) -> dict[str, object]:
     raw_run = dict(run_payload or {})
     raw_summary = dict(raw_run.get("summary") or {}) if isinstance(raw_run.get("summary"), dict) else {}
@@ -999,34 +1167,8 @@ def property_workspace_payload(
     def _distance_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         family_filters_active = _property_family_filters_active(property_preferences)
-        specs = (
-            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m"), True),
-            ("Library", facts.get("nearest_library_m"), True),
-            ("Zoo", facts.get("nearest_zoo_m"), True),
-            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m"), False),
-            ("Medical", facts.get("nearest_medical_care_m"), True),
-            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m"), False),
-            ("Market", facts.get("nearest_market_m"), False),
-            ("Baumarkt", facts.get("nearest_hardware_store_m"), False),
-            ("Starbucks", facts.get("nearest_starbucks_m"), False),
-            ("Fitness", facts.get("nearest_fitness_center_m"), False),
-            ("Run", facts.get("nearest_running_m"), False),
-            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"), False),
-            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m"), False),
-        )
-        parts: list[str] = []
-        for label, raw_value, family_only in specs:
-            if family_only and not family_filters_active:
-                continue
-            if raw_value in (None, "", []):
-                continue
-            try:
-                meters = int(float(raw_value))
-            except Exception:
-                continue
-            bike_minutes = max(1, int(round(float(meters) / 330.0)))
-            parts.append(f"{label} {meters} m | {bike_minutes} min bike")
-        return " · ".join(parts[:3])
+        rows = _property_distance_evidence_rows(facts, include_family_only=family_filters_active)
+        return " · ".join(str(row.get("inline") or "").strip() for row in rows[:3] if str(row.get("inline") or "").strip())
 
     results_table_rows = []
     workbench_results: list[dict[str, object]] = []
@@ -1113,36 +1255,14 @@ def property_workspace_payload(
     def _candidate_ooda_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
         family_filters_active = _property_family_filters_active(property_preferences)
-        for label, raw_value, family_only in (
-            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m"), True),
-            ("Library", facts.get("nearest_library_m"), True),
-            ("Zoo", facts.get("nearest_zoo_m"), True),
-            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m"), False),
-            ("Medical care", facts.get("nearest_medical_care_m"), True),
-            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m"), False),
-            ("Market", facts.get("nearest_market_m"), False),
-            ("Baumarkt", facts.get("nearest_hardware_store_m"), False),
-            ("Starbucks", facts.get("nearest_starbucks_m"), False),
-            ("Fitness", facts.get("nearest_fitness_center_m"), False),
-            ("Run or green space", facts.get("nearest_running_m"), False),
-            ("Straßenbahn / Bus", facts.get("nearest_tram_bus_m") or facts.get("nearest_transit_m"), False),
-            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m"), False),
-        ):
-            if family_only and not family_filters_active:
-                continue
-            if raw_value in (None, "", []):
-                continue
-            try:
-                meters = int(float(raw_value))
-            except Exception:
-                continue
-            rows.append(
-                {
-                    "label": label,
-                    "value": f"{meters} m",
-                    "detail": f"about {max(1, int(round(float(meters) / 330.0)))} min by bike",
-                }
-            )
+        rows.extend(
+            {
+                "label": str(row.get("label") or "").strip(),
+                "value": str(row.get("title") or row.get("value") or "").strip(),
+                "detail": str(row.get("detail") or "").strip(),
+            }
+            for row in _property_distance_evidence_rows(facts, include_family_only=family_filters_active)
+        )
         match_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("match_reasons") or []) if _clean_property_candidate_copy(item)]
         mismatch_reasons = [_clean_property_candidate_copy(item) for item in list(candidate.get("mismatch_reasons") or []) if _clean_property_candidate_copy(item)]
         rows.insert(
