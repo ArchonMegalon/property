@@ -131,6 +131,15 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.p
   "${live_mobile_seed_args[@]}" \
   --write _completion/smoke/property-live-mobile-release-gate.json \
   > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_public_smoke.py \
+  --base-url "${live_mobile_base_url}" \
+  --write _completion/smoke/property-live-public-release-gate.json \
+  > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py \
+  --base-url "${live_mobile_base_url}" \
+  --api-token "${EA_API_TOKEN}" \
+  --write _completion/smoke/property-live-authenticated-release-gate.json \
+  > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \
   > _completion/repair/propertyquarry-repair-canary-release-gate.json
 if [[ -f _completion/provider_smoke/all-search-ready-current-resumed.json ]]; then
@@ -154,6 +163,8 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --repair-canary-receipt _completion/repair/propertyquarry-repair-canary-release-gate.json \
   --provider-matrix-receipt _completion/provider_smoke/release-gate-provider-matrix.json \
   --live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json \
+  --public-smoke-receipt _completion/smoke/property-live-public-release-gate.json \
+  --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-release-gate.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \

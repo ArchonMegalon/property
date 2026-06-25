@@ -324,7 +324,7 @@ def main() -> int:
     if len(os.sys.argv) > 1 and os.sys.argv[1] in {"--help", "-h"}:
         print(
             "Usage:\n"
-            "  python3 scripts/propertyquarry_live_authenticated_smoke.py [--base-url <url>] [--principal-id <id>]\n\n"
+            "  python3 scripts/propertyquarry_live_authenticated_smoke.py [--base-url <url>] [--principal-id <id>] [--write <path>]\n\n"
             "Smokes the authenticated PropertyQuarry runtime surfaces using EA_API_TOKEN."
         )
         return 0
@@ -337,6 +337,7 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
     parser.add_argument("--retry-count", type=int, default=2)
     parser.add_argument("--retry-backoff-seconds", type=float, default=0.75)
+    parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
     args = parser.parse_args()
 
     if not str(args.api_token or "").strip():
@@ -352,7 +353,12 @@ def main() -> int:
         retry_count=int(args.retry_count),
         retry_backoff_seconds=float(args.retry_backoff_seconds),
     )
-    print(json.dumps(receipt, indent=2, sort_keys=True))
+    output = json.dumps(receipt, indent=2, sort_keys=True)
+    if args.write:
+        write_path = Path(args.write)
+        write_path.parent.mkdir(parents=True, exist_ok=True)
+        write_path.write_text(output + "\n", encoding="utf-8")
+    print(output)
     return 0 if receipt["status"] == "pass" else 1
 
 

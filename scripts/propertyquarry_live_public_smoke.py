@@ -583,7 +583,7 @@ def main() -> int:
     if len(os.sys.argv) > 1 and os.sys.argv[1] in {"--help", "-h"}:
         print(
             "Usage:\n"
-            "  python3 scripts/propertyquarry_live_public_smoke.py [--base-url <url>] [--route <path>]...\n\n"
+            "  python3 scripts/propertyquarry_live_public_smoke.py [--base-url <url>] [--route <path>]... [--write <path>]\n\n"
             "Smokes the public PropertyQuarry deployment without mutating data."
         )
         return 0
@@ -600,7 +600,9 @@ def main() -> int:
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
-        Path(args.write).write_text(output + "\n", encoding="utf-8")
+        write_path = Path(args.write)
+        write_path.parent.mkdir(parents=True, exist_ok=True)
+        write_path.write_text(output + "\n", encoding="utf-8")
     print(output)
     return 0 if receipt.get("status") == "pass" else 1
 

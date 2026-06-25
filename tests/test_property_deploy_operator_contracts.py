@@ -185,6 +185,12 @@ def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     assert "PROPERTYQUARRY_LIVE_MOBILE_TIMEOUT_MS" in _read("scripts/propertyquarry_live_mobile_surface_smoke.py")
     assert "_completion/smoke/property-live-mobile-release-gate.json" in release_gate
     assert "--live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json" in release_gate
+    assert "scripts/propertyquarry_live_public_smoke.py" in release_gate
+    assert "scripts/propertyquarry_live_authenticated_smoke.py" in release_gate
+    assert "_completion/smoke/property-live-public-release-gate.json" in release_gate
+    assert "_completion/smoke/property-live-authenticated-release-gate.json" in release_gate
+    assert "--public-smoke-receipt _completion/smoke/property-live-public-release-gate.json" in release_gate
+    assert "--authenticated-smoke-receipt _completion/smoke/property-live-authenticated-release-gate.json" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate
 
 
