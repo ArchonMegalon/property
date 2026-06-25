@@ -433,7 +433,7 @@ def main() -> int:
     parser.add_argument("--export-discovery-receipt", default="_completion/property_tour_exports/discovery-current.json")
     parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
     parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
-    parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-live.json")
+    parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-current-resumed.json")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()

@@ -78,7 +78,9 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_s
   > _completion/smoke/property-auth-performance-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \
   > _completion/repair/propertyquarry-repair-canary-release-gate.json
-if [[ -f _completion/provider_smoke/all-search-ready-live.json ]]; then
+if [[ -f _completion/provider_smoke/all-search-ready-current-resumed.json ]]; then
+  cp _completion/provider_smoke/all-search-ready-current-resumed.json _completion/provider_smoke/release-gate-provider-matrix.json
+elif [[ -f _completion/provider_smoke/all-search-ready-live.json ]]; then
   cp _completion/provider_smoke/all-search-ready-live.json _completion/provider_smoke/release-gate-provider-matrix.json
 else
   PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
