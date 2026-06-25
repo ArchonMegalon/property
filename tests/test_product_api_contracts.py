@@ -6127,6 +6127,28 @@ def test_generated_property_source_specs_push_min_area_into_supported_at_provide
     assert by_platform["findmyhome_at"]["provider_filter_pushdown"]["applied"]["min_area_m2"] == 60
 
 
+def test_generated_property_source_specs_reject_cross_country_provider_mismatch() -> None:
+    rows = product_service.generated_property_source_specs(
+        preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["realestate_au", "willhaben"],
+        },
+        selected_platforms=("realestate_au", "willhaben"),
+        principal_id="pq-source-country-gate-at",
+        default_person_id="self",
+        notify_telegram=False,
+        max_results=2,
+    )
+
+    platforms = {str(row.get("platform") or "") for row in rows}
+    urls = " ".join(str(row.get("url") or "") for row in rows)
+    assert "willhaben" in platforms
+    assert "realestate_au" not in platforms
+    assert "realestate.com.au" not in urls
+
+
 def test_generated_property_source_specs_push_min_area_into_immoscout_de_url() -> None:
     rows = product_service.generated_property_source_specs(
         preferences={
@@ -22931,6 +22953,63 @@ def test_property_search_run_ignores_stale_agent_result_cap_from_request(
     assert response.status_code == 200, response.text
     assert observed["max_results_per_source"] is None
     assert dict(observed["property_search_preferences"]).get("max_results_per_source") in (None, "")
+
+
+def test_property_search_run_filters_cross_country_provider_mismatches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-cross-country-provider"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Provider Country Gate Office")
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(self, **kwargs):
+        observed["selected_platforms"] = tuple(kwargs.get("selected_platforms") or ())
+        observed["property_search_preferences"] = dict(kwargs.get("property_search_preferences") or {})
+        return {
+            "generated_at": product_api_delivery_routes.now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    response = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "selected_platforms": ["realestate_au", "willhaben"],
+            "property_preferences": {
+                "country_code": "AT",
+                "region_code": "vienna",
+                "listing_mode": "rent",
+                "location_query": "Wien",
+                "preference_person_id": "self",
+            },
+            "max_results_per_source": 2,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    # The search worker must never fetch Australian providers for an Austria run.
+    deadline = time.time() + 5
+    while "selected_platforms" not in observed and time.time() < deadline:
+        time.sleep(0.05)
+    assert observed["selected_platforms"] == ("willhaben",)
+    preferences = dict(observed["property_search_preferences"])
+    assert preferences["country_code"] == "AT"
+    assert preferences["selected_platforms"] == ["willhaben"]
+    assert preferences["provider_country_filter_applied"] is True
+    assert preferences["provider_country_filter_removed"] == ["realestate_au"]
 
 
 def test_property_paypal_checkout_and_capture_updates_property_commercial_state(

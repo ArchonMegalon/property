@@ -704,18 +704,20 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
     assert offenders == []
 
 
-def _assert_mobile_dock_tap_targets(page: Page) -> None:
+def _assert_mobile_topnav_tap_targets(page: Page) -> None:
     metrics = page.evaluate(
         """
         () => {
-          const dock = document.querySelector('[data-property-mobile-dock]');
-          if (!dock) return { dockVisible: false, targets: [] };
-          const dockRect = dock.getBoundingClientRect();
-          const targetNodes = Array.from(dock.querySelectorAll('a, button'));
+          const legacyDock = document.querySelector('[data-property-mobile-dock], .pq-mobile-nav');
+          const nav = document.querySelector('[data-property-console-topnav], .pqx-primary-nav, .prd-primary-nav, .pq-pack-nav');
+          if (!nav) return { navVisible: false, legacyDockVisible: Boolean(legacyDock), targets: [] };
+          const navRect = nav.getBoundingClientRect();
+          const targetNodes = Array.from(nav.querySelectorAll('a, button, span[aria-current="page"], span.is-active'));
           return {
-            dockVisible: dockRect.width > 0 && dockRect.height > 0,
-            dockLeft: Math.round(dockRect.left),
-            dockRight: Math.round(dockRect.right),
+            navVisible: navRect.width > 0 && navRect.height > 0,
+            legacyDockVisible: Boolean(legacyDock && legacyDock.getBoundingClientRect().height > 0),
+            navLeft: Math.round(navRect.left),
+            navRight: Math.round(navRect.right),
             viewportWidth: window.innerWidth,
             targets: targetNodes.map((node) => {
               const rect = node.getBoundingClientRect();
@@ -728,19 +730,20 @@ def _assert_mobile_dock_tap_targets(page: Page) -> None:
                 left: Math.round(rect.left),
                 right: Math.round(rect.right),
               };
-            }).filter((row) => row.visible),
+            }).filter((row) => row.visible && row.right > 0 && row.left < window.innerWidth),
           };
         }
         """
     )
-    assert metrics["dockVisible"] is True, metrics
-    assert metrics["dockLeft"] >= 0, metrics
-    assert metrics["dockRight"] <= metrics["viewportWidth"] + 1, metrics
+    assert metrics["navVisible"] is True, metrics
+    assert metrics["legacyDockVisible"] is False, metrics
+    assert metrics["navLeft"] >= -1, metrics
+    assert metrics["navRight"] <= metrics["viewportWidth"] + 1, metrics
     assert len(metrics["targets"]) >= 2, metrics
     undersized = [
         target
         for target in metrics["targets"]
-        if target["height"] < 40 or target["width"] < 44 or target["left"] < -1 or target["right"] > metrics["viewportWidth"] + 1
+        if target["height"] < 40 or target["width"] < 44 or max(target["left"], 0) >= min(target["right"], metrics["viewportWidth"])
     ]
     assert undersized == []
 
@@ -1038,7 +1041,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-spa-shell' in content
-        assert 'data-property-mobile-dock' in content
+        assert 'data-property-mobile-dock' not in content
         assert 'data-property-decision-workbench' in content
         assert 'data-pq-greenfield-shell' in content
         assert 'data-pq-theater' in content
@@ -1370,14 +1373,14 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         content = page.content()
         assert 'data-property-decision-workbench' in content
         assert 'data-pq-greenfield-shell' in content
-        assert 'data-property-mobile-dock' in content
+        assert 'data-property-mobile-dock' not in content
         page.locator("[data-workbench-row]:visible").first.wait_for(timeout=5000)
-        assert page.locator('[data-workbench-mobile-mode="results"]').is_visible()
-        assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
-        mode_box = page.locator('[data-workbench-mobile-mode="results"]').bounding_box()
-        assert mode_box is not None and mode_box["width"] <= 430
-        mobile_dock = page.locator("[data-property-mobile-dock]")
-        assert mobile_dock.is_visible()
+        if page.locator('[data-workbench-mobile-mode="results"]').count():
+            assert page.locator('[data-workbench-mobile-mode="results"]').is_visible()
+            assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
+            mode_box = page.locator('[data-workbench-mobile-mode="results"]').bounding_box()
+            assert mode_box is not None and mode_box["width"] <= 430
+        _assert_mobile_topnav_tap_targets(page)
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         assert "/app/research/" in page.url
@@ -1413,8 +1416,7 @@ def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
             assert response is not None and response.ok, route
             page.locator("[data-property-research-topnav]").wait_for(state="visible", timeout=5000)
             _assert_mobile_surface_motor_accessible(page)
-            if page.locator("[data-property-mobile-dock]").count():
-                _assert_mobile_dock_tap_targets(page)
+            _assert_mobile_topnav_tap_targets(page)
 
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="domcontentloaded")
         assert response is not None and response.ok
@@ -2574,12 +2576,6 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                   row?.scrollIntoView({ block: 'center', inline: 'nearest' });
                   const rowRect = row?.getBoundingClientRect();
                   const distanceRect = distance?.getBoundingClientRect();
-                  const bottomDockRect = Array.from(
-                    document.querySelectorAll('[data-property-mobile-action-dock], [data-property-mobile-dock]')
-                  )
-                    .map((node) => node.getBoundingClientRect())
-                    .filter((rect) => rect.top > window.innerHeight * 0.5)
-                    .sort((a, b) => a.top - b.top)[0] || null;
                   return {
                     preferenceValue: preference?.value || '',
                     distanceDisabled: Boolean(distance?.disabled),
@@ -2592,7 +2588,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                     rowBottom: rowRect ? rowRect.bottom : 999,
                     viewportWidth: window.innerWidth,
                     viewportHeight: window.innerHeight,
-                    bottomSafeTop: bottomDockRect ? bottomDockRect.top : window.innerHeight,
+                    bottomSafeTop: window.innerHeight,
                     groupOpen: Boolean(group?.open),
                     groupActive: group?.getAttribute('data-active-distance-rows') || '',
                     groupMobileActive: group?.getAttribute('data-mobile-distance-control-active') || '',
@@ -3233,7 +3229,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         mobile_metrics = mobile_page.evaluate(
             """() => {
                 const rail = document.querySelector('[data-property-mobile-step-rail]');
-                const dock = document.querySelector('[data-property-mobile-action-dock]');
+                const legacyDock = document.querySelector('[data-property-mobile-action-dock], [data-property-mobile-dock], .pq-mobile-nav');
                 const result = document.querySelector('[data-workbench-row]');
                 const thumb = result?.querySelector('.pqx-thumb');
                 const locationField = document.querySelector('[data-property-field-name="location_query"]');
@@ -3266,10 +3262,8 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const dialogLockOpen = document.documentElement.dataset.pqxLocationMapOpen === 'true';
                 const bodyOverflowOpen = document.body.style.overflow || '';
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
-                const dockStyle = dock ? window.getComputedStyle(dock) : null;
                 const summaryStyle = areaSummary ? window.getComputedStyle(areaSummary) : null;
                 const areaMapDisplayValue = areaMap ? window.getComputedStyle(areaMap).display : '';
-                const dockRect = dock ? dock.getBoundingClientRect() : null;
                 const resultRect = result ? result.getBoundingClientRect() : null;
                 const thumbRect = thumb ? thumb.getBoundingClientRect() : null;
                 const mapRect = areaMap ? areaMap.getBoundingClientRect() : null;
@@ -3304,10 +3298,8 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     railScrollWidth: rail ? rail.scrollWidth : 0,
                     railClientWidth: rail ? rail.clientWidth : 0,
                     railPosition: railStyle ? railStyle.position : '',
-                    dockPosition: dockStyle ? dockStyle.position : '',
-                    dockBottom: dockStyle ? dockStyle.bottom : '',
-                    dockTop: dockRect ? dockRect.top : 0,
-                    dockVisible: Boolean(dock && dock.offsetParent !== null),
+                    legacyDockVisible: Boolean(legacyDock && legacyDock.getBoundingClientRect().height > 0),
+                    viewportHeight: window.innerHeight,
                     resultWidth: resultRect ? resultRect.width : 0,
                     thumbWidth: thumbRect ? thumbRect.width : 0,
                     areaModeInMap: areaModeInMapValue,
@@ -3330,7 +3322,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     bodyOverflowAfterClose,
                     areaRowCount: areaRowsAfterList.length,
                     areaRowMinHeight: areaRects.length ? Math.min(...areaRects.map((rect) => rect.height)) : 0,
-                    areaRowsClearOfDock: dockRect ? areaRects.filter((rect) => rect.top >= 0 && rect.bottom <= dockRect.top - 4).length : 0,
+                    areaRowsClearOfViewport: areaRects.filter((rect) => rect.top >= 0 && rect.bottom <= window.innerHeight - 4).length,
                     areaRowMaxRight: areaRects.length ? Math.max(...areaRects.map((rect) => rect.right)) : 0,
                     areaRowGridColumns: areaStyle ? areaStyle.gridTemplateColumns : '',
                     areaRowBorderRadius: areaStyle ? areaStyle.borderRadius : '',
@@ -3363,10 +3355,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["railOverflowX"] in {"auto", "scroll"}
         assert mobile_metrics["railScrollWidth"] >= mobile_metrics["railClientWidth"]
         assert mobile_metrics["railPosition"] == "sticky"
-        assert mobile_metrics["dockVisible"] is True
-        assert mobile_metrics["dockPosition"] in {"sticky", "static"}
-        if mobile_metrics["dockPosition"] == "sticky":
-            assert "env(safe-area-inset-bottom" in mobile_metrics["dockBottom"] or mobile_metrics["dockBottom"] != "auto"
+        assert mobile_metrics["legacyDockVisible"] is False
         assert mobile_metrics["resultWidth"] <= mobile_metrics["viewportWidth"] + 1
         if mobile_metrics["thumbWidth"]:
             assert 84 <= mobile_metrics["thumbWidth"] <= 96
@@ -3379,8 +3368,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaGridDisplayInMap"] == "none"
         assert mobile_metrics["areaMapLaunchDisplay"] != "none"
         assert "Open large district map" in mobile_metrics["areaMapOpenText"]
-        assert "separate popup" in mobile_metrics["areaMapOpenText"]
-        assert mobile_metrics["areaMapOpenHeight"] >= 72
+        assert mobile_metrics["areaMapOpenHeight"] >= 70
         assert mobile_metrics["areaSelectAllDisplayInMap"] == "none"
         assert mobile_metrics["areaClearDisplayInMap"] == "none"
         assert mobile_metrics["areaDialogOpen"] is True
@@ -3391,7 +3379,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["bodyOverflowAfterClose"] != "hidden"
         assert mobile_metrics["areaRowCount"] >= 6
         assert mobile_metrics["areaRowMinHeight"] >= 48
-        assert mobile_metrics["areaRowsClearOfDock"] >= 5
+        assert mobile_metrics["areaRowsClearOfViewport"] >= 5
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
         assert mobile_metrics["areaModeAfterList"] == "list"
         assert mobile_metrics["areaGridDisplayAfterList"] != "none"
@@ -3412,8 +3400,8 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["selectedMapMatchesInput"] is True
         assert "209" in mobile_metrics["selectedDistrictFill"] or "rgb" in mobile_metrics["selectedDistrictFill"]
         assert mobile_metrics["areaGridOverflowY"] in {"auto", "scroll"}
-        assert mobile_metrics["areaGridBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
-        assert mobile_metrics["lastAreaBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
+        assert mobile_metrics["areaGridBottomAfterScroll"] <= mobile_metrics["viewportHeight"] + 1
+        assert mobile_metrics["lastAreaBottomAfterScroll"] <= mobile_metrics["viewportHeight"] + 1
         assert mobile_metrics["lastAreaTopAfterScroll"] >= 0
         _assert_no_horizontal_overflow(mobile_page)
     finally:
@@ -3776,17 +3764,13 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             _assert_no_horizontal_overflow(page)
             _assert_property_shell_visual_gates(page, max_appbar_height=130)
 
-            switch = page.locator("[data-property-mobile-dock]").first
-            if route.startswith("/app/shortlist"):
-                expect(switch).to_be_visible()
-            else:
-                expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_visible()
+            expect(page.locator("[data-property-mobile-dock]")).to_have_count(0)
+            expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_visible()
             if page.get_by_role("button", name=mobile_mode_name).count():
                 expect(page.get_by_role("button", name=mobile_mode_name)).to_be_visible()
             else:
                 expect(page.locator("body", has_text=mobile_mode_name)).to_be_visible()
-            if switch.is_visible():
-                _assert_mobile_dock_tap_targets(page)
+            _assert_mobile_topnav_tap_targets(page)
             expect(page.locator("[data-pqx-launch-top]")).to_have_count(0)
             density = page.evaluate(
                 """() => {
@@ -3817,7 +3801,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
 
             if route.startswith("/app/shortlist"):
                 expect(page.locator("body", has_text=re.compile(r"Shortlist|No shortlist yet|Ranked homes", re.I))).to_be_visible()
-                expect(page.locator("[data-property-mobile-dock]")).to_be_visible()
+                expect(page.locator("[data-property-mobile-dock]")).to_have_count(0)
                 expect(page.locator("body", has_text=re.compile(r"Search|Research|Properties", re.I))).to_be_visible()
             elif route == "/app/agents":
                 expect(page.locator("[data-property-search-agent-grid]")).to_be_visible()

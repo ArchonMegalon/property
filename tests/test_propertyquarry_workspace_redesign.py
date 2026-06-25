@@ -2502,7 +2502,8 @@ def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:
     base_console = (repo_root / "ea/app/templates/base_console.html").read_text(encoding="utf-8")
     assert 'html[data-pq-theme="dark"] .pq-rail' in base_console
     assert 'html[data-pq-theme="dark"] .pq-appbar' in base_console
-    assert 'html[data-pq-theme="dark"] .pq-mobile-nav' in base_console
+    assert 'html[data-pq-theme="dark"] .pq-appbar-mobile-nav a' in base_console
+    assert '.pq-mobile-nav' not in base_console
 
     base_public = (repo_root / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
     assert 'html[data-pq-theme="dark"] .mobile-nav a' in base_public
@@ -5290,11 +5291,11 @@ def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatc
     )
 
     assert packet.status_code == 200
-    assert 'data-property-mobile-dock' in packet.text
-    assert 'aria-label="PropertyQuarry mobile navigation"' in packet.text
-    assert 'class="active" href="/app/research?run_id=run-mobile-dock"' in packet.text
-    assert ">Research<" in packet.text
-    assert ".pq-mobile-nav {\n    display: none !important;\n  }" not in packet.text
+    assert 'data-property-mobile-dock' not in packet.text
+    assert 'class="pq-mobile-nav"' not in packet.text
+    assert 'data-property-console-topnav' in packet.text
+    assert 'aria-current="page">Research</span>' in packet.text
+    assert "calc(74px + env(safe-area-inset-bottom" not in packet.text
 
 
 def test_property_research_route_uses_research_surface_contract(monkeypatch) -> None:
@@ -6632,7 +6633,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-app-shell' in search.text
     assert 'data-property-spa-shell' in search.text
     assert 'data-property-pulse-strip' in search.text
-    assert 'data-property-mobile-dock' in search.text
+    assert 'data-property-mobile-dock' not in search.text
     assert 'data-property-decision-workbench' in search.text
     assert 'data-pq-greenfield-shell' in search.text
     assert 'data-pq-theater' in search.text
@@ -8375,12 +8376,11 @@ def test_property_search_agents_have_dedicated_management_page() -> None:
     assert "position: static;" in template
     assert '.pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel > .pqx-section-head' in template
     assert 'data-property-mobile-step-rail' in template
-    assert 'data-property-mobile-action-dock' in template
+    assert 'data-property-mobile-action-dock' not in template
     assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail]' in template
-    assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock]' in template
-    assert '.pqx-surface-search [data-property-actions]:not([hidden])' in template
-    assert '.pqx-surface-search [data-property-actions] {' in template
-    assert 'display: none !important;' in template
+    assert '.pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock]' not in template
+    assert '.pqx-surface-search [data-property-actions]' not in template
+    assert 'calc(58px + env(safe-area-inset-bottom' not in template
     assert 'scroll-snap-type: x proximity;' in template
     assert '-webkit-overflow-scrolling: touch;' in template
     assert 'env(safe-area-inset-bottom, 0px)' in template
@@ -12925,31 +12925,21 @@ def test_property_settings_subpages_keep_property_shell_and_mobile_dock() -> Non
         response = client.get(path, headers=headers)
         assert response.status_code == 200, path
         assert 'data-property-app-shell' in response.text, path
-        assert 'data-property-mobile-dock' in response.text, path
-        assert 'aria-label="PropertyQuarry mobile navigation"' in response.text, path
+        assert 'data-property-mobile-dock' not in response.text, path
+        assert 'class="pq-mobile-nav"' not in response.text, path
         assert 'class="pq-rail-link active" href="/app/account"' in response.text, path
         topnav_match = re.search(
             r'<nav class="pq-appbar-mobile-nav"[^>]*data-property-console-topnav[^>]*>(?P<nav>.*?)</nav>',
             response.text,
             flags=re.DOTALL,
         )
-        dock_match = re.search(
-            r'<nav class="pq-mobile-nav"[^>]*data-property-mobile-dock[^>]*>(?P<nav>.*?)</nav>',
-            response.text,
-            flags=re.DOTALL,
-        )
         assert topnav_match, path
-        assert dock_match, path
         topnav = topnav_match.group("nav")
-        dock = dock_match.group("nav")
         for href, label in required_nav.items():
             assert label in topnav, path
-            assert label in dock, path
             if href != "/app/account":
                 assert f'href="{href}' in topnav, path
-                assert f'href="{href}' in dock, path
         assert 'aria-current="page">Account</span>' in topnav, path
-        assert 'class="active" href="/app/account' in dock, path
 
 
 def test_property_mobile_browser_gate_explicitly_covers_required_customer_surfaces() -> None:

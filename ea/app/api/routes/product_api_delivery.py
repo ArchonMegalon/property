@@ -86,7 +86,10 @@ from app.services.property_market_catalog import (
     default_platforms_for_country as property_default_platforms_for_country,
     default_platforms_for_country_listing_mode as property_default_platforms_for_country_listing_mode,
     evidence_source_options as property_evidence_source_options,
+    filter_selectable_property_platforms as property_filter_selectable_property_platforms,
     normalize_listing_mode as property_normalize_listing_mode,
+    normalize_property_search_preferences as property_normalize_search_preferences,
+    normalize_property_platform as property_normalize_platform,
     normalize_property_type as property_normalize_property_type,
     normalize_country_code as property_normalize_country_code,
     provider_options as property_provider_options,
@@ -245,6 +248,36 @@ def _property_search_payload_with_status_url(payload: dict[str, object], *, cano
     return copied
 
 
+def _sanitize_property_search_run_platforms(
+    *,
+    property_preferences: dict[str, object],
+    selected_platforms: list[str] | tuple[str, ...],
+) -> tuple[dict[str, object], tuple[str, ...]]:
+    normalized_preferences = property_normalize_search_preferences(dict(property_preferences or {}))
+    country_code = property_normalize_country_code(normalized_preferences.get("country_code")) or "AT"
+    listing_mode = property_normalize_listing_mode(normalized_preferences.get("listing_mode"))
+    requested = tuple(
+        dict.fromkeys(
+            property_normalize_platform(item)
+            for item in (selected_platforms or normalized_preferences.get("selected_platforms") or [])
+            if property_normalize_platform(item) and property_normalize_platform(item) != "all"
+        )
+    )
+    kept, removed = property_filter_selectable_property_platforms(
+        requested,
+        country_code=country_code,
+        listing_mode=listing_mode,
+        include_distressed_sale_signals=normalized_preferences.get("include_distressed_sale_signals"),
+    )
+    normalized_preferences["country_code"] = country_code
+    normalized_preferences["listing_mode"] = listing_mode
+    normalized_preferences["selected_platforms"] = list(kept)
+    if removed:
+        normalized_preferences["provider_country_filter_applied"] = True
+        normalized_preferences["provider_country_filter_removed"] = list(removed)
+    return normalized_preferences, kept
+
+
 def _start_property_search_run_payload(
     *,
     body: PropertySearchRunStartIn,
@@ -256,15 +289,19 @@ def _start_property_search_run_payload(
     actor = str(context.operator_id or context.access_email or context.principal_id or "property_search").strip()
     merged_preferences = _property_preferences(container, principal_id=context.principal_id)
     merged_preferences.update(dict(body.property_preferences))
-    enforce_property_plan_limits(
+    merged_preferences, sanitized_platforms = _sanitize_property_search_run_platforms(
         property_preferences=merged_preferences,
         selected_platforms=tuple(body.selected_platforms),
+    )
+    enforce_property_plan_limits(
+        property_preferences=merged_preferences,
+        selected_platforms=sanitized_platforms,
         max_results_per_source=body.max_results_per_source,
     )
     return service.start_property_search_run(
         principal_id=context.principal_id,
         actor=actor,
-        selected_platforms=tuple(body.selected_platforms),
+        selected_platforms=sanitized_platforms,
         property_search_preferences=merged_preferences,
         force_refresh=bool(body.force_refresh),
         max_results_per_source=body.max_results_per_source,

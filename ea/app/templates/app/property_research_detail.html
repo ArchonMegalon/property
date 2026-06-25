@@ -1262,7 +1262,7 @@
   }
   @media (max-width: 760px) {
     .pq-shell[data-property-app-shell] .pq-surface {
-      padding-bottom: 28px;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     }
     .prd-topbar {
       grid-template-columns: minmax(0, 1fr) auto;
@@ -1317,7 +1317,7 @@
     }
     .prd-top-actions .account-menu summary {
       min-width: 44px;
-      min-height: 38px;
+      min-height: 44px;
       padding: 0 12px;
     }
     .prd-top-actions .account-menu summary span {

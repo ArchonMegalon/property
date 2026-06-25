@@ -2111,9 +2111,6 @@
       min-height: 34px;
       white-space: nowrap;
     }
-    .pqx-surface-search [data-property-actions] {
-      display: none !important;
-    }
     .pqx-workflow {
       display: flex;
       flex-wrap: nowrap;
@@ -6633,9 +6630,6 @@
         flex: 1 1 0;
         min-height: 48px;
       }
-      .pqx-surface-search [data-property-actions]:not([hidden]) {
-        display: grid !important;
-      }
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-step-rail] {
         position: sticky;
         top: 0;
@@ -6970,8 +6964,8 @@
         max-height: min(44svh, 380px);
         overflow-y: auto;
         overscroll-behavior: contain;
-        padding: 2px 2px calc(76px + env(safe-area-inset-bottom, 0px));
-        scroll-padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+        padding: 2px 2px calc(10px + env(safe-area-inset-bottom, 0px));
+        scroll-padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
         -webkit-overflow-scrolling: touch;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"]::-webkit-scrollbar {
@@ -6992,8 +6986,8 @@
         justify-content: center;
         border-radius: 14px;
       }
-      .pqx-surface-search .pqx-location-map-open {
-        min-height: 72px;
+      [data-property-field-name="location_query"] .pqx-location-map-open {
+        min-height: 74px !important;
         padding: 12px;
         border-radius: 15px;
         box-shadow: none;
@@ -7527,36 +7521,6 @@
         justify-content: center;
         border-radius: 14px;
       }
-      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] {
-        position: static;
-        z-index: 30;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        gap: 6px;
-        margin: 4px 0 0;
-        padding: 6px;
-        border: 1px solid var(--pq-line);
-        border-radius: 10px;
-        background: color-mix(in srgb, var(--pq-paper) 94%, transparent);
-        box-shadow: 0 12px 26px rgba(41, 37, 30, 0.12);
-        backdrop-filter: blur(16px);
-      }
-      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-actions {
-        flex-direction: row;
-        align-items: stretch;
-        gap: 6px;
-      }
-      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button {
-        width: auto;
-        flex: 1 1 0;
-        min-height: 52px;
-        padding: 0 12px;
-        border-radius: 12px;
-      }
-      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button.subtle {
-        flex: 0 0 auto;
-        min-width: 112px;
-      }
       .pqx-shell[data-pqx-surface="account"] .pqx-account-board,
       .pqx-shell[data-pqx-surface="billing"] .pqx-card,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-card,
@@ -7697,7 +7661,7 @@
       .pqx-main {
         width: min(calc(100vw - 12px), 760px);
         padding-top: 0;
-        padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
       }
       .pqx-mobile-switch {
         top: calc(52px + env(safe-area-inset-top, 0px));
@@ -7809,7 +7773,7 @@
       .pqx-button,
       .pqx-link-button,
       .pqx-field-action {
-        min-height: 44px;
+        min-height: 46px;
         border-radius: 11px;
       }
       .pqx-account-action-card,
@@ -7858,13 +7822,9 @@
         min-height: 48px;
         border-radius: 11px;
       }
-      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] {
-        padding: 5px;
-        border-radius: 12px;
-        box-shadow: none;
-      }
-      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button {
-        min-height: 48px;
+      [data-property-field-name="location_query"] .pqx-location-mode-toggle .pqx-field-action {
+        height: 52px !important;
+        min-height: 52px !important;
       }
     }
     html[data-pq-theme="dark"] .pqx-shell :is(
@@ -8345,6 +8305,8 @@
                 {% endif %}
               </span>
               {% if setup_mode and console_form and show_form_controls and surface_mode != 'agents' %}
+              <button class="pqx-button subtle" type="button" data-property-step-back hidden>Back</button>
+              <button class="pqx-button" type="button" data-property-step-next>Next</button>
               <span class="pqx-inline-status pqx-launch-status" data-property-launch-status aria-live="polite"></span>
               {% if surface_mode == 'search' %}
               <button class="pqx-button subtle" type="button" data-property-save-top>Save search</button>
@@ -8815,15 +8777,6 @@
               </div>
               <div class="pqx-source-grid" data-pqx-evidence-source-list></div>
             </section>
-            <div class="pqx-form-footer" data-property-mobile-action-dock>
-              <div class="pqx-actions">
-                <button class="pqx-button subtle" type="button" data-property-step-back hidden>Back</button>
-                <button class="pqx-button" type="button" data-property-step-next>Next</button>
-              </div>
-              <div class="pqx-actions" data-property-actions hidden>
-                <button class="pqx-button subtle" type="button" data-property-save>Save search</button>
-              </div>
-            </div>
             <div class="pqx-inline-status" data-property-inline-status></div>
             <div class="pqx-inline-error" data-property-inline-error></div>
           </form>

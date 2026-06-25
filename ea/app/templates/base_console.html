@@ -1008,11 +1008,8 @@
       font-weight: 620;
     }
     .pq-surface {
-      padding: 14px 14px 96px;
+      padding: 14px;
       min-width: 0;
-    }
-    .pq-mobile-nav {
-      display: none;
     }
     .pq-appbar-mobile-nav {
       display: none;
@@ -1040,49 +1037,7 @@
         display: none;
       }
       .pq-stage {
-        padding: 8px 8px 94px;
-      }
-      .pq-mobile-nav {
-        position: fixed;
-        left: 12px;
-        right: 12px;
-        bottom: 12px;
-        z-index: 50;
-        display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-        gap: 8px;
-        padding: 10px;
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        background: rgba(255, 253, 248, 0.94);
-        backdrop-filter: blur(16px);
-        box-shadow: 0 14px 44px rgba(38, 32, 22, 0.16);
-      }
-      .pq-mobile-nav a {
-        min-width: 0;
-        min-height: var(--mobile-dock-target);
-        display: grid;
-        gap: 2px;
-        place-items: center;
-        padding: 8px 6px;
-        border-radius: 12px;
-        color: var(--text-dim);
-        font-size: 11px;
-        text-align: center;
-      }
-      .pq-mobile-nav a strong {
-        font-size: 12px;
-        font-weight: 620;
-      }
-      .pq-mobile-nav a.active {
-        background: var(--accent-soft);
-        color: var(--text);
-      }
-      @media (pointer: coarse) {
-        .pq-mobile-nav a {
-          min-height: var(--mobile-dock-target-coarse);
-          padding-block: 10px;
-        }
+        padding: 8px;
       }
       .pq-appbar-mobile-nav {
         display: flex;
@@ -1229,7 +1184,7 @@
         padding-right: 12px;
       }
       .pq-surface {
-        padding: 8px 6px 74px;
+        padding: 8px 6px calc(10px + env(safe-area-inset-bottom, 0px));
       }
       .pq-stage-window-bar {
         align-items: flex-start;
@@ -1272,7 +1227,6 @@
     .pq-appbar,
     .pq-stage-window,
     .pq-stage-window-bar,
-    .pq-mobile-nav,
     .pq-meta-pill,
     .pq-stat {
       border-color: var(--line);
@@ -1292,8 +1246,7 @@
       border-radius: 10px;
       color: var(--text-soft);
     }
-    .pq-rail-link.active,
-    .pq-mobile-nav a.active {
+    .pq-rail-link.active {
       border-color: var(--accent);
       background: var(--accent-soft);
       color: var(--text);
@@ -1316,16 +1269,11 @@
     .pq-stage-window-title strong {
       color: var(--text);
     }
-    .pq-mobile-nav {
-      background: rgba(255, 253, 248, 0.94);
-      box-shadow: 0 14px 44px rgba(38, 32, 22, 0.16);
-    }
     html[data-pq-theme="dark"] .account-menu summary,
     html[data-pq-theme="dark"] .pq-rail,
     html[data-pq-theme="dark"] .pq-appbar,
     html[data-pq-theme="dark"] .pq-appbar-mobile-nav a,
-    html[data-pq-theme="dark"] .pq-appbar-mobile-nav span,
-    html[data-pq-theme="dark"] .pq-mobile-nav {
+    html[data-pq-theme="dark"] .pq-appbar-mobile-nav span {
       background: color-mix(in srgb, var(--panel) 92%, transparent);
       border-color: var(--line);
       color: var(--text-soft);
@@ -1333,13 +1281,6 @@
     }
     html[data-pq-theme="dark"] .pq-rail {
       box-shadow: 12px 0 36px rgba(0, 0, 0, 0.22);
-    }
-    html[data-pq-theme="dark"] .pq-mobile-nav a {
-      color: var(--text-dim);
-    }
-    html[data-pq-theme="dark"] .pq-mobile-nav a.active {
-      background: var(--accent-soft);
-      color: var(--text);
     }
     html[data-pq-theme="dark"] .pq-appbar-mobile-nav span[aria-current="page"] {
       background: var(--accent-soft);
@@ -1592,14 +1533,6 @@
         </section>
       </div>
     </main>
-    <nav class="pq-mobile-nav" aria-label="PropertyQuarry mobile navigation" data-property-mobile-dock>
-      {% for item in mobile_nav.items %}
-      <a class="{% if shell_nav_key == item.key %}active{% endif %}" href="{{ item.href }}">
-        <strong>{{ item.label }}</strong>
-        <span>{% if shell_nav_key == item.key %}Open{% else %}Go{% endif %}</span>
-      </a>
-      {% endfor %}
-    </nav>
   </div>
   {% else %}
     </main>
