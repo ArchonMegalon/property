@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from time import sleep
 from typing import Callable
 
 
@@ -166,6 +167,8 @@ def build_live_authenticated_smoke_receipt(
     expected_plan_label: str = "",
     country_code: str = "AT",
     timeout_seconds: float = 8.0,
+    retry_count: int = 2,
+    retry_backoff_seconds: float = 0.75,
     routes: tuple[str, ...] = DEFAULT_ROUTES,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
@@ -184,7 +187,17 @@ def build_live_authenticated_smoke_receipt(
     effective_fetcher = fetcher or _default_fetcher
     for path in routes:
         url = urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
-        result = effective_fetcher(url, timeout_seconds)
+        attempts: list[dict[str, object]] = []
+        max_attempts = max(1, int(retry_count) + 1)
+        for attempt_index in range(max_attempts):
+            result = effective_fetcher(url, timeout_seconds)
+            attempts.append(result)
+            status_code = int(result.get("status_code") or 0)
+            transient_failure = bool(result.get("error")) or status_code == 0 or status_code >= 500
+            if not transient_failure or attempt_index >= max_attempts - 1:
+                break
+            sleep(max(0.0, float(retry_backoff_seconds)) * float(attempt_index + 1))
+        result = attempts[-1]
         status_code = int(result.get("status_code") or 0)
         headers = dict(result.get("headers") or {})
         body = bytes(result.get("body") or b"")
@@ -208,6 +221,7 @@ def build_live_authenticated_smoke_receipt(
                 "ok": ok,
                 "final_url": str(result.get("final_url") or url),
                 "duration_ms": int(result.get("duration_ms") or 0),
+                "attempt_count": len(attempts),
                 "content_type": _header_value(headers, "Content-Type"),
                 "checks": [{"name": name, "ok": passed} for name, passed in route_checks],
                 "snippet": _compact_snippet(text),
@@ -246,6 +260,8 @@ def main() -> int:
     parser.add_argument("--country-code", default=_env_value("PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE") or "AT")
     parser.add_argument("--api-token", default=_env_value("EA_API_TOKEN"))
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
+    parser.add_argument("--retry-count", type=int, default=2)
+    parser.add_argument("--retry-backoff-seconds", type=float, default=0.75)
     args = parser.parse_args()
 
     if not str(args.api_token or "").strip():
@@ -258,6 +274,8 @@ def main() -> int:
         expected_plan_label=str(args.expected_plan_label),
         country_code=str(args.country_code),
         timeout_seconds=float(args.timeout_seconds),
+        retry_count=int(args.retry_count),
+        retry_backoff_seconds=float(args.retry_backoff_seconds),
     )
     print(json.dumps(receipt, indent=2, sort_keys=True))
     return 0 if receipt["status"] == "pass" else 1

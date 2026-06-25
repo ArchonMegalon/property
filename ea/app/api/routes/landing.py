@@ -1155,10 +1155,13 @@ def _load_status(
     container: AppContainer,
     access_identity: CloudflareAccessIdentity | None,
     request: Request | None = None,
+    compact: bool = False,
 ) -> tuple[str, dict[str, object]]:
     principal_id = _principal_for_page(container=container, access_identity=access_identity, request=request)
     if not principal_id:
         return "", _anonymous_onboarding_status()
+    if compact and hasattr(container.onboarding, "compact_status"):
+        return principal_id, container.onboarding.compact_status(principal_id=principal_id)
     return principal_id, container.onboarding.status(principal_id=principal_id)
 
 
@@ -2992,7 +2995,12 @@ def sign_in_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    principal_id, status = _load_status(
+        container=container,
+        access_identity=access_identity,
+        request=request,
+        compact=request_brand(request)["key"] == "propertyquarry",
+    )
     link_status = str(request.query_params.get("link_status") or "").strip()
     link_email = str(request.query_params.get("link_email") or "").strip()
     link_error = str(request.query_params.get("link_error") or "").strip()
@@ -3500,7 +3508,12 @@ def property_research_packet(
     run_id: str = Query(default=""),
     investment: int = Query(default=0),
 ) -> HTMLResponse:
-    status = container.onboarding.status(principal_id=context.principal_id)
+    property_brand = request_brand(request)["key"] == "propertyquarry"
+    status = (
+        container.onboarding.compact_status(principal_id=context.principal_id)
+        if property_brand and hasattr(container.onboarding, "compact_status")
+        else container.onboarding.status(principal_id=context.principal_id)
+    )
     product = build_product_service(container)
     property_context = _property_console_context(
         container=container,

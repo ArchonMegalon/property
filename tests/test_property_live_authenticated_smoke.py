@@ -122,3 +122,39 @@ def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout()
     assert receipt["status"] == "fail"
     sign_in_row = next(row for row in receipt["checks"] if row["path"] == "/sign-in")
     assert any(check["name"] == "sign_in_single_logout" and check["ok"] is False for check in sign_in_row["checks"])
+
+
+def test_live_authenticated_smoke_retries_transient_transport_failures_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+    }
+    attempts: dict[str, int] = {}
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        attempts[url] = attempts.get(url, 0) + 1
+        if url.endswith("/app/account") and attempts[url] == 1:
+            return {
+                "status_code": 0,
+                "final_url": url,
+                "headers": {},
+                "body": b"",
+                "duration_ms": 8000,
+                "error": "TimeoutError: timed out",
+            }
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        retry_count=2,
+        retry_backoff_seconds=0,
+        fetcher=fetcher,
+    )
+
+    assert receipt["status"] == "pass"
+    account_row = next(row for row in receipt["checks"] if row["path"] == "/app/account")
+    assert account_row["attempt_count"] == 2

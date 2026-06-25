@@ -1295,6 +1295,94 @@ class OnboardingService(AssistantOnboardingService):
             "onboarding_id": state.onboarding_id if state is not None else "",
         }
 
+    def compact_status(self, *, principal_id: str) -> dict[str, object]:
+        """Local-only account snapshot for authenticated page first paint."""
+        state = self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
+        raw_property_preferences = dict(state.property_search_preferences_json if state is not None else {})
+
+        def _normalize_property_type_for_response(value: object) -> str:
+            if isinstance(value, (list, tuple, set)):
+                normalized = [str(item or "").strip().lower() for item in value if str(item or "").strip()]
+                return ",".join(normalized) if len(normalized) > 1 else (normalized[0] if normalized else "any")
+            text = str(value or "").strip()
+            return text or "any"
+
+        if isinstance(raw_property_preferences.get("property_type"), (list, tuple, set)):
+            raw_property_preferences["property_type"] = _normalize_property_type_for_response(
+                raw_property_preferences.get("property_type")
+            )
+        normalized_search_agents: list[dict[str, object]] = []
+        for raw_agent in list(raw_property_preferences.get("search_agents") or ()):
+            if not isinstance(raw_agent, dict):
+                continue
+            agent_copy = dict(raw_agent)
+            if isinstance(agent_copy.get("property_type"), (list, tuple, set)):
+                agent_copy["property_type"] = _normalize_property_type_for_response(agent_copy.get("property_type"))
+            preferences_json = agent_copy.get("preferences_json")
+            if isinstance(preferences_json, dict) and isinstance(preferences_json.get("property_type"), (list, tuple, set)):
+                normalized_preferences_json = dict(preferences_json)
+                normalized_preferences_json["property_type"] = _normalize_property_type_for_response(
+                    normalized_preferences_json.get("property_type")
+                )
+                agent_copy["preferences_json"] = normalized_preferences_json
+            normalized_search_agents.append(agent_copy)
+        if normalized_search_agents:
+            raw_property_preferences["search_agents"] = normalized_search_agents
+
+        channel_preferences = dict(state.channel_preferences_json if state is not None else {})
+        google_pref = dict(channel_preferences.get("google") or {})
+        telegram_pref = dict(channel_preferences.get("telegram") or {})
+        whatsapp_pref = dict(channel_preferences.get("whatsapp") or {})
+        normalized_workspace_mode = self._normalize_workspace_mode(state.workspace_mode if state is not None else "personal")
+        preview = dict(state.brief_preview_json) if state is not None and state.brief_preview_json else {}
+        preview_privacy = dict(preview.get("privacy_posture") or {})
+        preview_privacy["auto_briefs_schedule"] = self._morning_memo_schedule(
+            principal_id=principal_id,
+            state=state,
+            google_binding=None,
+        )
+        preview["privacy_posture"] = preview_privacy
+        property_notifications = self._property_notification_preferences(state)
+        assistant_notifications = self._assistant_notification_preferences(state)
+        google_email = str(google_pref.get("account_email") or google_pref.get("email") or "").strip()
+        return {
+            "principal_id": principal_id,
+            "status": state.status if state is not None else "draft",
+            "workspace": {
+                "name": state.workspace_name if state is not None else "",
+                "mode": normalized_workspace_mode,
+                "region": state.region if state is not None else "",
+                "language": state.language if state is not None else "",
+                "timezone": state.timezone if state is not None else "",
+            },
+            "selected_channels": list(state.selected_channels if state is not None else ()),
+            "property_search_preferences": raw_property_preferences,
+            "privacy": dict(state.privacy_preferences_json) if state is not None else {},
+            "delivery_preferences": {
+                "morning_memo": preview_privacy["auto_briefs_schedule"],
+                "assistant_notifications": assistant_notifications,
+                "property_notifications": property_notifications,
+            },
+            "assistant_modes": [dict(row) for row in ASSISTANT_MODE_CATALOG],
+            "featured_domains": [dict(row) for row in FEATURED_DOMAIN_CATALOG],
+            "storage_posture": {
+                "source_of_truth": "PropertyQuarry Postgres",
+                "projection_note": "Teable can mirror onboarding, account, and import state, but it is not the canonical message ledger.",
+                "attachment_note": "Large media and exports belong in object storage rather than the browser edge or operator spreadsheet layer.",
+            },
+            "channels": {
+                "google": {
+                    "status": str(google_pref.get("status") or ("connected" if google_email else "not_connected")),
+                    "connected_account_email": google_email,
+                },
+                "telegram": {"status": str(telegram_pref.get("status") or "not_connected")},
+                "whatsapp": {"status": str(whatsapp_pref.get("status") or "not_connected")},
+            },
+            "brief_preview": preview,
+            "next_step": "Open the current search or update the account settings.",
+            "onboarding_id": state.onboarding_id if state is not None else "",
+        }
+
     def _ensure_state(self, principal_id: str) -> OnboardingState:
         existing = self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
         if existing is not None:
