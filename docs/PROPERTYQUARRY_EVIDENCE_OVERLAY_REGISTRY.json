@@ -1,0 +1,123 @@
+{
+  "contract_name": "propertyquarry.evidence_overlay_registry.v1",
+  "gold_policy": {
+    "search_execution_policy": "cached_rollups_only_no_inline_source_indexing",
+    "ingestion_policy": "async_teable_first_then_cached_read_model",
+    "ui_state_policy": "each layer must render unavailable, stale, and verified states",
+    "privacy_policy": "area context only; no person scoring, no exact private notes, no raw article bodies"
+  },
+  "layers": [
+    {
+      "layer_key": "environmental_quality",
+      "title": "Environmental quality",
+      "source_registry": "official_environmental_air_noise_green_space_sources",
+      "teable_table": "pq_geo_environmental_quality",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["property_coordinate", "street", "district_polygon"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": false,
+      "customer_framing": "area environmental context"
+    },
+    {
+      "layer_key": "summer_heat",
+      "title": "Summer heat",
+      "source_registry": "official_heat_island_surface_temperature_tree_canopy_sources",
+      "teable_table": "pq_geo_summer_heat",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["property_coordinate", "street", "district_polygon"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": false,
+      "customer_framing": "summer heat exposure context"
+    },
+    {
+      "layer_key": "traffic_noise",
+      "title": "Traffic and noise",
+      "source_registry": "official_traffic_count_noise_map_mobility_sources",
+      "teable_table": "pq_geo_traffic_noise",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["property_coordinate", "street", "district_polygon"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": false,
+      "customer_framing": "traffic and noise exposure context"
+    },
+    {
+      "layer_key": "public_mobility",
+      "title": "Public mobility",
+      "source_registry": "official_transit_stop_frequency_route_access_sources",
+      "teable_table": "pq_geo_public_mobility",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["property_coordinate", "street", "district_polygon"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": false,
+      "customer_framing": "daily mobility context"
+    },
+    {
+      "layer_key": "school_context",
+      "title": "School context",
+      "source_registry": "official_school_atlas_catchment_transition_aggregate_sources",
+      "teable_table": "pq_geo_school_context",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["property_coordinate", "district_polygon", "school_catchment"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": false,
+      "customer_framing": "aggregate school and continuation context"
+    },
+    {
+      "layer_key": "official_safety_context",
+      "title": "Official safety context",
+      "source_registry": "official_aggregate_public_safety_sources",
+      "teable_table": "pq_geo_official_safety_context",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["district_polygon", "street"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": false,
+      "customer_framing": "official aggregate area context, never property or person scoring"
+    },
+    {
+      "layer_key": "media_attention",
+      "title": "Media attention",
+      "source_registry": "licensed_or_public_news_index_sources",
+      "teable_table": "pq_geo_media_attention",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["street", "neighborhood", "district_polygon"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label", "topic_label", "time_window", "article_url"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": true,
+      "customer_framing": "topic and frequency context with original article links when terms and availability permit"
+    },
+    {
+      "layer_key": "fiber_broadband",
+      "title": "Fiber and broadband",
+      "source_registry": "official_broadband_coverage_and_terms_safe_provider_check_sources",
+      "teable_table": "pq_geo_fiber_broadband",
+      "ingestion_mode": "async_teable_job",
+      "read_model": "cached_postgres_geo_rollup",
+      "lookup_keys": ["property_coordinate", "street", "district_polygon"],
+      "ui_states": ["unavailable", "stale", "verified"],
+      "provenance_fields": ["source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label", "technology", "speed_band", "fixed_or_mobile"],
+      "search_policy": "read_cached_rollup_only_no_inline_fetch",
+      "article_links_required": false,
+      "customer_framing": "official coverage first, provider address checks only as secondary verified jobs"
+    }
+  ]
+}

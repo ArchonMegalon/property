@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE_DOC = ROOT / "docs" / "PROPERTYQUARRY_WHOLE_PROJECT_SCOPE.md"
+OVERLAY_REGISTRY = ROOT / "docs" / "PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json"
+
+REQUIRED_OVERLAY_LAYERS = {
+    "environmental_quality",
+    "summer_heat",
+    "traffic_noise",
+    "public_mobility",
+    "school_context",
+    "official_safety_context",
+    "media_attention",
+    "fiber_broadband",
+}
 
 REQUIRED_PHRASES = (
     "Public entry and SEO surfaces",
@@ -37,6 +50,55 @@ FORBIDDEN_PHRASES = (
 )
 
 
+def _check_overlay_registry(failures: list[str]) -> None:
+    if not OVERLAY_REGISTRY.exists():
+        failures.append("docs/PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json must define evidence overlay gold contract")
+        return
+    try:
+        registry = json.loads(OVERLAY_REGISTRY.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        failures.append(f"evidence overlay registry must be valid JSON: {exc}")
+        return
+    if registry.get("contract_name") != "propertyquarry.evidence_overlay_registry.v1":
+        failures.append("evidence overlay registry must declare contract_name propertyquarry.evidence_overlay_registry.v1")
+    policy = registry.get("gold_policy") if isinstance(registry.get("gold_policy"), dict) else {}
+    if policy.get("search_execution_policy") != "cached_rollups_only_no_inline_source_indexing":
+        failures.append("evidence overlay registry must forbid inline source indexing during search")
+    if policy.get("ingestion_policy") != "async_teable_first_then_cached_read_model":
+        failures.append("evidence overlay registry must require async Teable-first ingestion")
+    layers = [row for row in list(registry.get("layers") or []) if isinstance(row, dict)]
+    by_key = {str(row.get("layer_key") or "").strip(): row for row in layers}
+    missing_layers = sorted(REQUIRED_OVERLAY_LAYERS - set(by_key))
+    if missing_layers:
+        failures.append(f"evidence overlay registry missing required layers: {', '.join(missing_layers)}")
+    for layer_key in sorted(REQUIRED_OVERLAY_LAYERS & set(by_key)):
+        row = by_key[layer_key]
+        prefix = f"evidence overlay {layer_key}"
+        if not str(row.get("source_registry") or "").strip():
+            failures.append(f"{prefix} must declare source_registry")
+        if not str(row.get("teable_table") or "").strip().startswith("pq_geo_"):
+            failures.append(f"{prefix} must declare a pq_geo_* Teable table")
+        if row.get("ingestion_mode") != "async_teable_job":
+            failures.append(f"{prefix} must use async_teable_job ingestion")
+        if row.get("read_model") != "cached_postgres_geo_rollup":
+            failures.append(f"{prefix} must use cached_postgres_geo_rollup read model")
+        if row.get("search_policy") != "read_cached_rollup_only_no_inline_fetch":
+            failures.append(f"{prefix} must forbid inline fetches during search")
+        ui_states = {str(value) for value in list(row.get("ui_states") or [])}
+        if not {"unavailable", "stale", "verified"}.issubset(ui_states):
+            failures.append(f"{prefix} must expose unavailable, stale, and verified UI states")
+        provenance = {str(value) for value in list(row.get("provenance_fields") or [])}
+        if not {"source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"}.issubset(provenance):
+            failures.append(f"{prefix} must expose source, freshness, cache, and uncertainty provenance")
+        if layer_key == "media_attention":
+            if row.get("article_links_required") is not True or "article_url" not in provenance:
+                failures.append("media_attention overlay must require original article links when available")
+        if layer_key == "official_safety_context" and "never property or person scoring" not in str(row.get("customer_framing") or ""):
+            failures.append("official_safety_context overlay must forbid property/person scoring")
+        if layer_key == "fiber_broadband" and "provider address checks only as secondary verified jobs" not in str(row.get("customer_framing") or ""):
+            failures.append("fiber_broadband overlay must keep provider checks secondary to official coverage")
+
+
 def main() -> int:
     failures: list[str] = []
     if not SCOPE_DOC.exists():
@@ -49,6 +111,10 @@ def main() -> int:
         for phrase in FORBIDDEN_PHRASES:
             if phrase in body:
                 failures.append(f"whole-project scope uses inherited generic copy: {phrase}")
+        if "PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json" not in body:
+            failures.append("whole-project scope must reference PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json")
+
+    _check_overlay_registry(failures)
 
     release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
     if "scripts/check_property_whole_project_scope.py" not in release_gate:
