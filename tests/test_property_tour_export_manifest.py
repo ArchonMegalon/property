@@ -82,14 +82,26 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
         assert f"Provider: {row['provider']}" in body
         assert "Do not copy placeholder HTML" in body
         assert "import_property_tour_exports.py" in body
+        assert "Single-provider dry import example:" in body
+        assert "Gold only passes when verify_property_tour_controls reports ready provider modes" in body
         if row["provider"] == "3dvista":
             assert "tdvplayer" in body
+            assert "Copy the complete 3DVista export folder" in body
+            assert "import_3dvista_export.py" in body
         if row["provider"] == "pano2vr":
             assert "tour.js" in body
+            assert "Copy the complete Pano2VR output folder" in body
+            assert "import_pano2vr_export.py" in body
         if row["provider"] == "krpano":
             assert "equirectangular" in body
+            assert "cube-face-1" in body
+            assert "KRPANO_LICENSE_DOMAIN=propertyquarry.com" in body
+            assert "import_krpano_walkable_scene.py" in body
         if row["provider"] == "magicfit":
             assert "MagicFit render receipt" in body
+            assert "magicfit-walkthrough.mp4" in body
+            assert "magicfit-receipt.json" in body
+            assert "import_magicfit_walkthrough.py" in body
 
 
 def test_materialize_property_tour_export_manifest_cli_writes_receipt(tmp_path: Path) -> None:

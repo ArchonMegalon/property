@@ -20,6 +20,32 @@ PROVIDER_ENTRY_MARKERS = {
     "krpano": "one real 2:1 equirectangular panorama named panorama.jpg/png/webp, or six square cube-face images named cube-face-1..6",
     "magicfit": "a playable MagicFit MP4/MOV/WebM plus the matching MagicFit render receipt JSON",
 }
+PROVIDER_DROP_CHECKLISTS = {
+    "3dvista": (
+        "Copy the complete 3DVista export folder into this directory.",
+        "Accepted entry files: index.html, index.htm, tour.html, virtualtour.html, or output/index.html.",
+        "The entry HTML must contain a 3DVista runtime marker: tdvplayer, tdvplayerapi, or tourviewer.",
+        "Keep sibling JS/CSS/media folders next to the entry file; the importer copies the whole export tree.",
+    ),
+    "pano2vr": (
+        "Copy the complete Pano2VR output folder into this directory.",
+        "Accepted entry files: index.html, index.htm, tour.html, virtualtour.html, or output/index.html.",
+        "The entry HTML must contain a Pano2VR runtime marker: ggpkg, ggskin, pano.xml, or tour.js.",
+        "Keep generated tiles, skin files, XML, JS, and media folders next to the entry file.",
+    ),
+    "krpano": (
+        "Copy exactly one real 2:1 panorama named panorama.jpg, panorama.jpeg, panorama.png, or panorama.webp, or provide a six-face cubemap.",
+        "Cubemap filenames must be cube-face-1.jpg/png/webp through cube-face-6.jpg/png/webp.",
+        "Panoramas must be at least 1024x512 and close to a 2:1 ratio; cube faces must be square and at least 512x512.",
+        "Set KRPANO_LICENSE_DOMAIN=propertyquarry.com and KRPANO_LICENSE_KEY before importing.",
+    ),
+    "magicfit": (
+        "Copy a playable MagicFit walkthrough video named magicfit-walkthrough.mp4/mov/webm or walkthrough.mp4/mov/webm.",
+        "Copy the matching MagicFit receipt as magicfit-receipt.json or receipt.json.",
+        "The video must have a real video stream and positive duration; signature-only placeholder files are rejected.",
+        "The receipt should identify provider=magicfit and the target slug/output file used to produce the video.",
+    ),
+}
 
 
 def _tour_root() -> Path:
@@ -67,6 +93,19 @@ def _default_missing_reason(provider: str) -> str:
         return "missing_krpano_walkable_scene"
     if provider == "magicfit":
         return "missing_magicfit_walkthrough"
+    return ""
+
+
+def _provider_import_example(row: dict[str, str]) -> str:
+    provider = str(row.get("provider") or "").strip().lower()
+    slug = str(row.get("slug") or "").strip()
+    export_dir = str(row.get("export_dir") or row.get("asset_dir") or "").strip()
+    if provider in {"3dvista", "pano2vr"}:
+        return f"python /app/scripts/import_{provider}_export.py --slug {slug} --export-dir {export_dir}"
+    if provider == "krpano":
+        return f"python /app/scripts/import_krpano_walkable_scene.py --slug {slug} --panorama {export_dir}/panorama.jpg"
+    if provider == "magicfit":
+        return f"python /app/scripts/import_magicfit_walkthrough.py --slug {slug} --video-path {export_dir}/magicfit-walkthrough.mp4 --source-receipt {export_dir}/magicfit-receipt.json"
     return ""
 
 
@@ -192,11 +231,17 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, str]]:
                     f"Current verified controls: {str(row.get('current_control_providers') or 'none').strip()}",
                     f"Expected entry: {PROVIDER_ENTRY_MARKERS[provider]}",
                     "",
+                    "Checklist:",
+                    *[f"- {item}" for item in PROVIDER_DROP_CHECKLISTS[provider]],
+                    "",
                     "Copy the real provider export or asset contents into this directory.",
                     "Do not copy placeholder HTML, flat listing photos, or fake videos; the importers reject unverified entries.",
                     "",
+                    f"Single-provider dry import example: {_provider_import_example({**row, 'provider': provider, 'slug': slug})}",
+                    "",
                     f"After exports are copied, run: {manifest.get('next_command')}",
                     "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
+                    "Gold only passes when verify_property_tour_controls reports ready provider modes for matterport, 3dvista, pano2vr, krpano, and magicfit.",
                     "",
                 ]
             ),
