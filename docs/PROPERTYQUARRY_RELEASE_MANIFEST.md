@@ -13,13 +13,26 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `7e34e7ef08eb13bc51479d16de42ab04deb7fd11` |
+| Runtime commit SHA | `f26f6ab2673941e9a0a18d4109bc0264fff79b72` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `f26f6ab` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_live_authenticated_smoke.py`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_live_mobile_surface_smoke.py`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_brilliant_directories_integration.py -k 'billing_handoff or property_billing_route_redirects'`
+- `python3 -m py_compile scripts/propertyquarry_live_authenticated_smoke.py scripts/propertyquarry_live_mobile_surface_smoke.py`
+- Authenticated and mobile billing smokes now accept only a governed external account-lane redirect or an explicit fail-closed recovery page for unresolved billing handoff DNS. Regressions back to a local signed-in pricing, plan, checkout, or billing-history board fail the smoke contract instead of passing as customer billing readiness.
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
+- Current gold status remains `blocked`; verified 3DVista, Pano2VR, and krpano tour evidence/export drops are still missing, and `billing.propertyquarry.com` still must resolve before the Brilliant Directories account lane can be proven live.
 
 The candidate at `7e34e7e` passed:
 
