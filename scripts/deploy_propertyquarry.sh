@@ -419,6 +419,8 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_li
   cat "${authenticated_smoke_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
+mkdir -p _completion/smoke
+cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticated-latest.json
 
 provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
 if ! EA_API_TOKEN="${api_token}" \

@@ -44,6 +44,9 @@ REQUIRED_PUBLIC_AUTH_CHECKS = (
     "sign_in_google_state",
     "sign_in_google_feedback",
 )
+REQUIRED_BILLING_SURFACE_CHECKS = (
+    "billing_local_board_deleted",
+)
 COMMON_OPERATOR_DROP_README_TOKENS = (
     ("title", "PropertyQuarry provider export drop folder"),
     ("no_placeholders", "Do not copy placeholder HTML"),
@@ -275,6 +278,48 @@ def _public_sign_in_checks(public_smoke: dict[str, Any]) -> tuple[bool, list[str
     return not missing and not failed, missing, failed
 
 
+def _route_named_checks(receipt: dict[str, Any], route_path: str) -> tuple[dict[str, Any], set[str], list[dict[str, Any]]]:
+    route_row: dict[str, Any] = {}
+    for row in list(receipt.get("checks") or receipt.get("routes") or []):
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("path") or row.get("route") or "").split("?", 1)[0].strip()
+        if path == route_path:
+            route_row = row
+            break
+    if not route_row:
+        return {}, set(), []
+    passed = {
+        str(check.get("name") or "")
+        for check in list(route_row.get("checks") or [])
+        if isinstance(check, dict) and check.get("ok") is True
+    }
+    failed = [
+        {
+            "name": str(check.get("name") or "unnamed_check"),
+            "ok": bool(check.get("ok")),
+            "detail": str(check.get("detail") or ""),
+        }
+        for check in list(route_row.get("checks") or [])
+        if isinstance(check, dict) and check.get("ok") is not True
+    ]
+    return route_row, passed, failed
+
+
+def _authenticated_billing_surface_checks(authenticated_smoke: dict[str, Any]) -> tuple[bool, list[str], list[dict[str, Any]], str]:
+    route_row, passed_checks, failed_checks = _route_named_checks(authenticated_smoke, "/app/billing")
+    if not route_row:
+        return False, ["billing_route_missing"], [], ""
+    missing = [name for name in REQUIRED_BILLING_SURFACE_CHECKS if name not in passed_checks]
+    handoff_or_recovery_ok = (
+        "billing_external_handoff" in passed_checks
+        or "billing_fail_closed_recovery" in passed_checks
+    )
+    if not handoff_or_recovery_ok:
+        missing.append("billing_external_handoff_or_fail_closed_recovery")
+    return not missing and not failed_checks, missing, failed_checks, str(route_row.get("status_code") or "")
+
+
 def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
     normalized_route = str(route or "").strip().rstrip("/")
     normalized_prefix = str(required_prefix or "").strip().rstrip("/")
@@ -363,12 +408,14 @@ def build_gold_status_receipt(
     billing_receipt_path: Path | None = None,
     live_mobile_receipt_path: Path | None = None,
     public_smoke_receipt_path: Path | None = None,
+    authenticated_smoke_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     performance = _load_json(performance_receipt_path)
     live_mobile = _load_json(live_mobile_receipt_path) if live_mobile_receipt_path is not None else {}
     public_smoke = _load_json(public_smoke_receipt_path) if public_smoke_receipt_path is not None else {}
+    authenticated_smoke = _load_json(authenticated_smoke_receipt_path) if authenticated_smoke_receipt_path is not None else {}
     tour_controls = _load_json(tour_control_receipt_path)
     export_discovery = _load_json(export_discovery_receipt_path)
     import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
@@ -385,6 +432,7 @@ def build_gold_status_receipt(
             "provider_matrix": provider_matrix,
             **({"live_mobile_surfaces": live_mobile} if live_mobile_receipt_path is not None else {}),
             **({"public_auth_surfaces": public_smoke} if public_smoke_receipt_path is not None else {}),
+            **({"authenticated_customer_surfaces": authenticated_smoke} if authenticated_smoke_receipt_path is not None else {}),
         },
         now=now,
         max_age_hours=max_receipt_age_hours,
@@ -464,6 +512,15 @@ def build_gold_status_receipt(
             public_smoke.get("status") == "pass"
             and int(public_smoke.get("failed_count") or 0) == 0
             and public_sign_in_ok
+        )
+    )
+    authenticated_billing_ok, missing_authenticated_billing_checks, failed_authenticated_billing_checks, authenticated_billing_status_code = _authenticated_billing_surface_checks(authenticated_smoke)
+    authenticated_customer_ok = (
+        authenticated_smoke_receipt_path is None
+        or (
+            authenticated_smoke.get("status") == "pass"
+            and int(authenticated_smoke.get("failed_count") or 0) == 0
+            and authenticated_billing_ok
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
@@ -546,6 +603,17 @@ def build_gold_status_receipt(
                 "missing_sign_in_checks": missing_public_sign_in_checks,
                 "failed_sign_in_checks": failed_public_sign_in_checks,
                 "action": "run propertyquarry_live_public_smoke.py against the deployed stack and fix provider sign-in account-creation copy, unavailable-copy, or provider-opening regressions",
+            }
+        )
+    if not authenticated_customer_ok:
+        blockers.append(
+            {
+                "area": "authenticated_customer_surfaces",
+                "status": authenticated_smoke.get("status") or "unknown",
+                "billing_status_code": authenticated_billing_status_code,
+                "missing_billing_checks": missing_authenticated_billing_checks,
+                "failed_billing_checks": failed_authenticated_billing_checks,
+                "action": "run propertyquarry_live_authenticated_smoke.py against the deployed stack and keep /app/billing either redirected to the external account lane or fail-closed without local billing-board copy",
             }
         )
     if missing_provider_modes:
@@ -686,6 +754,7 @@ def build_gold_status_receipt(
             performance_ok
             and live_mobile_ok
             and public_auth_ok
+            and authenticated_customer_ok
             and tour_controls_ok
             and export_discovery_ok
             and operator_import_manifest_ok
@@ -728,6 +797,16 @@ def build_gold_status_receipt(
             "missing_sign_in_checks": missing_public_sign_in_checks if public_smoke_receipt_path is not None else [],
             "failed_sign_in_checks": failed_public_sign_in_checks if public_smoke_receipt_path is not None else [],
             "receipt_path": str(public_smoke_receipt_path) if public_smoke_receipt_path is not None else "",
+        },
+        "authenticated_customer_surfaces": {
+            "status": authenticated_smoke.get("status") or ("not_configured" if authenticated_smoke_receipt_path is None else "missing"),
+            "failed_count": authenticated_smoke.get("failed_count"),
+            "route_count": authenticated_smoke.get("route_count"),
+            "billing_checks_ok": authenticated_billing_ok if authenticated_smoke_receipt_path is not None else None,
+            "billing_status_code": authenticated_billing_status_code,
+            "missing_billing_checks": missing_authenticated_billing_checks if authenticated_smoke_receipt_path is not None else [],
+            "failed_billing_checks": failed_authenticated_billing_checks if authenticated_smoke_receipt_path is not None else [],
+            "receipt_path": str(authenticated_smoke_receipt_path) if authenticated_smoke_receipt_path is not None else "",
         },
         "tour_controls": {
             "status": tour_controls.get("status"),
@@ -818,6 +897,7 @@ def main() -> int:
     parser.add_argument("--performance-receipt", default="_completion/smoke/property-auth-performance-latest.json")
     parser.add_argument("--live-mobile-receipt", default="_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json")
     parser.add_argument("--public-smoke-receipt", default="_completion/smoke/property-live-public-latest.json")
+    parser.add_argument("--authenticated-smoke-receipt", default="_completion/smoke/property-live-authenticated-latest.json")
     parser.add_argument("--tour-control-receipt", default="_completion/tours/property-tour-controls-live-container-current.json")
     parser.add_argument("--export-discovery-receipt", default="_completion/tours/property-tour-export-discovery-full-current.json")
     parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
@@ -833,6 +913,7 @@ def main() -> int:
         performance_receipt_path=Path(args.performance_receipt),
         live_mobile_receipt_path=Path(args.live_mobile_receipt),
         public_smoke_receipt_path=Path(args.public_smoke_receipt),
+        authenticated_smoke_receipt_path=Path(args.authenticated_smoke_receipt),
         tour_control_receipt_path=Path(args.tour_control_receipt),
         export_discovery_receipt_path=Path(args.export_discovery_receipt),
         import_manifest_receipt_path=Path(args.import_manifest_receipt),
