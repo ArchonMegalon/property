@@ -78,6 +78,7 @@ def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass
         "/app/settings/trust",
         "/app/settings/invitations",
         "/app/research",
+        "/app/research/perf-candidate-1020?run_id=run-gold",
         "/app/properties/packets",
     ]
     return {
@@ -441,8 +442,10 @@ def test_gold_status_blocks_when_live_mobile_surface_coverage_is_old_or_narrow(t
     assert receipt["status"] == "blocked"
     assert receipt["live_mobile_surfaces"]["required_route_count"] == 14
     assert "/app/settings/access" in receipt["live_mobile_surfaces"]["missing_routes"]
+    assert "/app/research/" in receipt["live_mobile_surfaces"]["missing_detail_routes"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
     assert "/app/settings/invitations" in blocker["missing_routes"]
+    assert "/app/research/" in blocker["missing_detail_routes"]
 
 
 def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_checks(tmp_path: Path) -> None:

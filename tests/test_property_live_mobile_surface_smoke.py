@@ -24,6 +24,11 @@ def _base_metrics() -> dict[str, object]:
         "mobile_what_matters_single_open": True,
         "account_logout_strip_visible": True,
         "logout_button_count": 1,
+        "research_detail_workspace": True,
+        "research_detail_decision_after_aside": True,
+        "research_detail_media_stage": True,
+        "research_detail_visual_controls": True,
+        "research_detail_fake_visual_ready": False,
     }
 
 
@@ -55,6 +60,28 @@ def test_live_mobile_smoke_accepts_research_and_packets_surfaces_without_search_
 
     assert _failed_names("/app/research", metrics) == set()
     assert _failed_names("/app/properties/packets", metrics) == set()
+
+
+def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
+    assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", _base_metrics()) == set()
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "research_detail_workspace": False,
+            "research_detail_decision_after_aside": False,
+            "research_detail_media_stage": False,
+            "research_detail_visual_controls": False,
+            "research_detail_fake_visual_ready": True,
+        }
+    )
+
+    assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
+        "research_detail_workspace",
+        "research_detail_decision_after_aside",
+        "research_detail_media_stage",
+        "research_detail_visual_controls",
+        "research_detail_no_fake_visual_ready",
+    }
 
 
 def test_live_mobile_smoke_default_routes_cover_settings_surfaces() -> None:

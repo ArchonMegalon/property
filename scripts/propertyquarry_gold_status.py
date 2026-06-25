@@ -35,6 +35,7 @@ REQUIRED_LIVE_MOBILE_ROUTES = (
     "/app/research",
     "/app/properties/packets",
 )
+REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES = ("/app/research/",)
 COMMON_OPERATOR_DROP_README_TOKENS = (
     ("title", "PropertyQuarry provider export drop folder"),
     ("no_placeholders", "Do not copy placeholder HTML"),
@@ -215,6 +216,11 @@ def build_gold_status_receipt(
     missing_live_mobile_routes = [
         route for route in REQUIRED_LIVE_MOBILE_ROUTES if route not in live_mobile_covered_routes
     ]
+    missing_live_mobile_detail_routes = [
+        prefix
+        for prefix in REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES
+        if not any(route.startswith(prefix) for route in live_mobile_covered_routes)
+    ]
     live_mobile_ok = (
         live_mobile_receipt_path is None
         or (
@@ -222,6 +228,7 @@ def build_gold_status_receipt(
             and int(live_mobile.get("failed_count") or 0) == 0
             and int(live_mobile.get("route_count") or 0) >= len(REQUIRED_LIVE_MOBILE_ROUTES)
             and not missing_live_mobile_routes
+            and not missing_live_mobile_detail_routes
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
@@ -285,6 +292,7 @@ def build_gold_status_receipt(
                 "area": "live_mobile_surfaces",
                 "status": live_mobile.get("status") or "unknown",
                 "missing_routes": missing_live_mobile_routes,
+                "missing_detail_routes": missing_live_mobile_detail_routes,
                 "action": "run propertyquarry_live_mobile_surface_smoke.py against the deployed stack and fix any overflow, chrome, touch-target, or logout regressions",
             }
         )
@@ -384,6 +392,8 @@ def build_gold_status_receipt(
             "route_count": live_mobile.get("route_count"),
             "required_route_count": len(REQUIRED_LIVE_MOBILE_ROUTES),
             "missing_routes": missing_live_mobile_routes,
+            "required_detail_prefixes": list(REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES),
+            "missing_detail_routes": missing_live_mobile_detail_routes,
             "viewport": live_mobile.get("viewport"),
             "receipt_path": str(live_mobile_receipt_path) if live_mobile_receipt_path is not None else "",
         },

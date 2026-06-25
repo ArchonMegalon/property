@@ -33,10 +33,13 @@ def _env(name: str, default: str = "") -> str:
 
 
 def _route_expectations(route: str) -> dict[str, Any]:
+    route_path = str(route or "").split("?", 1)[0].strip()
     if route == "/app/search":
         return {"needs_district_picker": True}
-    if route == "/app/account":
+    if route_path == "/app/account":
         return {"needs_single_logout": True}
+    if route_path.startswith("/app/research/"):
+        return {"needs_research_detail": True}
     return {}
 
 
@@ -73,6 +76,16 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
             (
                 {"name": "account_logout_strip_visible", "ok": bool(metrics.get("account_logout_strip_visible"))},
                 {"name": "single_logout_action", "ok": int(metrics.get("logout_button_count") or 0) == 1},
+            )
+        )
+    if expectations.get("needs_research_detail"):
+        checks.extend(
+            (
+                {"name": "research_detail_workspace", "ok": bool(metrics.get("research_detail_workspace"))},
+                {"name": "research_detail_decision_after_aside", "ok": bool(metrics.get("research_detail_decision_after_aside"))},
+                {"name": "research_detail_media_stage", "ok": bool(metrics.get("research_detail_media_stage"))},
+                {"name": "research_detail_visual_controls", "ok": bool(metrics.get("research_detail_visual_controls"))},
+                {"name": "research_detail_no_fake_visual_ready", "ok": not bool(metrics.get("research_detail_fake_visual_ready"))},
             )
         )
     return checks
@@ -136,6 +149,11 @@ def _collect_metrics_script() -> str:
         singleOpen = whatMatterGroups.filter((node) => node.open).length === 1 && whatMatterGroups[1].open;
       }
       const logoutButtons = visibleNodes('button, a').filter((node) => String(node.textContent || '').trim() === 'Log out');
+      const decisionWorkspace = document.querySelector('.prd-decision-workspace');
+      const firstAside = document.querySelector('aside');
+      const mediaStage = document.querySelector('[data-object-media-stage]');
+      const visualControls = visibleNodes('[data-pw-visual-request], [data-object-magicfit-generate], [data-object-magicfit-toggle]');
+      const bodyText = String(document.body?.textContent || '').toLowerCase();
       return {
         body_width: document.documentElement.scrollWidth,
         viewport_width: window.innerWidth,
@@ -154,6 +172,11 @@ def _collect_metrics_script() -> str:
         mobile_what_matters_single_open: singleOpen,
         account_logout_strip_visible: visible(document.querySelector('.pqx-account-logout-strip')),
         logout_button_count: logoutButtons.length,
+        research_detail_workspace: visible(decisionWorkspace),
+        research_detail_decision_after_aside: Boolean(decisionWorkspace && firstAside && (firstAside.compareDocumentPosition(decisionWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        research_detail_media_stage: visible(mediaStage),
+        research_detail_visual_controls: visualControls.length > 0,
+        research_detail_fake_visual_ready: bodyText.includes('fake 3d') || bodyText.includes('fake tour') || bodyText.includes('placeholder 3d') || bodyText.includes('placeholder tour'),
       };
     }
     """
@@ -282,7 +305,9 @@ def main() -> int:
     parser.add_argument("--host-header", default=_env("PROPERTYQUARRY_LIVE_HOST_HEADER"))
     parser.add_argument("--api-token", default=_env("PROPERTYQUARRY_LIVE_API_TOKEN") or _env("EA_API_TOKEN"))
     parser.add_argument("--principal-id", default=_env("PROPERTYQUARRY_LIVE_PRINCIPAL_ID", "pq-live-mobile-smoke"))
-    parser.add_argument("--routes", default=",".join(DEFAULT_ROUTES))
+    configured_research_detail = _env("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE")
+    default_routes = (*DEFAULT_ROUTES, configured_research_detail) if configured_research_detail else DEFAULT_ROUTES
+    parser.add_argument("--routes", default=",".join(default_routes))
     parser.add_argument("--viewport", default="390x844")
     parser.add_argument("--write", default="_completion/smoke/property-live-mobile-surface-latest.json")
     args = parser.parse_args()
