@@ -154,6 +154,36 @@
             </div>
           </dialog>
 {%- endmacro %}
+{% macro evidence_atlas_dialog() -%}
+          <dialog class="pqx-evidence-atlas" data-pqx-evidence-atlas aria-label="Property evidence atlas">
+            <div class="pqx-evidence-atlas-card" data-pqx-evidence-atlas-card>
+              <div class="pqx-evidence-atlas-head">
+                <div class="pqx-evidence-atlas-title">
+                  <span class="pqx-small">Evidence atlas</span>
+                  <strong data-pqx-evidence-atlas-title>Property context</strong>
+                  <span class="pqx-note" data-pqx-evidence-atlas-caption>Cached evidence layers only. No search-time indexing.</span>
+                </div>
+                <button class="pqx-evidence-atlas-close" type="button" data-pqx-evidence-atlas-close aria-label="Close evidence atlas">×</button>
+              </div>
+              <div class="pqx-evidence-atlas-stage" data-pqx-evidence-atlas-stage data-has-image="false">
+                <img class="pqx-evidence-atlas-image" data-pqx-evidence-atlas-image src="" alt="" loading="lazy" decoding="async">
+                <span class="pqx-evidence-atlas-pin" aria-hidden="true"></span>
+                <div class="pqx-evidence-atlas-map-label">
+                  <strong data-pqx-evidence-map-label>Property location context</strong>
+                  <span data-pqx-evidence-map-detail>Open a layer to see source-backed context.</span>
+                </div>
+              </div>
+              <aside class="pqx-evidence-atlas-side">
+                <div class="pqx-evidence-layer-rail" data-pqx-evidence-layer-rail aria-label="Evidence layers"></div>
+                <div class="pqx-evidence-cache-note" data-pqx-evidence-cache-note>
+                  Searches read cached Teable/Postgres evidence rollups. Newspaper and provider indexing run in the background, never inside the search request.
+                </div>
+                <div class="pqx-evidence-atlas-cards" data-pqx-evidence-atlas-cards></div>
+                <div class="pqx-note" data-pqx-evidence-atlas-footer>Unavailable means not verified for this property yet, not a negative signal.</div>
+              </aside>
+            </div>
+          </dialog>
+{%- endmacro %}
 {% macro research_queue_panel(tasks, run_id, counts) -%}
 {% if tasks %}
 <section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
@@ -1589,6 +1619,242 @@
       align-items: center;
       justify-content: center;
     }
+    .pqx-evidence-atlas {
+      width: min(1040px, calc(100vw - 32px));
+      max-width: 1040px;
+      padding: 0;
+      border: 0;
+      border-radius: 22px;
+      background: transparent;
+      box-shadow: none;
+    }
+    .pqx-evidence-atlas::backdrop {
+      background: rgba(18, 24, 34, 0.72);
+      backdrop-filter: blur(5px);
+    }
+    .pqx-evidence-atlas-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.82fr);
+      gap: 14px;
+      padding: 14px;
+      border: 1px solid rgba(151, 133, 102, 0.2);
+      border-radius: 22px;
+      background:
+        radial-gradient(circle at 16% 6%, rgba(210, 232, 222, 0.52), transparent 28%),
+        linear-gradient(180deg, rgba(255, 254, 250, 0.98), var(--pq-paper));
+      box-shadow: 0 28px 72px rgba(16, 24, 38, 0.3);
+      max-height: min(calc(100vh - 32px), 920px);
+      overflow: hidden;
+    }
+    .pqx-evidence-atlas-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      grid-column: 1 / -1;
+    }
+    .pqx-evidence-atlas-title {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .pqx-evidence-atlas-title strong {
+      color: var(--pq-ink);
+      font-size: clamp(1.05rem, 2vw, 1.35rem);
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+    .pqx-evidence-atlas-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 42px;
+      min-height: 42px;
+      padding: 0;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .pqx-evidence-atlas-stage {
+      position: relative;
+      min-height: 430px;
+      border: 1px solid var(--pq-line);
+      border-radius: 18px;
+      background:
+        linear-gradient(32deg, transparent 0 46%, rgba(255,255,255,0.6) 46% 48%, transparent 48% 100%),
+        linear-gradient(145deg, rgba(210, 226, 216, 0.72), rgba(239, 232, 217, 0.95));
+      overflow: hidden;
+    }
+    .pqx-evidence-atlas-image {
+      width: 100%;
+      height: 100%;
+      min-height: 430px;
+      display: block;
+      object-fit: cover;
+      opacity: 0.7;
+      filter: saturate(0.92) contrast(0.98);
+    }
+    .pqx-evidence-atlas-stage[data-has-image="false"] .pqx-evidence-atlas-image {
+      display: none;
+    }
+    .pqx-evidence-atlas-pin {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 24px;
+      height: 24px;
+      transform: translate(-50%, -85%) rotate(-45deg);
+      border-radius: 999px 999px 999px 0;
+      background: #c62c2c;
+      box-shadow: 0 10px 24px rgba(112, 32, 24, 0.34);
+    }
+    .pqx-evidence-atlas-pin::after {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border-radius: 999px;
+      background: #fff8f1;
+    }
+    .pqx-evidence-atlas-map-label {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      max-width: min(420px, calc(100% - 32px));
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,0.42);
+      border-radius: 14px;
+      background: rgba(22, 26, 24, 0.76);
+      color: #fff8f1;
+      backdrop-filter: blur(10px);
+    }
+    .pqx-evidence-atlas-map-label strong,
+    .pqx-evidence-atlas-map-label span {
+      display: block;
+      min-width: 0;
+    }
+    .pqx-evidence-atlas-map-label strong {
+      font-size: 13px;
+      line-height: 1.15;
+    }
+    .pqx-evidence-atlas-map-label span {
+      margin-top: 3px;
+      color: rgba(255, 248, 241, 0.78);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .pqx-evidence-atlas-side {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 10px;
+      min-width: 0;
+      min-height: 0;
+    }
+    .pqx-evidence-layer-rail {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .pqx-evidence-layer-chip {
+      min-height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-size: 12px;
+      font-weight: 780;
+      cursor: pointer;
+    }
+    .pqx-evidence-layer-chip.is-active {
+      border-color: rgba(137, 93, 28, 0.48);
+      background: color-mix(in srgb, var(--pq-gold) 18%, var(--pq-panel));
+      box-shadow: inset 0 0 0 1px rgba(137, 93, 28, 0.1);
+    }
+    .pqx-evidence-atlas-cards {
+      display: grid;
+      gap: 9px;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 2px;
+      scrollbar-gutter: stable;
+    }
+    .pqx-evidence-card {
+      display: grid;
+      gap: 7px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 16px;
+      background: rgba(255, 253, 248, 0.84);
+    }
+    .pqx-evidence-card[data-state="verified"] {
+      border-color: color-mix(in srgb, var(--pq-green) 34%, var(--pq-line));
+      background: color-mix(in srgb, var(--pq-green) 8%, var(--pq-panel));
+    }
+    .pqx-evidence-card[data-state="unavailable"] {
+      border-style: dashed;
+    }
+    .pqx-evidence-card-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .pqx-evidence-card-head strong {
+      color: var(--pq-ink);
+      font-size: 14px;
+      line-height: 1.2;
+    }
+    .pqx-evidence-state {
+      white-space: nowrap;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .pqx-evidence-card p {
+      margin: 0;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.38;
+    }
+    .pqx-evidence-card-foot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .pqx-evidence-source-link,
+    .pqx-evidence-source-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 9px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      font-size: 11px;
+      font-weight: 760;
+      text-decoration: none;
+    }
+    .pqx-evidence-source-link:hover,
+    .pqx-evidence-source-link:focus-visible {
+      border-color: color-mix(in srgb, var(--pq-gold) 44%, var(--pq-line));
+      outline: none;
+    }
+    .pqx-evidence-cache-note {
+      padding: 10px 12px;
+      border: 1px solid rgba(137, 93, 28, 0.18);
+      border-radius: 14px;
+      background: rgba(255, 248, 232, 0.82);
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .pqx-filtered-trigger {
       display: inline-flex;
       align-items: center;
@@ -2314,8 +2580,139 @@
     .pqx-location-selected-summary {
       display: none;
     }
+    .pqx-location-mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid rgba(137, 93, 28, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 251, 242, 0.9);
+    }
+    .pqx-location-mode-toggle .pqx-field-action {
+      min-height: 34px;
+      padding-inline: 13px;
+      border-color: transparent;
+      background: transparent;
+    }
+    .pqx-location-mode-toggle .pqx-field-action.is-active,
+    .pqx-location-mode-toggle .pqx-field-action[aria-pressed="true"] {
+      background: var(--pq-charcoal);
+      color: #fffaf1;
+      box-shadow: 0 8px 18px rgba(47, 38, 24, 0.16);
+    }
+    .pqx-location-map-launch {
+      display: none;
+      min-width: 0;
+    }
+    .pqx-location-map-open {
+      width: 100%;
+      min-height: 88px;
+      display: grid;
+      gap: 4px;
+      place-items: center start;
+      padding: 18px;
+      border: 1px solid rgba(137, 93, 28, 0.24);
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 16% 18%, rgba(214, 232, 222, 0.78), transparent 36%),
+        linear-gradient(135deg, rgba(255, 253, 248, 0.99), rgba(241, 236, 226, 0.96));
+      color: var(--pq-ink);
+      box-shadow: 0 18px 42px rgba(48, 40, 28, 0.12);
+      cursor: pointer;
+      text-align: left;
+    }
+    .pqx-location-map-open span {
+      font-size: 17px;
+      font-weight: 840;
+      letter-spacing: -0.02em;
+    }
+    .pqx-location-map-open small {
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .pqx-location-map-picker {
       display: none;
+    }
+    [data-property-field-name="location_query"][data-location-mode="map"] .pqx-location-map-launch {
+      display: block;
+    }
+    [data-property-field-name="location_query"][data-location-mode="map"] .pqx-check-grid[data-pqx-check-grid="location_query"] {
+      display: none;
+    }
+    [data-location-mode="map"] [data-pqx-check-grid="location_query"] {
+      display: none !important;
+    }
+    [data-property-field-name="location_query"][data-location-mode="list"] .pqx-location-map-launch {
+      display: none;
+    }
+    [data-property-field-name="location_query"][data-location-map-available="false"] .pqx-location-map-launch,
+    [data-property-field-name="location_query"][data-location-map-available="false"] .pqx-location-mode-toggle [data-location-mode-button="map"] {
+      display: none;
+    }
+    .pqx-location-map-dialog {
+      width: min(760px, calc(100vw - 32px));
+      max-width: calc(100vw - 32px);
+      max-height: calc(100svh - 32px);
+      padding: 0;
+      border: 0;
+      border-radius: 30px;
+      background: transparent;
+      color: var(--pq-ink);
+      overflow: visible;
+    }
+    .pqx-location-map-dialog::backdrop {
+      background: rgba(29, 25, 18, 0.42);
+      backdrop-filter: blur(7px);
+    }
+    .pqx-location-map-dialog-card {
+      display: grid;
+      gap: 12px;
+      max-height: calc(100svh - 32px);
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.48);
+      border-radius: 30px;
+      background:
+        radial-gradient(circle at 16% 12%, rgba(214, 232, 222, 0.86), transparent 34%),
+        linear-gradient(180deg, rgba(255, 254, 250, 0.99), rgba(242, 237, 226, 0.98));
+      box-shadow: 0 28px 80px rgba(29, 25, 18, 0.26);
+      overflow: hidden;
+    }
+    .pqx-location-map-dialog-head {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 2px 0;
+    }
+    .pqx-location-map-dialog-head strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+    }
+    .pqx-location-map-dialog-head span {
+      display: block;
+      margin-top: 4px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .pqx-location-map-close {
+      flex: 0 0 auto;
+      min-width: 76px;
+      min-height: 44px;
+      border: 1px solid rgba(137, 93, 28, 0.22);
+      border-radius: 999px;
+      background: rgba(255, 252, 246, 0.96);
+      color: var(--pq-ink);
+      font-size: 13px;
+      font-weight: 820;
+      cursor: pointer;
+    }
+    .pqx-location-map-dialog[open] .pqx-location-map-picker {
+      display: grid;
     }
     .pqx-check {
       min-height: 36px;
@@ -4327,6 +4724,43 @@
       font-size: 11px;
       font-weight: 800;
     }
+    .pqx-thumb-atlas-button {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: block;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .pqx-thumb-atlas-label {
+      position: absolute;
+      left: 7px;
+      bottom: 7px;
+      min-height: 24px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(22, 26, 24, 0.76);
+      color: #fff8f1;
+      font-size: 10px;
+      font-weight: 820;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      backdrop-filter: blur(8px);
+    }
+    .pqx-thumb-atlas-button:hover,
+    .pqx-thumb-atlas-button:focus-visible {
+      outline: none;
+    }
+    .pqx-thumb:has(.pqx-thumb-atlas-button:hover),
+    .pqx-thumb:has(.pqx-thumb-atlas-button:focus-visible) {
+      border-color: color-mix(in srgb, var(--pq-gold) 52%, var(--pq-line));
+      box-shadow: 0 0 0 3px rgba(189, 139, 47, 0.16);
+    }
     .pqx-thumb img,
     .pqx-thumb .pqx-previous-district-hotspots {
       width: 100%;
@@ -5117,6 +5551,10 @@
     html[data-pq-theme="dark"] .pqx-scope-lightbox-close,
     html[data-pq-theme="dark"] .pqx-scope-lightbox-stage,
     html[data-pq-theme="dark"] .pqx-scope-lightbox-tooltip,
+    html[data-pq-theme="dark"] .pqx-location-mode-toggle,
+    html[data-pq-theme="dark"] .pqx-location-map-open,
+    html[data-pq-theme="dark"] .pqx-location-map-dialog-card,
+    html[data-pq-theme="dark"] .pqx-location-map-close,
     html[data-pq-theme="dark"] .pqx-filter-radius-control,
     html[data-pq-theme="dark"] .pqx-route-preview-card,
     html[data-pq-theme="dark"] .pqx-route-preview-link,
@@ -5175,6 +5613,8 @@
     html[data-pq-theme="dark"] .pqx-decision-stepper span.is-active,
     html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action:hover,
     html[data-pq-theme="dark"] .pqx-field-tools .pqx-field-action:focus-visible,
+    html[data-pq-theme="dark"] .pqx-location-mode-toggle .pqx-field-action.is-active,
+    html[data-pq-theme="dark"] .pqx-location-mode-toggle .pqx-field-action[aria-pressed="true"],
     html[data-pq-theme="dark"] .pqx-check:focus-within,
     html[data-pq-theme="dark"] .pqx-check:has(input:checked),
     html[data-pq-theme="dark"] .pqx-disclosure-summary:hover,
@@ -5204,6 +5644,33 @@
       background: linear-gradient(135deg, color-mix(in srgb, var(--pq-paper) 88%, #26332f), var(--pq-panel));
       color: var(--pq-muted);
       border-color: var(--pq-line);
+    }
+    html[data-pq-theme="dark"] .pqx-evidence-atlas-card,
+    html[data-pq-theme="dark"] .pqx-evidence-atlas-stage,
+    html[data-pq-theme="dark"] .pqx-evidence-layer-chip,
+    html[data-pq-theme="dark"] .pqx-evidence-card,
+    html[data-pq-theme="dark"] .pqx-evidence-source-link,
+    html[data-pq-theme="dark"] .pqx-evidence-source-chip,
+    html[data-pq-theme="dark"] .pqx-evidence-cache-note,
+    html[data-pq-theme="dark"] .pqx-evidence-atlas-close {
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+      border-color: var(--pq-line);
+      box-shadow: none;
+    }
+    html[data-pq-theme="dark"] .pqx-evidence-atlas-stage {
+      background:
+        linear-gradient(32deg, transparent 0 46%, rgba(255,255,255,0.06) 46% 48%, transparent 48% 100%),
+        linear-gradient(145deg, rgba(42, 59, 52, 0.68), rgba(30, 26, 22, 0.96));
+    }
+    html[data-pq-theme="dark"] .pqx-evidence-card[data-state="verified"],
+    html[data-pq-theme="dark"] .pqx-evidence-layer-chip.is-active {
+      background: color-mix(in srgb, var(--pq-green) 12%, var(--pq-paper));
+      border-color: color-mix(in srgb, var(--pq-green) 36%, var(--pq-line));
+    }
+    html[data-pq-theme="dark"] .pqx-evidence-card p,
+    html[data-pq-theme="dark"] .pqx-evidence-cache-note {
+      color: var(--pq-muted);
     }
     html[data-pq-theme="dark"] .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox,
     html[data-pq-theme="dark"] .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox-head,
@@ -5824,6 +6291,56 @@
       }
     }
     @media (max-width: 760px) {
+      .pqx-evidence-atlas {
+        width: 100vw;
+        max-width: 100vw;
+        height: 100svh;
+        max-height: 100svh;
+        border-radius: 0;
+      }
+      .pqx-evidence-atlas-card {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(240px, 42svh) minmax(0, 1fr);
+        gap: 10px;
+        height: 100svh;
+        max-height: 100svh;
+        padding: calc(10px + env(safe-area-inset-top, 0px)) 10px calc(10px + env(safe-area-inset-bottom, 0px));
+        border-radius: 0;
+        overflow-y: auto;
+      }
+      .pqx-evidence-atlas-stage {
+        min-height: 240px;
+      }
+      .pqx-evidence-atlas-image {
+        min-height: 240px;
+      }
+      .pqx-evidence-atlas-side {
+        min-height: 0;
+      }
+      .pqx-evidence-layer-rail {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+      }
+      .pqx-evidence-layer-rail::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+      }
+      .pqx-evidence-layer-chip {
+        flex: 0 0 auto;
+        min-height: 46px;
+        padding: 0 14px;
+        font-size: 13px;
+      }
+      .pqx-evidence-atlas-cards {
+        max-height: none;
+        overflow: visible;
+      }
+      .pqx-evidence-card {
+        padding: 14px;
+        border-radius: 18px;
+      }
       .pqx-source-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
@@ -6261,9 +6778,10 @@
         grid-template-columns: minmax(0, 1fr);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] {
+        box-sizing: border-box;
         grid-template-columns: minmax(0, 1fr);
         gap: 8px;
-        max-height: min(48svh, 420px);
+        max-height: min(44svh, 380px);
         overflow-y: auto;
         overscroll-behavior: contain;
         padding: 4px 4px calc(92px + env(safe-area-inset-bottom, 0px));
@@ -6273,15 +6791,26 @@
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"]::-webkit-scrollbar {
         width: 0;
       }
-      .pqx-surface-search .pqx-location-map-picker {
-        display: grid;
+      .pqx-surface-search .pqx-location-map-launch {
+        margin-top: 2px;
       }
-      .pqx-surface-search .pqx-location-map-viewport {
-        min-height: min(42svh, 318px);
+      .pqx-surface-search .pqx-location-map-dialog {
+        width: calc(100vw - 18px);
+        max-width: calc(100vw - 18px);
+        max-height: calc(100svh - 18px);
       }
-      .pqx-surface-search .pqx-location-map-svg {
-        height: min(42svh, 318px);
-        min-height: 268px;
+      .pqx-surface-search .pqx-location-map-dialog-card {
+        max-height: calc(100svh - 18px);
+        padding: 12px;
+        border-radius: 26px;
+      }
+      .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-viewport {
+        min-height: min(58svh, 450px);
+        margin: 0 2px 8px;
+      }
+      .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-svg {
+        height: min(58svh, 450px);
+        min-height: 330px;
       }
       .pqx-surface-search .pqx-choice-groupbox-grid[data-pqx-check-grid="selected_platforms"] {
         max-height: min(56svh, 520px);
@@ -6295,10 +6824,10 @@
         width: 0;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check {
-        min-height: 68px;
+        min-height: 64px;
         grid-template-columns: 42px minmax(0, 1fr);
         align-items: center;
-        padding: 12px 14px;
+        padding: 10px 13px;
         border: 1px solid rgba(166, 149, 119, 0.46);
         border-radius: 18px;
         background:
@@ -7529,7 +8058,11 @@
                       {% if field.name == 'selected_platforms' %}
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all providers">All providers</button>
                       {% else %}
-                      <p class="pqx-mobile-helper">Choose districts one at a time. Large rows are easier than map pins.</p>
+                      <div class="pqx-location-mode-toggle" role="group" aria-label="Area selection mode">
+                        <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Map</button>
+                        <button class="pqx-field-action" type="button" data-location-mode-button="list" aria-pressed="false">List</button>
+                      </div>
+                      <p class="pqx-mobile-helper">Use either the real-border map or the manual list. They stay separate to keep selection simple.</p>
                       <p class="pqx-location-selected-summary" data-location-selected-summary>0 districts selected</p>
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all areas">All areas</button>
                       <button class="pqx-field-action" type="button" data-checkbox-group-clear-all="{{ field.name }}" aria-label="Clear selected areas">Clear</button>
@@ -7571,32 +8104,49 @@
                   </div>
                   {% else %}
                   {% if field.name == 'location_query' %}
-                  <div class="pqx-location-map-picker" data-location-map-picker aria-label="District map picker">
-                    <div class="pqx-location-map-head">
-                      <div>
-                        <strong data-location-map-title>District map</strong>
-                        <span data-location-map-caption>Tap a district to add it. Drag to pan.</span>
+                  <div class="pqx-location-map-launch" data-location-map-launch>
+                    <button class="pqx-location-map-open" type="button" data-location-map-open>
+                      <span>Open district map</span>
+                      <small data-location-map-launch-note>Real Vienna district borders. Select by tapping a shape.</small>
+                    </button>
+                  </div>
+                  <dialog class="pqx-location-map-dialog" data-location-map-dialog aria-label="District map picker">
+                    <div class="pqx-location-map-dialog-card">
+                      <div class="pqx-location-map-dialog-head">
+                        <div>
+                          <strong data-location-map-dialog-title>Select districts</strong>
+                          <span>Pan and zoom the map, tap a district, then close.</span>
+                        </div>
+                        <button class="pqx-location-map-close" type="button" data-location-map-close aria-label="Close district map">Close</button>
+                      </div>
+                      <div class="pqx-location-map-picker" data-location-map-picker aria-label="District map picker">
+                        <div class="pqx-location-map-head">
+                          <div>
+                            <strong data-location-map-title>District map</strong>
+                            <span data-location-map-caption>Tap a district to add it. Drag to pan.</span>
+                          </div>
+                        </div>
+                        <div class="pqx-location-map-controls" aria-label="Map controls">
+                          <button class="pqx-location-map-control" type="button" data-location-map-zoom="out" aria-label="Zoom out">−</button>
+                          <button class="pqx-location-map-control" type="button" data-location-map-zoom="reset" aria-label="Reset map">1×</button>
+                          <button class="pqx-location-map-control" type="button" data-location-map-zoom="in" aria-label="Zoom in">+</button>
+                        </div>
+                        <div class="pqx-location-map-viewport" data-location-map-viewport>
+                          <svg class="pqx-location-map-svg" viewBox="0 0 360 286" role="img" aria-labelledby="pqx-location-map-title">
+                            <title id="pqx-location-map-title">Selectable municipality district map</title>
+                            <g class="pqx-location-map-pan-layer" data-location-map-layer></g>
+                          </svg>
+                        </div>
+                        <span class="pqx-location-map-note">Selected districts are shown in red. Outskirts remain available in List mode.</span>
                       </div>
                     </div>
-                    <div class="pqx-location-map-controls" aria-label="Map controls">
-                      <button class="pqx-location-map-control" type="button" data-location-map-zoom="out" aria-label="Zoom out">−</button>
-                      <button class="pqx-location-map-control" type="button" data-location-map-zoom="reset" aria-label="Reset map">1×</button>
-                      <button class="pqx-location-map-control" type="button" data-location-map-zoom="in" aria-label="Zoom in">+</button>
-                    </div>
-                    <div class="pqx-location-map-viewport" data-location-map-viewport>
-                      <svg class="pqx-location-map-svg" viewBox="0 0 360 286" role="img" aria-labelledby="pqx-location-map-title">
-                        <title id="pqx-location-map-title">Selectable municipality district map</title>
-                        <g class="pqx-location-map-pan-layer" data-location-map-layer></g>
-                      </svg>
-                    </div>
-                    <span class="pqx-location-map-note">Selected districts are shown in red. The list below remains available for precise selection.</span>
-                  </div>
+                  </dialog>
                   {% endif %}
                   <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
                     {% for option in field.options or [] %}
                     {% set option_value = option.get('value') or '' %}
                     <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
-                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
+                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %}{% if option.get('map_path') %} data-location-map-path="{{ option.get('map_path') }}" data-location-map-label-x="{{ option.get('map_label_x') or '' }}" data-location-map-label-y="{{ option.get('map_label_y') or '' }}" data-location-map-source="{{ option.get('map_source') or '' }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
                       <span>
                         <span>{{ option.get('label') }}</span>
                         {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
@@ -8166,6 +8716,7 @@
       </section>
       {% endif %}
     </main>
+    {{ evidence_atlas_dialog() }}
   </div>
 
   <script>

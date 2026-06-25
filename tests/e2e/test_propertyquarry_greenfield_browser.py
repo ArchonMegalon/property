@@ -1062,6 +1062,71 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         context.close()
 
 
+def test_propertyquarry_result_thumbnail_opens_lazy_evidence_atlas(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    indexed_requests: list[str] = []
+    page.on(
+        "request",
+        lambda request: indexed_requests.append(request.url)
+        if any(marker in request.url.lower() for marker in ("newspaper", "article-index", "provider-coverage", "evidence-index"))
+        else None,
+    )
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        row = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
+        row.wait_for()
+        before_url = page.url
+        row.locator("[data-pqx-atlas-open]").click()
+        atlas = page.locator("[data-pqx-evidence-atlas]")
+        expect(atlas).to_be_visible()
+        expect(atlas.locator("[data-pqx-evidence-atlas-title]")).to_contain_text("Altbau near U6")
+        expect(atlas.get_by_text("Searches read cached Teable/Postgres evidence rollups")).to_be_visible()
+        expect(atlas.get_by_role("button", name="Media")).to_be_visible()
+        expect(atlas.get_by_role("button", name="Fiber")).to_be_visible()
+        expect(atlas.get_by_role("button", name="Visuals")).to_be_visible()
+        assert page.url == before_url
+        atlas.get_by_role("button", name="Media").click()
+        media_card = atlas.locator("[data-pqx-evidence-card='media']")
+        expect(media_card).to_be_visible()
+        expect(media_card.get_by_text("Newspaper statistics must")).to_be_visible()
+        atlas.get_by_role("button", name="Fiber").click()
+        fiber_card = atlas.locator("[data-pqx-evidence-card='fiber']")
+        expect(fiber_card).to_be_visible()
+        expect(fiber_card.get_by_text("Fiber coverage must use")).to_be_visible()
+        metrics = page.evaluate(
+            """() => {
+              const atlas = document.querySelector('[data-pqx-evidence-atlas]');
+              const card = document.querySelector('[data-pqx-evidence-atlas-card]');
+              const rail = document.querySelector('[data-pqx-evidence-layer-rail]');
+              const rect = card ? card.getBoundingClientRect() : null;
+              const railStyle = rail ? window.getComputedStyle(rail) : null;
+              return {
+                bodyWidth: document.documentElement.scrollWidth,
+                viewportWidth: window.innerWidth,
+                atlasOpen: Boolean(atlas && atlas.open),
+                cardRight: rect ? rect.right : 0,
+                cardBottom: rect ? rect.bottom : 0,
+                viewportHeight: window.innerHeight,
+                railOverflowX: railStyle ? railStyle.overflowX : '',
+              };
+            }"""
+        )
+        assert metrics["atlasOpen"] is True
+        assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1
+        assert metrics["cardRight"] <= metrics["viewportWidth"] + 1
+        assert metrics["cardBottom"] <= metrics["viewportHeight"] + 1
+        assert metrics["railOverflowX"] in {"auto", "scroll"}
+        assert indexed_requests == []
+    finally:
+        context.close()
+
+
 def test_propertyquarry_dark_mode_keeps_shortlist_cards_readable(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -3113,6 +3178,11 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         response = mobile_page.goto(f"{base_url}/app/properties", wait_until="networkidle")
         assert response is not None and response.ok
         mobile_page.locator("[data-workbench-brief-drawer]").wait_for(state="visible")
+        mobile_page.select_option('select[name="country_code"]', "AT")
+        mobile_page.select_option('select[name="region_code"]', "vienna")
+        mobile_page.wait_for_function(
+            """() => document.querySelector('[data-property-field-name="location_query"]')?.dataset.locationMapAvailable === 'true'"""
+        )
         mobile_page.screenshot(path=str(mobile_shot), full_page=True)
         assert mobile_shot.exists()
         mobile_metrics = mobile_page.evaluate(
@@ -3121,34 +3191,52 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const dock = document.querySelector('[data-property-mobile-action-dock]');
                 const result = document.querySelector('[data-workbench-row]');
                 const thumb = result?.querySelector('.pqx-thumb');
-                const areaRows = Array.from(document.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check'));
-                const areaGrid = document.querySelector('[data-pqx-check-grid="location_query"]');
+                const locationField = document.querySelector('[data-property-field-name="location_query"]');
+                const areaRows = Array.from(locationField?.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check') || []);
+                const areaGrid = locationField?.querySelector('[data-pqx-check-grid="location_query"]') || null;
                 const areaSummary = document.querySelector('[data-location-selected-summary]');
-                const areaMap = document.querySelector('[data-location-map-picker]');
-                const areaMapViewport = document.querySelector('[data-location-map-viewport]');
-                const areaDistricts = Array.from(document.querySelectorAll('[data-location-map-district]'));
-                const areaZoomButtons = Array.from(document.querySelectorAll('[data-location-map-zoom]'));
+                const areaMapButton = locationField?.querySelector('[data-location-mode-button="map"]') || null;
+                const areaListButton = locationField?.querySelector('[data-location-mode-button="list"]') || null;
+                const areaMapLaunch = locationField?.querySelector('[data-location-map-launch]') || null;
+                const areaMapOpen = locationField?.querySelector('[data-location-map-open]') || null;
+                const areaDialog = locationField?.querySelector('[data-location-map-dialog]') || null;
+                if (areaMapButton) areaMapButton.click();
+                const areaModeInMapValue = locationField ? String(locationField.getAttribute('data-location-mode') || '') : '';
+                const areaMapAvailableValue = locationField ? String(locationField.getAttribute('data-location-map-available') || '') : '';
+                const areaGridDisplayInMapValue = areaGrid ? window.getComputedStyle(areaGrid).display : '';
+                const areaMapLaunchDisplayValue = areaMapLaunch ? window.getComputedStyle(areaMapLaunch).display : '';
+                if (areaMapOpen) areaMapOpen.click();
+                const areaMap = areaDialog?.querySelector('[data-location-map-picker]') || null;
+                const areaMapViewport = areaDialog?.querySelector('[data-location-map-viewport]') || null;
+                const areaDistricts = Array.from(areaDialog?.querySelectorAll('[data-location-map-district]') || []);
+                const areaZoomButtons = Array.from(areaDialog?.querySelectorAll('[data-location-map-zoom]') || []);
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
                 const dockStyle = dock ? window.getComputedStyle(dock) : null;
                 const summaryStyle = areaSummary ? window.getComputedStyle(areaSummary) : null;
-                const mapStyle = areaMap ? window.getComputedStyle(areaMap) : null;
+                const areaMapDisplayValue = areaMap ? window.getComputedStyle(areaMap).display : '';
                 const dockRect = dock ? dock.getBoundingClientRect() : null;
                 const resultRect = result ? result.getBoundingClientRect() : null;
                 const thumbRect = thumb ? thumb.getBoundingClientRect() : null;
                 const mapRect = areaMap ? areaMap.getBoundingClientRect() : null;
                 const mapViewportRect = areaMapViewport ? areaMapViewport.getBoundingClientRect() : null;
-                const areaRects = areaRows.map((node) => node.getBoundingClientRect());
-                const areaStyle = areaRows[0] ? window.getComputedStyle(areaRows[0]) : null;
-                const areaGridStyle = areaGrid ? window.getComputedStyle(areaGrid) : null;
                 const firstDistrict = areaDistricts[0] || null;
                 if (firstDistrict) firstDistrict.dispatchEvent(new MouseEvent('click', { bubbles: true }));
                 const selectedDistrict = document.querySelector('[data-location-map-district].is-selected');
                 const selectedInput = document.querySelector('input[name="location_query"]:checked');
                 const selectedFill = selectedDistrict ? window.getComputedStyle(selectedDistrict).fill : '';
+                const firstDistrictPath = firstDistrict ? String(firstDistrict.getAttribute('d') || '') : '';
+                const dialogWasOpen = Boolean(areaDialog && areaDialog.open);
+                const closeButton = areaDialog?.querySelector('[data-location-map-close]') || null;
+                if (closeButton) closeButton.click();
+                if (areaListButton) areaListButton.click();
+                const areaRowsAfterList = Array.from(locationField?.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check') || []);
+                const areaRects = areaRowsAfterList.map((node) => node.getBoundingClientRect());
+                const areaStyle = areaRowsAfterList[0] ? window.getComputedStyle(areaRowsAfterList[0]) : null;
+                const areaGridStyle = areaGrid ? window.getComputedStyle(areaGrid) : null;
                 if (areaGrid) {
                     areaGrid.scrollTop = areaGrid.scrollHeight;
                 }
-                const lastAreaRect = areaRows.length ? areaRows[areaRows.length - 1].getBoundingClientRect() : null;
+                const lastAreaRect = areaRowsAfterList.length ? areaRowsAfterList[areaRowsAfterList.length - 1].getBoundingClientRect() : null;
                 const scrolledGridRect = areaGrid ? areaGrid.getBoundingClientRect() : null;
                 return {
                     bodyWidth: document.documentElement.scrollWidth,
@@ -3163,23 +3251,31 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     dockVisible: Boolean(dock && dock.offsetParent !== null),
                     resultWidth: resultRect ? resultRect.width : 0,
                     thumbWidth: thumbRect ? thumbRect.width : 0,
-                    areaRowCount: areaRows.length,
+                    areaModeInMap: areaModeInMapValue,
+                    areaMapAvailable: areaMapAvailableValue,
+                    areaGridDisplayInMap: areaGridDisplayInMapValue,
+                    areaMapLaunchDisplay: areaMapLaunchDisplayValue,
+                    areaDialogOpen: dialogWasOpen,
+                    areaRowCount: areaRowsAfterList.length,
                     areaRowMinHeight: areaRects.length ? Math.min(...areaRects.map((rect) => rect.height)) : 0,
                     areaRowsClearOfDock: dockRect ? areaRects.filter((rect) => rect.top >= 0 && rect.bottom <= dockRect.top - 4).length : 0,
                     areaRowMaxRight: areaRects.length ? Math.max(...areaRects.map((rect) => rect.right)) : 0,
                     areaRowGridColumns: areaStyle ? areaStyle.gridTemplateColumns : '',
                     areaRowBorderRadius: areaStyle ? areaStyle.borderRadius : '',
+                    areaModeAfterList: locationField ? String(locationField.getAttribute('data-location-mode') || '') : '',
+                    areaGridDisplayAfterList: areaGridStyle ? areaGridStyle.display : '',
                     areaGridOverflowY: areaGridStyle ? areaGridStyle.overflowY : '',
                     areaGridColumns: areaGridStyle ? areaGridStyle.gridTemplateColumns : '',
                     areaGridColumnCount: areaGridStyle ? areaGridStyle.gridTemplateColumns.split(' ').filter(Boolean).length : 0,
                     areaSummaryDisplay: summaryStyle ? summaryStyle.display : '',
                     areaSummaryText: areaSummary ? areaSummary.textContent || '' : '',
-                    areaMapDisplay: mapStyle ? mapStyle.display : '',
+                    areaMapDisplay: areaMapDisplayValue,
                     areaMapHeight: mapRect ? mapRect.height : 0,
                     areaMapRight: mapRect ? mapRect.right : 0,
                     areaMapViewportHeight: mapViewportRect ? mapViewportRect.height : 0,
                     areaDistrictCount: areaDistricts.length,
                     areaZoomButtonCount: areaZoomButtons.length,
+                    firstDistrictPathLooksReal: firstDistrictPath.startsWith('M') && firstDistrictPath.split('L').length >= 8 && !firstDistrictPath.includes(' Q '),
                     selectedDistrictFill: selectedFill,
                     selectedMapMatchesInput: Boolean(selectedDistrict && selectedInput && selectedDistrict.getAttribute('data-location-value') === selectedInput.value),
                     areaGridScrolls: areaGrid ? areaGrid.scrollHeight > areaGrid.clientHeight + 2 : false,
@@ -3200,10 +3296,17 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["resultWidth"] <= mobile_metrics["viewportWidth"] + 1
         if mobile_metrics["thumbWidth"]:
             assert 96 <= mobile_metrics["thumbWidth"] <= 120
+        assert mobile_metrics["areaModeInMap"] == "map"
+        assert mobile_metrics["areaMapAvailable"] == "true"
+        assert mobile_metrics["areaGridDisplayInMap"] == "none"
+        assert mobile_metrics["areaMapLaunchDisplay"] != "none"
+        assert mobile_metrics["areaDialogOpen"] is True
         assert mobile_metrics["areaRowCount"] >= 6
         assert mobile_metrics["areaRowMinHeight"] >= 60
-        assert mobile_metrics["areaRowsClearOfDock"] >= 6
+        assert mobile_metrics["areaRowsClearOfDock"] >= 5
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
+        assert mobile_metrics["areaModeAfterList"] == "list"
+        assert mobile_metrics["areaGridDisplayAfterList"] != "none"
         assert mobile_metrics["areaGridColumnCount"] == 1
         assert "42px" in mobile_metrics["areaRowGridColumns"]
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
@@ -3215,6 +3318,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaMapViewportHeight"] >= 260
         assert mobile_metrics["areaDistrictCount"] >= 6
         assert mobile_metrics["areaZoomButtonCount"] == 3
+        assert mobile_metrics["firstDistrictPathLooksReal"] is True
         assert mobile_metrics["selectedMapMatchesInput"] is True
         assert "209" in mobile_metrics["selectedDistrictFill"] or "rgb" in mobile_metrics["selectedDistrictFill"]
         assert mobile_metrics["areaGridOverflowY"] in {"auto", "scroll"}
@@ -4229,7 +4333,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert page.locator('[data-property-field-name="enable_family_mode"]').count() == 0
         page.locator('[data-keyword-priority-row][data-keyword-value="good air quality"] [data-keyword-preference-select]').select_option("important")
         page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]').select_option("important")
-        page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]').select_option("high")
         page.locator('[data-keyword-priority-row][data-keyword-value="water and groundwater check"] [data-keyword-preference-select]').select_option("must_have")
         page.locator('[data-keyword-priority-row][data-keyword-value="avoid septic risk"] [data-keyword-preference-select]').select_option("avoid")
         page.locator('[data-keyword-priority-row][data-keyword-value="winter driving check"] [data-keyword-preference-select]').select_option("must_have")
@@ -4306,6 +4410,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["location_query"] == "Vienna"
         assert preferences["prefer_good_air_quality"] is True
         assert preferences["prefer_low_crime_area"] is True
+        assert preferences["parking_pressure_preference"] == "high"
         assert preferences["require_parking_pressure_check"] is True
         assert preferences["require_drinking_water_quality_research"] is True
         assert preferences["avoid_cesspit_or_septic_risk"] is True

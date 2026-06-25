@@ -542,10 +542,24 @@
         const homepageUrl = String(option.homepage_url || '').trim();
         const searchReady = option.search_ready !== false;
         const availabilityNote = String(option.availability_note || '').trim();
+        const locationMapAttrs = name === 'location_query'
+          ? [
+              ['data-location-map-path', option.map_path],
+              ['data-location-map-label-x', option.map_label_x],
+              ['data-location-map-label-y', option.map_label_y],
+              ['data-location-map-source', option.map_source],
+            ]
+              .map(([attr, value]) => {
+                const cleanValue = String(value || '').trim();
+                return cleanValue ? `${attr}="${escapeHtml(cleanValue)}"` : '';
+              })
+              .filter(Boolean)
+              .join(' ')
+          : '';
         const homepageLink = homepageUrl
           ? `<a class="pqx-provider-link" href="${escapeHtml(homepageUrl)}" target="_blank" rel="noopener noreferrer" data-provider-homepage-link onclick="event.stopPropagation();">Homepage</a>`
           : '';
-        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
+        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${locationMapAttrs} ${searchReady && selected.has(optionValue) ? 'checked' : ''} ${searchReady ? '' : 'disabled'}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}${availabilityNote ? `<small>${escapeHtml(availabilityNote)}</small>` : ''}${homepageLink}</span></label>`;
       };
       const optionRows = Array.isArray(options) ? options : [];
       if (name === 'selected_platforms' && optionRows.some((option) => String(option?.family || '').trim())) {
@@ -1076,6 +1090,7 @@
           require_high_speed_internet: highSpeedInternetEnabled || Boolean(form.querySelector('input[name="require_high_speed_internet"]')?.checked),
           prefer_low_crime_area: lowCrimeEnabled || Boolean(form.querySelector('input[name="prefer_low_crime_area"]')?.checked),
           require_drinking_water_quality_research: waterQualityResearchEnabled || Boolean(form.querySelector('input[name="require_drinking_water_quality_research"]')?.checked),
+          parking_pressure_preference: String(keywordSelections.map['parking pressure check'] || 'any').trim().toLowerCase() || 'any',
           require_parking_pressure_check: parkingPressureCheckEnabled || Boolean(form.querySelector('input[name="require_parking_pressure_check"]')?.checked),
           avoid_cesspit_or_septic_risk: avoidSepticRiskEnabled || Boolean(form.querySelector('input[name="avoid_cesspit_or_septic_risk"]')?.checked),
           require_winter_access_research: winterDrivingCheckEnabled || Boolean(form.querySelector('input[name="require_winter_access_research"]')?.checked),

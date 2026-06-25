@@ -1925,6 +1925,14 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'data-what-matters-group="daily_life"' in section_html
     assert 'data-what-matters-group="risk_evidence"' in section_html
     assert 'data-what-matters-group="schools"' not in section_html
+    risk_evidence_html = re.search(
+        r'<details[^>]*data-what-matters-group="risk_evidence"[^>]*>(?P<section>.*?)</details>',
+        section_html,
+        re.DOTALL,
+    )
+    assert risk_evidence_html, "Risk and evidence group should render"
+    assert ">Check it</option>" not in risk_evidence_html.group("section")
+    assert ">Must check</option>" not in risk_evidence_html.group("section")
     assert '<select name="keyword_preference__lift"' in section_html
     assert '<select name="keyword_preference__barrier-free"' in section_html
     assert '<select name="keyword_distance__playground nearby"' in section_html
@@ -1963,10 +1971,22 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'data-keyword-distance-enabled="false"' in section_html
     assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
     assert ">Neutral</option>" in section_html
+    parking_pressure_select = re.search(
+        r'<select[^>]*name="keyword_preference__parking pressure check"[^>]*>(?P<select>.*?)</select>',
+        section_html,
+        re.DOTALL,
+    )
+    assert parking_pressure_select, "Parking pressure should render as a select"
+    parking_pressure_html = parking_pressure_select.group("select")
+    assert ">Low</option>" in parking_pressure_html
+    assert ">Medium</option>" in parking_pressure_html
+    assert ">High</option>" in parking_pressure_html
+    assert "Check it" not in parking_pressure_html
+    assert "Must check" not in parking_pressure_html
     assert '.pqx-what-matters-panel .pqx-choice-groupbox {\n      grid-column: 1 / -1;' in html
     assert '.pqx-what-matters-panel .pqx-choice-groupbox[data-mobile-distance-control-active="true"]' in html
     assert 'grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));' in html
-    assert 'grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));' in html
+    assert 'grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));' in html
     assert '.pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div' in html
     assert 'padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));' in html
     assert "overflow-wrap: break-word;" in html

@@ -2006,11 +2006,76 @@ def _property_location_options_cached(country_code: str, region_code: str = "") 
     )
 
 
-def _property_location_options(country_code: str, region_code: str = "") -> list[dict[str, str]]:
-    return [
-        {"value": value, "label": label, "detail": detail}
-        for value, label, detail in _property_location_options_cached(country_code, region_code)
+@lru_cache(maxsize=1)
+def _vienna_district_map_option_records() -> dict[str, dict[str, str]]:
+    records = _vienna_district_boundary_records()
+    bounds_rows = [
+        bounds
+        for row in records.values()
+        if isinstance((bounds := row.get("bounds")), tuple) and len(bounds) == 4
     ]
+    render_bounds = _union_geo_bounds(bounds_rows)
+    if render_bounds is None:
+        return {}
+    render_bounds = _expand_geo_bounds(render_bounds, padding_ratio=0.05)
+    rows: dict[str, dict[str, str]] = {}
+    for postal_code, row in records.items():
+        rings = row.get("rings")
+        if not isinstance(rings, list) or not rings:
+            continue
+        path_parts: list[str] = []
+        label_points: list[tuple[float, float]] = []
+        for raw_ring in rings[:2]:
+            if not isinstance(raw_ring, list):
+                continue
+            points: list[tuple[float, float]] = []
+            for raw_point in raw_ring:
+                if not isinstance(raw_point, list) or len(raw_point) < 2:
+                    continue
+                try:
+                    points.append((float(raw_point[0]), float(raw_point[1])))
+                except (TypeError, ValueError):
+                    continue
+            if len(points) < 4:
+                continue
+            path, centroid = _project_lonlat_to_preview_path(points, render_bounds, width=360.0, height=286.0)
+            if path:
+                path_parts.append(path)
+                label_points.append(centroid)
+        if not path_parts:
+            continue
+        if label_points:
+            label_x = sum(point[0] for point in label_points) / len(label_points)
+            label_y = sum(point[1] for point in label_points) / len(label_points)
+        else:
+            label_x, label_y = 180.0, 143.0
+        rows[str(postal_code)] = {
+            "map_path": " ".join(path_parts),
+            "map_label_x": f"{label_x:.1f}",
+            "map_label_y": f"{label_y:.1f}",
+            "map_source": "OpenStreetMap-derived Vienna district boundaries",
+        }
+    return rows
+
+
+def _property_location_options(country_code: str, region_code: str = "") -> list[dict[str, str]]:
+    from app.services.property_market_catalog import normalize_country_code
+
+    normalized_country = normalize_country_code(country_code)
+    normalized_region = str(region_code or "").strip().lower()
+    district_geometry = (
+        _vienna_district_map_option_records()
+        if normalized_country == "AT" and normalized_region in {"vienna", "wien"}
+        else {}
+    )
+    rows: list[dict[str, str]] = []
+    for value, label, detail in _property_location_options_cached(country_code, region_code):
+        option = {"value": value, "label": label, "detail": detail}
+        match = re.search(r"\b(1[0-2]\d0)\b", value)
+        if match:
+            option.update(district_geometry.get(match.group(1), {}))
+        rows.append(option)
+    return rows
 
 
 @lru_cache(maxsize=1)
@@ -2206,13 +2271,14 @@ def _property_keyword_options() -> list[dict[str, str]]:
         ],
         "water and groundwater check": [
             {"value": "any", "label": "Neutral"},
-            {"value": "important", "label": "Check it"},
-            {"value": "must_have", "label": "Must check"},
+            {"value": "important", "label": "Detailed evidence"},
+            {"value": "must_have", "label": "Required evidence"},
         ],
         "parking pressure check": [
             {"value": "any", "label": "Neutral"},
-            {"value": "important", "label": "Check it"},
-            {"value": "must_have", "label": "Must check"},
+            {"value": "low", "label": "Low"},
+            {"value": "medium", "label": "Medium"},
+            {"value": "high", "label": "High"},
         ],
         "avoid septic risk": [
             {"value": "any", "label": "Neutral"},
@@ -2221,8 +2287,8 @@ def _property_keyword_options() -> list[dict[str, str]]:
         ],
         "winter driving check": [
             {"value": "any", "label": "Neutral"},
-            {"value": "important", "label": "Check it"},
-            {"value": "must_have", "label": "Must check"},
+            {"value": "important", "label": "Detailed evidence"},
+            {"value": "must_have", "label": "Required evidence"},
         ],
         "avoid flood-risk area": [
             {"value": "any", "label": "Neutral"},
@@ -2387,7 +2453,8 @@ def _property_market_filter_capabilities_catalog(country_values: tuple[str, ...]
 @lru_cache(maxsize=8)
 def _property_location_catalog_by_country_region_cached(
     country_values: tuple[str, ...],
-) -> tuple[tuple[str, tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...]], ...]:
+) -> tuple[tuple[str, tuple[tuple[str, tuple[tuple[tuple[str, str], ...], ...]], ...]], ...]:
+    option_keys = ("value", "label", "detail", "map_path", "map_label_x", "map_label_y", "map_source")
     return tuple(
         (
             country_code,
@@ -2395,7 +2462,11 @@ def _property_location_catalog_by_country_region_cached(
                 (
                     str(region.get("value") or ""),
                     tuple(
-                        (row["value"], row["label"], row["detail"])
+                        tuple(
+                            (key, str(row.get(key) or ""))
+                            for key in option_keys
+                            if str(row.get(key) or "").strip()
+                        )
                         for row in _property_location_options(country_code, str(region.get("value") or ""))
                     ),
                 )
@@ -2411,8 +2482,8 @@ def _property_location_catalog_by_country_region(country_values: tuple[str, ...]
     return {
         country_code: {
             region_code: [
-                {"value": value, "label": label, "detail": detail}
-                for value, label, detail in location_rows
+                {key: value for key, value in option_row}
+                for option_row in location_rows
             ]
             for region_code, location_rows in region_rows
         }
@@ -3020,8 +3091,20 @@ def app_section_payload(
             if state not in {"important", "must_have"}:
                 state = "important" if bool(property_preferences.get("require_drinking_water_quality_research")) else "any"
         elif option_value == "parking pressure check":
-            if state not in {"important", "must_have"}:
-                state = "important" if bool(property_preferences.get("require_parking_pressure_check")) else "any"
+            if state == "important":
+                state = "medium"
+            elif state == "must_have":
+                state = "high"
+            elif state not in {"low", "medium", "high"}:
+                stored_pressure = str(
+                    property_preferences.get("parking_pressure_preference")
+                    or property_preferences.get("parking_pressure_tolerance")
+                    or ""
+                ).strip().lower()
+                if stored_pressure in {"low", "medium", "high"}:
+                    state = stored_pressure
+                else:
+                    state = "medium" if bool(property_preferences.get("require_parking_pressure_check")) else "any"
         elif option_value == "avoid septic risk":
             if state not in {"avoid", "must_have"}:
                 state = "avoid" if bool(property_preferences.get("avoid_cesspit_or_septic_risk")) else "any"

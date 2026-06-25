@@ -1957,9 +1957,7 @@
           || 'Open the property page for more context.'
         ).trim();
         const thumb = previewUrl
-          ? (packetUrl
-            ? `<a class="pqx-thumb pqx-thumb-link" href="${escapeHtml(packetUrl)}" aria-label="Open ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></a>`
-            : `<span class="pqx-thumb"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></span>`)
+          ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open evidence atlas for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Evidence</span></button></span>`
           : '';
         const tour = (candidate?.tour && typeof candidate.tour === 'object') ? candidate.tour : {};
         const tourUrl = directHostedTourUrl(tour.url, candidate?.tour_url, tour.embed_url, tour.provider_url, candidate?.vendor_tour_url, candidate?.source_virtual_tour_url);
@@ -2643,6 +2641,11 @@
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const whatMattersFieldSelector = '[data-property-field-step="children"]';
       const locationMapPicker = form.querySelector('[data-location-map-picker]');
+      const locationMapDialog = form.querySelector('[data-location-map-dialog]');
+      const locationMapOpenButton = form.querySelector('[data-location-map-open]');
+      const locationMapCloseButton = form.querySelector('[data-location-map-close]');
+      const locationMapLaunch = form.querySelector('[data-location-map-launch]');
+      const locationMapLaunchNote = form.querySelector('[data-location-map-launch-note]');
       const locationMapLayer = locationMapPicker?.querySelector('[data-location-map-layer]');
       const locationMapViewport = locationMapPicker?.querySelector('[data-location-map-viewport]');
       const locationMapTitle = locationMapPicker?.querySelector('[data-location-map-title]');
@@ -2665,30 +2668,62 @@
         locationMapPanY = Math.max(-maxPan, Math.min(maxPan, locationMapPanY));
         locationMapLayer.setAttribute('transform', `translate(${locationMapPanX} ${locationMapPanY}) scale(${boundedScale})`);
       };
-      const districtMapPath = (index, total) => {
-        const columns = Math.max(3, Math.ceil(Math.sqrt(Math.max(1, total) * 1.15)));
-        const rows = Math.max(2, Math.ceil(Math.max(1, total) / columns));
-        const cellW = 302 / columns;
-        const cellH = 210 / rows;
-        const col = index % columns;
-        const row = Math.floor(index / columns);
-        const x = 28 + col * cellW + ((row % 2) * cellW * 0.14);
-        const y = 36 + row * cellH;
-        const w = Math.max(34, cellW * 0.88);
-        const h = Math.max(28, cellH * 0.82);
-        const skew = (index % 3 - 1) * 4;
-        return {
-          d: `M ${x + 5} ${y + 3} L ${x + w - 7} ${y + skew} Q ${x + w + 2} ${y + h * 0.42} ${x + w - 4} ${y + h - 5} L ${x + w * 0.32} ${y + h + 3} Q ${x - 2} ${y + h * 0.66} ${x + 5} ${y + 3} Z`,
-          cx: x + w * 0.5,
-          cy: y + h * 0.56,
-        };
+      const locationOptionMetaByValue = () => {
+        const selectedCountry = String(countryField?.value || 'AT').trim();
+        const selectedRegion = String(regionField?.value || '').trim();
+        const catalog = meta.location_catalog_by_country_region || {};
+        const options = Array.isArray(catalog?.[selectedCountry]?.[selectedRegion])
+          ? catalog[selectedCountry][selectedRegion]
+          : [];
+        return new Map(
+          options
+            .map((option) => [String(option?.value || '').trim(), option])
+            .filter(([value]) => value)
+        );
+      };
+      const setLocationSelectionMode = (mode) => {
+        if (!locationFieldWrap) return;
+        const normalizedMode = String(mode || '').trim().toLowerCase() === 'list' ? 'list' : 'map';
+        const mapAvailable = String(locationFieldWrap.dataset.locationMapAvailable || 'true') !== 'false';
+        const nextMode = normalizedMode === 'map' && !mapAvailable ? 'list' : normalizedMode;
+        locationFieldWrap.dataset.locationMode = nextMode;
+        const locationGrid = locationFieldWrap.querySelector('.pqx-check-grid[data-pqx-check-grid="location_query"]');
+        if (locationGrid instanceof HTMLElement) {
+          locationGrid.style.display = nextMode === 'map' ? 'none' : '';
+          locationGrid.setAttribute('aria-hidden', nextMode === 'map' ? 'true' : 'false');
+        }
+        if (locationMapLaunch instanceof HTMLElement) {
+          locationMapLaunch.style.display = nextMode === 'map' && mapAvailable ? '' : 'none';
+          locationMapLaunch.setAttribute('aria-hidden', nextMode === 'map' && mapAvailable ? 'false' : 'true');
+        }
+        locationFieldWrap.querySelectorAll('[data-location-mode-button]').forEach((button) => {
+          const active = String(button.getAttribute('data-location-mode-button') || '').trim() === nextMode;
+          button.classList.toggle('is-active', active);
+          button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        if (nextMode === 'list' && locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) {
+          locationMapDialog.close();
+        }
       };
       const locationOptionRows = () => [...form.querySelectorAll('input[name="location_query"]')]
         .filter((input) => input instanceof HTMLInputElement && !input.disabled)
         .map((input, index) => {
+          const metadata = locationOptionMetaByValue().get(String(input.value || '').trim()) || {};
           const labelNode = input.closest('label')?.querySelector('span span');
           const label = String(labelNode?.textContent || input.value || '').trim();
-          return { input, value: String(input.value || '').trim(), label, index };
+          const mapPath = String(metadata.map_path || input.dataset.locationMapPath || '').trim();
+          const labelX = Number(metadata.map_label_x || input.dataset.locationMapLabelX || 0);
+          const labelY = Number(metadata.map_label_y || input.dataset.locationMapLabelY || 0);
+          return {
+            input,
+            value: String(input.value || '').trim(),
+            label,
+            index,
+            mapPath,
+            mapSource: String(metadata.map_source || input.dataset.locationMapSource || '').trim(),
+            labelX: Number.isFinite(labelX) && labelX > 0 ? labelX : 180,
+            labelY: Number.isFinite(labelY) && labelY > 0 ? labelY : 143,
+          };
         })
         .filter((row) => row.value);
       const syncLocationMapPickerSelection = () => {
@@ -2705,15 +2740,35 @@
             ? `${selected.size} district${selected.size === 1 ? '' : 's'} selected. Drag to pan.`
             : 'Tap a district to add it. Drag to pan.';
         }
+        if (locationMapLaunchNote) {
+          locationMapLaunchNote.textContent = selected.size
+            ? `${selected.size} selected. Open map to adjust real district borders.`
+            : 'Real Vienna district borders. Select by tapping a shape.';
+        }
       };
       const renderLocationMapPicker = () => {
         if (!locationMapPicker || !locationMapLayer) return;
         const rows = locationOptionRows();
-        const signature = rows.map((row) => `${row.value}:${row.label}`).join('|');
-        locationMapPicker.hidden = rows.length === 0;
-        if (!rows.length) return;
+        const mapRows = rows.filter((row) => row.mapPath);
+        const mapAvailable = mapRows.length > 0;
+        if (locationFieldWrap) {
+          locationFieldWrap.dataset.locationMapAvailable = mapAvailable ? 'true' : 'false';
+          if (!locationFieldWrap.dataset.locationMode) {
+            locationFieldWrap.dataset.locationMode = mapAvailable ? 'map' : 'list';
+          }
+        }
+        if (locationMapLaunch) locationMapLaunch.hidden = !mapAvailable;
+        locationMapPicker.hidden = !mapAvailable;
+        if (!mapAvailable) {
+          locationMapLayer.innerHTML = '';
+          locationMapSignature = '';
+          setLocationSelectionMode('list');
+          return;
+        }
+        const signature = mapRows.map((row) => `${row.value}:${row.label}:${row.mapPath}`).join('|');
         if (signature === locationMapSignature) {
           syncLocationMapPickerSelection();
+          setLocationSelectionMode(locationFieldWrap?.dataset.locationMode || 'map');
           return;
         }
         locationMapSignature = signature;
@@ -2724,20 +2779,38 @@
           const regionLabel = String(regionField?.selectedOptions?.[0]?.textContent || regionField?.value || 'municipality').trim();
           locationMapTitle.textContent = `${regionLabel} districts`;
         }
-        const streets = [
-          '<path class="pqx-location-map-street" d="M 12 84 C 78 68, 146 92, 218 62 S 318 44, 352 66"></path>',
-          '<path class="pqx-location-map-street" d="M 36 210 C 98 178, 158 186, 222 154 S 314 132, 348 148"></path>',
-          '<path class="pqx-location-map-street" d="M 132 18 C 144 74, 132 122, 158 174 S 210 232, 194 270"></path>',
-        ].join('');
-        const districts = rows.map((row, index) => {
-          const geometry = districtMapPath(index, rows.length);
+        const districts = mapRows.map((row, index) => {
           const shortLabel = (row.label.match(/\b\d{4}\b/) || [String(index + 1)])[0];
-          return `<path class="pqx-location-map-district" data-location-map-district data-location-value="${escapeHtml(row.value)}" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle ${escapeHtml(row.label)}" d="${geometry.d}"></path><text class="pqx-location-map-label" x="${geometry.cx}" y="${geometry.cy}">${escapeHtml(shortLabel)}</text>`;
+          return `<path class="pqx-location-map-district" data-location-map-district data-location-value="${escapeHtml(row.value)}" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle ${escapeHtml(row.label)}" d="${escapeHtml(row.mapPath)}"></path><text class="pqx-location-map-label" x="${row.labelX.toFixed(1)}" y="${row.labelY.toFixed(1)}">${escapeHtml(shortLabel)}</text>`;
         }).join('');
-        locationMapLayer.innerHTML = `<rect x="0" y="0" width="360" height="286" rx="22" fill="rgba(211,226,216,0.2)"></rect>${streets}${districts}`;
+        locationMapLayer.innerHTML = `<rect x="0" y="0" width="360" height="286" rx="22" fill="rgba(211,226,216,0.2)"></rect>${districts}`;
         applyLocationMapTransform();
         syncLocationMapPickerSelection();
+        setLocationSelectionMode(locationFieldWrap?.dataset.locationMode || 'map');
       };
+      locationFieldWrap?.querySelectorAll('[data-location-mode-button]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          const mode = String(button.getAttribute('data-location-mode-button') || '').trim();
+          setLocationSelectionMode(mode);
+        });
+      });
+      locationMapOpenButton?.addEventListener('click', (event) => {
+        event.preventDefault();
+        renderLocationMapPicker();
+        if (!(locationMapDialog instanceof HTMLDialogElement)) return;
+        if (!locationMapDialog.open) {
+          if (typeof locationMapDialog.showModal === 'function') locationMapDialog.showModal();
+          else locationMapDialog.setAttribute('open', '');
+        }
+      });
+      locationMapCloseButton?.addEventListener('click', (event) => {
+        event.preventDefault();
+        if (locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) locationMapDialog.close();
+      });
+      locationMapDialog?.addEventListener('click', (event) => {
+        if (event.target === locationMapDialog && locationMapDialog instanceof HTMLDialogElement) locationMapDialog.close();
+      });
       locationMapPicker?.addEventListener('click', (event) => {
         const district = event.target?.closest?.('[data-location-map-district]');
         if (!district || locationMapMoved) return;
@@ -4000,6 +4073,15 @@
     const scopeLightboxTooltip = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-tooltip]');
     const scopeLightboxTitle = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-title]');
     const scopeLightboxCaption = scopeLightbox?.querySelector('[data-pqx-scope-lightbox-caption]');
+    const evidenceAtlas = root.querySelector('[data-pqx-evidence-atlas]');
+    const evidenceAtlasTitle = evidenceAtlas?.querySelector('[data-pqx-evidence-atlas-title]');
+    const evidenceAtlasCaption = evidenceAtlas?.querySelector('[data-pqx-evidence-atlas-caption]');
+    const evidenceAtlasStage = evidenceAtlas?.querySelector('[data-pqx-evidence-atlas-stage]');
+    const evidenceAtlasImage = evidenceAtlas?.querySelector('[data-pqx-evidence-atlas-image]');
+    const evidenceMapLabel = evidenceAtlas?.querySelector('[data-pqx-evidence-map-label]');
+    const evidenceMapDetail = evidenceAtlas?.querySelector('[data-pqx-evidence-map-detail]');
+    const evidenceLayerRail = evidenceAtlas?.querySelector('[data-pqx-evidence-layer-rail]');
+    const evidenceAtlasCards = evidenceAtlas?.querySelector('[data-pqx-evidence-atlas-cards]');
     const filteredDialog = root.querySelector('[data-pqx-filtered-dialog]');
     const resetScopeLightboxZoom = () => {
       if (!scopeLightboxZoomable) return;
@@ -4070,6 +4152,239 @@
     });
     filteredDialog?.addEventListener('click', (event) => {
       if (event.target === filteredDialog) closeFilteredDialog();
+    });
+    const evidenceFactsForCandidate = (candidate) => (
+      candidate?.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {}
+    );
+    const officialRiskSourcesForCandidate = (candidate, riskKeys = []) => {
+      const facts = evidenceFactsForCandidate(candidate);
+      const evidence = facts?.official_risk_evidence && typeof facts.official_risk_evidence === 'object'
+        ? facts.official_risk_evidence
+        : {};
+      const keys = new Set(riskKeys.map((key) => String(key || '').trim().toLowerCase()).filter(Boolean));
+      return (Array.isArray(evidence.sources) ? evidence.sources : [])
+        .filter((row) => row && typeof row === 'object')
+        .filter((row) => !keys.size || keys.has(String(row.risk_key || row.key || '').trim().toLowerCase()));
+    };
+    const firstEvidenceUrl = (...rows) => {
+      for (const row of rows.flat()) {
+        if (!row || typeof row !== 'object') continue;
+        const url = String(row.url || row.source_url || row.href || row.original_url || row.article_url || '').trim();
+        if (url) return url;
+      }
+      return '';
+    };
+    const firstEvidenceLabel = (...rows) => {
+      for (const row of rows.flat()) {
+        if (!row || typeof row !== 'object') continue;
+        const label = String(row.source_label || row.label || row.provider || row.publisher || row.title || '').trim();
+        if (label) return label;
+      }
+      return '';
+    };
+    const firstEvidenceFreshness = (...rows) => {
+      for (const row of rows.flat()) {
+        if (!row || typeof row !== 'object') continue;
+        const label = String(row.freshness_label || row.updated_at || row.observed_at || row.published_at || row.year || '').trim();
+        if (label) return label;
+      }
+      return '';
+    };
+    const mediaRowsForCandidate = (candidate) => {
+      const facts = evidenceFactsForCandidate(candidate);
+      const media = facts.media_attention || facts.newspaper_mentions || facts.news_mentions || facts.local_news_mentions || facts.media_mentions || {};
+      if (Array.isArray(media)) return media.filter((row) => row && typeof row === 'object');
+      if (media && typeof media === 'object') {
+        for (const key of ['mentions', 'articles', 'items', 'rows']) {
+          if (Array.isArray(media[key])) return media[key].filter((row) => row && typeof row === 'object');
+        }
+      }
+      return [];
+    };
+    const evidenceLayerCards = (candidate) => {
+      const facts = evidenceFactsForCandidate(candidate);
+      const visualRows = [
+        candidate?.tour?.url ? { source_label: candidate?.tour?.provider_label || 'Hosted 3D tour', url: candidate.tour.url, freshness_label: 'ready' } : null,
+        candidate?.flythrough?.url ? { source_label: candidate?.flythrough?.provider_label || 'Rendered walkthrough', url: candidate.flythrough.url, freshness_label: 'ready' } : null,
+      ].filter(Boolean);
+      const environmentRows = officialRiskSourcesForCandidate(candidate, ['air_quality_risk', 'noise_risk', 'heat_risk', 'flood_risk']);
+      const mobilityValues = [
+        facts.nearest_subway_m ? `Subway ${Math.round(Number(facts.nearest_subway_m))} m` : '',
+        facts.nearest_tram_bus_m ? `Transit ${Math.round(Number(facts.nearest_tram_bus_m))} m` : '',
+        facts.traffic_density_label || facts.noise_level_label || '',
+      ].filter(Boolean);
+      const schoolRows = officialRiskSourcesForCandidate(candidate, ['school_evidence', 'school_context']);
+      const safetyRows = officialRiskSourcesForCandidate(candidate, ['crime_risk', 'safety_context']);
+      const mediaRows = mediaRowsForCandidate(candidate);
+      const fiberRows = officialRiskSourcesForCandidate(candidate, ['broadband_availability', 'fiber_coverage']);
+      const sourceChip = (rows, fallback = 'Cached Teable rollup') => firstEvidenceLabel(rows) || fallback;
+      const freshness = (rows) => firstEvidenceFreshness(rows) || 'freshness pending';
+      return [
+        {
+          key: 'visual',
+          label: 'Visuals',
+          state: visualRows.length ? 'verified' : 'unavailable',
+          title: visualRows.length ? 'Tour media ready' : 'Tour media not verified yet',
+          summary: visualRows.length
+            ? 'This property already has hosted visual evidence attached. Open the provider control instead of a fake fallback.'
+            : 'No verified Matterport, 3DVista, Pano2VR/krpano, or rendered walkthrough evidence is attached to this candidate yet.',
+          rows: visualRows,
+          source: sourceChip(visualRows, 'Visual control verifier'),
+          freshness: freshness(visualRows),
+        },
+        {
+          key: 'environment',
+          label: 'Environment',
+          state: environmentRows.length ? 'verified' : 'unavailable',
+          title: environmentRows.length ? 'Environmental context available' : 'Environmental layer not indexed',
+          summary: environmentRows.length
+            ? 'Official/cached environmental evidence is attached for this micro-location. Treat risk labels as context, not as a neighborhood score.'
+            : 'Air, heat, flood, and noise context must come from cached official/Teable evidence before it can be shown.',
+          rows: environmentRows,
+          source: sourceChip(environmentRows, 'Teable environmental rollup missing'),
+          freshness: freshness(environmentRows),
+        },
+        {
+          key: 'mobility',
+          label: 'Traffic',
+          state: mobilityValues.length ? 'verified' : 'unavailable',
+          title: mobilityValues.length ? 'Mobility facts attached' : 'Traffic density not indexed',
+          summary: mobilityValues.length
+            ? mobilityValues.join(' · ')
+            : 'Traffic density and noise should be read from cached mobility/noise layers, not computed during search.',
+          rows: [],
+          source: mobilityValues.length ? 'Candidate facts cache' : 'Teable mobility rollup missing',
+          freshness: mobilityValues.length ? 'from listing/search cache' : 'freshness pending',
+        },
+        {
+          key: 'schools',
+          label: 'Schools',
+          state: schoolRows.length || facts.school_atlas_progression_summary ? 'verified' : 'unavailable',
+          title: schoolRows.length || facts.school_atlas_progression_summary ? 'School context available' : 'School flow data not verified',
+          summary: String(facts.school_atlas_progression_summary || facts.school_context_summary || '').trim()
+            || 'Pupil origin and continuation arrows require a verified Schulatlas/statistical source before rendering.',
+          rows: schoolRows,
+          source: sourceChip(schoolRows, 'Teable school-context rollup missing'),
+          freshness: freshness(schoolRows),
+        },
+        {
+          key: 'safety',
+          label: 'Safety',
+          state: safetyRows.length ? 'verified' : 'unavailable',
+          title: safetyRows.length ? 'Official aggregate safety context' : 'Safety layer not indexed',
+          summary: safetyRows.length
+            ? 'Aggregate official safety context is available. It is area context only and must not be treated as a person/property score.'
+            : 'Crime/safety context needs official aggregate data and fairness review before display.',
+          rows: safetyRows,
+          source: sourceChip(safetyRows, 'Teable safety rollup missing'),
+          freshness: freshness(safetyRows),
+        },
+        {
+          key: 'media',
+          label: 'Media',
+          state: mediaRows.length ? 'verified' : 'unavailable',
+          title: mediaRows.length ? 'Local media mentions indexed' : 'No media index for this area',
+          summary: mediaRows.length
+            ? `${mediaRows.length} local article mention${mediaRows.length === 1 ? '' : 's'} in the cached evidence store. Open original pages when available.`
+            : 'Newspaper statistics must come from asynchronous Teable indexing, with original article URLs where terms allow.',
+          rows: mediaRows,
+          source: sourceChip(mediaRows, 'Teable media rollup missing'),
+          freshness: freshness(mediaRows),
+        },
+        {
+          key: 'fiber',
+          label: 'Fiber',
+          state: fiberRows.length ? 'verified' : 'unavailable',
+          title: fiberRows.length ? 'Broadband coverage evidence attached' : 'Fiber coverage not verified',
+          summary: fiberRows.length
+            ? 'Official broadband/fiber evidence is attached. Provider address checks remain secondary receipts.'
+            : 'Fiber coverage must use official broadband atlas/provider receipts from cache; OSM is only a weak hint.',
+          rows: fiberRows,
+          source: sourceChip(fiberRows, 'Teable broadband rollup missing'),
+          freshness: freshness(fiberRows),
+        },
+      ];
+    };
+    const renderEvidenceCard = (card) => {
+      const url = firstEvidenceUrl(card.rows || []);
+      const sourceLink = url
+        ? `<a class="pqx-evidence-source-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open source</a>`
+        : '<span class="pqx-evidence-source-chip">Source unavailable</span>';
+      return `
+        <article class="pqx-evidence-card" data-state="${escapeHtml(card.state)}" data-pqx-evidence-card="${escapeHtml(card.key)}">
+          <div class="pqx-evidence-card-head">
+            <strong>${escapeHtml(card.title)}</strong>
+            <span class="pqx-evidence-state">${escapeHtml(card.state)}</span>
+          </div>
+          <p>${escapeHtml(card.summary)}</p>
+          <div class="pqx-evidence-card-foot">
+            <span class="pqx-evidence-source-chip">${escapeHtml(card.source)}</span>
+            <span class="pqx-evidence-source-chip">${escapeHtml(card.freshness)}</span>
+            ${sourceLink}
+          </div>
+        </article>
+      `;
+    };
+    const openEvidenceAtlas = (candidateRef = '') => {
+      if (!evidenceAtlas || !evidenceAtlasCards || !evidenceLayerRail) return;
+      const candidate = resolveCandidate(candidateRef);
+      if (!candidate) return;
+      const title = String(candidate.title || 'Property context').trim();
+      const location = String(candidate.location_label || '').trim();
+      const previewUrl = String(
+        candidate.preview_image_url
+        || candidate?.orientation_preview?.thumb_image_url
+        || candidate?.orientation_preview?.image_url
+        || ''
+      ).trim();
+      const cards = evidenceLayerCards(candidate);
+      let activeLayer = 'overview';
+      const renderCards = () => {
+        const visibleCards = activeLayer === 'overview' ? cards : cards.filter((card) => card.key === activeLayer);
+        evidenceAtlasCards.innerHTML = visibleCards.map(renderEvidenceCard).join('');
+        evidenceLayerRail.querySelectorAll('[data-pqx-evidence-layer]').forEach((button) => {
+          button.classList.toggle('is-active', String(button.getAttribute('data-pqx-evidence-layer') || '') === activeLayer);
+        });
+      };
+      if (evidenceAtlasTitle) evidenceAtlasTitle.textContent = title;
+      if (evidenceAtlasCaption) evidenceAtlasCaption.textContent = location || 'Property context';
+      if (evidenceMapLabel) evidenceMapLabel.textContent = location || title;
+      if (evidenceMapDetail) evidenceMapDetail.textContent = 'Cached evidence layers only. No newspaper or provider indexing runs during search.';
+      if (evidenceAtlasStage) evidenceAtlasStage.dataset.hasImage = previewUrl ? 'true' : 'false';
+      if (evidenceAtlasImage) {
+        evidenceAtlasImage.setAttribute('src', previewUrl);
+        evidenceAtlasImage.setAttribute('alt', previewUrl ? `Preview for ${title}` : '');
+      }
+      evidenceLayerRail.innerHTML = [
+        { key: 'overview', label: 'Overview' },
+        ...cards.map((card) => ({ key: card.key, label: card.label })),
+      ].map((layer) => `<button class="pqx-evidence-layer-chip${layer.key === activeLayer ? ' is-active' : ''}" type="button" data-pqx-evidence-layer="${escapeHtml(layer.key)}">${escapeHtml(layer.label)}</button>`).join('');
+      evidenceLayerRail.querySelectorAll('[data-pqx-evidence-layer]').forEach((button) => {
+        button.addEventListener('click', () => {
+          activeLayer = String(button.getAttribute('data-pqx-evidence-layer') || 'overview').trim() || 'overview';
+          renderCards();
+        });
+      });
+      renderCards();
+      if (typeof evidenceAtlas.showModal === 'function') evidenceAtlas.showModal();
+      else evidenceAtlas.setAttribute('open', 'open');
+    };
+    evidenceAtlas?.querySelector('[data-pqx-evidence-atlas-close]')?.addEventListener('click', () => {
+      if (typeof evidenceAtlas.close === 'function' && evidenceAtlas.open) evidenceAtlas.close();
+      else evidenceAtlas.removeAttribute('open');
+    });
+    evidenceAtlas?.addEventListener('click', (event) => {
+      if (event.target === evidenceAtlas) {
+        if (typeof evidenceAtlas.close === 'function' && evidenceAtlas.open) evidenceAtlas.close();
+        else evidenceAtlas.removeAttribute('open');
+      }
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-pqx-atlas-open]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openEvidenceAtlas(String(button.getAttribute('data-candidate-ref') || '').trim());
     });
     scopeLightboxStage?.addEventListener('wheel', (event) => {
       if (!scopeLightboxZoomable || !scopeLightbox?.open) return;
