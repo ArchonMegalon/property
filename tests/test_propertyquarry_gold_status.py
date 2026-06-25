@@ -38,6 +38,17 @@ def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> 
     }
 
 
+def _import_manifest_payload() -> dict[str, object]:
+    providers = ["3dvista", "pano2vr", "krpano", "magicfit"]
+    return {
+        "status": "ready_for_exports",
+        "import_count": len(providers),
+        "providers": providers,
+        "prepared_drop_dirs": [{"provider": provider, "export_dir": f"/drop/{provider}"} for provider in providers],
+        "next_command": "python /app/scripts/import_property_tour_exports.py --manifest manifest.json",
+    }
+
+
 def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_path: Path) -> None:
     performance = _write_json(
         tmp_path / "performance.json",
@@ -57,6 +68,7 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
         tmp_path / "discovery.json",
         {"status": "blocked_no_verified_exports", "import_count": 0, "rejected_count": 0},
     )
+    import_manifest = _write_json(tmp_path / "import-manifest.json", _import_manifest_payload())
     repair_canary = _write_json(
         tmp_path / "repair.json",
         {
@@ -72,6 +84,7 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
         performance_receipt_path=performance,
         tour_control_receipt_path=tour_controls,
         export_discovery_receipt_path=discovery,
+        import_manifest_receipt_path=import_manifest,
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
     )
@@ -81,6 +94,9 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["self_healing"]["status"] == "pass"
     assert receipt["provider_matrix"]["targeted_search_matrix_executed"] is True
     assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano", "magicfit"]
+    assert receipt["operator_import_manifest"]["ready_for_exports"] is True
+    assert receipt["operator_import_manifest"]["missing_prepared_providers"] == []
+    assert "gold still requires real imported assets" in receipt["operator_import_manifest"]["note"]
     assert any(row["area"] == "verified_tour_provider_modes" for row in receipt["blockers"])
     assert any(row["area"] == "tour_export_drop" for row in receipt["blockers"])
 

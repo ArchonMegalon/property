@@ -50,12 +50,14 @@ def build_gold_status_receipt(
     performance_receipt_path: Path,
     tour_control_receipt_path: Path,
     export_discovery_receipt_path: Path,
+    import_manifest_receipt_path: Path | None = None,
     repair_canary_receipt_path: Path,
     provider_matrix_receipt_path: Path,
 ) -> dict[str, Any]:
     performance = _load_json(performance_receipt_path)
     tour_controls = _load_json(tour_control_receipt_path)
     export_discovery = _load_json(export_discovery_receipt_path)
+    import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
 
@@ -85,6 +87,23 @@ def build_gold_status_receipt(
     performance_ok = performance.get("status") == "pass" and int(performance.get("failed_count") or 0) == 0
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
+    expected_import_providers = {"3dvista", "pano2vr", "krpano", "magicfit"}
+    manifest_providers = {
+        str(provider or "").strip().lower()
+        for provider in list(import_manifest.get("providers") or [])
+        if str(provider or "").strip()
+    }
+    prepared_drop_providers = {
+        str(row.get("provider") or "").strip().lower()
+        for row in list(import_manifest.get("prepared_drop_dirs") or [])
+        if isinstance(row, dict)
+    }
+    operator_import_manifest_ready = (
+        import_manifest.get("status") == "ready_for_exports"
+        and int(import_manifest.get("import_count") or 0) >= len(expected_import_providers)
+        and expected_import_providers.issubset(manifest_providers)
+        and expected_import_providers.issubset(prepared_drop_providers)
+    )
     repair_canary_ok = (
         repair_canary.get("status") == "pass"
         and repair_canary.get("run_status") == "completed_partial"
@@ -157,8 +176,8 @@ def build_gold_status_receipt(
     if export_discovery.get("status") == "blocked_no_verified_exports":
         next_required_actions.append(
             {
-                "provider": "3dvista_pano2vr",
-                "action": "drop real 3DVista/Pano2VR export folders containing provider runtime markers into the tour export drop directory",
+                "provider": "3dvista_pano2vr_krpano_magicfit",
+                "action": "drop real 3DVista/Pano2VR export folders, krpano panorama/cube assets, and receipt-backed MagicFit video assets into the prepared import directories",
             }
         )
 
@@ -184,6 +203,17 @@ def build_gold_status_receipt(
             "import_count": export_discovery.get("import_count"),
             "rejected_count": export_discovery.get("rejected_count"),
             "receipt_path": str(export_discovery_receipt_path),
+        },
+        "operator_import_manifest": {
+            "status": import_manifest.get("status") or ("not_configured" if import_manifest_receipt_path is None else "missing"),
+            "ready_for_exports": operator_import_manifest_ready,
+            "import_count": import_manifest.get("import_count"),
+            "providers": sorted(manifest_providers),
+            "prepared_drop_provider_count": len(prepared_drop_providers),
+            "missing_prepared_providers": sorted(expected_import_providers - prepared_drop_providers),
+            "next_command": import_manifest.get("next_command"),
+            "receipt_path": str(import_manifest_receipt_path) if import_manifest_receipt_path is not None else "",
+            "note": "Prepared operator drop lanes are progress only; gold still requires real imported assets and verified playable controls.",
         },
         "self_healing": {
             "status": repair_canary.get("status"),
@@ -223,6 +253,7 @@ def main() -> int:
     parser.add_argument("--performance-receipt", default="_completion/smoke/property-auth-performance-latest.json")
     parser.add_argument("--tour-control-receipt", default="_completion/property_tour_controls/latest-current.json")
     parser.add_argument("--export-discovery-receipt", default="_completion/property_tour_exports/discovery-current.json")
+    parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
     parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
     parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-live.json")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
@@ -233,6 +264,7 @@ def main() -> int:
         performance_receipt_path=Path(args.performance_receipt),
         tour_control_receipt_path=Path(args.tour_control_receipt),
         export_discovery_receipt_path=Path(args.export_discovery_receipt),
+        import_manifest_receipt_path=Path(args.import_manifest_receipt),
         repair_canary_receipt_path=Path(args.repair_canary_receipt),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt),
     )
