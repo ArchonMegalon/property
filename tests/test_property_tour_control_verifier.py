@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from PIL import Image
+
 from scripts.verify_property_tour_controls import _receipt_summary, build_property_tour_control_receipt, main
 
 
@@ -47,6 +49,11 @@ def _write_playable_mp4(path: Path) -> None:
         timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _write_equirectangular_image(path: Path) -> None:
+    image = Image.new("RGB", (2048, 1024), color=(28, 42, 36))
+    image.save(path, format="JPEG")
 
 
 def test_property_tour_control_verifier_accepts_private_receipt_matterport_without_url_leak(tmp_path: Path) -> None:
@@ -220,7 +227,18 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
         {"pano2vr_entry_relpath": "pano/index.html"},
         {"pano/index.html": "<html><script src='tour.js'></script></html>"},
     )
-    _write_tour(tmp_path, "krpano-tour", {"walkable_scene": {"rooms": []}})
+    panorama = tmp_path / "verified-panorama.jpg"
+    _write_equirectangular_image(panorama)
+    _write_tour(
+        tmp_path,
+        "krpano-tour",
+        {
+            "scene_strategy": "walkable_panorama",
+            "creation_mode": "hosted_walkable_360",
+            "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "krpano/panorama.jpg"},
+        },
+        {"krpano/panorama.jpg": panorama.read_bytes()},
+    )
     playable_magicfit = tmp_path / "walkthrough.mp4"
     _write_playable_mp4(playable_magicfit)
     _write_tour(

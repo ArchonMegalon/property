@@ -167,6 +167,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py" in dockerfile
     assert "COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py" in dockerfile
+    assert "COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable_scene.py" in dockerfile
     assert "COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py" in dockerfile
     assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
     assert "COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py" in dockerfile
@@ -189,7 +190,9 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "render_onemin_property_i2v_segment.py",
         "import_3dvista_export.py",
         "import_pano2vr_export.py",
+        "import_krpano_walkable_scene.py",
         "import_property_tour_exports.py",
+        "discover_property_tour_exports.py",
         "materialize_property_tour_export_manifest.py",
         "import_magicfit_walkthrough.py",
         "verify_property_tour_controls.py",

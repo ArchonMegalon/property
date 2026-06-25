@@ -349,16 +349,18 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
             action = "run import_pano2vr_export.py with a verified Pano2VR export"
         rows.append({"provider": "pano2vr", "reason": reason, "action": action})
 
-    if not (os.getenv("KRPANO_LICENSE_DOMAIN") and os.getenv("KRPANO_LICENSE_KEY") and _walkable_scene_has_real_360_asset(bundle_dir, payload)):
+    krpano_license_ready = bool(os.getenv("KRPANO_LICENSE_DOMAIN") and os.getenv("KRPANO_LICENSE_KEY"))
+    krpano_asset_ready = _walkable_scene_has_real_360_asset(bundle_dir, payload)
+    if not (krpano_license_ready and krpano_asset_ready):
         if not isinstance(payload.get("walkable_scene"), dict):
             reason = "missing_walkable_scene"
             action = "generate or import a real walkable_scene before enabling the licensed krpano control"
-        elif not _walkable_scene_has_real_360_asset(bundle_dir, payload):
-            reason = "walkable_scene_asset_missing_or_not_360"
-            action = "attach a real local equirectangular panorama or six cube-face assets before enabling krpano"
-        else:
+        elif not krpano_license_ready:
             reason = "missing_krpano_license_environment"
             action = "set KRPANO_LICENSE_DOMAIN and KRPANO_LICENSE_KEY for the property runtime"
+        else:
+            reason = "walkable_scene_asset_missing_or_not_360"
+            action = "attach a real local equirectangular panorama or six cube-face assets before enabling krpano"
         rows.append({"provider": "krpano", "reason": reason, "action": action})
 
     magicfit_relpath = _magicfit_video_relpath(payload)

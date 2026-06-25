@@ -70,6 +70,11 @@ def _write_equirectangular_image(path: Path) -> None:
     image.save(path, format="JPEG")
 
 
+def _write_square_image(path: Path) -> None:
+    image = Image.new("RGB", (1024, 1024), color=(42, 36, 28))
+    image.save(path, format="JPEG")
+
+
 def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> None:
     slug = "verified-3dvista-import"
     bundle_dir = _write_base_tour(tmp_path, slug)
@@ -166,6 +171,82 @@ def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(
     assert manifest["viewer_provider"] == "pano2vr"
     assert manifest["pano2vr_entry_relpath"] == "pano2vr/index.html"
     assert (bundle_dir / "pano2vr" / "tour.js").exists()
+
+
+def test_krpano_importer_requires_real_equirectangular_panorama(tmp_path: Path, monkeypatch) -> None:
+    slug = "verified-krpano-panorama-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+    flat_image = tmp_path / "flat.jpg"
+    Image.new("RGB", (1024, 768), color=(21, 31, 26)).save(flat_image, format="JPEG")
+
+    rejected = _run_importer(
+        "import_krpano_walkable_scene.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--panorama",
+        str(flat_image),
+    )
+
+    assert rejected.returncode != 0
+    assert "krpano_panorama_not_equirectangular" in rejected.stderr
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert "walkable_scene" not in manifest
+
+    panorama = tmp_path / "panorama.jpg"
+    _write_equirectangular_image(panorama)
+    imported = _run_importer(
+        "import_krpano_walkable_scene.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--panorama",
+        str(panorama),
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    body = json.loads(imported.stdout)
+    assert body["control_url"] == f"/tours/{slug}/control/krpano"
+    assert body["asset_count"] == 1
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["control_mode"] == "krpano"
+    assert manifest["viewer_provider"] == "krpano"
+    assert manifest["scene_strategy"] == "walkable_panorama"
+    assert manifest["creation_mode"] == "hosted_walkable_360"
+    assert manifest["walkable_scene"]["projection"] == "equirectangular"
+    assert manifest["walkable_scene"]["panorama_relpath"] == "krpano/panorama.jpg"
+    assert manifest["krpano_import"]["license_domain"] == "propertyquarry.com"
+    assert "license-key" not in json.dumps(manifest)
+    verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+    assert verifier["provider_counts"]["krpano"] == 1
+    assert verifier["ready_provider_modes"] == ["krpano"]
+
+
+def test_krpano_importer_accepts_six_real_cube_faces(tmp_path: Path, monkeypatch) -> None:
+    slug = "verified-krpano-cube-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+    faces = []
+    for index in range(6):
+        face = tmp_path / f"face-{index}.jpg"
+        _write_square_image(face)
+        faces.extend(["--cube-face", str(face)])
+
+    imported = _run_importer("import_krpano_walkable_scene.py", tmp_path, "--slug", slug, *faces)
+
+    assert imported.returncode == 0, imported.stderr
+    body = json.loads(imported.stdout)
+    assert body["scene_strategy"] == "walkable_cube"
+    assert body["asset_count"] == 6
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["walkable_scene"]["projection"] == "cubemap"
+    assert len(manifest["walkable_scene"]["cube_faces"]) == 6
+    assert all((bundle_dir / relpath).is_file() for relpath in manifest["walkable_scene"]["cube_faces"].values())
+    verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+    assert verifier["provider_counts"]["krpano"] == 1
 
 
 def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_exports(tmp_path: Path) -> None:
