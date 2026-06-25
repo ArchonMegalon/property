@@ -817,6 +817,62 @@ def test_gold_status_blocks_when_live_mobile_research_surface_is_missing(tmp_pat
     assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == ["/app/research/"]
 
 
+def test_gold_status_blocks_when_live_mobile_coverage_check_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    live_mobile_payload = _live_mobile_payload()
+    live_mobile_payload["status"] = "fail"
+    live_mobile_payload["failed_count"] = 1
+    live_mobile_payload["coverage_checks"] = [
+        {
+            "name": "research_detail_route_configured",
+            "ok": False,
+            "required_route_prefix": "/app/research/",
+            "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+        }
+    ]
+    live_mobile = _write_json(tmp_path / "live-mobile.json", live_mobile_payload)
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_mobile_surfaces"]["failed_coverage_checks"] == [
+        {
+            "name": "research_detail_route_configured",
+            "required_route_prefix": "/app/research/",
+            "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+        }
+    ]
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
+    assert blocker["failed_coverage_checks"] == receipt["live_mobile_surfaces"]["failed_coverage_checks"]
+
+
 def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_checks(tmp_path: Path) -> None:
     performance = _write_json(
         tmp_path / "performance.json",

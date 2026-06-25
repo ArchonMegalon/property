@@ -225,6 +225,21 @@ def _covered_live_mobile_routes(live_mobile: dict[str, Any]) -> set[str]:
     return covered
 
 
+def _failed_live_mobile_coverage_checks(live_mobile: dict[str, Any]) -> list[dict[str, Any]]:
+    failed: list[dict[str, Any]] = []
+    for row in list(live_mobile.get("coverage_checks") or []):
+        if not isinstance(row, dict) or row.get("ok") is True:
+            continue
+        failed.append(
+            {
+                "name": str(row.get("name") or "unnamed_coverage_check"),
+                "required_route_prefix": str(row.get("required_route_prefix") or ""),
+                "reason": str(row.get("reason") or ""),
+            }
+        )
+    return failed
+
+
 def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
     normalized_route = str(route or "").strip().rstrip("/")
     normalized_prefix = str(required_prefix or "").strip().rstrip("/")
@@ -355,6 +370,7 @@ def build_gold_status_receipt(
         for prefix in REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES
         if not any(_route_covers_required_detail(route, prefix) for route in live_mobile_covered_routes)
     ]
+    failed_live_mobile_coverage_checks = _failed_live_mobile_coverage_checks(live_mobile)
     live_mobile_ok = (
         live_mobile_receipt_path is None
         or (
@@ -363,6 +379,7 @@ def build_gold_status_receipt(
             and int(live_mobile.get("route_count") or 0) >= len(REQUIRED_LIVE_MOBILE_ROUTES)
             and not missing_live_mobile_routes
             and not missing_live_mobile_detail_routes
+            and not failed_live_mobile_coverage_checks
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
@@ -428,7 +445,8 @@ def build_gold_status_receipt(
                 "status": live_mobile.get("status") or "unknown",
                 "missing_routes": missing_live_mobile_routes,
                 "missing_detail_routes": missing_live_mobile_detail_routes,
-                "action": "run propertyquarry_live_mobile_surface_smoke.py against the deployed stack and fix any overflow, chrome, touch-target, or logout regressions",
+                "failed_coverage_checks": failed_live_mobile_coverage_checks,
+                "action": "run propertyquarry_live_mobile_surface_smoke.py against the deployed stack with PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE and fix any overflow, chrome, touch-target, detail, or logout regressions",
             }
         )
     if missing_provider_modes:
@@ -587,6 +605,7 @@ def build_gold_status_receipt(
             "missing_routes": missing_live_mobile_routes,
             "required_detail_prefixes": list(REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES),
             "missing_detail_routes": missing_live_mobile_detail_routes,
+            "failed_coverage_checks": failed_live_mobile_coverage_checks,
             "viewport": live_mobile.get("viewport"),
             "receipt_path": str(live_mobile_receipt_path) if live_mobile_receipt_path is not None else "",
         },
