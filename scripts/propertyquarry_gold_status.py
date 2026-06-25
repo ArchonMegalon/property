@@ -461,7 +461,7 @@ def build_gold_status_receipt(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize current PropertyQuarry gold-readiness receipts.")
     parser.add_argument("--performance-receipt", default="_completion/smoke/property-auth-performance-latest.json")
-    parser.add_argument("--live-mobile-receipt", default="_completion/smoke/property-live-mobile-surface-after-monotonic-counters-auth.json")
+    parser.add_argument("--live-mobile-receipt", default="_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json")
     parser.add_argument("--tour-control-receipt", default="_completion/tours/property-tour-controls-after-monotonic-counters.json")
     parser.add_argument("--export-discovery-receipt", default="_completion/tours/property-tour-export-discovery-full-current.json")
     parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
