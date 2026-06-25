@@ -7,10 +7,20 @@ from pathlib import Path
 from scripts.propertyquarry_gold_status import build_gold_status_receipt
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def test_gold_status_cli_defaults_to_live_container_tour_receipt() -> None:
+    source = (ROOT / "scripts/propertyquarry_gold_status.py").read_text(encoding="utf-8")
+
+    assert "_completion/tours/property-tour-controls-live-container-current.json" in source
+    assert "_completion/tours/property-tour-controls-after-monotonic-counters.json" not in source
 
 
 def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> dict[str, object]:
