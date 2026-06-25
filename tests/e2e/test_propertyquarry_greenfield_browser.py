@@ -3893,7 +3893,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             assert density["cardCount"] <= 18
             assert density["heavyShadowCount"] <= 2
             assert density["appbarHeight"] <= 112
-            if route in {"/app/agents", "/app/alerts", "/app/billing"} or route.startswith("/app/shortlist"):
+            if route in {"/app/agents", "/app/alerts"} or route.startswith("/app/shortlist"):
                 assert density["accountSummaryVisible"] is True
 
             if route.startswith("/app/shortlist"):
@@ -3935,33 +3935,13 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()
                 assert density["logoutVisible"] is True
             elif route == "/app/billing":
-                expect(page.locator("body", has_text="Billing history")).to_be_visible()
-                expect(page.locator("body", has_text="Cancellation and refunds")).to_be_visible()
-                billing_mobile_metrics = page.evaluate(
-                    """() => {
-                        const summary = document.querySelector('.pqx-billing-summary');
-                        const cards = Array.from(document.querySelectorAll('.pqx-billing-summary-card'));
-                        const detailCards = Array.from(document.querySelectorAll('.pqx-billing-card'));
-                        const cardRects = cards.map((card) => card.getBoundingClientRect());
-                        return {
-                            viewportWidth: window.innerWidth,
-                            columns: summary ? window.getComputedStyle(summary).gridTemplateColumns.split(' ').length : 0,
-                            cardCount: cards.length,
-                            detailCardCount: detailCards.length,
-                            shortestCard: Math.min(...cards.map((card) => card.getBoundingClientRect().height)),
-                            tallestCard: Math.max(0, ...cards.map((card) => card.getBoundingClientRect().height)),
-                            maxCardRight: Math.max(0, ...cardRects.map((rect) => rect.right)),
-                            bodyText: document.body.innerText,
-                        };
-                    }"""
-                )
-                assert billing_mobile_metrics["columns"] == 1
-                assert billing_mobile_metrics["cardCount"] >= 4
-                assert billing_mobile_metrics["detailCardCount"] == 3
-                assert billing_mobile_metrics["shortestCard"] >= 56
-                assert billing_mobile_metrics["tallestCard"] <= 150
-                assert billing_mobile_metrics["maxCardRight"] <= billing_mobile_metrics["viewportWidth"] + 1
-                assert "When to upgrade" not in billing_mobile_metrics["bodyText"]
+                expect(page.locator("body", has_text="Billing handoff unavailable")).to_be_visible()
+                expect(page.locator("body", has_text="external account lane")).to_be_visible()
+                expect(page.locator("body", has_text="white-label billing URL")).to_be_visible()
+                body_text = page.evaluate("() => document.body.innerText")
+                assert "Billing history" not in body_text
+                assert "Cancellation and refunds" not in body_text
+                assert "When to upgrade" not in body_text
             elif route == "/app/settings/google":
                 expect(page.locator("body", has_text=re.compile(r"Google connection|PropertyQuarry account", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"Connect Google|Add Google account", re.I))).to_be_visible()

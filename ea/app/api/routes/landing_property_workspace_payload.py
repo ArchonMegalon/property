@@ -2421,7 +2421,7 @@ def property_workspace_payload(
         "billing": [
             {
                 "href": signed_in_billing_href,
-                "label": "Open billing" if billing_handoff.get("available") else "Open pricing",
+                "label": "Open billing account" if billing_handoff.get("available") else "Billing handoff",
                 "tone": "primary",
             },
             {"href": f"/app/properties{run_suffix}", "label": "Open run"},
@@ -2430,7 +2430,7 @@ def property_workspace_payload(
         "settings": [
             {"href": f"/app/properties{run_suffix}", "label": "Open results", "tone": "primary"},
             {"href": "/how-it-works", "label": "How it works"},
-            {"href": signed_in_billing_href, "label": "Open pricing"},
+            {"href": signed_in_billing_href, "label": "Billing handoff"},
         ],
     }
     hero_highlights = {
@@ -2697,7 +2697,7 @@ def property_workspace_payload(
     billing_account_title = (
         "Billing account"
         if billing_handoff_available
-        else ("Access status" if has_active_paid_plan else "Compare plans")
+        else ("Access status" if has_active_paid_plan else "Billing account")
     )
     billing_account_detail = (
         "Open the Brilliant Directories account and payment lane."
@@ -2715,7 +2715,7 @@ def property_workspace_payload(
     billing_account_action_label = (
         "Open billing account"
         if billing_handoff_available
-        else ("Compare plans" if bool(property_state.get("billing_checkout_enabled")) and not has_active_paid_plan else "")
+        else ""
     )
     billing_account_action_href = signed_in_billing_href if billing_account_action_label else ""
     billing_rows = [
@@ -3331,7 +3331,7 @@ def property_workspace_payload(
                 },
                 {
                     "eyebrow": "History",
-                    "title": "Billing history",
+                    "title": "Account events",
                     "body": "",
                     "items": billing_history_rows,
                 },
@@ -3393,7 +3393,7 @@ def property_workspace_payload(
                     "body": "",
                     "items": [
                         row_item("Search", "Change areas, filters, providers, or shortlist depth.", "Search"),
-                        row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
+                        row_item("Plan", "Open the billing account when the current allowance blocks a real run.", "Plan"),
                         row_item("How it works", "Scoring, privacy, and sharing rules.", "Guide"),
                     ],
                 },
@@ -3426,7 +3426,7 @@ def property_workspace_payload(
             "hero_actions": [
                 {"href": f"/app/properties{run_suffix}", "label": "Edit search", "tone": "primary"},
                 {"href": f"/app/agents{run_suffix}", "label": "Saved searches"},
-                {"href": signed_in_billing_href, "label": "Open pricing"},
+                {"href": signed_in_billing_href, "label": "Billing handoff"},
             ],
             "hero_highlights": [
                 {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope."), "href": "/app/settings/google"},
@@ -3455,7 +3455,7 @@ def property_workspace_payload(
                     "body": "",
                     "items": [
                         row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
-                        row_item("Plan", "Open pricing when the current allowance blocks a real run.", "Plan"),
+                        row_item("Plan", "Open the billing account when the current allowance blocks a real run.", "Plan"),
                         row_item("How it works", "Scoring, privacy, and sharing rules.", "Guide"),
                     ],
                 },
@@ -3472,12 +3472,12 @@ def property_workspace_payload(
                 "body": "",
                 "items": [
                     {
-                        "title": "Pricing",
-                        "detail": "Compare tiers.",
+                        "title": "Billing account",
+                        "detail": "Open the external account lane when it is configured.",
                         "tag": "Public",
                         "action_href": signed_in_billing_href,
                         "action_method": "get",
-                        "action_label": "Open pricing",
+                        "action_label": "Billing handoff",
                     },
                     {
                         "title": "How it works",

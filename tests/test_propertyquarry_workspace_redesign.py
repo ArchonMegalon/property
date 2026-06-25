@@ -475,11 +475,11 @@ def test_propertyquarry_active_workspace_nav_item_is_not_a_self_link() -> None:
     client = build_property_client(principal_id="pq-billing-nav-self-link")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
 
-    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+    billing = client.get("/app/account", headers={"host": "propertyquarry.com"})
 
     assert billing.status_code == 200, billing.text
-    assert re.search(r'<span class="is-active" aria-current="page">Billing</span>', billing.text)
-    assert re.search(r'<a href="/app/billing"[^>]*>Billing</a>', billing.text) is None
+    assert re.search(r'<span class="is-active" aria-current="page">Account</span>', billing.text)
+    assert re.search(r'<a href="/app/account"[^>]*>Account</a>', billing.text) is None
 
 
 def test_property_result_title_display_cleans_provider_url_garbage() -> None:
@@ -1342,12 +1342,13 @@ def test_propertyquarry_account_surfaces_use_persisted_property_plan() -> None:
     billing = client.get("/app/billing")
     usage = client.get("/app/settings/usage")
 
-    assert billing.status_code == 200
+    assert billing.status_code == 503
     assert usage.status_code == 200
-    assert '<strong>Agent</strong>' in billing.text
-    assert 'Active plan.' in billing.text
-    assert '<strong>Account status</strong>' in billing.text
-    assert 'Your current access is active.' in billing.text
+    assert "Billing handoff unavailable" in billing.text
+    assert '<strong>Agent</strong>' not in billing.text
+    assert 'Active plan.' not in billing.text
+    assert '<strong>Account status</strong>' not in billing.text
+    assert 'Your current access is active.' not in billing.text
     assert '<strong>Compare plans</strong>' not in billing.text
     assert '<strong>Current plan</strong>' in usage.text
     assert '<small>Agent</small>' in usage.text
@@ -7134,13 +7135,15 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Open invite" in workspace_preview.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
-    assert billing.status_code == 200
-    assert "Billing" in billing.text
-    assert "Your plan" in billing.text
-    assert "Billing history" in billing.text
-    assert "Cancellation and refunds" in billing.text
-    assert "Invoices" in billing.text
-    assert "Invoice and VAT document details appear here" in billing.text
+    assert billing.status_code == 503
+    assert "Billing handoff unavailable" in billing.text
+    assert "external account lane" in billing.text
+    assert "white-label billing URL" in billing.text
+    assert "Your plan" not in billing.text
+    assert "Billing history" not in billing.text
+    assert "Cancellation and refunds" not in billing.text
+    assert "Invoices" not in billing.text
+    assert "Invoice and VAT document details appear here" not in billing.text
     assert "Invoice handoff" not in billing.text
     assert "accounting lane" not in billing.text
     assert "Billing truth" not in billing.text
@@ -7151,8 +7154,6 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "payfunnels/order" not in billing.text.lower()
     assert "What is available now" not in billing.text
     assert "Current search access" not in billing.text
-    assert billing.text.count("Plan") >= 1
-    assert billing.text.count("Checkout") <= 3
     billing_payload_source = (Path(__file__).resolve().parents[1] / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
     assert 'row_item("Provider", str(property_state.get("billing_checkout_provider_label")' not in billing_payload_source
     assert "payment confirmation" in billing_payload_source
@@ -7201,11 +7202,12 @@ def test_property_billing_surface_shows_compact_payment_history() -> None:
 
     billing = client.get("/app/billing", headers=headers)
 
-    assert billing.status_code == 200
-    assert "Billing history" in billing.text
-    assert "Payment Completed" in billing.text
-    assert "Paid | EUR 3.00 | 2026-06-20 12:00 | Invoice inv_123 | VAT EUR 0.48" in billing.text
-    assert "Plus" in billing.text
+    assert billing.status_code == 503
+    assert "Billing handoff unavailable" in billing.text
+    assert "Billing history" not in billing.text
+    assert "Payment Completed" not in billing.text
+    assert "Paid | EUR 3.00 | 2026-06-20 12:00 | Invoice inv_123 | VAT EUR 0.48" not in billing.text
+    assert "Plus" not in billing.text
     assert "PayFunnels" not in billing.text
 
 
@@ -7230,9 +7232,10 @@ def test_property_billing_surface_keeps_paid_plan_active_when_checkout_is_disabl
 
     billing = client.get("/app/billing", headers=headers)
 
-    assert billing.status_code == 200
-    assert "Agent" in billing.text
-    assert "Active" in billing.text
+    assert billing.status_code == 503
+    assert "Billing handoff unavailable" in billing.text
+    assert "Agent" not in billing.text
+    assert "Active" not in billing.text
     assert "Included with the current plan" not in billing.text
     assert "Current access is already active." not in billing.text
     assert "Not active yet" not in billing.text
@@ -9217,8 +9220,8 @@ def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypa
 
     assert agents.status_code == 200
     assert account.status_code == 200
-    assert billing.status_code == 200
-    assert "Billing" in billing.text
+    assert billing.status_code == 503
+    assert "Billing handoff unavailable" in billing.text
 
 
 def test_property_fleet_digest_uses_short_cache_for_repeated_surface_loads(monkeypatch) -> None:
@@ -12873,18 +12876,21 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     start_workspace(client, mode="personal", workspace_name="Compact Billing")
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
-    assert billing.status_code == 200
+    assert billing.status_code == 503
     rendered_text = re.sub(r"\s+", " ", billing.text)
-    assert "Plan and payments" in rendered_text
-    assert "Plan and access" in rendered_text
-    assert "Current tier, ranked-result access, and billing account status" in rendered_text
+    assert "Billing handoff unavailable" in rendered_text
+    assert "external account lane" in rendered_text
+    assert "white-label billing URL" in rendered_text
+    assert "Plan and payments" not in rendered_text
+    assert "Plan and access" not in rendered_text
+    assert "Current tier, ranked-result access, and billing account status" not in rendered_text
     assert "When to upgrade" not in rendered_text
     assert "White-label account lane" not in rendered_text
     assert "Local billing is active" not in rendered_text
     assert "Status Payment lane not active yet" not in rendered_text
     assert "Billing is visible even when checkout is not ready" not in rendered_text
-    assert "Your plan" in rendered_text
-    assert "Open guide" in rendered_text
+    assert "Your plan" not in rendered_text
+    assert "Open guide" not in rendered_text
     assert "Back to search" not in rendered_text
 
 
@@ -13286,12 +13292,16 @@ def test_propertyquarry_static_surfaces_do_not_inline_search_only_scripts() -> N
     start_workspace(client, mode="personal", workspace_name="Property Static Payload")
     headers = {"host": "propertyquarry.com"}
 
-    for route in ("/app/agents", "/app/account", "/app/billing"):
+    for route in ("/app/agents", "/app/account"):
         response = client.get(route, headers=headers)
         assert response.status_code == 200
         assert "preferenceProfileEndpoint" not in response.text
         assert "Saved durably. Profile now has" not in response.text
         assert len(response.text) < 420_000, route
+    billing = client.get("/app/billing", headers=headers)
+    assert billing.status_code == 503
+    assert "preferenceProfileEndpoint" not in billing.text
+    assert "Billing history" not in billing.text
 
 
 def test_propertyquarry_account_payload_avoids_internal_posture_labels() -> None:

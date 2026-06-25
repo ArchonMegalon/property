@@ -127,14 +127,20 @@ FORBIDDEN_RYBBIT_PAYLOAD_TOKENS = (
 FORBIDDEN_BILLING_SURFACE_TOKENS = (
     "accounting lane",
     "billing truth",
+    "billing history",
     "brilliant directories",
     "brilliantdirectories",
     "commercial truth",
+    "compare plans",
     "invoice handoff",
+    "invoices",
+    "open pricing",
     "payfunnels",
     "payfunnels/order",
     "plan and limits",
+    "plan and payments",
     "plan unit",
+    "your plan",
 )
 
 CONTENT_FIRST_MOBILE_PATHS = {
@@ -534,8 +540,9 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         for phrase in FORBIDDEN_CUSTOMER_NOISE
         if phrase in lowered_body
     ]
+    billing_fail_closed_ok = path == "/app/billing" and response.status_code == 503
     checks = [
-        {"name": "status_ok", "ok": response.status_code == 200 or billing_handoff_redirect_ok},
+        {"name": "status_ok", "ok": response.status_code == 200 or billing_handoff_redirect_ok or billing_fail_closed_ok},
         {"name": "under_budget", "ok": duration_ms <= budget_ms},
         {"name": "contains_propertyquarry", "ok": "PropertyQuarry" in body or billing_handoff_redirect_ok},
         {"name": "no_generic_ea_copy", "ok": "Executive Assistant" not in body and "Morning Memo" not in body},
@@ -549,7 +556,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 "location_host": "billing.propertyquarry.test",
             }
         )
-    else:
+    elif not billing_fail_closed_ok:
         checks.extend(_mobile_surface_contract_checks(path, body))
         checks.extend(_rybbit_surface_contract_checks(path, body))
     if path == "/app/agents":
@@ -608,11 +615,11 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         checks.extend(
             (
                 {
-                    "name": "billing_heading",
-                    "ok": "Plan and payments" in body and ("Plan and access" in body or "Your plan" in body),
+                    "name": "billing_fail_closed_recovery",
+                    "ok": response.status_code == 503
+                    and all(marker in lowered_body for marker in ("billing handoff unavailable", "external account lane", "white-label billing url")),
                 },
-                {"name": "billing_history_visible", "ok": "Billing history" in body and "Invoices" in body},
-                {"name": "billing_white_label_copy", "ok": not billing_noise_hits, "detail": ", ".join(billing_noise_hits[:5])},
+                {"name": "billing_local_board_deleted", "ok": not billing_noise_hits, "detail": ", ".join(billing_noise_hits[:5])},
             )
         )
     if path == "/app/account":

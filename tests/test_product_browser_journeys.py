@@ -314,13 +314,14 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Recent outbound property follow-ups" in alerts.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers)
-    assert billing.status_code == 200
-    assert "Your plan" in billing.text
+    assert billing.status_code == 503
+    assert "Billing handoff unavailable" in billing.text
+    assert "Your plan" not in billing.text
     assert "Current search access" not in billing.text
     assert "Current commercial state" not in billing.text
     assert "Plan posture" not in billing.text
     assert "Commercial decision" not in billing.text
-    assert "Plus checkout" in billing.text
+    assert "Plus checkout" not in billing.text
 
 
 def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
@@ -420,7 +421,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert "Current search brief state" in settings.text
     assert "Operating posture" not in settings.text
     assert "Notifications" in settings.text
-    assert "Open pricing" in settings.text
+    assert "Billing handoff" in settings.text
     assert "How it works" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
