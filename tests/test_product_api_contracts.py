@@ -25043,6 +25043,42 @@ def test_public_tour_matterport_control_uses_private_receipt_without_public_json
     assert 'iframe src="https://my.matterport.com/show/?m=PRIVATE123&amp;mls=2"' in control_response.text
 
 
+def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_leak(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "private-receipt-3dvista"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Private Receipt 3DVista",
+                "hosted_url": f"/tours/{slug}",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps({"three_d_vista_url": "https://example.3dvista.com/tours/private-receipt/index.html"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-private-receipt-3dvista")
+    payload_response = client.get(f"/tours/{slug}.json")
+    control_response = client.get(f"/tours/{slug}/control/3dvista")
+
+    assert payload_response.status_code == 200
+    assert "three_d_vista_url" not in payload_response.json()
+    assert "source_virtual_tour_url" not in payload_response.json()
+    assert control_response.status_code == 200
+    assert "3DVista Control" in control_response.text
+    assert 'iframe src="https://example.3dvista.com/tours/private-receipt/index.html"' in control_response.text
+
+
 def test_public_tour_landing_links_pano2vr_spatial_review_for_cube_payload() -> None:
     from app.api.routes import public_tours
 

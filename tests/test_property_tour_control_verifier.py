@@ -36,6 +36,22 @@ def test_property_tour_control_verifier_accepts_private_receipt_matterport_witho
     assert "PRIVATE123" not in json.dumps(receipt)
 
 
+def test_property_tour_control_verifier_accepts_private_receipt_3dvista_without_url_leak(tmp_path: Path) -> None:
+    _write_tour(tmp_path, "private-3dvista", {})
+    private_receipt = tmp_path / "private-3dvista" / "tour.private.json"
+    private_receipt.write_text(
+        json.dumps({"three_d_vista_url": "https://example.3dvista.com/tours/PRIVATE3D/index.html"}),
+        encoding="utf-8",
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "pass"
+    assert receipt["provider_counts"]["3dvista"] == 1
+    assert receipt["ready_provider_modes"] == ["3dvista"]
+    assert "PRIVATE3D" not in json.dumps(receipt)
+
+
 def test_property_tour_control_verifier_summary_omits_tour_rows(tmp_path: Path) -> None:
     _write_tour(tmp_path, "matterport-tour", {"matterport_url": "https://my.matterport.com/show/?m=SUMMARY123"})
 
