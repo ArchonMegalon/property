@@ -10494,6 +10494,10 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert "<strong>This will</strong>" not in body
     assert "<summary><strong>Next step</strong></summary>" in body
     assert 'href="/app/search{{ review_query_suffix }}">Open search brief</a>' in body
+    assert "Request visuals only when this home is worth a deeper review." not in body
+    assert "No verified 3D tour or playable MagicFit walkthrough is attached yet." in body
+    assert "No verified Matterport, 3DVista, Pano2VR, or licensed krpano control is attached yet." in body
+    assert "No receipt-backed playable MagicFit walkthrough is attached yet." in body
 
 
 def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:

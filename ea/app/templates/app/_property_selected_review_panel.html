@@ -47,11 +47,11 @@
       {% elif selected_flythrough_pending %}
         {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
       {% elif selected_tour.get('status') == 'blocked' %}
-        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or '3D tour is not ready yet.' %}
+        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or 'No verified Matterport, 3DVista, Pano2VR, or licensed krpano control is attached yet.' %}
       {% elif selected_flythrough.get('status') == 'blocked' %}
-        {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'Walkthrough is not ready yet.' %}
+        {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'No receipt-backed playable MagicFit walkthrough is attached yet.' %}
       {% elif not selected_tour.get('url') and not selected_flythrough.get('url') %}
-        {% set selected_visual_status = 'Request visuals only when this home is worth a deeper review.' %}
+        {% set selected_visual_status = 'No verified 3D tour or playable MagicFit walkthrough is attached yet.' %}
       {% endif %}
       <div class="pqx-context-actions" data-pw-actions>
         {% if selected.get('packet_url') %}<a class="pqx-link-button primary" href="{{ selected.get('packet_url') }}" data-rybbit-event="pq.property.opened" data-rybbit-prop-surface="selected_review">Open property</a>{% endif %}
