@@ -1962,6 +1962,51 @@ def test_propertyquarry_workspace_sign_out_works_in_real_browser(
         context.close()
 
 
+def test_propertyquarry_account_mobile_exposes_direct_logout(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/account", wait_until="networkidle")
+        assert response is not None and response.ok
+        logout_form = page.locator("[data-account-page-sign-out]")
+        expect(logout_form).to_be_visible()
+        logout_button = logout_form.get_by_role("button", name="Log out")
+        expect(logout_button).to_be_visible()
+        metrics = logout_button.evaluate(
+            """(button) => {
+              const rect = button.getBoundingClientRect();
+              return {
+                top: rect.top,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+                viewportWidth: window.innerWidth,
+                bodyWidth: document.documentElement.scrollWidth,
+                label: button.textContent || '',
+              };
+            }"""
+        )
+        assert metrics["height"] >= 48, metrics
+        assert metrics["width"] >= 160, metrics
+        assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1, metrics
+        assert "Log out" in metrics["label"]
+
+        logout_button.click()
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(100)
+        assert page.locator("[data-account-page-sign-out]").count() == 0
+        assert page.locator(".pqx-account-menu > summary").count() == 0
+    finally:
+        context.close()
+
+
 def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

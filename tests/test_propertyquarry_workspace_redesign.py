@@ -12335,6 +12335,11 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert account.status_code == 200
     assert "Export account data" in account.text
     assert 'href="/app/api/property/account/export?download=1"' in account.text
+    assert "Session" in account.text
+    assert "Signed in" in account.text
+    assert 'data-account-page-sign-out' in account.text
+    assert 'action="/app/actions/sign-out"' in account.text
+    assert ">Log out<" in account.text
     assert "Clear search history" in account.text
     assert 'action="/app/api/property/search-runs/clear"' in account.text
     assert "Access and shared pages" in account.text

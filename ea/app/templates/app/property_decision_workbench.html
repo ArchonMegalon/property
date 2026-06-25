@@ -3930,6 +3930,19 @@
       grid-template-columns: 1fr;
       align-items: stretch;
     }
+    .pqx-account-session-card {
+      border-color: rgba(167, 64, 48, 0.22);
+      background: linear-gradient(180deg, #fffefa, #fff6f2);
+    }
+    .pqx-account-session-form {
+      display: grid;
+      align-self: end;
+      margin: 0;
+      min-width: 128px;
+    }
+    .pqx-account-session-form .pqx-link-button {
+      width: 100%;
+    }
     .pqx-account-action-card h2 {
       margin: 2px 0 0;
       color: var(--pq-ink);
@@ -7017,6 +7030,9 @@
         padding: 12px;
         border-radius: 18px;
         box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
+      }
+      .pqx-account-session-form {
+        min-width: 0;
       }
       .pqx-account-action-card h2 {
         font-size: 1rem;
