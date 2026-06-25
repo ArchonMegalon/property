@@ -33202,7 +33202,7 @@ class ProductService:
             "repairing",
         )
         records = _list_property_search_run_records(
-            limit=max(int(limit or 0), 1),
+            limit=max(int(limit or 0), 500),
             statuses=active_statuses,
             principal_id=normalized_principal,
             admin=not bool(normalized_principal),
