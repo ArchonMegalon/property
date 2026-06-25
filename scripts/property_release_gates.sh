@@ -61,7 +61,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_teable_portability.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
-mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/smoke _completion/property_gold_status
+mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/smoke _completion/property_gold_status _completion/repair
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --require-all-provider-modes \
   --write _completion/property_tour_controls/release-gate.json \
@@ -72,13 +72,15 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
   > _completion/smoke/property-auth-performance-release-gate.json
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \
+  > _completion/repair/propertyquarry-repair-canary-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --performance-receipt _completion/smoke/property-auth-performance-release-gate.json \
   --tour-control-receipt _completion/property_tour_controls/release-gate.json \
   --export-discovery-receipt _completion/property_tour_exports/release-gate-discovery.json \
+  --repair-canary-receipt _completion/repair/propertyquarry-repair-canary-release-gate.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
   tests/test_property_worker_queues.py \

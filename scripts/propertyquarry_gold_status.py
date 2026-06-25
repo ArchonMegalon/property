@@ -50,15 +50,23 @@ def build_gold_status_receipt(
     performance_receipt_path: Path,
     tour_control_receipt_path: Path,
     export_discovery_receipt_path: Path,
+    repair_canary_receipt_path: Path,
 ) -> dict[str, Any]:
     performance = _load_json(performance_receipt_path)
     tour_controls = _load_json(tour_control_receipt_path)
     export_discovery = _load_json(export_discovery_receipt_path)
+    repair_canary = _load_json(repair_canary_receipt_path)
 
     missing_provider_modes = _missing_provider_modes(tour_controls)
     performance_ok = performance.get("status") == "pass" and int(performance.get("failed_count") or 0) == 0
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
+    repair_canary_ok = (
+        repair_canary.get("status") == "pass"
+        and repair_canary.get("run_status") == "completed_partial"
+        and repair_canary.get("source_repair_status") == "returned"
+        and repair_canary.get("receipt_resolution") == "provider_quarantined_retry_budget_exhausted"
+    )
 
     blockers: list[dict[str, Any]] = []
     if not performance_ok:
@@ -85,6 +93,14 @@ def build_gold_status_receipt(
                 "action": "place verified 3DVista/Pano2VR exports in the configured drop directory and rerun discovery/import",
             }
         )
+    if not repair_canary_ok:
+        blockers.append(
+            {
+                "area": "self_healing_repair",
+                "status": repair_canary.get("status") or "unknown",
+                "action": "rerun and fix propertyquarry_repair_fleet_canary until failed provider sources are repaired or safely quarantined",
+            }
+        )
 
     next_required_actions = list(tour_controls.get("next_required_actions") or [])
     if export_discovery.get("status") == "blocked_no_verified_exports":
@@ -95,7 +111,7 @@ def build_gold_status_receipt(
             }
         )
 
-    status = "pass" if performance_ok and tour_controls_ok and export_discovery_ok else "blocked"
+    status = "pass" if performance_ok and tour_controls_ok and export_discovery_ok and repair_canary_ok else "blocked"
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
@@ -118,10 +134,18 @@ def build_gold_status_receipt(
             "rejected_count": export_discovery.get("rejected_count"),
             "receipt_path": str(export_discovery_receipt_path),
         },
+        "self_healing": {
+            "status": repair_canary.get("status"),
+            "run_status": repair_canary.get("run_status"),
+            "source_repair_status": repair_canary.get("source_repair_status"),
+            "receipt_resolution": repair_canary.get("receipt_resolution"),
+            "receipt_path": str(repair_canary_receipt_path),
+        },
         "blockers": blockers,
         "next_required_actions": next_required_actions,
         "notes": [
             "Gold is not claimable until every required provider mode is backed by verified evidence.",
+            "Self-healing is proven only when the repair canary repairs or safely quarantines a failed provider source.",
             "This receipt intentionally treats missing 3DVista, Pano2VR, krpano, or MagicFit evidence as blocked rather than pass.",
         ],
     }
@@ -132,6 +156,7 @@ def main() -> int:
     parser.add_argument("--performance-receipt", default="_completion/smoke/property-auth-performance-latest.json")
     parser.add_argument("--tour-control-receipt", default="_completion/property_tour_controls/latest-current.json")
     parser.add_argument("--export-discovery-receipt", default="_completion/property_tour_exports/discovery-current.json")
+    parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
@@ -140,6 +165,7 @@ def main() -> int:
         performance_receipt_path=Path(args.performance_receipt),
         tour_control_receipt_path=Path(args.tour_control_receipt),
         export_discovery_receipt_path=Path(args.export_discovery_receipt),
+        repair_canary_receipt_path=Path(args.repair_canary_receipt),
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
