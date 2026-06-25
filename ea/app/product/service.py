@@ -32516,6 +32516,17 @@ class ProductService:
                 return False
             return _property_search_active_run_is_stale(dict(payload))
 
+        def _compact_sources_resolved_needs_full_recovery_check(payload: dict[str, object]) -> bool:
+            status = str(payload.get("status") or dict(payload.get("summary") or {}).get("status") or "").strip().lower()
+            if not status or status in _PROPERTY_SEARCH_TERMINAL_STATUSES or status == "initialization_required":
+                return False
+            current_step = str(payload.get("current_step") or dict(payload.get("summary") or {}).get("current_step") or "").strip().lower()
+            if current_step != "sources_resolved":
+                return False
+            if not _replacement_parent_refs_from_payload(payload):
+                return False
+            return _property_search_replacement_run_is_stale(dict(payload))
+
         if lightweight:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
             if isinstance(compact_snapshot, dict) and compact_snapshot:
@@ -32531,6 +32542,7 @@ class ProductService:
                     _has_pending_worker_exception_repair(summary)
                     or _has_stale_replacement_execution(compact_snapshot)
                     or _has_stale_active_execution(compact_snapshot)
+                    or _compact_sources_resolved_needs_full_recovery_check(compact_snapshot)
                 ):
                     full_snapshot = self.get_property_search_run_status(
                         principal_id=principal_id,
