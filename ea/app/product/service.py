@@ -34470,6 +34470,66 @@ class ProductService:
                     )
                 ),
             )
+            if not listing_urls:
+                source_summaries.append(
+                    {
+                        "source_url": source_url,
+                        "source_label": source_label,
+                        "source_scope_label": raw_source_label,
+                        "platform": str(source_spec.get("platform") or "").strip().lower(),
+                        "provider_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                        "provider_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                        "source_access_level": str(source_spec.get("source_access_level") or "").strip().lower() or property_provider_access_level(source_spec.get("platform")),
+                        "verification_required": bool(source_spec.get("verification_required")),
+                        "preference_person_id": source_preference_person_id,
+                        "provider_filter_pushdown": provider_filter_pushdown,
+                        "provider_cache": provider_cache_state,
+                        "listing_total": 0,
+                        "reviewed_listing_total": 0,
+                        "raw_listing_total": raw_listing_count,
+                        "scanned_listing_total": 0,
+                        "review_created_total": 0,
+                        "review_existing_total": 0,
+                        "high_fit_total": 0,
+                        "filtered_property_type_total": 0,
+                        "filtered_area_total": 0,
+                        "filtered_availability_total": 0,
+                        "filtered_floorplan_total": 0,
+                        "filtered_generic_page_total": 0,
+                        "filtered_listing_mode_total": 0,
+                        "filtered_low_fit_total": 0,
+                        "provider_repair_task_opened_total": provider_repair_task_opened_for_source,
+                        "provider_repair_task_existing_total": provider_repair_task_existing_for_source,
+                        "provider_repair_tasks": provider_repair_tasks_for_source[:10],
+                        "scan_truncated": scan_truncated,
+                        "top_fit_score": 0.0,
+                        "top_candidates": [],
+                        "research_candidates": [],
+                        "timing_ms": {
+                            "provider_fetch": round(provider_fetch_ms, 2),
+                            "provider_preview": 0.0,
+                            "floorplan_recovery": 0.0,
+                            "source_total": round((time.perf_counter() - source_started_at) * 1000.0, 2),
+                        },
+                    }
+                )
+                timing_ms["provider_process_total"] = round(
+                    float(timing_ms.get("provider_process_total") or 0.0)
+                    + max(0.0, (time.perf_counter() - source_started_at) * 1000.0 - provider_fetch_ms),
+                    2,
+                )
+                _report(
+                    step="source_completed",
+                    message=f"Completed scanning {source_label}; no listing candidates were returned.",
+                    status="in_progress",
+                    steps_delta=1,
+                    summary_updates={
+                        "sources": source_summaries,
+                        "reviewed_listing_total": reviewed_listing_total,
+                        "listing_total": reviewed_listing_total,
+                    },
+                )
+                continue
             preliminary_rows: list[dict[str, object]] = []
             provider_preview_started_at = time.perf_counter()
             for ordinal, property_url in enumerate(listing_urls, start=1):

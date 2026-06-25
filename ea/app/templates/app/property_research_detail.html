@@ -234,62 +234,93 @@
   .prd-decision-workspace {
     position: relative;
     overflow: hidden;
-    padding: clamp(18px, 2.4vw, 28px);
-    border-radius: 18px;
-    border-color: color-mix(in srgb, var(--prd-gold) 42%, var(--line));
-    background:
-      radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--prd-gold) 16%, transparent), transparent 34%),
-      linear-gradient(135deg, color-mix(in srgb, var(--panel) 98%, var(--prd-gold) 2%), color-mix(in srgb, var(--panel-2) 88%, transparent));
-  }
-  .prd-decision-workspace::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(90deg, color-mix(in srgb, var(--prd-gold) 14%, transparent), transparent 38%);
+    padding: clamp(12px, 1.7vw, 18px);
+    border-radius: 12px;
+    border-color: color-mix(in srgb, var(--prd-gold) 30%, var(--line));
+    background: color-mix(in srgb, var(--panel) 96%, var(--prd-gold) 4%);
   }
   .prd-decision-layout {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 0.8fr) minmax(360px, 1fr);
-    gap: clamp(18px, 3vw, 34px);
+    grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+    gap: 14px;
     align-items: start;
   }
   .prd-decision-intro {
     display: grid;
-    gap: 14px;
+    gap: 8px;
     align-content: start;
   }
   .prd-decision-intro h2 {
     margin: 0;
     max-width: 680px;
-    font-size: clamp(1.45rem, 2.4vw, 2.25rem);
-    line-height: 1.02;
-    letter-spacing: -0.04em;
+    font-size: clamp(1.12rem, 1.5vw, 1.45rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
   }
   .prd-decision-intro .object-copy {
     max-width: 620px;
-    font-size: 1rem;
-    line-height: 1.45;
+    font-size: 0.88rem;
+    line-height: 1.35;
   }
   .prd-decision-form {
     display: grid;
-    gap: 14px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 8px;
     min-width: 0;
   }
   .prd-decision-card {
     display: grid;
-    gap: 10px;
-    padding: 14px;
+    gap: 8px;
+    padding: 10px;
     border: 1px solid color-mix(in srgb, var(--line) 78%, var(--prd-gold) 22%);
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--panel) 78%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
   }
   .prd-decision-card h3 {
     margin: 0;
     color: var(--text);
-    font-size: 0.95rem;
+    font-size: 0.82rem;
     letter-spacing: -0.01em;
+  }
+  .prd-decision-card.prd-decision-note,
+  .prd-feedback-details {
+    grid-column: 1 / -1;
+  }
+  .prd-feedback-details {
+    border: 1px solid color-mix(in srgb, var(--line) 82%, var(--prd-gold) 18%);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--panel) 90%, transparent);
+    padding: 0;
+  }
+  .prd-feedback-details > summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 42px;
+    padding: 0 12px;
+    color: var(--text);
+    font-size: 0.86rem;
+    font-weight: 800;
+    list-style: none;
+  }
+  .prd-feedback-details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .prd-feedback-details > summary::after {
+    content: "+";
+    color: var(--text-soft);
+    font-size: 1rem;
+  }
+  .prd-feedback-details[open] > summary::after {
+    content: "-";
+  }
+  .prd-feedback-body {
+    display: grid;
+    gap: 10px;
+    padding: 0 10px 10px;
   }
   .prd-decision-workspace .object-feedback-row,
   .prd-decision-workspace .object-actions,
@@ -301,15 +332,15 @@
   .prd-decision-workspace .object-feedback-button,
   .prd-decision-workspace .object-feedback-chip,
   .prd-decision-workspace .console-action {
-    min-height: 44px;
+    min-height: 38px;
     border-radius: 999px;
-    padding-inline: 14px;
+    padding-inline: 12px;
   }
   .prd-decision-workspace textarea {
     width: 100%;
-    min-height: 116px;
+    min-height: 66px;
     box-sizing: border-box;
-    border-radius: 14px;
+    border-radius: 10px;
     resize: vertical;
   }
   .prd-panel h1,
@@ -2494,9 +2525,13 @@
         <div class="prd-decision-intro">
           <div>
             <div class="prd-kicker">Decision</div>
-            <h2>Save this property decision</h2>
-            <p class="object-copy">Keep the next move, reasoning, and follow-up in one calm place.</p>
+            <h2>Next move</h2>
+            <p class="object-copy">Save the state now. Tune the reasoning only when it helps the next search.</p>
           </div>
+          {% if research_decision_rows %}
+          <details class="prd-feedback-details prd-decision-context">
+            <summary>Why this recommendation?</summary>
+            <div class="prd-feedback-body">
           <div class="prd-key-points">
             {% for row in research_decision_rows[:3] %}
             <div class="prd-key-point">
@@ -2505,7 +2540,13 @@
             </div>
             {% endfor %}
           </div>
+            </div>
+          </details>
+          {% endif %}
           {% if research_neuronwriter and (research_neuronwriter.get('questions') or research_neuronwriter.get('headings')) %}
+          <details class="prd-feedback-details prd-decision-context">
+            <summary>Questions to ask next</summary>
+            <div class="prd-feedback-body">
           <div class="prd-key-points">
             <div class="prd-key-point">
               <strong>Questions worth asking next</strong>
@@ -2518,21 +2559,13 @@
               </span>
             </div>
           </div>
+            </div>
+          </details>
           {% endif %}
         </div>
         <div class="prd-decision-form">
       <section class="prd-decision-card">
-      <h3>Shortlist signal</h3>
-      <div class="object-feedback-row" aria-label="Property feedback reaction">
-        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
-        <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
-        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">No</button>
-        <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
-      </div>
-      </section>
-      <section class="prd-decision-card">
       <h3>Next action</h3>
-      <p class="object-copy"><strong>Decision state</strong> Use this when the next action matters more than another shortlist vote.</p>
       <div class="object-actions">
         <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
         <button class="console-action" type="button" data-object-decision-state="documents_requested">Request missing documents</button>
@@ -2542,8 +2575,28 @@
       <p class="object-copy" data-object-decision-state-status></p>
       </section>
       <section class="prd-decision-card">
-      <h3>Reason and follow-up</h3>
-      <p class="object-copy"><strong>What drove that?</strong> Select the clearest reasons first.</p>
+      <h3>Shortlist</h3>
+      <div class="object-feedback-row" aria-label="Property feedback reaction">
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">No</button>
+        <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
+      </div>
+      </section>
+      <section class="prd-decision-card prd-decision-note">
+      <h3>Note</h3>
+      <textarea data-object-feedback-note placeholder="Optional note for the decision trail."></textarea>
+      <div class="object-actions">
+        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
+        <a class="console-action" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Open active search</a>
+      </div>
+      <p class="object-copy" data-object-feedback-status></p>
+      </section>
+      <details class="prd-feedback-details">
+      <summary>Fine-tune my preferences</summary>
+      <div class="prd-feedback-body">
+      <section class="prd-decision-card">
+      <h3>Reasons and follow-up</h3>
       <div class="object-feedback-reasons" data-object-feedback-reasons>
         {% for row in (research_feedback.get('suggestions') or {}).get('negative') or [] %}
         <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}" aria-label="{{ row.get('label') or 'Feedback reason' }}">{{ row.get('label') }}</button>
@@ -2577,12 +2630,7 @@
       </div>
       {% endif %}
       <p class="object-copy" data-object-followup-status></p>
-      <textarea data-object-feedback-note placeholder="What worked, failed, or still feels unclear?"></textarea>
-      <div class="object-actions">
-        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
-        <a class="console-action" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Open active search</a>
-      </div>
-      <p class="object-copy" data-object-feedback-status></p>
+      </section>
       <details class="prd-collapse" style="margin-top:8px;">
         <summary>
           <span>
@@ -2649,7 +2697,8 @@
           </div>
         </div>
       </details>
-      </section>
+      </div>
+      </details>
         </div>
       </div>
     </section>

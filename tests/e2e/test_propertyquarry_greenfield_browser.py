@@ -1753,11 +1753,11 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
             page.locator("[data-object-feedback-save]").click()
         save_response = save_response_info.value
         assert save_response.ok, save_response.text()
-        assert page.locator("body", has_text="Tracked follow-up").is_visible()
-
+        page.get_by_text("Fine-tune my preferences", exact=True).click()
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
         assert page.locator("body", has_text="Current read").is_visible()
-        assert page.locator("body", has_text="Save this property decision").is_visible()
+        assert page.locator("body", has_text="Next move").is_visible()
+        assert page.locator("body", has_text="Fine-tune my preferences").is_visible()
     finally:
         context.close()
 

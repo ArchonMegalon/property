@@ -254,7 +254,9 @@
 {% set provider_total = (summary.get('provider_total') or 0)|int %}
 {% set provider_display_total = (run.get('provider_display_total') or provider_total)|int %}
 {% set listing_total = (summary.get('listing_total') or summary.get('raw_listing_total') or 0)|int %}
+{% set reviewed_total = ((run.get('summary') or {}).get('reviewed_listing_total') or listing_total)|int %}
 {% set checked_label = listing_total|string ~ ' homes checked' if listing_total > 0 else 'checking' %}
+{% set source_progress_label = source_completed|string ~ ' of ' ~ source_variant_total|string ~ ' provider checks' if source_variant_total > provider_display_total and source_completed > 0 else '' %}
 {% if provider_display_total > 0 %}
 {% set scan_count_label = provider_display_total|string ~ ' providers · ' ~ checked_label %}
 {% elif listing_total > 0 %}
@@ -280,8 +282,8 @@
   </div>
   <div class="pqx-source-progress" data-pqx-source-progress>
     <div class="pqx-source-progress-head">
-      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-      <span class="pqx-small">{{ (run.get('summary') or {}).get('reviewed_listing_total') or listing_total }} homes reviewed{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
+      <strong data-pqx-radar-count>{{ source_progress_label or scan_count_label }}</strong>
+      <span class="pqx-small">{{ reviewed_total }} homes reviewed{% if source_progress_label and provider_display_total %} · {{ provider_display_total }} providers{% endif %}{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
     </div>
     <span class="pqx-note">{{ run.get('message') or 'Waiting for the first provider update.' }}</span>
     <div class="pqx-progress-meter under-source" aria-hidden="true">
@@ -3061,9 +3063,18 @@
     }
     .pqx-pref-manager {
       display: grid;
-      gap: 12px;
-      padding-top: 14px;
+      gap: 10px;
+      padding-top: 10px;
       border-top: 1px solid var(--pq-line);
+    }
+    .pqx-pref-manager > summary {
+      min-height: 42px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      padding: 0 12px;
+      background: var(--pq-panel);
+      cursor: pointer;
+      font-weight: 850;
     }
     .pqx-pref-list {
       display: grid;
@@ -4320,7 +4331,8 @@
       align-items: start;
     }
     .pqx-empty-results.pqx-empty-results-compact {
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(280px, 0.72fr) minmax(360px, 1fr);
+      gap: 10px;
     }
     .pqx-empty-results.pqx-empty-results-failed {
       max-width: 980px;
@@ -4411,6 +4423,7 @@
     }
     .pqx-empty-results .pqx-command {
       align-self: start;
+      padding: 12px;
     }
     .pqx-empty-results .pqx-command .pqx-pref-row small {
       display: block;
@@ -4439,8 +4452,8 @@
     .pqx-empty-results [data-pqx-run-summary] {
       display: block;
       color: #5f574d;
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 11px;
+      line-height: 1.35;
     }
     .pqx-empty-outcome-line {
       margin: 0;
@@ -8836,12 +8849,12 @@
             data-preference-archive-endpoint-template="{{ preference_manager.get('archive_endpoint_template') or '/app/api/people/self/preference-profile/nodes/__NODE_ID__/archive' }}"
             data-preference-schema='{{ (preference_manager.get("schema") or {})|tojson|safe }}'
           >
-            <summary>Stored search profile</summary>
+            <summary>Fine-tune my preferences</summary>
             <div class="pqx-advanced-panel-grid">
             <div class="pqx-section-head">
               <div>
-                <h2>Search profile</h2>
-                <div class="pqx-note">These rules feed saved preferences and future ranking adjustments.</div>
+                <h2>Learned preferences</h2>
+                <div class="pqx-note">Edit only the rules you want future searches to remember.</div>
               </div>
               <span class="pqx-pill">{{ (preference_manager.get('active_nodes') or [])|length }} active</span>
             </div>
@@ -9002,8 +9015,8 @@
           {% if not ranked_candidates %}
           <div class="pqx-section-head" data-pqx-screenfit-target="run-progress">
             <div>
-                <h2>{{ 'Review scored homes' if soft_only_empty_state else 'Widen the brief' }}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{{ 'Lower the shortlist score or review the strongest near-misses first.' if soft_only_empty_state else (empty_next_move or 'Relax one hard rule at a time so the next shortlist stays easy to review.') }}</div>
+                <h2>{{ 'Near misses' if soft_only_empty_state else 'Next move' }}</h2>
+                <div class="pqx-note" data-pqx-run-summary>{{ 'Lower the shortlist score or inspect the strongest near-misses.' if soft_only_empty_state else (empty_next_move or 'Adjust one hard rule, then rerun.') }}</div>
               </div>
             <div style="display:grid;gap:6px;justify-items:end;">
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
@@ -9190,12 +9203,11 @@
           <section class="pqx-card pqx-empty-results-note" data-pqx-ranked-candidates>
             <div class="pqx-section-head">
               <div>
-                <h2>{% if run_status == 'failed' %}Best matches{% else %}No ranked homes yet{% endif %}</h2>
-                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}Repair will keep retrying in the background.{% else %}Widen one hard rule first if you want more ranked homes.{% endif %}</div>
+                <h2>{% if run_status == 'failed' %}Repair running{% else %}No ranked homes{% endif %}</h2>
+                <div class="pqx-note" data-pqx-run-summary>{% if run_status == 'failed' %}The search will switch when a usable run is ready.{% else %}Change one hard rule if you want another pass.{% endif %}</div>
               </div>
               <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
             </div>
-            <div class="pqx-note">{% if run_status == 'failed' %}Keep the brief as-is unless repair still returns nothing.{% else %}Use the filtered action above to widen the brief in one controlled step.{% endif %}</div>
           </section>
           {% endif %}
           </div>

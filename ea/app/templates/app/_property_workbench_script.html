@@ -1342,13 +1342,17 @@
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
       const sources = Number(summary.sources_total || 0);
+      const completedSources = Number(summary.sources_completed || summary.completed_sources || 0);
       const providerDisplayTotal = providerDisplayTotalForRun(runPayload, summary);
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
       const checkedLabel = reviewed > 0 ? `${reviewed} homes reviewed` : 'checking';
-      const scanLabel = providerDisplayTotal
+      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
+        ? `${completedSources} of ${sourceVariantTotal} provider checks`
+        : '';
+      const scanLabel = sourceProgressLabel || (providerDisplayTotal
         ? `${providerDisplayTotal} providers · ${checkedLabel}`
-        : checkedLabel;
+        : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -1653,9 +1657,12 @@
       const sourceVariantTotal = Number(summary.source_variant_total || sources || 0);
       const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || summary.raw_listing_total || 0);
       const checkedLabel = reviewed > 0 ? `${reviewed} homes checked` : 'checking';
-      const scanCountLabel = providerDisplayTotal
+      const sourceProgressLabel = sourceVariantTotal > providerDisplayTotal && completedSources > 0
+        ? `${completedSources} of ${sourceVariantTotal} provider checks`
+        : '';
+      const scanCountLabel = sourceProgressLabel || (providerDisplayTotal
         ? `${providerDisplayTotal} providers · ${checkedLabel}`
-        : (reviewed > 0 ? checkedLabel : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking providers' : 'Search warming up'));
+        : (reviewed > 0 ? checkedLabel : (completedSources > 0 || sourceVariantTotal > 0 ? 'Checking providers' : 'Search warming up')));
       const layout = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -1677,7 +1684,7 @@
         const state = source?.error ? 'warn' : 'good';
         return `<span class="pqx-source-chip ${state}">${escapeHtml(label)}</span>`;
       }).join('');
-      const sourceMeta = `${reviewed} homes reviewed${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
+      const sourceMeta = `${reviewed} homes reviewed${sourceProgressLabel && providerDisplayTotal ? ` · ${providerDisplayTotal} providers` : ''}${layout > 0 ? ` · ${layout} still waiting on floorplans` : ''}`;
       let phaseMeta = liveInfo.phaseLabel || 'Waiting for the first provider update.';
       const latestReason = latestCandidateReasonLabel(runPayload);
       if (liveInfo.fraction && latestReason) {

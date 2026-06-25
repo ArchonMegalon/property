@@ -6825,7 +6825,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Library" in packet.text
     assert "Underground" in packet.text
     assert "Current read" in packet.text
-    assert "Save this property decision" in packet.text
+    assert "Next move" in packet.text
+    assert "Fine-tune my preferences" in packet.text
     assert "prd-decision-workspace" in packet.text
     assert packet.text.index('class="prd-panel prd-decision-workspace object-feedback"') > packet.text.index("</aside>")
     assert "What to do next" not in packet.text
@@ -9642,8 +9643,12 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
             "progress": 42,
             "message": "Scoring enriched candidate 2 of 4 for Willhaben | Austria | Buy | Wien.",
             "summary": {
-                "sources_total": 4,
-                "listing_total": 6,
+                "sources_total": 117,
+                "source_variant_total": 117,
+                "sources_completed": 20,
+                "provider_total": 29,
+                "listing_total": 179,
+                "reviewed_listing_total": 179,
                 "tour_created_total": 0,
                 "tour_existing_total": 0,
                 "eta_label": "about 6 min",
@@ -9668,6 +9673,8 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
     assert "42% · about 6 min" in live.text
+    assert "20 of 117 provider checks" in live.text
+    assert "179 homes reviewed · 29 providers" in live.text
     assert 'class="pqx-source-progress"' in live.text
     assert 'class="pqx-source-list"' in live.text
     assert 'class="pqx-route-preview-strip"' in live.text
