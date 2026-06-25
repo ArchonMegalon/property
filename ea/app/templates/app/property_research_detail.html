@@ -1264,11 +1264,11 @@
     .prd-topbar {
       grid-template-columns: 1fr;
       align-items: start;
-      gap: 8px;
+      gap: 4px;
       min-height: 0;
-      padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 10px;
-      border-radius: 0 0 18px 18px;
-      box-shadow: 0 14px 30px color-mix(in srgb, var(--prd-gold) 8%, transparent);
+      padding: calc(5px + env(safe-area-inset-top, 0px)) 9px 6px;
+      border-radius: 0 0 12px 12px;
+      box-shadow: 0 8px 22px color-mix(in srgb, var(--prd-gold) 6%, transparent);
     }
     .prd-brand {
       gap: 8px;
@@ -1288,9 +1288,9 @@
     }
     .prd-primary-nav a,
     .prd-primary-nav span {
-      min-height: 42px;
-      padding: 0 13px;
-      font-size: 0.8rem;
+      min-height: 36px;
+      padding: 0 11px;
+      font-size: 0.76rem;
     }
     .prd-top-context {
       display: flex;
@@ -1302,9 +1302,9 @@
       max-width: none;
     }
     .prd-shell {
-      width: calc(100vw - 16px);
-      padding: 6px 0 18px;
-      gap: 8px;
+      width: calc(100vw - 12px);
+      padding: 4px 0 16px;
+      gap: 7px;
     }
     .prd-hero,
     .prd-summary-stack,
@@ -1321,14 +1321,12 @@
     .prd-map-card,
     .prd-meta-card,
     .prd-lightbox-card {
-      padding: 10px;
+      padding: 9px;
       border-radius: 14px;
-    }
-    .prd-hero-side {
-      order: -1;
+      box-shadow: 0 8px 22px color-mix(in srgb, var(--prd-gold) 5%, transparent);
     }
     .prd-media-stack {
-      gap: 8px;
+      gap: 7px;
     }
     .prd-headline-panel .prd-actions {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1384,15 +1382,19 @@
       gap: 6px;
       overflow: visible;
     }
+    .prd-current-read .prd-summary-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
     .prd-current-read {
       padding: 8px;
     }
     .prd-current-read .prd-kicker,
-    .prd-current-read .prd-summary-box:nth-child(n+3),
     .prd-visual-heading .prd-copy,
     .prd-visual-card-copy,
     .prd-media-caption span,
-    .prd-map-meta {
+    .prd-map-meta,
+    .prd-band > .prd-copy,
+    .prd-panel > .prd-copy {
       display: none;
     }
     .prd-summary-box p,
@@ -1408,7 +1410,7 @@
     .prd-row,
     .object-row {
       gap: 8px;
-      padding-bottom: 7px;
+      padding-bottom: 6px;
     }
     .prd-key-point {
       padding-left: 9px;
@@ -1478,8 +1480,8 @@
       justify-content: center;
     }
     .prd-visual-console {
-      gap: 8px;
-      padding: 10px;
+      gap: 7px;
+      padding: 9px;
       border-radius: 14px;
       order: 2;
     }
@@ -1488,7 +1490,7 @@
       gap: 8px;
     }
     .prd-visual-card {
-      padding: 10px;
+      padding: 9px;
       gap: 7px;
       border-radius: 14px;
     }
@@ -1503,12 +1505,12 @@
       letter-spacing: 0.03em;
     }
     .prd-media-frame {
-      min-height: min(36svh, 220px);
+      min-height: min(32svh, 200px);
       max-height: none;
       border-radius: 16px;
     }
     .prd-media-frame.prd-media-frame-live {
-      min-height: min(42svh, 260px);
+      min-height: min(38svh, 238px);
       max-height: none;
     }
     .prd-media-caption {
@@ -1554,7 +1556,7 @@
       -webkit-overflow-scrolling: touch;
     }
     .prd-current-read .prd-summary-box {
-      min-height: 72px;
+      min-height: 70px;
     }
     .prd-side-stack .object-feedback::-webkit-scrollbar {
       width: 0;
@@ -1579,7 +1581,7 @@
       gap: 6px;
     }
     .prd-meta-card {
-      padding: 8px;
+      padding: 7px;
     }
     .prd-meta-card span {
       font-size: 10px;
