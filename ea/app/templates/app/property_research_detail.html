@@ -233,8 +233,9 @@
   }
   .prd-decision-workspace {
     position: relative;
-    overflow: hidden;
-    max-height: min(640px, calc(100svh - 96px));
+    overflow-y: auto;
+    max-height: min(620px, calc(100svh - 88px));
+    overscroll-behavior: contain;
     padding: clamp(12px, 1.7vw, 18px);
     border-radius: 12px;
     border-color: color-mix(in srgb, var(--prd-gold) 30%, var(--line));
@@ -1373,7 +1374,7 @@
       grid-template-columns: 1fr;
     }
     .prd-decision-workspace {
-      max-height: none;
+      max-height: min(620px, calc(100svh - 88px));
     }
     .prd-decision-form {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1927,6 +1928,64 @@
       border-radius: 11px;
       background-image: none;
       box-shadow: none;
+    }
+    .prd-decision-workspace {
+      max-height: calc(100svh - 54px);
+      padding: 8px;
+      border-radius: 12px;
+    }
+    .prd-decision-layout,
+    .prd-decision-intro,
+    .prd-decision-form,
+    .prd-feedback-body {
+      gap: 6px;
+    }
+    .prd-decision-intro {
+      display: block;
+    }
+    .prd-decision-intro h2 {
+      font-size: 1rem;
+      line-height: 1.05;
+    }
+    .prd-decision-card {
+      gap: 6px;
+      padding: 7px;
+      border-radius: 10px;
+    }
+    .prd-decision-card h3 {
+      font-size: 0.72rem;
+    }
+    .prd-decision-workspace .object-actions,
+    .prd-decision-workspace .object-feedback-row,
+    .prd-decision-workspace .object-feedback-reasons {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 5px;
+    }
+    .prd-decision-workspace .object-feedback-button,
+    .prd-decision-workspace .object-feedback-chip,
+    .prd-decision-workspace .console-action {
+      min-height: 42px !important;
+      padding: 6px 8px;
+      border-radius: 11px;
+      font-size: 12px;
+      line-height: 1.12;
+    }
+    .prd-decision-workspace textarea {
+      min-height: 42px;
+      max-height: 70px;
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    .prd-feedback-details > summary {
+      min-height: 40px !important;
+      padding: 0 10px;
+      font-size: 0.8rem;
+    }
+    .prd-feedback-details[open] .prd-feedback-body {
+      max-height: min(46svh, 360px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
     .prd-media-frame {
       height: min(42vw, 160px);

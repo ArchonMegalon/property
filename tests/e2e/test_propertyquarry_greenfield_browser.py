@@ -3017,6 +3017,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const summaryBoxes = Array.from(document.querySelectorAll('.prd-current-read .prd-summary-box'));
               const shell = document.querySelector('[data-property-research-detail]');
               const feedback = document.querySelector('[data-object-feedback]');
+              const fineTune = Array.from(document.querySelectorAll('.prd-feedback-details'))
+                .find((node) => (node.textContent || '').includes('Fine-tune my preferences'));
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
               const mediaRect = media ? media.getBoundingClientRect() : null;
@@ -3049,8 +3051,10 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 summaryTallestCard: Math.max(0, ...summaryBoxRects.map((rect) => Math.round(rect.height))),
                 summaryMaxRight: Math.max(0, ...summaryBoxRects.map((rect) => Math.round(rect.right))),
                 feedbackHeight: feedbackRect ? Math.round(feedbackRect.height) : 0,
+                feedbackBottom: feedbackRect ? Math.round(feedbackRect.bottom) : 0,
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
                 feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
+                fineTuneOpen: fineTune ? Boolean(fineTune.open) : true,
               };
             }
             """
@@ -3071,8 +3075,10 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
             assert layout["summaryShortestCard"] >= 68
             assert layout["summaryTallestCard"] <= 112
         assert layout["summaryMaxRight"] <= layout["viewportWidth"] + 1
-        assert 260 <= layout["feedbackHeight"] <= 480
-        assert layout["feedbackOverflowY"] in {"visible", "auto", "scroll", "hidden"}
+        assert 220 <= layout["feedbackHeight"] <= layout["viewportHeight"] - 54
+        assert layout["feedbackOverflowY"] in {"auto", "scroll"}
+        assert layout["feedbackScrolls"] is False
+        assert layout["fineTuneOpen"] is False
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 
