@@ -115,14 +115,20 @@ if [[ -z "${EA_API_TOKEN:-}" ]]; then
   echo "error: set EA_API_TOKEN before running the live mobile gold release gate" >&2
   exit 2
 fi
+live_mobile_seed_args=()
 if [[ -z "${PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE:-}" ]]; then
-  echo "error: set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE to a current /app/research/{id}?run_id=... before running the gold release gate" >&2
-  exit 2
+  if [[ "${PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE:-0}" == "1" ]]; then
+    live_mobile_seed_args+=(--seed-research-detail-fixture)
+  else
+    echo "error: set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE to a current /app/research/{id}?run_id=... or set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE=1 before running the gold release gate" >&2
+    exit 2
+  fi
 fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${live_mobile_base_url}" \
   --api-token "${EA_API_TOKEN}" \
   --require-research-detail \
+  "${live_mobile_seed_args[@]}" \
   --write _completion/smoke/property-live-mobile-release-gate.json \
   > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \

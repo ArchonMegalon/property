@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from scripts.propertyquarry_live_mobile_surface_smoke import (
     DEFAULT_ROUTES,
+    SEEDED_RESEARCH_DETAIL_ROUTE,
     build_mobile_coverage_checks,
     evaluate_mobile_metrics,
     route_is_research_detail,
+    seeded_research_detail_payload,
 )
 
 
@@ -157,6 +159,19 @@ def test_live_mobile_smoke_can_require_current_research_detail_route() -> None:
         require_research_detail=True,
     )
     assert covered[0]["ok"] is True
+
+
+def test_live_mobile_smoke_seeded_research_detail_payload_is_valid_detail_fixture() -> None:
+    payload = seeded_research_detail_payload()
+    candidates = list(payload["saved_shortlist_candidates"])
+    candidate = dict(candidates[0])
+
+    assert route_is_research_detail(SEEDED_RESEARCH_DETAIL_ROUTE) is True
+    assert payload["location_query"] == "1020 Vienna"
+    assert candidate["candidate_ref"] == "perf-candidate-1020"
+    assert candidate["saved_from_run_id"] == "run-gold-mobile"
+    assert candidate["packet_url"] == "/app/research/perf-candidate-1020"
+    assert dict(candidate["property_facts"])["listing_fact_confirmation"]["status"] == "confirmed"
 
 
 def test_live_mobile_smoke_rejects_horizontal_overflow_and_noisy_chrome() -> None:

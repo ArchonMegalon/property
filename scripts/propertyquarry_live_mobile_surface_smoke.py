@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ DEFAULT_ROUTES = (
     "/app/research",
     "/app/properties/packets",
 )
+SEEDED_RESEARCH_DETAIL_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -42,6 +44,83 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
 def route_is_research_detail(route: str) -> bool:
     route_path = str(route or "").split("?", 1)[0].strip().rstrip("/")
     return route_path.startswith("/app/research/") and route_path != "/app/research"
+
+
+def seeded_research_detail_payload() -> dict[str, Any]:
+    candidate = {
+        "candidate_ref": "perf-candidate-1020",
+        "rank": 1,
+        "title": "Performance smoke apartment in 1020 Vienna",
+        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+        "source_platform": "willhaben",
+        "property_url": "https://example.invalid/propertyquarry/performance-smoke",
+        "packet_url": "/app/research/perf-candidate-1020",
+        "review_url": "/app/research/perf-candidate-1020",
+        "fit_score": 91,
+        "score": 91,
+        "fit_summary": "Transit, area, layout and budget fit the seeded brief.",
+        "match_reasons": ["1020 Vienna matches the seeded search area.", "The synthetic listing keeps route and layout data compact."],
+        "mismatch_reasons": ["Operating-cost evidence still needs a provider document."],
+        "saved_from_run_id": "run-gold-mobile",
+        "property_facts": {
+            "postal_code": "1020",
+            "postal_name": "1020 Vienna",
+            "district": "1020 Vienna",
+            "price_display": "EUR 1,290",
+            "price_eur": 1290,
+            "area_m2": 72,
+            "area_sqm": 72,
+            "rooms": 3,
+            "has_floorplan": True,
+            "has_balcony": True,
+            "operating_costs_status": "missing",
+            "listing_fact_confirmation": {
+                "status": "confirmed",
+                "label": "Facts confirmed",
+                "summary": "4 listing facts confirmed automatically from provider evidence.",
+                "fields": ["area", "location", "price", "rooms"],
+                "requires_manual_confirmation": False,
+            },
+        },
+        "route_evidence": [
+            {"label": "Transit", "distance": "350 m", "icon": "U"},
+            {"label": "School", "distance": "650 m", "icon": "S"},
+        ],
+    }
+    return {
+        "country_code": "AT",
+        "language_code": "en",
+        "listing_mode": "rent",
+        "property_type": "apartment",
+        "location_query": "1020 Vienna",
+        "selected_platforms": ["willhaben"],
+        "saved_shortlist_candidates": [candidate],
+    }
+
+
+def seed_research_detail_fixture(*, base_url: str, api_token: str, principal_id: str, host_header: str = "") -> str:
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-EA-Principal-ID": principal_id,
+    }
+    if host_header:
+        headers["Host"] = host_header
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+        headers["X-EA-API-Token"] = api_token
+    request = urllib.request.Request(
+        base_url.rstrip("/") + "/v1/onboarding/property-search/preferences",
+        data=json.dumps(seeded_research_detail_payload()).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        status_code = int(getattr(response, "status", 0) or 0)
+        if status_code != 200:
+            raise RuntimeError(f"seed_research_detail_fixture_failed:{status_code}")
+        response.read(4096)
+    return SEEDED_RESEARCH_DETAIL_ROUTE
 
 
 def build_mobile_coverage_checks(
@@ -233,7 +312,7 @@ def build_live_mobile_surface_receipt(
     require_research_detail: bool = False,
     viewport_width: int = 390,
     viewport_height: int = 844,
-    timeout_ms: int = 20_000,
+    timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
     try:
         from playwright.sync_api import sync_playwright
@@ -412,14 +491,33 @@ def main() -> int:
         default=_env_flag("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_REQUIRED"),
         help="Fail unless routes include a current /app/research/{id} detail URL.",
     )
+    parser.add_argument(
+        "--seed-research-detail-fixture",
+        action="store_true",
+        default=_env_flag("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE"),
+        help="Seed a deterministic saved research-detail candidate for the smoke principal and include it in the route set.",
+    )
     parser.add_argument("--viewport", default="390x844")
+    parser.add_argument("--timeout-ms", type=int, default=int(_env("PROPERTYQUARRY_LIVE_MOBILE_TIMEOUT_MS", "30000") or 30000))
     parser.add_argument("--write", default="_completion/smoke/property-live-mobile-surface-latest.json")
     args = parser.parse_args()
 
     width_text, _, height_text = str(args.viewport).lower().partition("x")
     width = int(width_text or 390)
     height = int(height_text or 844)
-    routes = tuple(route.strip() for route in str(args.routes or "").split(",") if route.strip())
+    routes_list = [route.strip() for route in str(args.routes or "").split(",") if route.strip()]
+    seeded_route = ""
+    if args.seed_research_detail_fixture:
+        seeded_route = seed_research_detail_fixture(
+            base_url=str(args.base_url).strip(),
+            api_token=str(args.api_token or "").strip(),
+            principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
+            host_header=str(args.host_header or "").strip(),
+        )
+        if seeded_route not in routes_list:
+            routes_list.append(seeded_route)
+        args.require_research_detail = True
+    routes = tuple(routes_list)
     receipt = build_live_mobile_surface_receipt(
         base_url=str(args.base_url).strip(),
         api_token=str(args.api_token or "").strip(),
@@ -429,7 +527,10 @@ def main() -> int:
         require_research_detail=bool(args.require_research_detail),
         viewport_width=width,
         viewport_height=height,
+        timeout_ms=max(1, int(args.timeout_ms or 30000)),
     )
+    if seeded_route:
+        receipt["seeded_research_detail_route"] = seeded_route
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
         out_path = Path(args.write)
