@@ -34580,6 +34580,17 @@ class ProductService:
                     )
                 ):
                     try:
+                        _report(
+                            step="source_detail_check",
+                            message=f"Confirming selected-area match for candidate {ordinal} of {len(listing_urls)} for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={
+                                "reviewed_listing_total": reviewed_listing_total,
+                                "current_source_reviewed_total": max(0, ordinal - 1),
+                                "current_source_candidate_total": len(listing_urls),
+                            },
+                        )
                         refreshed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                         if isinstance(refreshed_preview, dict) and refreshed_preview:
                             preview = refreshed_preview
@@ -34682,6 +34693,17 @@ class ProductService:
                             detailed_area_preview = dict(cached_preview)
                             public_property_cache_hit_total += 1
                         else:
+                            _report(
+                                step="source_detail_check",
+                                message=f"Confirming area facts for candidate {ordinal} of {len(listing_urls)} for {source_label}.",
+                                status="in_progress",
+                                steps_delta=0,
+                                summary_updates={
+                                    "reviewed_listing_total": reviewed_listing_total,
+                                    "current_source_reviewed_total": max(0, ordinal - 1),
+                                    "current_source_candidate_total": len(listing_urls),
+                                },
+                            )
                             detailed_area_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                             self._property_public_preview_cache_store(
                                 cache_index=public_preview_cache,
@@ -34841,6 +34863,17 @@ class ProductService:
                             detailed_floorplan_preview = dict(cached_preview)
                             public_property_cache_hit_total += 1
                         else:
+                            _report(
+                                step="source_detail_check",
+                                message=f"Checking floorplan evidence for candidate {ordinal} of {len(listing_urls)} for {source_label}.",
+                                status="in_progress",
+                                steps_delta=0,
+                                summary_updates={
+                                    "reviewed_listing_total": reviewed_listing_total,
+                                    "current_source_reviewed_total": max(0, ordinal - 1),
+                                    "current_source_candidate_total": len(listing_urls),
+                                },
+                            )
                             detailed_floorplan_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                             self._property_public_preview_cache_store(
                                 cache_index=public_preview_cache,
@@ -35207,6 +35240,17 @@ class ProductService:
                             detailed_preview = dict(cached_preview)
                             public_property_cache_hit_total += 1
                         else:
+                            _report(
+                                step="source_detail_check",
+                                message=f"Recovering listing details for candidate {ordinal} of {enrichment_limit} for {source_label}.",
+                                status="in_progress",
+                                steps_delta=0,
+                                summary_updates={
+                                    "reviewed_listing_total": reviewed_listing_total,
+                                    "current_source_reviewed_total": max(0, ordinal - 1),
+                                    "current_source_candidate_total": enrichment_limit,
+                                },
+                            )
                             detailed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                             self._property_public_preview_cache_store(
                                 cache_index=public_preview_cache,

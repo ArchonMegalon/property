@@ -11695,6 +11695,16 @@ def test_property_search_status_polling_retries_refresh_failures() -> None:
     assert "throw new Error(String(body.detail || 'Could not load property search status.'));" not in source
 
 
+def test_property_search_emits_detail_check_heartbeats_before_slow_preview_paths() -> None:
+    source = Path(product_service.__file__).read_text(encoding="utf-8")
+
+    assert 'step="source_detail_check"' in source
+    assert "Confirming selected-area match" in source
+    assert "Confirming area facts" in source
+    assert "Checking floorplan evidence" in source
+    assert "Recovering listing details" in source
+
+
 def test_property_search_status_api_preserves_backfilled_updated_at() -> None:
     payload = _property_search_payload_with_status_url(
         {
