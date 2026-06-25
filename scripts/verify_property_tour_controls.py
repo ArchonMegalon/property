@@ -376,6 +376,7 @@ def build_property_tour_control_receipt(
     base_url: str = "",
     live_probe: bool = False,
     timeout_seconds: float = 5.0,
+    require_all_provider_modes: bool = False,
 ) -> dict[str, object]:
     root = (tour_root or _tour_root()).expanduser().resolve()
     manifests = sorted(root.glob("*/tour.json")) if root.is_dir() else []
@@ -437,6 +438,8 @@ def build_property_tour_control_receipt(
         if not manifests
         else "fail"
         if failed_probes
+        else "blocked_missing_provider_modes"
+        if require_all_provider_modes and missing_provider_modes
         else "pass"
         if ready_provider_modes
         else "blocked_missing_verified_controls"
@@ -464,10 +467,11 @@ def build_property_tour_control_receipt(
                 }[provider],
             }
             for provider in PROVIDER_MODES
-            if provider in missing_provider_modes and action_counts[provider] > 0
+            if provider in missing_provider_modes
         ],
         "live_probe": bool(live_probe),
         "base_url": base_url if live_probe else "",
+        "require_all_provider_modes": bool(require_all_provider_modes),
         "tours": tours,
         "notes": [
             "Matterport, 3DVista, Pano2VR, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
@@ -491,6 +495,7 @@ def _receipt_summary(receipt: dict[str, object]) -> dict[str, object]:
         "next_required_actions": receipt.get("next_required_actions"),
         "live_probe": receipt.get("live_probe"),
         "base_url": receipt.get("base_url"),
+        "require_all_provider_modes": receipt.get("require_all_provider_modes"),
     }
 
 
@@ -502,12 +507,14 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=float, default=5.0)
     parser.add_argument("--write", default="", help="Optional JSON receipt path.")
     parser.add_argument("--summary-only", action="store_true", help="Print only top-level counts/actions; --write still stores the full receipt.")
+    parser.add_argument("--require-all-provider-modes", action="store_true", help="Return blocked status until every required provider mode has at least one verified live-ready control.")
     args = parser.parse_args()
     receipt = build_property_tour_control_receipt(
         tour_root=Path(args.tour_root) if str(args.tour_root or "").strip() else None,
         base_url=str(args.base_url or "").strip(),
         live_probe=bool(args.live_probe),
         timeout_seconds=float(args.timeout_seconds),
+        require_all_provider_modes=bool(args.require_all_provider_modes),
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:

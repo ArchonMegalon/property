@@ -80,6 +80,25 @@ def test_property_tour_control_verifier_next_actions_only_include_globally_missi
     }
 
 
+def test_property_tour_control_verifier_can_require_all_provider_modes_for_gold_gate(tmp_path: Path) -> None:
+    _write_tour(tmp_path, "matterport-tour", {"matterport_url": "https://my.matterport.com/show/?m=READY123"})
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path, require_all_provider_modes=True)
+    summary = _receipt_summary(receipt)
+
+    assert receipt["status"] == "blocked_missing_provider_modes"
+    assert receipt["require_all_provider_modes"] is True
+    assert summary["require_all_provider_modes"] is True
+    assert receipt["ready_provider_modes"] == ["matterport"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert {row["provider"] for row in receipt["next_required_actions"]} == {
+        "3dvista",
+        "pano2vr",
+        "krpano",
+        "magicfit",
+    }
+
+
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     tmp_path: Path,
     monkeypatch,
