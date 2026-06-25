@@ -23,6 +23,9 @@ RUN mkdir -p /app/scripts /data/artifacts /data/public_property_tours /data/prov
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
 COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
+COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py
+COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py
+COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
 COPY ea/app /app/app
 COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY LTDs.md /app/LTDs.md

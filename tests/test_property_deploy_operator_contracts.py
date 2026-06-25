@@ -165,6 +165,9 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert dockerfile.index("pip install --no-cache-dir") < dockerfile.index("COPY ea/app /app/app")
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
+    assert "COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py" in dockerfile
+    assert "COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py" in dockerfile
+    assert "COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py" in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
     assert "python -m playwright install --with-deps chromium" in dockerfile
     assert "for script in /tmp/src/scripts/*" not in dockerfile
@@ -181,6 +184,9 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "willhaben_property_packet.py",
         "render_magicfit_property_flythrough.py",
         "render_onemin_property_i2v_segment.py",
+        "import_3dvista_export.py",
+        "import_pano2vr_export.py",
+        "import_magicfit_walkthrough.py",
     ]
     for script_name in copied_scripts:
         body = _read(f"scripts/{script_name}")
