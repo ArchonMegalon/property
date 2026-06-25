@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `2ccb4712787b2b11f4997fed6113619202fe772d` |
+| Runtime commit SHA | `66ca1faf6ff251df69386b5a5b6fc5baabffe96f` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `2ccb471` passed:
+The candidate at `66ca1fa` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -90,6 +90,12 @@ The candidate at `2ccb471` passed:
 - Authenticated multi-surface performance smoke after the `2ccb471` deploy returned `status=pass`, `failed_count=0`, and 10 routes under the 1200 ms first-paint budget: `/app/search`, `/app/agents`, `/app/properties`, `/app/shortlist`, `/app/research/<fixture>`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access`.
 - Public Cloudflare smoke after the `2ccb471` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
 - Hosted tour-control verifier after the `2ccb471` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
+- Brilliant Directories now has a public advisory billing webhook route at `/app/api/signals/property/billing/brilliant-directories/webhook`. Route tests prove it accepts signed callbacks without app auth, persists only local advisory billing events, rejects bad signatures without persistence, treats duplicate event IDs as replayed, and keeps `current_plan_key=free` with entitlement mutation disabled.
+- Focused public webhook route tests after `66ca1fa` returned 3 passing tests across the Brilliant Directories route and the existing public PayFunnels callback boundary. Focused service billing tests returned 6 passing tests for billing webhook signatures, advisory receipts, replay handling, existing billing handoff receipts, and VAT invoice handoffs.
+- After redeploying from `66ca1fa`, local readiness returned `{"status":"ready","reason":"postgres_ready"}`.
+- Authenticated multi-surface performance smoke after the `66ca1fa` deploy returned `status=pass`, `failed_count=0`, and 10 routes under the 1200 ms first-paint budget: `/app/search`, `/app/agents`, `/app/properties`, `/app/shortlist`, `/app/research/<fixture>`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access`.
+- Public Cloudflare smoke after the `66ca1fa` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
+- Hosted tour-control verifier after the `66ca1fa` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
 
 Observed route timings after the latest deploy:
 
@@ -118,7 +124,7 @@ The previous billing payload carried roughly 16.6 MB of account/form state and t
 - The release gate now runs `scripts/verify_property_tour_controls.py`; current hosted tour inventory has zero verified Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls, and the only public bundle is a photo gallery classified as `gallery_only_not_3d`, so visual-media gold remains blocked until real provider controls/assets are imported and the verifier returns ready modes.
 - Provider matrix generation now covers every search-ready country/provider in dry-run mode, but live execution against `/app/api/property/search-runs` remains blocked until the full all-search-ready matrix is run with `PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1` and passes without provider/runtime failures.
 - The user-referenced research detail route now renders an honest unavailable/skipped visual state, but still has no live 360 source or playable walkthrough for that listing.
-- Brilliant Directories billing is in the active gold goal only as a governed handoff; timestamped HMAC verification, replay protection, advisory receipt logging, and disabled entitlement mutation are now covered by tests, but a public webhook route, persistent receipt storage, and local entitlement reconciliation receipts remain release blockers before any Brilliant Directories callback can affect user-visible billing or access state.
+- Brilliant Directories billing is in the active gold goal only as a governed handoff; timestamped HMAC verification, replay protection, public advisory webhook routing, local advisory receipt persistence, and disabled entitlement mutation are now covered by tests. Local entitlement reconciliation receipts and an explicit human/operator reconciliation workflow remain release blockers before any Brilliant Directories callback can affect user-visible billing or access state.
 - Rybbit app analytics now use taxonomy-style app events and strip candidate identifiers from app Rybbit attributes, but wider conversion/support-loop analytics still need end-to-end dashboard receipts before gold.
 - The documentation.ai whole-project audit P0/P1 findings remain in scope: runtime privilege, branch/deployment authority, reproducible builds, durable RBAC/session hardening, CI/security/accessibility/visual gates, public-network posture, documentation separation, and current-HEAD release evidence.
 - The public domain has a current Cloudflare smoke receipt from 2026-06-25, but must still be re-smoked through Cloudflare after each deploy.
