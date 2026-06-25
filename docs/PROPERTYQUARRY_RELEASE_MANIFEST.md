@@ -13,16 +13,25 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `e19fc14098ee2c237843eb6f215dcd587e9699c8` |
+| Runtime commit SHA | `d29acbf31b75d8ac0bb3185e7648d2782781c7bf` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `e19fc14` passed:
+The candidate at `d29acbf` passed:
 
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_tour_export_manifest.py tests/test_propertyquarry_gold_status.py -k 'materialize_property_tour_export_manifest or gold_status'`
+- `python3 -m py_compile scripts/materialize_property_tour_export_manifest.py scripts/propertyquarry_gold_status.py`
+- `docker exec --user root propertyquarry-api python /app/scripts/materialize_property_tour_export_manifest.py --tour-root /data/public_property_tours --incoming-root /data/incoming_property_tours --prepare-dirs --write /data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json`
+- Live-container export manifest now reports `status=waiting_for_verified_assets`, `import_count=3`, `drop_status_summary={"ready_for_import":0,"waiting_for_assets":3,"other":0}`, and providers `3dvista`, `krpano`, and `pano2vr`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --performance-receipt _completion/smoke/property-auth-performance-release-gate.json --tour-control-receipt _completion/property_tour_controls/release-gate.json --export-discovery-receipt _completion/property_tour_exports/release-gate-discovery.json --import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json --repair-canary-receipt _completion/repair/propertyquarry-repair-canary-release-gate.json --provider-matrix-receipt _completion/provider_smoke/release-gate-provider-matrix.json --billing-receipt _completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json --live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json --write _completion/property_gold_status/release-gate.json`
+- Current gold status remains `blocked`; operator import lanes are prepared but have zero ready importable provider assets, and gold still requires verified 3DVista, Pano2VR, and krpano evidence plus resolving `billing.propertyquarry.com`.
+- `bash scripts/smoke_api.sh`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_property_live_mobile_surface_smoke.py tests/test_property_authenticated_performance_smoke.py tests/test_propertyquarry_workspace_redesign.py -k 'live_mobile_smoke or authenticated_performance_smoke or settings_subpages_keep_property_shell_and_top_mobile_nav'`
 - `PYTHONPATH=ea python3 scripts/propertyquarry_authenticated_performance_smoke.py` returned `status=pass`, `failed_count=0`, `route_count=15`, and verified `/app/billing` as a `303` external handoff redirect to the allowlisted local smoke host.
 - `python3 -m py_compile scripts/propertyquarry_authenticated_performance_smoke.py scripts/propertyquarry_live_mobile_surface_smoke.py`
