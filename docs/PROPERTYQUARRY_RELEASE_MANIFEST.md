@@ -13,16 +13,21 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `d29acbf31b75d8ac0bb3185e7648d2782781c7bf` |
+| Runtime commit SHA | `19ab60598bd9e8d82f1bff0d4dab02ff45d738d2` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `d29acbf` passed:
+The candidate at `19ab605` passed:
 
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_whole_project_scope.py`
+- Whole-project gold blockers are now explicitly tracked for implemented evidence overlays with Teable-backed ingestion, Rybbit dashboard/API receipts, continuous visual/accessibility release gates, and production security/supply-chain/RBAC hardening receipts.
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_property_tour_export_manifest.py tests/test_propertyquarry_gold_status.py -k 'materialize_property_tour_export_manifest or gold_status'`
 - `python3 -m py_compile scripts/materialize_property_tour_export_manifest.py scripts/propertyquarry_gold_status.py`
 - `docker exec --user root propertyquarry-api python /app/scripts/materialize_property_tour_export_manifest.py --tour-root /data/public_property_tours --incoming-root /data/incoming_property_tours --prepare-dirs --write /data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json`
