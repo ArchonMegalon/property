@@ -5120,6 +5120,39 @@ def test_property_search_status_does_not_pick_up_active_checkpoint_with_fresh_pr
     assert pickup_calls == []
 
 
+def test_property_search_status_backfills_top_level_timestamp_from_summary(monkeypatch) -> None:
+    principal_id = "exec-property-search-status-summary-timestamp"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Status Summary Timestamp Office")
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = "status-summary-timestamp-run"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        force_refresh=True,
+    )
+    state["status"] = "in_progress"
+    state["current_step"] = "source_previewing"
+    state["updated_at"] = None
+    state["summary"] = {
+        **dict(state.get("summary") or {}),
+        "updated_at": "2026-06-25T15:07:35.790880+00:00",
+    }
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=False,
+    )
+
+    assert status is not None
+    assert status["updated_at"] == "2026-06-25T15:07:35.790880+00:00"
+
+
 def test_property_search_recovery_allows_pickup_after_real_progress(monkeypatch) -> None:
     principal_id = "exec-property-search-recovery-after-progress"
     client = build_property_client(principal_id=principal_id)

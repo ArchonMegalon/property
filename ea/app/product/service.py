@@ -1129,6 +1129,36 @@ def _property_search_active_run_is_stale(state: dict[str, object]) -> bool:
     )
 
 
+def _property_search_run_backfill_response_timestamps(snapshot: dict[str, object]) -> dict[str, object]:
+    payload = dict(snapshot or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    event_times: list[datetime] = []
+    for event in list(payload.get("events") or []):
+        if not isinstance(event, dict):
+            continue
+        parsed_event_at = _parse_utcish(str(event.get("at") or ""))
+        if parsed_event_at is not None:
+            event_times.append(parsed_event_at)
+    latest_event_at = max(event_times).isoformat() if event_times else ""
+    created_at = str(payload.get("created_at") or summary.get("created_at") or summary.get("started_at") or "").strip()
+    updated_at = str(
+        payload.get("updated_at")
+        or summary.get("updated_at")
+        or summary.get("generated_at")
+        or latest_event_at
+        or created_at
+        or ""
+    ).strip()
+    if created_at and not str(payload.get("created_at") or "").strip():
+        payload["created_at"] = created_at
+    if updated_at and not str(payload.get("updated_at") or "").strip():
+        payload["updated_at"] = updated_at
+    if summary and updated_at and not str(summary.get("updated_at") or "").strip():
+        summary["updated_at"] = updated_at
+        payload["summary"] = summary
+    return payload
+
+
 def _property_search_run_default_summary(property_preferences: dict[str, object] | None = None) -> dict[str, object]:
     return _state_property_search_run_default_summary(
         property_preferences,
@@ -32555,8 +32585,8 @@ class ProductService:
                         lightweight=False,
                     )
                     if isinstance(full_snapshot, dict) and full_snapshot:
-                        return full_snapshot
-                return compact_snapshot
+                        return _property_search_run_backfill_response_timestamps(full_snapshot)
+                return _property_search_run_backfill_response_timestamps(compact_snapshot)
         snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
         if not isinstance(snapshot, dict):
             return snapshot
@@ -32771,6 +32801,7 @@ class ProductService:
             summary.setdefault("filtered_total", held_back_total)
         if summary:
             snapshot["summary"] = summary
+        snapshot = _property_search_run_backfill_response_timestamps(snapshot)
         if status_value in {"processed", "completed", "completed_partial"}:
             if ranked_candidates:
                 with contextlib.suppress(Exception):
