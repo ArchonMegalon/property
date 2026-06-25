@@ -9025,6 +9025,22 @@ def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> N
     repo_root = Path(__file__).resolve().parents[1]
     body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
 
+    active_group_match = re.search(
+        r'@media \(max-width: 760px\).*?'
+        r'\.pqx-what-matters-panel \.pqx-choice-groupbox'
+        r'\[data-what-matters-group\]\[open\]\[data-active-distance-rows="true"\],\s*'
+        r'\.pqx-what-matters-panel \.pqx-choice-groupbox'
+        r'\[data-what-matters-group\]\[data-mobile-distance-control-active="true"\]\s*\{'
+        r'(?P<body>.*?)\}',
+        body,
+        re.S,
+    )
+    assert active_group_match is not None
+    active_group_block = active_group_match.group("body")
+    assert "overflow: visible;" in active_group_block
+    assert "contain: none;" in active_group_block
+    assert "padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));" in active_group_block
+
     active_list_match = re.search(
         r'@media \(max-width: 760px\).*?'
         r'\.pqx-what-matters-panel \.pqx-choice-groupbox'

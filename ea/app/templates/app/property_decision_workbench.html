@@ -2842,6 +2842,12 @@
         max-width: 100%;
         padding: 7px;
       }
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open][data-active-distance-rows="true"],
+      .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][data-mobile-distance-control-active="true"] {
+        overflow: visible;
+        contain: none;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group]:not([open]) {
         padding-bottom: 7px;
       }
