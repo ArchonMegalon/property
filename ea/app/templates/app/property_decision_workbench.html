@@ -67,7 +67,7 @@
             <div class="pqx-filtered-dialog-card">
               <div class="pqx-filtered-dialog-head">
                 <div>
-                  <strong>Widen the shortlist</strong>
+                  <strong>Relax one hard rule</strong>
                   <div class="pqx-note">Hard rules only. Soft preferences stay in scoring.</div>
                 </div>
                 <button class="pqx-filtered-dialog-close" type="button" data-pqx-filtered-close aria-label="Close filtered rules">×</button>
@@ -939,9 +939,64 @@
       font-size: 13px;
       line-height: 1.6;
     }
+    .pqx-decision-section-head {
+      align-items: flex-start;
+    }
+    .pqx-decision-section-head .pqx-button.subtle {
+      min-height: 30px;
+      min-width: 0;
+      padding: 0 11px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .pqx-reading-section-head {
+      align-items: flex-start;
+    }
+    .pqx-reading-more {
+      border-top: 1px solid var(--pq-line);
+      padding-top: 12px;
+    }
+    .pqx-reading-more[open] {
+      padding-bottom: 4px;
+    }
+    .pqx-reading-more summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-weight: 760;
+      color: var(--pq-ink);
+    }
+    .pqx-reading-more summary::marker,
+    .pqx-reading-more summary::-webkit-details-marker {
+      display: none;
+    }
+    .pqx-reading-more summary::after {
+      content: '▾';
+      font-size: 11px;
+      color: var(--pq-muted);
+      transform: rotate(0);
+      transition: transform 120ms ease;
+    }
+    .pqx-reading-more[open] summary::after {
+      transform: rotate(180deg);
+    }
+    .pqx-reading-more .pqx-reading-board {
+      margin-top: 10px;
+      margin-bottom: 4px;
+    }
     .pqx-decision-wizard {
       display: grid;
       gap: 12px;
+    }
+    .pqx-decision-feedback-shell {
+      display: grid;
+      gap: 12px;
+      border-top: 1px solid var(--pq-line);
+      padding-top: 10px;
+    }
+    .pqx-decision-feedback-shell[hidden] {
+      display: none;
     }
     .pqx-decision-stepper {
       display: flex;
@@ -6911,6 +6966,36 @@
       .pqx-review.pqx-mobile-property-panel {
         display: grid;
       }
+      .pqx-mobile-property-panel .pqx-mobile-review-more {
+        gap: 8px;
+        padding: 9px 10px;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-review-more summary {
+        min-height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        cursor: pointer;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-review-more summary strong {
+        min-width: 0;
+        font-size: 0.92rem;
+        line-height: 1.15;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-review-more summary::after {
+        content: 'Open';
+        flex: 0 0 auto;
+        color: var(--pq-muted);
+        font-size: 11px;
+        font-weight: 760;
+      }
+      .pqx-mobile-property-panel .pqx-mobile-review-more[open] summary::after {
+        content: 'Close';
+      }
+      .pqx-mobile-property-panel .pqx-mobile-review-more .pqx-event-list {
+        padding-top: 4px;
+      }
       .pqx-run-hero {
         gap: 10px;
         padding: 10px;
@@ -8433,14 +8518,16 @@
           <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
             {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
             {% if wizard_steps %}
-            <fieldset class="pqx-workflow" aria-label="Search setup" data-property-step-nav data-property-mobile-step-rail>
-              <legend>Search flow</legend>
-              {% for step in wizard_steps %}
-              <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}" aria-label="{{ step.get('label') or 'Search step' }}"{% if loop.first %} aria-current="step"{% endif %}>
-                <strong>{{ step.get('label') }}</strong>
-              </button>
-              {% endfor %}
-            </fieldset>
+            <div role="group" aria-label="PropertyQuarry view mode">
+              <fieldset class="pqx-workflow" aria-label="Search setup" data-property-step-nav data-property-mobile-step-rail>
+                <legend>Search flow</legend>
+                {% for step in wizard_steps %}
+                <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}" aria-label="{{ step.get('label') or 'Search step' }}"{% if loop.first %} aria-current="step"{% endif %}>
+                  <strong>{{ step.get('label') }}</strong>
+                </button>
+                {% endfor %}
+              </fieldset>
+            </div>
             {% endif %}
             <div class="pqx-form-body">
               {% set panel = namespace(open=false, current='') %}
@@ -9275,13 +9362,8 @@
               </div>
             </div>
           </div>
-          <div class="pqx-card">
-            <div class="pqx-section-head">
-              <div>
-                <h2>Why it is ranked</h2>
-                <div class="pqx-note">Fast mobile review for the selected result.</div>
-              </div>
-            </div>
+          <details class="pqx-card pqx-mobile-review-more">
+            <summary><strong>Why it is ranked</strong></summary>
             <div class="pqx-event-list" data-pw-match>
               {% for reason in (selected.get('match_reasons') or [])[:3] %}
               <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
@@ -9289,22 +9371,16 @@
               <div class="pqx-note">{{ selected.get('fit_summary') or 'No explicit match reason captured yet.' }}</div>
               {% endfor %}
             </div>
-          </div>
+          </details>
           {% if score_methodology %}
           {% set score_application = score_methodology.get('candidate_application') or {} %}
-          <div class="pqx-card">
-            <div class="pqx-section-head">
-              <div>
-                <h2>{{ score_methodology.get('candidate_title') or 'Current score read' }}</h2>
-                <div class="pqx-note">{{ score_methodology.get('neutral_note') }}</div>
-              </div>
-              <span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100</span>
-            </div>
+          <details class="pqx-card pqx-mobile-review-more">
+            <summary><strong>{{ score_methodology.get('candidate_title') or 'Current score read' }}</strong><span class="pqx-pill">{{ score_application.get('fit_score') or selected.get('fit_score') or 0 }}/100</span></summary>
             <div class="pqx-event-list">
               <div class="pqx-event-card"><strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong><span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['Verified facts and matching preferences move this upward.'])[:2]|join(' · ') }}</span></div>
               <div class="pqx-event-card"><strong>{{ score_methodology.get('negative_label') or 'Signals reducing confidence or score' }}</strong><span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['Missing facts stay visible and lower confidence until checked.'])[:2]|join(' · ') }}</span></div>
             </div>
-          </div>
+          </details>
           {% endif %}
         </section>
         {% endif %}

@@ -841,6 +841,7 @@
       selectedFeedbackCandidateRef = String(candidate.candidate_ref || '').trim();
       selectedFeedbackReaction = '';
       selectedFeedbackReasonKeys = new Set();
+      setFinetunePanelOpen(false);
       if (feedbackStatusNode) feedbackStatusNode.textContent = 'Pick Yes, Maybe, No, or Hide to continue.';
       if (decisionDetailNode) decisionDetailNode.hidden = true;
       if (decisionStepLabelNode) decisionStepLabelNode.textContent = '2 Explain';
@@ -849,57 +850,63 @@
       root.querySelectorAll('[data-workbench-row]').forEach((row) => {
         row.setAttribute('aria-selected', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
       });
-      const title = root.querySelector('[data-pw-title]');
-      const source = root.querySelector('[data-pw-source]');
-      const summaryFacts = root.querySelector('[data-pw-summary-facts]');
-      const coverNode = root.querySelector('[data-pw-cover]');
-      const coverImage = root.querySelector('[data-pw-cover-image]');
-      if (title) title.textContent = candidate.title || 'Selected property';
-      if (source) source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
-      if (summaryFacts) {
+      const titles = [...root.querySelectorAll('[data-pw-title]')];
+      const sources = [...root.querySelectorAll('[data-pw-source]')];
+      const summaryFactsNodes = [...root.querySelectorAll('[data-pw-summary-facts]')];
+      const coverNodes = [...root.querySelectorAll('[data-pw-cover]')];
+      const coverImages = [...root.querySelectorAll('[data-pw-cover-image]')];
+      titles.forEach((title) => { title.textContent = candidate.title || 'Selected property'; });
+      sources.forEach((source) => {
+        source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
+      });
+      summaryFactsNodes.forEach((summaryFacts) => {
         clearNode(summaryFacts);
         appendResultFact(summaryFacts, candidate.price_display, { strong: true });
         appendResultFact(summaryFacts, candidate.costs_display);
         appendResultFact(summaryFacts, candidate.layout_display);
         appendResultFact(summaryFacts, candidate.location_label);
-      }
-      const tourNode = root.querySelector('[data-pw-tour]');
-      const theaterShell = root.querySelector('[data-pq-theater]');
+      });
+      const tourNodes = [...root.querySelectorAll('[data-pw-tour]')];
+      const theaterShells = [...root.querySelectorAll('[data-pq-theater]')];
       const tour = candidate.tour || {};
       const previewUrl = String(candidate?.orientation_preview?.image_url || candidate?.preview_image_url || '').trim();
-      if (coverNode) coverNode.hidden = Boolean(tour.embed_url) || !previewUrl;
-      if (coverImage && previewUrl) {
+      coverNodes.forEach((coverNode) => { coverNode.hidden = Boolean(tour.embed_url) || !previewUrl; });
+      coverImages.forEach((coverImage) => {
+        if (!previewUrl) return;
         coverImage.src = previewUrl;
         coverImage.alt = String(candidate.title || 'Property preview');
-      }
-      if (tourNode && tour.embed_url) {
-        if (theaterShell) theaterShell.classList.remove('no-media');
-        tourNode.hidden = false;
-        tourNode.classList.remove('is-unavailable', 'is-compact');
-        clearNode(tourNode);
-        const iframe = document.createElement('iframe');
-        iframe.src = String(tour.embed_url || '');
-        iframe.title = 'Property 360 tour';
-        iframe.loading = 'lazy';
-        iframe.allowFullscreen = true;
-        tourNode.appendChild(iframe);
-      } else if (tourNode) {
-        if (theaterShell) theaterShell.classList.add('no-media');
+      });
+      tourNodes.forEach((tourNode) => {
+        if (tour.embed_url) {
+          theaterShells.forEach((theaterShell) => theaterShell.classList.remove('no-media'));
+          tourNode.hidden = false;
+          tourNode.classList.remove('is-unavailable', 'is-compact');
+          clearNode(tourNode);
+          const iframe = document.createElement('iframe');
+          iframe.src = String(tour.embed_url || '');
+          iframe.title = 'Property 360 tour';
+          iframe.loading = 'lazy';
+          iframe.allowFullscreen = true;
+          tourNode.appendChild(iframe);
+          return;
+        }
+        theaterShells.forEach((theaterShell) => theaterShell.classList.add('no-media'));
         tourNode.hidden = true;
         tourNode.classList.remove('is-unavailable', 'is-compact');
         clearNode(tourNode);
-      }
+      });
       const ooda = root.querySelector('[data-pw-ooda]');
       renderOodaRows(ooda, candidate.ooda?.rows);
-      const oodaSummary = root.querySelector('[data-pw-ooda-summary]');
-      if (oodaSummary) {
+      const oodaSummaries = [...root.querySelectorAll('[data-pw-ooda-summary]')];
+      oodaSummaries.forEach((oodaSummary) => {
         const hasTour = Boolean(tour.url || tour.embed_url);
         oodaSummary.textContent = candidate.ooda?.summary || (hasTour
           ? 'Start with the tour, then check the facts below before deciding.'
           : 'No verified 360 is attached yet.');
-      }
-      const match = root.querySelector('[data-pw-match]');
-      renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'For' });
+      });
+      root.querySelectorAll('[data-pw-match]').forEach((match) => {
+        renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'For' });
+      });
       const objections = root.querySelector('[data-pw-objections]');
       renderReasonCards(objections, candidate.objection_rows, { emptyTitle: 'No objection captured yet.', defaultTitle: 'Objection' });
       renderReasonCards(householdNode, candidate.household_rows, { emptyTitle: 'No household vote captured yet.', defaultTitle: 'Stakeholder' });

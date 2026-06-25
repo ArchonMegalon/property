@@ -354,6 +354,8 @@
     const feedbackQuestionsNode = root.querySelector('[data-pw-feedback-questions]');
     const feedbackConsequencesNode = root.querySelector('[data-pw-feedback-consequences]');
     const feedbackNoteNode = root.querySelector('[data-pw-feedback-note]');
+    const finetunePanelNode = root.querySelector('[data-pw-finetune-panel]');
+    const finetuneToggleNode = root.querySelector('[data-pw-finetune-toggle]');
     const followupsNode = root.querySelector('[data-pw-followups]');
     const followupStatusNode = root.querySelector('[data-pw-followup-status]');
     const visualRequestStatusNode = root.querySelector('[data-pw-visual-request-status]');
@@ -385,6 +387,22 @@
     let selectedFeedbackReaction = '';
     let selectedFeedbackCandidateRef = '';
     let selectedFeedbackReasonKeys = new Set();
+    const setFinetunePanelOpen = (open = false) => {
+      if (!finetunePanelNode || !finetuneToggleNode) return;
+      const isOpen = Boolean(open);
+      finetunePanelNode.hidden = !isOpen;
+      finetuneToggleNode.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      finetuneToggleNode.textContent = isOpen ? 'Hide preferences' : 'Fine-tune my preferences';
+    };
+    finetuneToggleNode?.addEventListener('click', () => {
+      setFinetunePanelOpen(finetunePanelNode?.hidden);
+      if (finetunePanelNode?.hidden === false && decisionDetailNode && !decisionDetailNode.hidden) {
+        return;
+      }
+      if (finetunePanelNode?.hidden === false && decisionDetailNode) {
+        decisionDetailNode.hidden = false;
+      }
+    });
     const candidatePropertyRef = (candidate) => String(
       candidate?.property_ref ||
       candidate?.candidate_ref ||
@@ -4819,6 +4837,7 @@
         }
       }
     }
+    setFinetunePanelOpen(false);
     const urlParams = new URL(window.location.href).searchParams;
     const presetDecision = String(urlParams.get('decision') || '').trim().toLowerCase();
     const presetPrompt = String(urlParams.get('prompt') || '').trim();
@@ -4829,6 +4848,7 @@
       feedbackReactionButtons.forEach((button) => {
         button.classList.toggle('active', button.getAttribute('data-pw-feedback-reaction') === selectedFeedbackReaction);
       });
+      setFinetunePanelOpen(true);
       if (decisionDetailNode) decisionDetailNode.hidden = false;
       if (decisionStepLabelNode) decisionStepLabelNode.textContent = selectedFeedbackReaction === 'hide' ? '2 Confirm' : '2 Explain';
       if (feedbackStatusNode) feedbackStatusNode.textContent = 'Decision shortcut loaded from the email or shared link. Save when ready.';
