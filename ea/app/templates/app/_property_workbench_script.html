@@ -1377,6 +1377,10 @@
       if (!eventsNode) return false;
       const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;
       if (!hasRenderedEvents) return false;
+      const renderedText = String(eventsNode.textContent || '').toLowerCase();
+      if (renderedText.includes('could not load property search status') || renderedText.includes('checking run status')) {
+        return false;
+      }
       if (!Array.isArray(events)) return true;
       return events.length === 0;
     };
