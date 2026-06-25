@@ -376,6 +376,12 @@ def build_gold_status_receipt(
         provider_matrix_summary.get("target_context_country_scope_ok") is True
         or provider_matrix.get("country_scope") == "all_search_ready"
     )
+    cross_country_sanitization_summary = dict(provider_matrix.get("cross_country_sanitization_summary") or {})
+    cross_country_sanitization_ok = (
+        cross_country_sanitization_summary.get("sanitization_ok") is True
+        and int(cross_country_sanitization_summary.get("case_count") or 0) > 0
+        and int(dict(cross_country_sanitization_summary.get("status_counts") or {}).get("fail") or 0) == 0
+    )
     research_performance_ok, missing_research_performance_checks, research_performance_path = _performance_research_detail_checks(performance)
     performance_ok = (
         performance.get("status") == "pass"
@@ -447,6 +453,7 @@ def build_gold_status_receipt(
         and provider_matrix_summary.get("payload_contracts_ok") is True
         and provider_matrix_country_scope_ok
         and provider_matrix_target_context_ok
+        and cross_country_sanitization_ok
         and provider_matrix_summary.get("agent_unlimited_results_ok") is True
         and provider_matrix_summary.get("strict_without_soft_filters_ok") is True
         and provider_matrix_summary.get("soft_filters_present_ok") is True
@@ -537,7 +544,8 @@ def build_gold_status_receipt(
                 "status": provider_matrix.get("status") or "unknown",
                 "targeted_search_matrix_status": provider_matrix.get("targeted_search_matrix_status") or "unknown",
                 "executed": bool(provider_matrix.get("targeted_search_matrix_executed")),
-                "action": "run property_live_provider_smoke.py for all search-ready countries with --execute-search-matrix so every provider has strict and soft-filter targeted search evidence",
+                "cross_country_sanitization_ok": cross_country_sanitization_ok,
+                "action": "run property_live_provider_smoke.py for all search-ready countries with --execute-search-matrix so every provider has strict/soft-filter evidence and wrong-country provider selections are sanitized before dispatch",
             }
         )
     if not receipt_freshness_ok:
@@ -695,6 +703,8 @@ def build_gold_status_receipt(
             "all_search_ready_provider_modes_passed": provider_matrix_modes_ok,
             "provider_country_scope_ok": provider_matrix_country_scope_ok,
             "target_context_country_scope_ok": provider_matrix_target_context_ok,
+            "cross_country_sanitization_ok": cross_country_sanitization_ok,
+            "cross_country_sanitization_case_count": cross_country_sanitization_summary.get("case_count"),
             "receipt_path": str(provider_matrix_receipt_path),
         },
         "receipt_freshness": {
