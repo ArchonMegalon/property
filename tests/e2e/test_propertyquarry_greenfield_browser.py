@@ -2446,6 +2446,25 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         expect(school_child).to_be_visible()
         expect(school_child).to_have_attribute("data-school-parent-active", "true")
         expect(school_parent).to_have_attribute("data-school-family-active", "true")
+        school_distance_rows = (
+            ("kindergarten", "nice_to_have", ""),
+            ("ganztags_volksschule", "important", "volksschule"),
+            ("halbtags_volksschule", "nice_to_have", "volksschule"),
+        )
+        kindergarten_parent = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
+        kindergarten_parent.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        kindergarten_parent.locator("[data-school-preference-select]").select_option("important")
+        for value, state, parent_value in school_distance_rows:
+            row = page.locator(f'[data-school-priority-row][data-school-value="{value}"]')
+            row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+            expect(row).to_be_visible()
+            if parent_value:
+                expect(row).to_have_attribute("data-school-parent-active", "true")
+            row.locator("[data-school-preference-select]").select_option(state)
+            expect(row.locator("[data-school-distance-select]")).to_be_enabled()
+            expect(row).to_have_attribute("data-school-distance-enabled", "true")
+            distance_field = row.locator("[data-school-distance-select]").get_attribute("data-distance-field")
+            assert distance_field == f"max_distance_to_{value}_m"
         section = page.locator('[data-what-matters-group="daily_life"]')
         expect(section).to_have_attribute("data-active-distance-rows", "true")
         active_distance_row = page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"]')
@@ -2526,6 +2545,45 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                     assert float(control["width"]) <= 132.0, row
                 assert float(control["left"]) >= -1.0, row
                 assert float(control["right"]) >= -1.0, row
+        school_rows = page.evaluate(
+            """
+            () => Array.from(document.querySelectorAll('[data-school-priority-row][data-school-distance-enabled="true"]'))
+              .filter((row) => row.offsetParent !== null)
+              .map((row) => {
+                const rowRect = row.getBoundingClientRect();
+                const preference = row.querySelector('[data-school-preference-select]');
+                const distance = row.querySelector('[data-school-distance-select]');
+                const preferenceRect = preference?.getBoundingClientRect();
+                const distanceRect = distance?.getBoundingClientRect();
+                return {
+                  value: row.getAttribute('data-school-value') || '',
+                  rowWidth: rowRect.width,
+                  rowScrollWidth: row.scrollWidth,
+                  preferenceValue: preference?.value || '',
+                  distanceDisabled: Boolean(distance?.disabled),
+                  distanceField: distance?.getAttribute('data-distance-field') || '',
+                  preferenceWidth: preferenceRect ? preferenceRect.width : 0,
+                  distanceWidth: distanceRect ? distanceRect.width : 0,
+                  preferenceLeft: preferenceRect ? preferenceRect.left - rowRect.left : -999,
+                  distanceRight: distanceRect ? rowRect.right - distanceRect.right : -999,
+                };
+              })
+            """
+        )
+        school_by_value = {row["value"]: row for row in school_rows}
+        for value in ("kindergarten", "ganztags_volksschule", "halbtags_volksschule"):
+            row = school_by_value.get(value)
+            assert row, school_rows
+            assert row["distanceDisabled"] is False, row
+            assert row["distanceField"] == f"max_distance_to_{value}_m", row
+            assert float(row["rowScrollWidth"]) <= float(row["rowWidth"]) + 1.0, row
+            assert float(row["preferenceWidth"]) >= 96.0, row
+            assert float(row["distanceWidth"]) >= 96.0, row
+            if inner_width >= 900:
+                assert float(row["preferenceWidth"]) <= 132.0, row
+                assert float(row["distanceWidth"]) <= 132.0, row
+            assert float(row["preferenceLeft"]) >= -1.0, row
+            assert float(row["distanceRight"]) >= -1.0, row
         playground_clip = page.evaluate(
             """
             () => {
