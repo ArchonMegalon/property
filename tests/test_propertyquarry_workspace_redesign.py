@@ -5135,7 +5135,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert ".pq-shell[data-property-app-shell] .pq-rail" in body
     assert ".prd-top-context {\n      display: flex;\n      justify-content: flex-end;\n      grid-column: 2;\n    }" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
-    assert "min-height: clamp(300px, 42vh, 460px);" in body
+    assert "min-height: clamp(260px, 38vh, 380px);" in body
     assert "min-height: clamp(320px, 44vh, 500px);" in body
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in body
     assert "grid-template-columns: 84px minmax(0, 1fr);" in body
@@ -5143,10 +5143,13 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert 'data-prd-visual-card="{{ visual_card.get(\'key\') }}"' in body
     assert 'href="{{ research_feedback.get(\'profile_href\') or (\'/app/search\' ~ research_query_suffix) }}">Open active search</a>' in body
     assert "prd-hero-gallery" in body
+    assert ".prd-hero-gallery {\n    display: none;" in body
     assert ".prd-hero-gallery .prd-gallery-label" in body
     assert "-webkit-line-clamp: 3;" in body
     assert "max-height: min(calc(100vh - 440px), 202px);" not in body
-    assert body.index("data-property-research-topnav") < body.index("data-property-research-detail")
+    assert body.index('<header class="prd-topbar pqx-topbar" data-property-research-topnav>') < body.index(
+        '<section class="prd-shell" data-property-research-detail>'
+    )
     assert body.index("data-object-media-stage") < body.index("Current read")
     assert body.index("Property details") < body.index("Visual review")
     assert "OODA" not in body
