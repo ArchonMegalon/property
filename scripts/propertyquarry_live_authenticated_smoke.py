@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -74,6 +75,20 @@ def _header_value(headers: dict[str, object], name: str) -> str:
         if str(key or "").strip().lower() == normalized_name:
             return str(value or "").strip()
     return ""
+
+
+def _https_redirect_host_resolves(location: str, resolver: Callable[[str, int], object]) -> bool:
+    parsed = urllib.parse.urlparse(str(location or "").strip())
+    if parsed.scheme != "https":
+        return False
+    host = str(parsed.hostname or "").strip().lower()
+    if not host:
+        return False
+    try:
+        resolver(host, 443)
+    except OSError:
+        return False
+    return True
 
 
 def _security_header_checks(*, headers: dict[str, object]) -> list[tuple[str, bool]]:
@@ -206,6 +221,7 @@ def build_live_authenticated_smoke_receipt(
     retry_backoff_seconds: float = 0.75,
     routes: tuple[str, ...] = DEFAULT_ROUTES,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
+    billing_handoff_resolver: Callable[[str, int], object] = socket.getaddrinfo,
 ) -> dict[str, object]:
     checks: list[dict[str, object]] = []
     failures = 0
@@ -243,6 +259,7 @@ def build_live_authenticated_smoke_receipt(
                 ("status_ok", True),
                 *_security_header_checks(headers=headers),
                 ("billing_external_handoff", location.startswith("https://") and "/app/billing" not in location),
+                ("billing_external_handoff_resolves", _https_redirect_host_resolves(location, billing_handoff_resolver)),
                 ("billing_local_board_deleted", True),
                 ("billing_no_customer_noise", True),
             ]
