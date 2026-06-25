@@ -14,6 +14,7 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert receipt["failed_count"] == 0
     routes = {str(row["path"]).split("?", 1)[0]: row for row in receipt["routes"]}
     expected_mobile_surfaces = {
+        "/sign-in",
         "/app/search",
         "/app/agents",
         "/app/properties",
@@ -35,6 +36,9 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     for route in routes.values():
         check_names = {str(check["name"]): bool(check["ok"]) for check in route["checks"]}
         assert check_names["mobile_viewport_meta"]
+        if str(route["path"]).split("?", 1)[0] == "/sign-in":
+            assert check_names["public_auth_surface"]
+            continue
         assert check_names["shared_top_navigation"]
         assert check_names["property_app_shell"]
         assert check_names["mobile_dock_target"]
@@ -47,6 +51,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "research_confirmed_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_confirmed_price_signal" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
+    assert any(check["name"] == "provider_login_implicit_account_creation" and check["ok"] for check in routes["/sign-in"]["checks"])
+    assert any(check["name"] == "provider_login_copy_is_customer_safe" and check["ok"] for check in routes["/sign-in"]["checks"])
     assert any(check["name"] == "billing_heading" and check["ok"] for check in routes["/app/billing"]["checks"])
     assert any(check["name"] == "billing_history_visible" and check["ok"] for check in routes["/app/billing"]["checks"])
     assert any(check["name"] == "billing_white_label_copy" and check["ok"] for check in routes["/app/billing"]["checks"])
@@ -71,6 +77,7 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
 
     assert result.returncode == 0, result.stderr
     assert '"status": "pass"' in result.stdout
+    assert '"/sign-in"' in result.stdout
     assert '"/app/agents"' in result.stdout
     assert '"/app/alerts' in result.stdout
     assert '"/app/settings/google"' in result.stdout
@@ -82,12 +89,14 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"shared_top_navigation"' in result.stdout
     assert '"mobile_dock_target"' in result.stdout
     assert '"billing_white_label_copy"' in result.stdout
+    assert '"provider_login_implicit_account_creation"' in result.stdout
     assert '"rybbit_taxonomy_events_only"' in result.stdout
     assert '"rybbit_no_private_payload"' in result.stdout
 
 
 def test_property_authenticated_performance_smoke_budget_override_applies_to_default_routes() -> None:
     assert _route_budget_for("/app/search", route_budget_ms=250) == 250
+    assert _route_budget_for("/sign-in", route_budget_ms=250) == 250
     assert _route_budget_for("/app/agents", route_budget_ms=250) == 250
     assert _route_budget_for("/app/alerts?run_id=abc", route_budget_ms=250) == 250
     assert _route_budget_for("/app/settings/google", route_budget_ms=250) == 250

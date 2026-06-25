@@ -227,6 +227,7 @@ The candidate at `5d0284f` passed:
 - Mobile What Matters hardening now proves the reported Playground `Nice to have` interaction in a 390px phone viewport: the distance combobox becomes enabled, remains a full-width 44px tap target, stays inside the viewport, and is not hidden behind a bottom mobile overlay. Focused static and Playwright checks returned `2 passed`.
 - Visual self-healing now clears stale `tour_*_repair_*` / `flythrough_*_repair_*` markers when a terminal visual-status resolution is persisted, so blocked/skipped media no longer carries old repair-running metadata. Focused visual-status repair tests returned `5 passed`.
 - Billing white-label quality is now part of the authenticated runtime smoke: `/app/billing` must show plan/payment/history/invoice surfaces while hiding PayFunnels, Brilliant Directories, provider endpoint strings, billing-truth jargon, invoice-handoff wording, and internal plan-limit labels.
+- Sign-in quality is now part of the authenticated runtime smoke: `/sign-in` must render as a mobile-ready PropertyQuarry auth surface, state that first-time provider sign-in creates the account automatically, and avoid leaking raw OAuth configuration errors in normal copy.
 
 Observed route timings after the latest deploy:
 

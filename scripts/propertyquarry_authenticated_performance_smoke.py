@@ -21,6 +21,7 @@ from app.product.service import ProductService, _now_iso
 
 
 DEFAULT_ROUTE_BUDGET_MS = {
+    "/sign-in": 1200,
     "/app/search": 1200,
     "/app/agents": 1200,
     "/app/properties": 1200,
@@ -139,6 +140,17 @@ FORBIDDEN_BILLING_SURFACE_TOKENS = (
 
 def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
     normalized_path = str(path or "").split("?", 1)[0]
+    if normalized_path == "/sign-in":
+        return [
+            {
+                "name": "mobile_viewport_meta",
+                "ok": 'name="viewport"' in body and "width=device-width" in body,
+            },
+            {
+                "name": "public_auth_surface",
+                "ok": "data-property-public-page" in body or "PropertyQuarry" in body,
+            },
+        ]
     if not normalized_path.startswith("/app/"):
         return []
     nav_missing = [label for label in SHARED_TOP_NAV_LABELS if label not in body]
@@ -521,6 +533,13 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "invitation_controls_visible", "ok": "Invite" in body or "invitation" in lowered_body},
             )
         )
+    if path == "/sign-in":
+        checks.extend(
+            (
+                {"name": "provider_login_implicit_account_creation", "ok": "First-time provider sign-in also creates the account automatically." in body},
+                {"name": "provider_login_copy_is_customer_safe", "ok": "oauth_config_missing" not in lowered_body and "callback setup" not in lowered_body},
+            )
+        )
     return {
         "path": path,
         "status_code": response.status_code,
@@ -544,6 +563,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
     _seed_saved_agents(client)
     run_id = _start_synthetic_run(client)
     routes = [
+        "/sign-in",
         "/app/search",
         "/app/agents",
         f"/app/properties?run_id={run_id}",
@@ -574,7 +594,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "routes": rows,
         "notes": [
             "This smoke is local, authenticated, provider-free and non-networked.",
-            "It guards first-paint route budgets for search, agents, results, research, alerts, account, billing, and settings surfaces.",
+            "It guards first-paint route budgets for sign-in, search, agents, results, research, alerts, account, billing, and settings surfaces.",
             "It also asserts the shared top navigation, viewport metadata, app shell and mobile dock targets render on every measured app surface.",
         ],
     }
