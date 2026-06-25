@@ -29,6 +29,10 @@ DEFAULT_ROUTE_BUDGET_MS = {
     "/app/billing": 1200,
     "/app/settings/google": 1200,
     "/app/settings/access": 1200,
+    "/app/settings/usage": 1200,
+    "/app/settings/support": 1200,
+    "/app/settings/trust": 1200,
+    "/app/settings/invitations": 1200,
 }
 
 FORBIDDEN_CUSTOMER_NOISE = (
@@ -347,6 +351,34 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "account_access_controls", "ok": "Invite" in body or "access" in lowered_body},
             )
         )
+    if path == "/app/settings/usage":
+        checks.extend(
+            (
+                {"name": "usage_settings_heading", "ok": "Usage and activation" in body},
+                {"name": "usage_metrics_visible", "ok": "Searches opened" in body or "activation" in lowered_body},
+            )
+        )
+    if path == "/app/settings/support":
+        checks.extend(
+            (
+                {"name": "support_settings_heading", "ok": "Support" in body or "Support and recovery" in body},
+                {"name": "support_recovery_controls", "ok": "recovery" in lowered_body or "support" in lowered_body},
+            )
+        )
+    if path == "/app/settings/trust":
+        checks.extend(
+            (
+                {"name": "trust_settings_heading", "ok": "Trust" in body},
+                {"name": "trust_evidence_visible", "ok": "evidence" in lowered_body or "source health" in lowered_body},
+            )
+        )
+    if path == "/app/settings/invitations":
+        checks.extend(
+            (
+                {"name": "invitations_settings_heading", "ok": "Invitations" in body},
+                {"name": "invitation_controls_visible", "ok": "Invite" in body or "invitation" in lowered_body},
+            )
+        )
     return {
         "path": path,
         "status_code": response.status_code,
@@ -380,6 +412,10 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         "/app/billing",
         "/app/settings/google",
         "/app/settings/access",
+        "/app/settings/usage",
+        "/app/settings/support",
+        "/app/settings/trust",
+        "/app/settings/invitations",
     ]
     rows = [
         _measure_route(client, route, budget_ms=_route_budget_for(route, route_budget_ms=route_budget_ms))
