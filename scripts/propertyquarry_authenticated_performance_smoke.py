@@ -678,7 +678,14 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         checks.extend(
             (
                 {"name": "provider_login_implicit_account_creation", "ok": "First-time provider sign-in also creates the account automatically." in body},
-                {"name": "provider_login_copy_is_customer_safe", "ok": "oauth_config_missing" not in lowered_body and "callback setup" not in lowered_body},
+                {
+                    "name": "provider_login_copy_is_customer_safe",
+                    "ok": (
+                        "oauth_config_missing" not in lowered_body
+                        and "callback setup" not in lowered_body
+                        and "provider sign-in also creates the account automatically" in lowered_body
+                    ),
+                },
             )
         )
     return {

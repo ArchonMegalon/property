@@ -982,16 +982,22 @@ def test_propertyquarry_provider_sign_in_errors_use_customer_safe_language() -> 
     assert id_austria.status_code == 200
     assert google.status_code == 200
 
-    assert "Facebook sign-in is temporarily unavailable." in facebook.text
-    assert "Try again, or use a secure email link for the same account." in facebook.text
+    assert "Facebook could not open on this attempt." in facebook.text
+    assert "Retry Facebook, or use a secure email link for the same account." in facebook.text
+    assert "First-time Facebook sign-in still creates the account automatically." in facebook.text
     assert "Facebook sign-in is not ready on this deployment yet." not in facebook.text
+    assert "Facebook sign-in is temporarily unavailable." not in facebook.text
 
-    assert "ID Austria sign-in is temporarily unavailable." in id_austria.text
-    assert "Try again, or use a secure email link for the same account." in id_austria.text
+    assert "ID Austria could not open on this attempt." in id_austria.text
+    assert "Retry ID Austria, or use a secure email link for the same account." in id_austria.text
+    assert "First-time ID Austria sign-in still creates the account automatically." in id_austria.text
     assert "ID Austria sign-in is not ready on this deployment yet." not in id_austria.text
+    assert "ID Austria sign-in is temporarily unavailable." not in id_austria.text
 
-    assert "Google sign-in is temporarily unavailable." in google.text
-    assert "Try again, or use a secure email link for the same account." in google.text
+    assert "Google could not open on this attempt." in google.text
+    assert "Retry Google, or use a secure email link for the same account." in google.text
+    assert "First-time Google sign-in still creates the account automatically." in google.text
+    assert "Google sign-in is temporarily unavailable." not in google.text
 
     combined = "\n".join([facebook.text, id_austria.text, google.text]).lower()
     assert "oauth" not in combined
