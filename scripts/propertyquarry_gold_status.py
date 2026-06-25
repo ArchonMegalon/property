@@ -92,7 +92,7 @@ def build_gold_status_receipt(
         or (
             live_mobile.get("status") == "pass"
             and int(live_mobile.get("failed_count") or 0) == 0
-            and int(live_mobile.get("route_count") or 0) >= 7
+            and int(live_mobile.get("route_count") or 0) >= 9
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes

@@ -17,6 +17,8 @@ DEFAULT_ROUTES = (
     "/app/account",
     "/app/billing",
     "/app/settings/google",
+    "/app/research",
+    "/app/properties/packets",
 )
 
 
@@ -80,7 +82,7 @@ def _collect_metrics_script() -> str:
       const topbar = document.querySelector('[data-property-research-topnav], .pqx-topbar, .prd-topbar');
       const topnav = document.querySelector('nav[aria-label="PropertyQuarry sections"]');
       const mobileDock = document.querySelector('[data-property-mobile-dock]');
-      const actionNodes = visibleNodes('main button, main a.pqx-button, main a.pqx-link-button, main .console-action, .pqx-account-logout-strip button, .pqx-account-logout-strip a');
+      const actionNodes = visibleNodes('main button, main a.pqx-button, main a.pqx-link-button, main a.pq-pack-button, main .console-action, .pqx-account-logout-strip button, .pqx-account-logout-strip a');
       const actionHeights = actionNodes.map((node) => node.getBoundingClientRect().height).filter((height) => height > 0);
       const cardNodes = visibleNodes('.pqx-card, .pqx-panel, .pqx-result, .pqx-account-action-card, .pqx-billing-card, .pqx-billing-summary-card, .pqx-automation-card, .prd-panel, .prd-band');
       const heavyShadowNodes = cardNodes.filter((node) => window.getComputedStyle(node).boxShadow !== 'none');

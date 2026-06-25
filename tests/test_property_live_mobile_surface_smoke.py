@@ -37,6 +37,21 @@ def test_live_mobile_smoke_accepts_empty_shortlist_without_mode_dock() -> None:
     assert _failed_names("/app/shortlist", metrics) == set()
 
 
+def test_live_mobile_smoke_accepts_research_and_packets_surfaces_without_search_controls() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "mobile_dock_visible": False,
+            "district_picker_available": False,
+            "district_map_popup_available": False,
+            "district_list_hidden_in_map_mode": False,
+        }
+    )
+
+    assert _failed_names("/app/research", metrics) == set()
+    assert _failed_names("/app/properties/packets", metrics) == set()
+
+
 def test_live_mobile_smoke_rejects_horizontal_overflow_and_noisy_chrome() -> None:
     metrics = _base_metrics()
     metrics.update({"body_width": 420, "topbar_height": 140, "heavy_shadow_count": 5})
@@ -63,3 +78,10 @@ def test_live_mobile_smoke_requires_single_account_logout() -> None:
     metrics.update({"logout_button_count": 2})
 
     assert _failed_names("/app/account", metrics) == {"single_logout_action"}
+
+
+def test_live_mobile_smoke_rejects_small_packet_touch_targets() -> None:
+    metrics = _base_metrics()
+    metrics.update({"min_action_height": 40})
+
+    assert _failed_names("/app/properties/packets", metrics) == {"primary_touch_targets"}

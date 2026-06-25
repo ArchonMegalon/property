@@ -7041,6 +7041,21 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert "Packet posture" not in body
 
 
+def test_property_packets_dashboard_keeps_mobile_shell_compact() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_packets.html"
+    body = template_path.read_text(encoding="utf-8")
+    mobile_start = body.find("@media (max-width: 760px)")
+
+    assert mobile_start > 0
+    mobile_block = body[mobile_start:body.find("</style>", mobile_start)]
+    assert "grid-template-columns: minmax(0, 1fr) auto;" in mobile_block
+    assert ".pq-pack-nav {" in mobile_block
+    assert "overflow-x: auto;" in mobile_block
+    assert ".pq-pack-actions > .pq-pack-button { display: none; }" in mobile_block
+    assert ".pq-pack-button.small,\n      .pq-pack-input {\n        min-height: 44px;" in mobile_block
+    assert ".pq-pack-hero .pq-pack-copy,\n      .pq-pack-summary-card ul {\n        display: none;" in mobile_block
+
+
 def test_property_decision_workbench_uses_shared_research_shell_contract() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html"
     body = template_path.read_text(encoding="utf-8")
