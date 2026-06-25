@@ -234,6 +234,7 @@
   .prd-decision-workspace {
     position: relative;
     overflow: hidden;
+    max-height: min(640px, calc(100svh - 96px));
     padding: clamp(12px, 1.7vw, 18px);
     border-radius: 12px;
     border-color: color-mix(in srgb, var(--prd-gold) 30%, var(--line));
@@ -242,7 +243,7 @@
   .prd-decision-layout {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+    grid-template-columns: minmax(172px, 0.3fr) minmax(0, 1fr);
     gap: 14px;
     align-items: start;
   }
@@ -265,8 +266,9 @@
   }
   .prd-decision-form {
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.72fr) minmax(210px, 0.88fr);
     gap: 8px;
+    align-items: stretch;
     min-width: 0;
   }
   .prd-decision-card {
@@ -283,9 +285,11 @@
     font-size: 0.82rem;
     letter-spacing: -0.01em;
   }
-  .prd-decision-card.prd-decision-note,
   .prd-feedback-details {
     grid-column: 1 / -1;
+  }
+  .prd-decision-card.prd-decision-note {
+    grid-column: auto;
   }
   .prd-feedback-details {
     border: 1px solid color-mix(in srgb, var(--line) 82%, var(--prd-gold) 18%);
@@ -338,10 +342,13 @@
   }
   .prd-decision-workspace textarea {
     width: 100%;
-    min-height: 66px;
+    min-height: 44px;
     box-sizing: border-box;
     border-radius: 10px;
     resize: vertical;
+  }
+  .prd-decision-note .object-actions {
+    margin-top: 0;
   }
   .prd-panel h1,
   .prd-panel h2,
@@ -1365,6 +1372,15 @@
     .prd-map-inline {
       grid-template-columns: 1fr;
     }
+    .prd-decision-workspace {
+      max-height: none;
+    }
+    .prd-decision-form {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .prd-decision-card.prd-decision-note {
+      grid-column: 1 / -1;
+    }
     .prd-side-stack {
       position: static;
     }
@@ -1521,6 +1537,12 @@
       padding: 12px;
       border-radius: 14px;
     }
+    .prd-decision-intro .object-copy {
+      display: none;
+    }
+    .prd-decision-context {
+      display: none;
+    }
     .prd-decision-intro h2 {
       font-size: 1.18rem;
       line-height: 1.08;
@@ -1542,7 +1564,7 @@
       white-space: normal;
     }
     .prd-decision-workspace textarea {
-      min-height: 104px;
+      min-height: 62px;
     }
     .prd-media-stack {
       gap: 7px;
@@ -1665,6 +1687,11 @@
       display: grid;
       grid-template-columns: 1fr;
       gap: 6px;
+    }
+    .prd-decision-workspace .object-actions,
+    .prd-decision-workspace .object-feedback-row,
+    .prd-decision-workspace .object-feedback-reasons {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .prd-headline-panel > .prd-copy:first-of-type {
       display: none;
