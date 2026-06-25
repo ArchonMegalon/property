@@ -1366,7 +1366,20 @@
       return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} still waiting on floorplans` : ''}`;
     };
     const renderRunEvents = (events) => {
-      const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
+      const rawRows = Array.isArray(events) ? [...events] : [];
+      const hasRealEvents = rawRows.some((event) => {
+        const step = String(event?.step || '').trim().toLowerCase();
+        const message = String(event?.message || '').trim().toLowerCase();
+        return step !== 'status_refresh' && !message.includes('could not load property search status');
+      });
+      const rows = (hasRealEvents
+        ? rawRows.filter((event) => {
+            const step = String(event?.step || '').trim().toLowerCase();
+            const message = String(event?.message || '').trim().toLowerCase();
+            return step !== 'status_refresh' && !message.includes('could not load property search status');
+          })
+        : rawRows
+      ).reverse().slice(0, 12);
       return rows.map((event) => {
         const step = String(event?.step || 'Update').replaceAll('_', ' ');
         const label = step ? step.charAt(0).toUpperCase() + step.slice(1) : 'Update';

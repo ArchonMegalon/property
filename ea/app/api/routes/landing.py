@@ -4394,6 +4394,17 @@ def app_shell(
                 raise HTTPException(status_code=404, detail="property_search_run_not_found")
         if resolved_section == "properties":
             route_run_status = str(route_run.get("status") or "").strip().lower()
+            route_run_summary = dict(route_run.get("summary") or {}) if isinstance(route_run.get("summary"), dict) else {}
+            replacement_run_id = str(route_run_summary.get("repair_replacement_run_id") or "").strip()
+            if route_run_status == "failed" and replacement_run_id and replacement_run_id != normalized_run_id:
+                query_pairs = [
+                    (key, value)
+                    for key, value in urllib.parse.parse_qsl(str(request.url.query or ""), keep_blank_values=True)
+                    if key != "run_id"
+                ]
+                query_pairs.insert(0, ("run_id", replacement_run_id))
+                target_query = urllib.parse.urlencode(query_pairs)
+                return RedirectResponse(f"{request.url.path}?{target_query}", status_code=303)
             if route_run_status in {"processed", "completed", "completed_partial"} and _property_run_payload_has_shortlist_results(route_run):
                 target = "/app/shortlist"
                 query = str(request.url.query or "").strip()

@@ -2357,6 +2357,37 @@ def test_propertyquarry_properties_route_bootstraps_full_run_trail(monkeypatch) 
     ]
 
 
+def test_propertyquarry_properties_route_redirects_failed_run_to_replacement(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-properties-replacement-redirect")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert principal_id == "pq-properties-replacement-redirect"
+        assert run_id == "dead-run"
+        assert lightweight is False
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "failed",
+            "summary": {
+                "status": "failed",
+                "repair_status": "repairing",
+                "repair_replacement_run_id": "replacement-run",
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_status)
+
+    response = client.get(
+        "/app/properties?run_id=dead-run&panel=trail",
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/app/properties?run_id=replacement-run&panel=trail"
+
+
 def test_propertyquarry_search_route_exposes_theme_toggle() -> None:
     client = build_property_client(principal_id="pq-theme-toggle")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -11014,6 +11045,8 @@ def test_propertyquarry_run_script_compacts_candidate_progress_to_fraction() -> 
 
 def test_propertyquarry_run_script_preserves_non_empty_trail_from_omitted_or_empty_compact_payload() -> None:
     bundle = _read_workbench_bundle()
+    assert "const hasRealEvents = rawRows.some((event) => {" in bundle
+    assert "step !== 'status_refresh' && !message.includes('could not load property search status')" in bundle
     assert "const shouldPreserveRenderedRunEvents = (eventsNode, events) => {" in bundle
     assert "const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;" in bundle
     assert "if (!hasRenderedEvents) return false;" in bundle
