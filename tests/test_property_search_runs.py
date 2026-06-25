@@ -2417,7 +2417,20 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
 
     assert negative_adjustment < 0
     assert "library farther away than wished" in negative_notes
-    assert "playground distance missing" in negative_notes
+    assert "playground distance missing" not in negative_notes
+
+    unknown_facts: dict[str, object] = {}
+    unknown_adjustment, unknown_notes = product_service._property_distance_preference_score_adjustment(
+        preferences={
+            "max_distance_to_playground_m": 500,
+            "max_distance_to_playground_importance": "nice_to_have",
+        },
+        property_facts=unknown_facts,
+    )
+
+    assert unknown_adjustment == 0
+    assert unknown_notes == ()
+    assert unknown_facts["distance_unknowns_json"] == [{"label": "playground", "requested_m": 500}]
 
     avoid_adjustment, avoid_notes = product_service._property_distance_preference_score_adjustment(
         preferences={

@@ -8163,7 +8163,7 @@ def _property_distance_preference_score_adjustment(
     property_facts: dict[str, object] | None,
 ) -> tuple[float, tuple[str, ...]]:
     payload = dict(preferences or {})
-    facts = dict(property_facts or {})
+    facts = property_facts if isinstance(property_facts, dict) else {}
     rows = (
         ("max_distance_to_supermarket_m", ("nearest_supermarket_m",), "supermarket"),
         ("max_distance_to_subway_m", ("nearest_subway_m",), "underground"),
@@ -8211,8 +8211,7 @@ def _property_distance_preference_score_adjustment(
             except Exception:
                 actual_m = 0.0
             if actual_m <= 0.0:
-                adjustment -= 0.5
-                notes.append(f"{label} distance missing")
+                _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             elif actual_m <= float(limit_m):
                 adjustment -= 6.0
                 notes.append(f"{label} too close for avoid preference")
@@ -8233,7 +8232,7 @@ def _property_distance_preference_score_adjustment(
                 adjustment += 0.5
                 notes.append(f"{label} slightly farther than requested")
             elif distance_mode == "unknown":
-                notes.append(f"{label} distance unknown")
+                _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             continue
         if _property_distance_is_strong_mode(importance_mode):
             if distance_mode == "strict":
@@ -8243,8 +8242,7 @@ def _property_distance_preference_score_adjustment(
                 adjustment += 2.0
                 notes.append(f"{label} within wider radius")
             elif distance_mode == "unknown":
-                adjustment -= 2.0
-                notes.append(f"{label} distance missing")
+                _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             elif not distance_ok:
                 adjustment -= 6.0
                 notes.append(f"{label} farther away than wished")
@@ -8257,8 +8255,7 @@ def _property_distance_preference_score_adjustment(
                 adjustment += 1.0
                 notes.append(f"{label} reasonably nearby")
             elif distance_mode == "unknown":
-                adjustment -= 0.5
-                notes.append(f"{label} distance missing")
+                _property_append_distance_unknown(facts, label=label, requested_m=limit_m)
             elif not distance_ok:
                 adjustment -= 3.0
                 notes.append(f"{label} less convenient")
