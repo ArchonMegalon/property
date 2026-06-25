@@ -23,6 +23,27 @@ if str(EA_ROOT) not in sys.path:
 from app.services.property_market_catalog import COUNTRIES, default_platforms_for_country, provider_options
 
 
+_TARGET_CONTEXT_BY_COUNTRY = {
+    "AT": ("1010 Vienna", "1020 Vienna"),
+    "BE": ("Brussels", "Antwerp"),
+    "CA": ("Toronto", "Vancouver"),
+    "CR": ("San Jose", "Escazu"),
+    "DE": ("Berlin", "Munich"),
+    "CH": ("Zurich", "Geneva"),
+    "IE": ("Dublin", "Cork"),
+    "UK": ("London", "Manchester"),
+    "AU": ("Sydney", "Melbourne"),
+    "ES": ("Barcelona", "Madrid"),
+    "IT": ("Milan", "Rome"),
+    "FR": ("Paris", "Lyon"),
+    "NL": ("Amsterdam", "Rotterdam"),
+    "PT": ("Lisbon", "Porto"),
+    "PL": ("Warsaw", "Krakow"),
+    "SE": ("Stockholm", "Gothenburg"),
+    "US": ("Brooklyn", "Austin"),
+}
+
+
 class _WallClockTimeout(RuntimeError):
     pass
 
@@ -107,10 +128,23 @@ def _all_search_ready_countries_enabled() -> bool:
 
 def _target_context_for_country(country_code: str) -> dict[str, object]:
     normalized = str(country_code or "").strip().upper()
+    locations = _TARGET_CONTEXT_BY_COUNTRY.get(normalized)
+    if not locations:
+        for country in COUNTRIES:
+            if str(country.code or "").strip().upper() != normalized:
+                continue
+            locations = tuple(
+                value.strip()
+                for value in str(country.location_placeholder or "").split(",")
+                if value.strip()
+            )[:2]
+            break
+    if not locations:
+        locations = (normalized,)
     if normalized == "CR":
         return {
-            "location_query": "San Jose",
-            "selected_location_values": ["San Jose"],
+            "location_query": ", ".join(locations),
+            "selected_location_values": list(locations),
             "soft_keywords": {
                 "pool": "nice_to_have",
                 "supermarket nearby": "nice_to_have",
@@ -124,8 +158,8 @@ def _target_context_for_country(country_code: str) -> dict[str, object]:
             "min_area_m2": 80,
         }
     return {
-        "location_query": "1010 Vienna, 1020 Vienna",
-        "selected_location_values": ["1010 Vienna", "1020 Vienna"],
+        "location_query": ", ".join(locations),
+        "selected_location_values": list(locations),
         "soft_keywords": {
             "balcony": "nice_to_have",
             "lift": "nice_to_have",
@@ -181,6 +215,28 @@ def _targeted_search_payload(*, country_code: str, provider_key: str, mode: str)
         "force_refresh": True,
         "dispatch_only": True,
     }
+
+
+def _target_context_country_scope_ok(country_code: str, location_query: object, selected_location_values: object) -> bool:
+    normalized_country = str(country_code or "").strip().upper()
+    expected_locations = {
+        str(value or "").strip().lower()
+        for value in _TARGET_CONTEXT_BY_COUNTRY.get(normalized_country, ())
+        if str(value or "").strip()
+    }
+    if not expected_locations:
+        return True
+    observed_locations = {
+        str(value or "").strip().lower()
+        for value in list(selected_location_values or [])
+        if str(value or "").strip()
+    }
+    raw_query = str(location_query or "").strip().lower()
+    if normalized_country != "AT" and "vienna" in raw_query:
+        return False
+    return bool(observed_locations) and observed_locations.issubset(expected_locations) and any(
+        location in raw_query for location in observed_locations
+    )
 
 
 def _search_ready_provider_options(country_code: str) -> list[dict[str, object]]:
@@ -296,6 +352,11 @@ def _build_targeted_provider_search_matrix(
             for mode in ("targeted_no_soft_filters", "targeted_soft_filters"):
                 payload = _targeted_search_payload(country_code=normalized_country, provider_key=provider_key, mode=mode)
                 preferences = dict(payload.get("property_preferences") or {})
+                target_context_country_scope_ok = _target_context_country_scope_ok(
+                    normalized_country,
+                    preferences.get("location_query"),
+                    preferences.get("selected_location_values"),
+                )
                 soft_filter_fields = sorted(
                     key
                     for key in preferences
@@ -311,15 +372,18 @@ def _build_targeted_provider_search_matrix(
                     "endpoint": "/app/api/property/search-runs",
                     "selected_platforms": [provider_key],
                     "location_query": str(preferences.get("location_query") or "").strip(),
+                    "selected_location_values": list(preferences.get("selected_location_values") or []),
                     "search_mode": str(preferences.get("search_mode") or "").strip(),
                     "soft_filter_fields": soft_filter_fields,
                     "soft_filters_present": bool(soft_filter_fields),
                     "agent_unlimited_results": "max_results_per_source" not in payload and "max_results_per_source" not in preferences,
+                    "target_context_country_scope_ok": target_context_country_scope_ok,
                     "payload_contract_ok": (
                         payload.get("selected_platforms") == [provider_key]
                         and provider_country == normalized_country
                         and preferences.get("country_code") == normalized_country
                         and preferences.get("property_commercial") == _agent_unlimited_commercial_state()
+                        and target_context_country_scope_ok
                         and (bool(soft_filter_fields) if mode == "targeted_soft_filters" else not bool(soft_filter_fields))
                     ),
                     "status": "skipped" if not enabled else "dry_run" if dry_run else "planned",
@@ -449,6 +513,7 @@ def _targeted_search_matrix_summary(
             "status_probe_status": str(row.get("status_probe_status") or "").strip().lower(),
             "status_probe_ok": bool(row.get("status_probe_ok")),
             "payload_contract_ok": bool(row.get("payload_contract_ok")),
+            "target_context_country_scope_ok": bool(row.get("target_context_country_scope_ok")),
             **({"error": str(row.get("error") or "").strip()} if str(row.get("error") or "").strip() else {}),
         }
         for row in rows
@@ -489,6 +554,7 @@ def _targeted_search_matrix_summary(
             str(row.get("provider_country_code") or "").strip().upper() == str(row.get("country_code") or "").strip().upper()
             for row in rows
         ) if rows else True,
+        "target_context_country_scope_ok": all(bool(row.get("target_context_country_scope_ok")) for row in rows) if rows else True,
         "agent_unlimited_results_ok": all(bool(row.get("agent_unlimited_results")) for row in rows) if rows else True,
         "strict_without_soft_filters_ok": all(not bool(row.get("soft_filters_present")) for row in strict_rows) if strict_rows else True,
         "soft_filters_present_ok": all(bool(row.get("soft_filters_present")) for row in soft_rows) if soft_rows else True,
@@ -697,8 +763,10 @@ def build_live_provider_smoke_receipt(
     search_statuses = {str(row.get("status") or "").strip().lower() for row in search_matrix}
     if "fail" in statuses or "fail" in search_statuses:
         status = "fail"
-    elif statuses == {"pass"}:
+    elif enabled and not dry_run and statuses == {"pass"} and search_statuses == {"pass"}:
         status = "pass"
+    elif enabled and not dry_run and statuses == {"pass"} and search_statuses == {"planned"}:
+        status = "blocked_targeted_search_matrix_not_executed"
     elif not enabled:
         status = "skipped"
     elif dry_run:

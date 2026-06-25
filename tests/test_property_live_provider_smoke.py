@@ -59,6 +59,11 @@ def test_live_provider_smoke_can_expand_to_all_search_ready_countries(monkeypatc
     assert receipt["targeted_search_matrix_summary"]["all_search_ready_providers_covered"] is True
     assert receipt["targeted_search_matrix_summary"]["strict_case_count"] == provider_total
     assert receipt["targeted_search_matrix_summary"]["soft_filter_case_count"] == provider_total
+    assert receipt["targeted_search_matrix_summary"]["target_context_country_scope_ok"] is True
+    assert all(
+        row["country_code"] == "AT" or "Vienna" not in str(row.get("location_query") or "")
+        for row in receipt["targeted_search_matrix"]
+    )
 
 
 def test_live_provider_smoke_explicit_countries_can_override_all_country_env(monkeypatch) -> None:
@@ -90,6 +95,8 @@ def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> N
     assert all(row["payload_contract_ok"] is True for row in matrix)
     assert all(row["provider_country_code"] == row["country_code"] for row in matrix)
     assert all(row["agent_unlimited_results"] is True for row in matrix)
+    assert all(row["target_context_country_scope_ok"] is True for row in matrix)
+    assert all(row["country_code"] == "AT" or "Vienna" not in str(row.get("location_query") or "") for row in matrix)
     assert all(row["status"] == "dry_run" for row in matrix)
     assert all(row["soft_filters_present"] is (row["mode"] == "targeted_soft_filters") for row in matrix)
     summary = receipt["targeted_search_matrix_summary"]
@@ -99,6 +106,7 @@ def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> N
     assert summary["dry_run_case_count"] == len(matrix)
     assert summary["payload_contracts_ok"] is True
     assert summary["provider_country_scope_ok"] is True
+    assert summary["target_context_country_scope_ok"] is True
     assert summary["strict_without_soft_filters_ok"] is True
     assert summary["soft_filters_present_ok"] is True
 
@@ -159,7 +167,7 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
 
     receipt = build_live_provider_smoke_receipt(countries=("AT", "CR"), fetcher=_fetcher)
 
-    assert receipt["status"] == "pass"
+    assert receipt["status"] == "blocked_targeted_search_matrix_not_executed"
     rows = {row["country_code"]: row for row in receipt["checks"]}
     assert rows["AT"]["status"] == "pass"
     assert rows["AT"]["runtime_provider_count_ok"] is True
@@ -177,6 +185,7 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
     assert summary["executed"] is False
     assert summary["planned_case_count"] == receipt["targeted_search_matrix_count"]
     assert summary["all_search_ready_providers_covered"] is True
+    assert summary["target_context_country_scope_ok"] is True
 
 
 def test_live_provider_smoke_live_mode_reports_runtime_mismatch(monkeypatch) -> None:
