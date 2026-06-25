@@ -13,13 +13,25 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `dec00cf11954f5477d8f3d3684038bfddb2a4e34` |
+| Runtime commit SHA | `9f1c76a23baa09b60563b8e1bd270482f1e4ba00` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `9f1c76a` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_tour_export_importers.py -k 'magicfit'`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_tour_control_verifier.py -k 'magicfit'`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_gold_status.py -k 'magicfit_ready_lacks_playback_proof or passes_only_when_all_required_evidence_is_present or missing_tour_action_excludes'`
+- `PYTHONPATH=ea python3 scripts/verify_property_tour_controls.py --tour-root /var/lib/docker/volumes/property_propertyquarry_public_tours/_data --require-all-provider-modes --write _completion/tours/property-tour-controls-live-container-current.json`
+- `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --write _completion/property_gold_status/release-gate.json`
+- MagicFit playback is now an explicit gold-gate proof: every ready MagicFit control must have local playable video evidence or a live-probed allowlisted hosted video URL. The current live tour receipt reports `playback_ok: true`, `playable_count: 8`, and `ready_count: 8`.
+- `make deploy`
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
+- Current gold status remains `blocked`; verified 3DVista, Pano2VR, and krpano tour evidence/export drops are still missing, and `billing.propertyquarry.com` still must resolve before the Brilliant Directories account lane can be proven live.
 
 The candidate at `dec00cf` passed:
 
