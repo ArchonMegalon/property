@@ -164,6 +164,13 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
             (
                 ("account_heading", "<h2>Account</h2>" in text or ">Account<" in text),
                 ("account_notifications", "<h2>Notifications</h2>" in text),
+                ("account_notification_form", 'action="/app/api/property/account/notifications"' in text),
+                ("account_notification_email_channel", 'name="notification_channels" value="email"' in text),
+                ("account_notification_telegram_channel", 'name="notification_channels" value="telegram"' in text),
+                ("account_notification_whatsapp_channel", 'name="notification_channels" value="whatsapp"' in text),
+                ("account_notification_primary_route", 'name="preferred_channel"' in text),
+                ("account_notification_whatsapp_phone", 'name="whatsapp_ai_support_phone"' in text),
+                ("account_notification_save_action", "Save notification routing" in visible_text),
                 ("account_paid_plan", f"<h2>{expected_plan_label}</h2>" in text if expected_plan_label else True),
                 ("account_logout_strip", "pqx-account-logout-strip" in text and "Current session" in text),
                 ("account_single_logout", account_logout_count == 1),

@@ -159,6 +159,7 @@ def _authenticated_smoke_payload(
     billing_external: bool = False,
     billing_fail_closed: bool = True,
     local_board_deleted: bool = True,
+    include_notification_checks: bool = True,
 ) -> dict[str, object]:
     billing_checks = [
         {"name": "billing_local_board_deleted", "ok": local_board_deleted, "detail": "" if local_board_deleted else "billing history, compare plans"},
@@ -167,11 +168,27 @@ def _authenticated_smoke_payload(
         billing_checks.append({"name": "billing_external_handoff", "ok": True})
     if billing_fail_closed:
         billing_checks.append({"name": "billing_fail_closed_recovery", "ok": True})
+    notification_checks = [
+        {"name": "account_notifications", "ok": True},
+        {"name": "account_notification_form", "ok": True},
+        {"name": "account_notification_email_channel", "ok": True},
+        {"name": "account_notification_telegram_channel", "ok": True},
+        {"name": "account_notification_whatsapp_channel", "ok": True},
+        {"name": "account_notification_primary_route", "ok": True},
+        {"name": "account_notification_whatsapp_phone", "ok": True},
+        {"name": "account_notification_save_action", "ok": True},
+    ]
     return {
         "status": status,
         "failed_count": failed_count,
         "route_count": 3,
         "checks": [
+            {
+                "path": "/app/account",
+                "status_code": 200,
+                "ok": status == "pass" and failed_count == 0 and include_notification_checks,
+                "checks": notification_checks if include_notification_checks else notification_checks[:2],
+            },
             {
                 "path": "/app/billing",
                 "status_code": 303 if billing_external else 503,
@@ -659,6 +676,51 @@ def test_gold_status_blocks_when_authenticated_billing_surface_exposes_local_boa
     assert receipt["authenticated_customer_surfaces"]["billing_checks_ok"] is False
     assert "billing_external_handoff_or_fail_closed_recovery" in blocker["missing_billing_checks"]
     assert any(row["name"] == "billing_local_board_deleted" for row in blocker["failed_billing_checks"])
+
+
+def test_gold_status_blocks_when_authenticated_notification_surface_loses_routing_form(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    authenticated_smoke = _write_json(
+        tmp_path / "authenticated-smoke.json",
+        _authenticated_smoke_payload(include_notification_checks=False),
+    )
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    billing = _write_json(tmp_path / "billing.json", _billing_payload(host_resolves=True, status="disabled"))
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        authenticated_smoke_receipt_path=authenticated_smoke,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        billing_receipt_path=billing,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "authenticated_customer_surfaces")
+    assert receipt["status"] == "blocked"
+    assert receipt["authenticated_customer_surfaces"]["notification_checks_ok"] is False
+    assert "account_notification_telegram_channel" in blocker["missing_notification_checks"]
+    assert "notification routing form" in blocker["action"]
 
 
 def test_gold_status_blocks_when_receipts_are_stale_even_if_checks_pass(tmp_path: Path) -> None:

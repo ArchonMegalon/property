@@ -53,6 +53,16 @@ REQUIRED_PUBLIC_AUTH_CHECKS = (
 REQUIRED_BILLING_SURFACE_CHECKS = (
     "billing_local_board_deleted",
 )
+REQUIRED_ACCOUNT_NOTIFICATION_CHECKS = (
+    "account_notifications",
+    "account_notification_form",
+    "account_notification_email_channel",
+    "account_notification_telegram_channel",
+    "account_notification_whatsapp_channel",
+    "account_notification_primary_route",
+    "account_notification_whatsapp_phone",
+    "account_notification_save_action",
+)
 COMMON_OPERATOR_DROP_README_TOKENS = (
     ("title", "PropertyQuarry provider export drop folder"),
     ("no_placeholders", "Do not copy placeholder HTML"),
@@ -373,6 +383,19 @@ def _authenticated_billing_surface_checks(authenticated_smoke: dict[str, Any]) -
     return not missing and not failed_checks, missing, failed_checks, str(route_row.get("status_code") or "")
 
 
+def _authenticated_account_notification_checks(authenticated_smoke: dict[str, Any]) -> tuple[bool, list[str], list[dict[str, Any]]]:
+    route_row, passed_checks, failed_checks = _route_named_checks(authenticated_smoke, "/app/account")
+    if not route_row:
+        return False, ["account_route_missing"], []
+    missing = [name for name in REQUIRED_ACCOUNT_NOTIFICATION_CHECKS if name not in passed_checks]
+    notification_failed = [
+        check
+        for check in failed_checks
+        if str(check.get("name") or "").startswith("account_notification") or str(check.get("name") or "") == "account_notifications"
+    ]
+    return not missing and not notification_failed, missing, notification_failed
+
+
 def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
     normalized_route = str(route or "").strip().rstrip("/")
     normalized_prefix = str(required_prefix or "").strip().rstrip("/")
@@ -569,12 +592,14 @@ def build_gold_status_receipt(
         )
     )
     authenticated_billing_ok, missing_authenticated_billing_checks, failed_authenticated_billing_checks, authenticated_billing_status_code = _authenticated_billing_surface_checks(authenticated_smoke)
+    authenticated_notifications_ok, missing_authenticated_notification_checks, failed_authenticated_notification_checks = _authenticated_account_notification_checks(authenticated_smoke)
     authenticated_customer_ok = (
         authenticated_smoke_receipt_path is None
         or (
             authenticated_smoke.get("status") == "pass"
             and int(authenticated_smoke.get("failed_count") or 0) == 0
             and authenticated_billing_ok
+            and authenticated_notifications_ok
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
@@ -677,7 +702,9 @@ def build_gold_status_receipt(
                 "billing_status_code": authenticated_billing_status_code,
                 "missing_billing_checks": missing_authenticated_billing_checks,
                 "failed_billing_checks": failed_authenticated_billing_checks,
-                "action": "run propertyquarry_live_authenticated_smoke.py against the deployed stack and keep /app/billing either redirected to the external account lane or fail-closed without local billing-board copy",
+                "missing_notification_checks": missing_authenticated_notification_checks,
+                "failed_notification_checks": failed_authenticated_notification_checks,
+                "action": "run propertyquarry_live_authenticated_smoke.py against the deployed stack and keep /app/billing either redirected to a resolving external account lane or fail-closed without local billing-board copy, while /app/account keeps the notification routing form usable",
             }
         )
     if missing_provider_modes:
@@ -880,6 +907,9 @@ def build_gold_status_receipt(
             "billing_status_code": authenticated_billing_status_code,
             "missing_billing_checks": missing_authenticated_billing_checks if authenticated_smoke_receipt_path is not None else [],
             "failed_billing_checks": failed_authenticated_billing_checks if authenticated_smoke_receipt_path is not None else [],
+            "notification_checks_ok": authenticated_notifications_ok if authenticated_smoke_receipt_path is not None else None,
+            "missing_notification_checks": missing_authenticated_notification_checks if authenticated_smoke_receipt_path is not None else [],
+            "failed_notification_checks": failed_authenticated_notification_checks if authenticated_smoke_receipt_path is not None else [],
             "receipt_path": str(authenticated_smoke_receipt_path) if authenticated_smoke_receipt_path is not None else "",
         },
         "tour_controls": {
