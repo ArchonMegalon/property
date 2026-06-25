@@ -145,7 +145,16 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
     assert "--tour-root /data/public_property_tours" in release_gate
     assert "property-tour-controls-release-gate-live-container.json" in release_gate
     assert "docker cp \"${property_api_container}:/data/artifacts/property-tour-controls-release-gate-live-container.json\"" in release_gate
+    assert "docker exec \"${property_api_container}\" python /app/scripts/discover_property_tour_exports.py" in release_gate
+    assert "--drop-dir /data/incoming_property_tours" in release_gate
+    assert "--public-tour-dir /data/public_property_tours" in release_gate
+    assert "property-tour-export-discovery-release-gate-live-container.json" in release_gate
+    assert "docker exec --user root \"${property_api_container}\" python /app/scripts/materialize_property_tour_export_manifest.py" in release_gate
+    assert "--incoming-root /data/incoming_property_tours" in release_gate
+    assert "property-tour-export-import-manifest-release-gate-live-container.json" in release_gate
     assert "--drop-dir \"${tour_export_incoming_dir}\"" in release_gate
+    assert "--public-tour-dir \"${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}\"" in release_gate
+    assert "--tour-root \"${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}\"" in release_gate
     assert "--incoming-root \"${tour_export_incoming_dir}\"" in release_gate
     assert "_completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
     assert "--import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json" in release_gate

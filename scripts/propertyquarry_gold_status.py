@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -248,6 +249,22 @@ def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
     return normalized_route == normalized_prefix or normalized_route.startswith(f"{normalized_prefix}/")
 
 
+def _host_readme_path(readme_path_text: str) -> Path:
+    path = Path(readme_path_text)
+    if path.is_file() or not str(path).startswith("/data/incoming_property_tours/"):
+        return path
+    host_incoming_root = Path(
+        os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR")
+        or os.getenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR")
+        or "/docker/property/state/incoming_property_tours"
+    ).expanduser()
+    try:
+        relative = path.relative_to("/data/incoming_property_tours")
+    except ValueError:
+        return path
+    return host_incoming_root / relative
+
+
 def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
     handoff = billing_receipt.get("billing_handoff")
     if not isinstance(handoff, dict):
@@ -260,8 +277,12 @@ def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
     )
 
 
-def _operator_drop_readme_status(import_manifest: dict[str, Any]) -> tuple[bool, int, list[str], list[dict[str, Any]]]:
-    expected_providers = set(PROVIDER_OPERATOR_DROP_README_TOKENS)
+def _operator_drop_readme_status(
+    import_manifest: dict[str, Any],
+    *,
+    expected_providers: set[str] | None = None,
+) -> tuple[bool, int, list[str], list[dict[str, Any]]]:
+    expected_providers = expected_providers or set(PROVIDER_OPERATOR_DROP_README_TOKENS)
     provider_rows = {
         str(row.get("provider") or "").strip().lower(): row
         for row in list(import_manifest.get("prepared_drop_dirs") or [])
@@ -278,7 +299,7 @@ def _operator_drop_readme_status(import_manifest: dict[str, Any]) -> tuple[bool,
         if not readme_path_text:
             failures.append({"provider": provider, "status": "missing_readme_path", "missing_tokens": ["readme_path"]})
             continue
-        readme_path = Path(readme_path_text)
+        readme_path = _host_readme_path(readme_path_text)
         try:
             body = readme_path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -385,18 +406,21 @@ def build_gold_status_receipt(
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
     billing_ok = billing_receipt_path is None or _billing_handoff_ready(billing_receipt)
-    expected_import_providers = {"3dvista", "pano2vr", "krpano", "magicfit"}
     manifest_providers = {
         str(provider or "").strip().lower()
         for provider in list(import_manifest.get("providers") or [])
         if str(provider or "").strip()
     }
+    expected_import_providers = manifest_providers or {"3dvista", "pano2vr", "krpano", "magicfit"}
     prepared_drop_providers = {
         str(row.get("provider") or "").strip().lower()
         for row in list(import_manifest.get("prepared_drop_dirs") or [])
         if isinstance(row, dict)
     }
-    hardened_readmes_ok, hardened_readme_provider_count, missing_hardened_readme_providers, hardened_readme_failures = _operator_drop_readme_status(import_manifest)
+    hardened_readmes_ok, hardened_readme_provider_count, missing_hardened_readme_providers, hardened_readme_failures = _operator_drop_readme_status(
+        import_manifest,
+        expected_providers=expected_import_providers,
+    )
     operator_import_manifest_ready = (
         import_manifest.get("status") == "ready_for_exports"
         and int(import_manifest.get("import_count") or 0) >= len(expected_import_providers)

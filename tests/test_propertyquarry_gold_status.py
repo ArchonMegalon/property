@@ -873,6 +873,68 @@ def test_gold_status_blocks_when_live_mobile_coverage_check_fails(tmp_path: Path
     assert blocker["failed_coverage_checks"] == receipt["live_mobile_surfaces"]["failed_coverage_checks"]
 
 
+def test_gold_status_resolves_container_incoming_readme_paths(monkeypatch, tmp_path: Path) -> None:
+    incoming_root = tmp_path / "incoming"
+    readme = incoming_root / "slug-a" / "3dvista" / "README.propertyquarry-export.txt"
+    readme.parent.mkdir(parents=True)
+    readme.write_text("ok", encoding="utf-8")
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR", str(incoming_root))
+
+    from scripts.propertyquarry_gold_status import _host_readme_path
+
+    assert _host_readme_path("/data/incoming_property_tours/slug-a/3dvista/README.propertyquarry-export.txt") == readme
+
+
+def test_gold_status_requires_operator_readmes_only_for_manifest_providers(tmp_path: Path) -> None:
+    from scripts.propertyquarry_gold_status import _operator_drop_readme_status
+
+    prepared: list[dict[str, str]] = []
+    bodies = {
+        "3dvista": """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example:
+Gold only passes when verify_property_tour_controls reports ready provider modes
+Copy the complete 3DVista export folder
+tdvplayer
+import_3dvista_export.py
+""",
+        "pano2vr": """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example:
+Gold only passes when verify_property_tour_controls reports ready provider modes
+Copy the complete Pano2VR output folder
+tour.js
+import_pano2vr_export.py
+""",
+        "krpano": """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example:
+Gold only passes when verify_property_tour_controls reports ready provider modes
+cube-face-1
+KRPANO_LICENSE_DOMAIN=propertyquarry.com
+import_krpano_walkable_scene.py
+""",
+    }
+    for provider, body in bodies.items():
+        readme = tmp_path / "incoming" / "slug" / provider / "README.propertyquarry-export.txt"
+        readme.parent.mkdir(parents=True)
+        readme.write_text(body, encoding="utf-8")
+        prepared.append({"provider": provider, "readme": str(readme)})
+
+    ok, count, missing, failures = _operator_drop_readme_status(
+        {"providers": ["3dvista", "pano2vr", "krpano"], "prepared_drop_dirs": prepared},
+        expected_providers={"3dvista", "pano2vr", "krpano"},
+    )
+
+    assert ok is True
+    assert count == 3
+    assert missing == []
+    assert failures == []
+
+
 def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_checks(tmp_path: Path) -> None:
     performance = _write_json(
         tmp_path / "performance.json",

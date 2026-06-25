@@ -77,14 +77,30 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     --summary-only
   docker cp "${property_api_container}:/data/artifacts/property-tour-controls-release-gate-live-container.json" \
     _completion/property_tour_controls/release-gate.json
+  docker exec "${property_api_container}" python /app/scripts/discover_property_tour_exports.py \
+    --drop-dir /data/incoming_property_tours \
+    --public-tour-dir /data/public_property_tours \
+    --write /data/artifacts/property-tour-export-discovery-release-gate-live-container.json
+  docker cp "${property_api_container}:/data/artifacts/property-tour-export-discovery-release-gate-live-container.json" \
+    _completion/property_tour_exports/release-gate-discovery.json
+  docker exec --user root "${property_api_container}" python /app/scripts/materialize_property_tour_export_manifest.py \
+    --tour-root /data/public_property_tours \
+    --incoming-root /data/incoming_property_tours \
+    --prepare-dirs \
+    --write /data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json
+  docker cp "${property_api_container}:/data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json" \
+    _completion/property_tour_exports/release-gate-import-manifest.json
+else
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
+    --drop-dir "${tour_export_incoming_dir}" \
+    --public-tour-dir "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
+    --write _completion/property_tour_exports/release-gate-discovery.json
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_property_tour_export_manifest.py \
+    --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
+    --incoming-root "${tour_export_incoming_dir}" \
+    --prepare-dirs \
+    --write _completion/property_tour_exports/release-gate-import-manifest.json
 fi
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
-  --drop-dir "${tour_export_incoming_dir}" \
-  --write _completion/property_tour_exports/release-gate-discovery.json
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_property_tour_export_manifest.py \
-  --incoming-root "${tour_export_incoming_dir}" \
-  --prepare-dirs \
-  --write _completion/property_tour_exports/release-gate-import-manifest.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
