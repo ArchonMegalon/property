@@ -10488,6 +10488,9 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/_property_selected_review_panel.html").read_text(
         encoding="utf-8"
     )
+    workbench = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_decision_workbench.html").read_text(
+        encoding="utf-8"
+    )
 
     assert "{% set review_query_suffix = ('?run_id=' ~ ((run_payload.get('run_id') or '')|urlencode)) if run_payload.get('run_id') else '' %}" in body
     assert "Use this as the short decision read before you contact the agent, request documents, or move on." not in body
@@ -10499,6 +10502,26 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert "No verified 3D tour or playable MagicFit walkthrough is attached yet." in body
     assert "No verified Matterport, 3DVista, Pano2VR, or licensed krpano control is attached yet." in body
     assert "No receipt-backed playable MagicFit walkthrough is attached yet." in body
+    assert ".pqx-mobile-property-panel .pqx-dossier-cover" in workbench
+    assert "max-height: 118px;" in workbench
+    assert ".pqx-mobile-property-panel .pqx-actions" in workbench
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in workbench
+    assert ".pqx-mobile-nav-menu {\n        display: contents;" in workbench
+    assert ".pqx-primary-nav {\n        position: static;" in workbench
+    assert "overflow-x: auto;" in workbench
+
+
+def test_property_research_detail_decision_fits_one_screen_by_default() -> None:
+    body = (Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Save the state now. Tune the reasoning only when it helps the next search." not in body
+    assert "<h3>Shortlist decision</h3>" in body
+    assert "<summary>Next step</summary>" in body
+    assert body.index("<h3>Shortlist decision</h3>") < body.index("<summary>Next step</summary>")
+    assert "max-height: min(420px, calc(100svh - 48px));" in body
+    assert "grid-template-columns: minmax(0, 1fr);" in body
 
 
 def test_propertyquarry_shortlist_panel_builds_cards_and_actions() -> None:

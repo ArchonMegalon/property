@@ -244,19 +244,21 @@
   .prd-decision-layout {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(172px, 0.3fr) minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
     align-items: start;
   }
   .prd-decision-intro {
-    display: grid;
-    gap: 8px;
-    align-content: start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+    justify-content: space-between;
   }
   .prd-decision-intro h2 {
     margin: 0;
     max-width: 680px;
-    font-size: clamp(1.12rem, 1.5vw, 1.45rem);
+    font-size: clamp(1rem, 1.25vw, 1.18rem);
     line-height: 1.08;
     letter-spacing: -0.03em;
   }
@@ -267,7 +269,7 @@
   }
   .prd-decision-form {
     display: grid;
-    grid-template-columns: minmax(220px, 0.9fr) minmax(180px, 0.62fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     align-items: stretch;
     min-width: 0;
@@ -295,7 +297,7 @@
   .prd-decision-savebar {
     grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: minmax(160px, auto) minmax(160px, auto) minmax(0, 1fr);
+    grid-template-columns: minmax(140px, auto) minmax(140px, auto) minmax(0, 1fr);
     gap: 8px;
     align-items: center;
     min-width: 0;
@@ -1406,7 +1408,7 @@
       max-height: min(620px, calc(100svh - 88px));
     }
     .prd-decision-form {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+      grid-template-columns: minmax(0, 1fr);
     }
     .prd-side-stack {
       position: static;
@@ -1561,9 +1563,9 @@
       box-shadow: none;
     }
     .prd-decision-workspace {
-      padding: 12px;
+      padding: 10px;
       border-radius: 14px;
-      max-height: min(480px, calc(100svh - 78px));
+      max-height: min(430px, calc(100svh - 72px));
     }
     .prd-decision-intro .object-copy {
       display: none;
@@ -1572,7 +1574,7 @@
       display: none;
     }
     .prd-decision-intro h2 {
-      font-size: 1.18rem;
+      font-size: 1.04rem;
       line-height: 1.08;
     }
     .prd-decision-workspace .object-feedback-row,
@@ -1592,7 +1594,7 @@
       white-space: normal;
     }
     .prd-decision-workspace textarea {
-      min-height: 62px;
+      min-height: 52px;
     }
     .prd-decision-savebar {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1965,7 +1967,7 @@
       box-shadow: none;
     }
     .prd-decision-workspace {
-      max-height: min(390px, calc(100svh - 54px));
+      max-height: min(420px, calc(100svh - 48px));
       padding: 8px;
       border-radius: 12px;
     }
@@ -1975,11 +1977,8 @@
     .prd-feedback-body {
       gap: 6px;
     }
-    .prd-decision-intro {
-      display: block;
-    }
     .prd-decision-intro h2 {
-      font-size: 1rem;
+      font-size: 0.98rem;
       line-height: 1.05;
     }
     .prd-decision-card {
@@ -2655,7 +2654,6 @@
           <div>
             <div class="prd-kicker">Decision</div>
             <h2>Next move</h2>
-            <p class="object-copy">Save the state now. Tune the reasoning only when it helps the next search.</p>
           </div>
           {% if research_decision_rows %}
           <details class="prd-feedback-details prd-decision-context">
@@ -2694,17 +2692,7 @@
         </div>
         <div class="prd-decision-form">
       <section class="prd-decision-card">
-      <h3>Next action</h3>
-      <div class="object-actions">
-        <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
-        <button class="console-action" type="button" data-object-decision-state="documents_requested">Request missing documents</button>
-        <button class="console-action" type="button" data-object-decision-state="offer_candidate">Offer candidate</button>
-        <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
-      </div>
-      <p class="object-copy" data-object-decision-state-status></p>
-      </section>
-      <section class="prd-decision-card">
-      <h3>Shortlist</h3>
+      <h3>Shortlist decision</h3>
       <div class="object-feedback-row" aria-label="Property feedback reaction">
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
@@ -2712,6 +2700,23 @@
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
       </div>
       </section>
+      <div class="prd-decision-savebar">
+        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
+        <a class="console-action" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Open active search</a>
+        <p class="object-copy" data-object-feedback-status></p>
+      </div>
+      <details class="prd-feedback-details">
+      <summary>Next step</summary>
+      <div class="prd-feedback-body">
+      <div class="object-actions">
+        <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
+        <button class="console-action" type="button" data-object-decision-state="documents_requested">Request documents</button>
+        <button class="console-action" type="button" data-object-decision-state="offer_candidate">Offer candidate</button>
+        <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
+      </div>
+      <p class="object-copy" data-object-decision-state-status></p>
+      </div>
+      </details>
       <section class="prd-decision-card prd-decision-note">
       <details class="prd-feedback-details">
       <summary>Add an optional note</summary>
@@ -2720,11 +2725,6 @@
       </div>
       </details>
       </section>
-      <div class="prd-decision-savebar">
-        <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
-        <a class="console-action" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Open active search</a>
-        <p class="object-copy" data-object-feedback-status></p>
-      </div>
       <details class="prd-feedback-details">
       <summary>Fine-tune my preferences</summary>
       <div class="prd-feedback-body">

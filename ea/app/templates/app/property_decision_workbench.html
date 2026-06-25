@@ -6536,63 +6536,41 @@
         backdrop-filter: blur(18px);
       }
       .pqx-mobile-nav-menu {
-        position: relative;
+        display: contents;
         grid-area: nav;
-        display: block;
       }
       .pqx-mobile-nav-menu > summary {
-        min-height: 44px;
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        padding: 0 12px;
-        border: 1px solid color-mix(in srgb, var(--pq-line) 88%, transparent);
-        border-radius: 999px;
-        background: rgba(255, 252, 245, 0.88);
-        color: var(--pq-ink);
-        font-size: 12px;
-        font-weight: 760;
-        list-style: none;
-        cursor: pointer;
-        touch-action: manipulation;
+        display: none;
       }
       .pqx-mobile-nav-menu > summary::-webkit-details-marker {
         display: none;
       }
-      .pqx-mobile-nav-menu > summary::after {
-        content: "Menu";
-        color: var(--pq-muted);
-        font-size: 11px;
-        font-weight: 720;
-      }
       .pqx-primary-nav {
-        position: fixed;
-        left: 8px;
-        right: 8px;
-        top: calc(58px + env(safe-area-inset-top, 0px));
+        position: static;
         z-index: 80;
-        display: none;
-        width: auto;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        padding: 10px;
-        overflow: visible;
-        border: 1px solid color-mix(in srgb, var(--pq-line) 90%, transparent);
-        border-radius: 18px;
-        background: color-mix(in srgb, var(--pq-paper) 96%, white);
-        box-shadow: 0 18px 48px rgba(41, 37, 30, 0.16);
+        display: flex;
+        width: 100%;
+        max-width: 100%;
+        gap: 4px;
+        padding: 0 2px 2px;
+        overflow-x: auto;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        scrollbar-width: none;
       }
-      .pqx-mobile-nav-menu[open] .pqx-primary-nav {
-        display: grid;
+      .pqx-primary-nav::-webkit-scrollbar {
+        display: none;
       }
       .pqx-primary-nav :is(a, span) {
-        width: 100%;
-        min-height: 48px;
+        width: auto;
+        min-height: 38px;
         justify-content: center;
-        padding: 0 12px;
-        border-radius: 14px;
+        padding: 0 11px;
+        border-radius: 999px;
         background: rgba(255, 255, 255, 0.54);
-        font-size: 12px;
+        font-size: 0.72rem;
       }
       .pqx-brand {
         gap: 8px;
@@ -7625,15 +7603,62 @@
       .pqx-dossier {
         padding: 10px;
       }
+      .pqx-mobile-property-panel {
+        gap: 6px;
+      }
+      .pqx-mobile-property-panel .pqx-dossier {
+        gap: 7px;
+        padding: 8px;
+      }
+      .pqx-mobile-property-panel .pqx-dossier-cover {
+        aspect-ratio: 16 / 5.5;
+        max-height: 118px;
+        border-radius: 10px;
+      }
+      .pqx-mobile-property-panel .pqx-dossier-head {
+        gap: 6px;
+      }
+      .pqx-mobile-property-panel .pqx-dossier-title h1 {
+        display: -webkit-box;
+        margin: 0;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        font-size: 1.02rem;
+        line-height: 1.08;
+      }
+      .pqx-mobile-property-panel .pqx-dossier-title span,
+      .pqx-mobile-property-panel [data-pw-ooda-summary] {
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        font-size: 0.78rem;
+        line-height: 1.25;
+      }
       .pqx-dossier-summary {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .pqx-mobile-property-panel .pqx-dossier-summary {
+        gap: 5px;
+      }
+      .pqx-mobile-property-panel .pqx-dossier-summary .pqx-result-fact {
+        min-height: 26px;
+        padding: 4px 7px;
+        font-size: 11px;
+        line-height: 1.15;
       }
       .pqx-form-footer,
       .pqx-actions,
       .pqx-context-actions {
         align-items: stretch;
         flex-direction: column;
+      }
+      .pqx-mobile-property-panel .pqx-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
       }
       .pqx-button,
       .pqx-link-button {
