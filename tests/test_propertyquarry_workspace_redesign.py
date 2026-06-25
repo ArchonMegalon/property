@@ -7048,7 +7048,9 @@ def test_property_packets_dashboard_keeps_mobile_shell_compact() -> None:
 
     assert mobile_start > 0
     mobile_block = body[mobile_start:body.find("</style>", mobile_start)]
-    assert "grid-template-columns: minmax(0, 1fr) auto;" in mobile_block
+    assert "grid-template-columns: minmax(0, 1fr) 40px;" in mobile_block
+    assert "grid-row: 1;" in mobile_block
+    assert "grid-row: 2;" in mobile_block
     assert ".pq-pack-nav {" in mobile_block
     assert "overflow-x: auto;" in mobile_block
     assert ".pq-pack-actions > .pq-pack-button { display: none; }" in mobile_block

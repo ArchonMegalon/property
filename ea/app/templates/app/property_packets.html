@@ -341,11 +341,13 @@
     @media (max-width: 760px) {
       .pq-pack-shell { padding: 10px 10px calc(74px + env(safe-area-inset-bottom, 0px)); }
       .pq-pack-topbar {
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr) 40px;
         gap: 8px;
         margin-bottom: 10px;
       }
       .pq-pack-brand {
+        grid-column: 1;
+        grid-row: 1;
         min-width: 0;
         gap: 8px;
       }
@@ -362,6 +364,7 @@
       .pq-pack-brand span span { display: none; }
       .pq-pack-nav {
         grid-column: 1 / -1;
+        grid-row: 2;
         flex-wrap: nowrap;
         gap: 6px;
         justify-content: flex-start;
@@ -378,6 +381,8 @@
         font-size: 12px;
       }
       .pq-pack-actions {
+        grid-column: 2;
+        grid-row: 1;
         width: auto;
         flex-wrap: nowrap;
         justify-content: flex-end;
