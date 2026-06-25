@@ -1310,7 +1310,7 @@ def property_workspace_payload(
             rows.append(
                 {
                     "title": str(cluster.get("theme") or "feedback").replace("_", " ").title(),
-                    "detail": str(cluster.get("summary") or "No detail yet.").strip(),
+                    "detail": str(cluster.get("summary") or "Feedback summary is waiting for a recorded reason.").strip(),
                     "tag": str(cluster.get("severity") or "Risk").replace("_", " ").title(),
                 }
             )
@@ -1402,7 +1402,7 @@ def property_workspace_payload(
         rows = [
             {
                 "title": str(row.get("stakeholder_label") or "Stakeholder").strip(),
-                "detail": str(row.get("reason") or "No detail yet.").strip(),
+                "detail": str(row.get("reason") or "Household reason is waiting for a recorded decision.").strip(),
                 "tag": str(row.get("decision") or "maybe").replace("_", " ").title(),
             }
             for row in list(household.get("stakeholders") or [])[:4]

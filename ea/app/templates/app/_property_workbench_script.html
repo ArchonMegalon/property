@@ -2355,7 +2355,7 @@
           try {
             response = await fetch(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
             body = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
+            if (!response.ok) throw new Error(String(body.detail || 'Search status is still updating.'));
             failedPolls = 0;
           } catch (err) {
             failedPolls += 1;

@@ -3705,7 +3705,7 @@ def property_research_packet(
     objection_clusters = [
         _object_detail_row(
             str(cluster.get("theme") or "feedback").replace("_", " ").title(),
-            str(cluster.get("summary") or "No detail yet.").strip(),
+            str(cluster.get("summary") or "Feedback summary is waiting for a recorded reason.").strip(),
             str(cluster.get("severity") or "medium").strip().title(),
         )
         for cluster in list(feedback_summary.get("clusters") or [])[:4]
@@ -3723,7 +3723,7 @@ def property_research_packet(
     household_rows = [
         _object_detail_row(
             str(row.get("stakeholder_label") or "Stakeholder").strip(),
-            str(row.get("reason") or "No detail yet.").strip(),
+            str(row.get("reason") or "Household reason is waiting for a recorded decision.").strip(),
             str(row.get("decision") or "maybe").replace("_", " ").title(),
         )
         for row in list(household_review.get("stakeholders") or [])[:4]

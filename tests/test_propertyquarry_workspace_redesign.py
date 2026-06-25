@@ -9534,6 +9534,8 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     script_body = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
     workbench_body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
+    workspace_payload = (repo_root / "ea/app/api/routes/landing_property_workspace_payload.py").read_text(encoding="utf-8")
+    legacy_landing = (repo_root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
 
     assert "Price not published" not in running_body
     assert "Still being verified" not in running_body
@@ -9541,6 +9543,8 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     assert "Still being verified" not in script_body
     assert "Still verifying" not in workbench_body
     assert "No detail yet." not in workbench_body
+    assert "No detail yet." not in workspace_payload
+    assert "No detail yet." not in legacy_landing
     assert "{% if live_preview_price %}" in workbench_body
     assert "Search is still running." in workbench_body
     assert "provisional_price_display" in running_body

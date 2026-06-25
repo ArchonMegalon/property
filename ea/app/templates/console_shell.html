@@ -1996,7 +1996,7 @@
     const events = Array.isArray(payload.events) ? payload.events : [];
     eventsNode.innerHTML = events.slice(-5).reverse().map((event) => {
       const step = String(event.step || 'update').replaceAll('_', ' ');
-      const detail = String(event.message || '').trim() || 'No detail';
+      const detail = String(event.message || '').trim() || 'Search is still running.';
       const tag = String(event.status || 'queued').replaceAll('_', ' ');
       return `<div class="console-row"><div><strong>${step}</strong><small>${detail}</small></div><span class="console-tag">${tag}</span></div>`;
     }).join('');
@@ -2062,13 +2062,12 @@
         const messageNode = form.querySelector('[data-property-run-message]');
         const eventsNode = form.querySelector('[data-property-run-events]');
         if (panel) panel.hidden = false;
-        if (statusNode) statusNode.textContent = 'Status: refresh retrying';
+        if (statusNode) statusNode.textContent = 'Status: retrying quietly';
         if (messageNode) {
-          const detail = String(body.detail || 'Could not load property search status.').trim();
-          messageNode.textContent = `${detail} Retrying quietly (${failedRefreshCount}).`;
+          messageNode.textContent = `Still checking the run. Retrying quietly (${failedRefreshCount}).`;
         }
         if (eventsNode) {
-          eventsNode.innerHTML = `<div class="console-row"><div><strong>Status refresh</strong><small>${escapeHtml(String(body.detail || 'Could not load property search status.'))}</small></div><span class="console-tag">Retrying</span></div>`;
+          eventsNode.innerHTML = `<div class="console-row"><div><strong>Still checking</strong><small>The page will update when the run status is reachable again.</small></div><span class="console-tag">Retrying</span></div>`;
         }
         const retryDelayMs = Math.min(10000, 1500 + failedRefreshCount * 750);
         await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));

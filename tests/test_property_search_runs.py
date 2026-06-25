@@ -11725,10 +11725,16 @@ def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
 
 def test_property_search_status_polling_retries_refresh_failures() -> None:
     source = Path("ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+    workbench_source = Path("ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
 
     assert "let failedRefreshCount = 0;" in source
-    assert "Status: refresh retrying" in source
+    assert "Status: retrying quietly" in source
     assert "Retrying quietly" in source
+    assert "Still checking the run." in source
+    assert "Status refresh" not in source
+    assert "Could not load property search status." not in source
+    assert "Could not load property search status." not in workbench_source
+    assert "Search status is still updating." in workbench_source
     assert "throw new Error(String(body.detail || 'Could not load property search status.'));" not in source
 
 
