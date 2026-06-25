@@ -225,6 +225,7 @@ The candidate at `5d0284f` passed:
 - MagicFit walkthrough proof is now stricter than container-signature presence. The importer and hosted tour verifier use `ffprobe` when available to require a decodable video stream with positive duration; signature-only `ftyp` stubs are rejected. Focused importer/verifier tests returned `16 passed` with a generated real MP4 fixture and explicit placeholder/stub rejection.
 - Rybbit app analytics privacy is now part of the authenticated runtime smoke across 14 app routes. The gate requires no Rybbit identify calls, only approved app taxonomy events, only approved Rybbit data attributes, and no candidate/run/listing/saved-search/principal/email/phone tokens in serialized Rybbit attributes.
 - Mobile What Matters hardening now proves the reported Playground `Nice to have` interaction in a 390px phone viewport: the distance combobox becomes enabled, remains a full-width 44px tap target, stays inside the viewport, and is not hidden behind a bottom mobile overlay. Focused static and Playwright checks returned `2 passed`.
+- Visual self-healing now clears stale `tour_*_repair_*` / `flythrough_*_repair_*` markers when a terminal visual-status resolution is persisted, so blocked/skipped media no longer carries old repair-running metadata. Focused visual-status repair tests returned `5 passed`.
 
 Observed route timings after the latest deploy:
 

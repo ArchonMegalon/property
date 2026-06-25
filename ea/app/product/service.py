@@ -31438,6 +31438,8 @@ class ProductService:
                 f"{state_prefix}_eta_minutes": "",
                 f"{state_prefix}_progress_pct": "0",
                 f"{state_prefix}_status_updated_at": terminal_updated_at,
+                f"{state_prefix}_repair_queued_at": "",
+                f"{state_prefix}_repair_started_at": "",
             }
             if normalized_kind == "flythrough":
                 visual_state["flythrough_reason"] = reason

@@ -14288,6 +14288,96 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
     assert persisted_visual_states[-1]["flythrough_progress_pct"] == "0"
 
 
+def test_property_visual_status_terminal_resolution_clears_stale_repair_markers(monkeypatch) -> None:
+    principal_id = "property-visual-status-clear-repair"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    stale_candidate = {
+        "title": "Terminal repair candidate",
+        "property_url": "https://immobilien.derstandard.at/detail/15180116",
+        "source_ref": "property-scout:immobilien.derstandard.at:15180116",
+        "tour_status": "repairing",
+        "tour_url": "",
+        "tour_repair_queued_at": "2026-06-23T19:30:00+00:00",
+        "tour_repair_started_at": "2026-06-23T19:31:00+00:00",
+    }
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-42"
+        assert principal_id == "property-visual-status-clear-repair"
+        return {
+            "run_id": run_id,
+            "updated_at": "2026-06-23T19:33:14+00:00",
+            "summary": {
+                "ranked_candidates": [dict(stale_candidate)],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+    persisted_visual_states: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: persisted_visual_states.append(dict(kwargs.get("visual_state") or {})),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, **kwargs: HumanTask(
+            human_task_id="human-task-clear-repair",
+            session_id="session-clear-repair",
+            step_id=None,
+            principal_id=principal_id,
+            task_type="property_tour_followup",
+            role_required="operator",
+            brief="Terminal repair candidate",
+            authority_required="",
+            why_human="",
+            quality_rubric_json={},
+            input_json={},
+            desired_output_json={},
+            priority="high",
+            sla_due_at=None,
+            status="returned",
+            assignment_state="assigned",
+            assigned_operator_id="operator-office",
+            assignment_source="",
+            assigned_at="2026-06-23T19:35:00+00:00",
+            assigned_by_actor_id="test",
+            resolution="blocked",
+            resume_session_on_return=False,
+            returned_payload_json={
+                "blocked_reason": "crezlo_property_tour_not_configured",
+            },
+            provenance_json={"source": "test"},
+            created_at="2026-06-23T19:34:00+00:00",
+            updated_at="2026-06-23T19:35:00+00:00",
+        ),
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="property-scout:immobilien.derstandard.at:15180116",
+        candidate_ref="candidate-42",
+        property_url="https://immobilien.derstandard.at/detail/15180116",
+    )
+
+    assert response["status"] == "blocked"
+    assert response["status_label"] == "3D tour unavailable"
+    assert persisted_visual_states
+    terminal_state = persisted_visual_states[-1]
+    assert terminal_state["tour_status"] == "blocked"
+    assert terminal_state["tour_eta_minutes"] == ""
+    assert terminal_state["tour_progress_pct"] == "0"
+    assert terminal_state["tour_repair_queued_at"] == ""
+    assert terminal_state["tour_repair_started_at"] == ""
+
+
 def test_property_visual_eta_uses_rendering_transition_time(monkeypatch) -> None:
     monkeypatch.setattr(
         product_service,
