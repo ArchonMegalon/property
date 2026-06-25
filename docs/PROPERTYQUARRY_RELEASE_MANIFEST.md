@@ -13,13 +13,25 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `daa98fe3e1d5261d01895a33c9526122b8c6cc9e` |
+| Runtime commit SHA | `30cfeeafde281869ea97557abc35f3417943172a` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `30cfeea` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'billing_surface or static_surfaces_do_not_inline or active_workspace_nav_item or static_property_surfaces_skip_full_fleet_digest or account_surfaces_use_persisted_property_plan'`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_authenticated_performance_smoke.py -k 'receipt_passes or script_emits_receipt'`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_product_api_contracts.py -k 'property_billing_surface_is_not_local_payment_state'`
+- Signed-in account/settings payload copy now avoids `Open pricing` and `Compare plans`; `/app/billing` contracts accept only an external Brilliant Directories handoff or a small fail-closed recovery page.
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
+- Current gold status remains `blocked`; verified 3DVista, Pano2VR, and krpano tour evidence/export drops are still missing, and `billing.propertyquarry.com` still must resolve before the Brilliant Directories account lane can be proven live.
 
 The candidate at `daa98fe` passed:
 
