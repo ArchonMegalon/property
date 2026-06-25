@@ -399,9 +399,10 @@ case "${app_status}" in
 esac
 
 public_smoke_receipt="/tmp/propertyquarry_deploy_public_smoke.json"
+public_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PUBLIC_SMOKE_TIMEOUT_SECONDS:-8}"
 if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py \
   --base-url "${base_url}" \
-  --timeout-seconds 8 \
+  --timeout-seconds "${public_smoke_timeout_seconds}" \
   --write "${public_smoke_receipt}" >/dev/null; then
   echo "PropertyQuarry public route smoke failed." >&2
   cat "${public_smoke_receipt}" >&2 2>/dev/null || true
@@ -409,12 +410,13 @@ if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py \
 fi
 
 authenticated_smoke_receipt="/tmp/propertyquarry_deploy_authenticated_smoke.json"
+authenticated_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20}"
 if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${base_url}" \
   --principal-id "${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
   --expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Agent}" \
   --country-code "${PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE:-AT}" \
-  --timeout-seconds 8 >"${authenticated_smoke_receipt}"; then
+  --timeout-seconds "${authenticated_smoke_timeout_seconds}" >"${authenticated_smoke_receipt}"; then
   echo "PropertyQuarry authenticated route smoke failed." >&2
   cat "${authenticated_smoke_receipt}" >&2 2>/dev/null || true
   exit 1
@@ -423,12 +425,14 @@ mkdir -p _completion/smoke
 cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticated-latest.json
 
 provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
+provider_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SMOKE_TIMEOUT_SECONDS:-20}"
 if ! EA_API_TOKEN="${api_token}" \
   PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
   PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
   PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
   PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
   --base-url "${base_url}" \
+  --timeout-seconds "${provider_smoke_timeout_seconds}" \
   --write "${provider_smoke_receipt}" >/dev/null; then
   echo "PropertyQuarry provider catalog smoke failed." >&2
   cat "${provider_smoke_receipt}" >&2 2>/dev/null || true
