@@ -438,5 +438,6 @@ if ! EA_API_TOKEN="${api_token}" \
   cat "${provider_smoke_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
+cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-latest.json
 
 echo "ok: PropertyQuarry deployed at ${base_url}"
