@@ -7794,9 +7794,9 @@
               {% if not account_surface %}
               <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Connections</a>
               {% endif %}
-              <form class="pqx-account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
+              <form class="is-secondary pqx-account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
                 <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
-                <button class="pqx-button subtle" type="submit">Log out</button>
+                <button class="pqx-button subtle" type="submit">Log <span>out</span></button>
               </form>
             </div>
           </div>
