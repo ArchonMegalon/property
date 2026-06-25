@@ -7991,6 +7991,41 @@ def test_property_search_run_dispatch_only_returns_queued_without_snapshot(monke
     assert observed["selected_platforms"] == ("willhaben",)
 
 
+def test_property_search_run_dispatch_probe_ack_only_does_not_start_worker(monkeypatch) -> None:
+    principal_id = "exec-property-search-run-dispatch-probe"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Dispatch Probe Office")
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(self, **kwargs):  # type: ignore[no-untyped-def]
+        observed["called"] = True
+        return {"generated_at": product_service._now_iso(), "status": "processed", "sources": []}
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post(
+        "/app/api/property/search-runs",
+        json={
+            "selected_platforms": ["willhaben"],
+            "property_preferences": {"country_code": "AT", "location_query": "1010 Vienna"},
+            "dispatch_only": True,
+        },
+        headers={"X-PropertyQuarry-Dispatch-Probe": "1"},
+    )
+
+    assert started.status_code == 200, started.text
+    body = started.json()
+    assert body["run_id"]
+    assert body["status"] == "queued"
+    assert body["summary"]["dispatch_only"] is True
+    assert body["summary"]["dispatch_probe_ack_only"] is True
+    assert body["summary"]["worker_started"] is False
+    assert body["summary"]["worker_deferred"] is False
+    assert body["summary"]["worker_start_mode"] == "probe_ack_only"
+    time.sleep(0.1)
+    assert observed == {}
+
+
 def test_property_search_run_worker_preserves_provider_repair_receipts_before_terminal(monkeypatch) -> None:
     principal_id = "exec-property-search-run-repair-before-terminal"
     client = build_property_client(principal_id=principal_id)

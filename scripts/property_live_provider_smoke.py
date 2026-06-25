@@ -205,6 +205,7 @@ def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeo
             "Content-Type": "application/json",
             "Host": "propertyquarry.com",
             "X-EA-Principal-ID": principal_id,
+            "X-PropertyQuarry-Dispatch-Probe": "1",
             **(
                 {
                     "Authorization": f"Bearer {api_token}",

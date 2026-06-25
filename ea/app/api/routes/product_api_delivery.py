@@ -248,6 +248,7 @@ def _property_search_payload_with_status_url(payload: dict[str, object], *, cano
 def _start_property_search_run_payload(
     *,
     body: PropertySearchRunStartIn,
+    request: Request,
     container: AppContainer,
     context: RequestContext,
 ) -> dict[str, object]:
@@ -268,6 +269,11 @@ def _start_property_search_run_payload(
         force_refresh=bool(body.force_refresh),
         max_results_per_source=body.max_results_per_source,
         dispatch_only=bool(body.dispatch_only),
+        dispatch_probe_ack_only=(
+            bool(body.dispatch_only)
+            and str(request.headers.get("X-PropertyQuarry-Dispatch-Probe") or "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        ),
     )
 
 
@@ -966,6 +972,7 @@ def start_property_search_run(
     try:
         payload = _start_property_search_run_payload(
             body=body,
+            request=request,
             container=container,
             context=context,
         )
@@ -986,6 +993,7 @@ def start_property_search_run_v2(
     try:
         payload = _start_property_search_run_payload(
             body=body,
+            request=request,
             container=container,
             context=context,
         )

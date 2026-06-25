@@ -31790,6 +31790,7 @@ class ProductService:
         force_refresh: bool = False,
         max_results_per_source: int | None = None,
         dispatch_only: bool = False,
+        dispatch_probe_ack_only: bool = False,
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
@@ -32087,14 +32088,18 @@ class ProductService:
                 _worker()
 
         if dispatch_only:
-            deferred_worker = threading.Timer(0.05, _bounded_worker)
-            deferred_worker.daemon = True
-            deferred_worker.start()
+            if not dispatch_probe_ack_only:
+                deferred_worker = threading.Timer(0.05, _bounded_worker)
+                deferred_worker.daemon = True
+                deferred_worker.start()
             queued_state = dict(persisted_state)
             queued_summary = dict(queued_state.get("summary") or {})
             queued_summary["dispatch_only"] = True
-            queued_summary["worker_started"] = True
-            queued_summary["worker_deferred"] = True
+            queued_summary["worker_started"] = not dispatch_probe_ack_only
+            queued_summary["worker_deferred"] = not dispatch_probe_ack_only
+            if dispatch_probe_ack_only:
+                queued_summary["dispatch_probe_ack_only"] = True
+                queued_summary["worker_start_mode"] = "probe_ack_only"
             queued_summary["worker_concurrency_limit"] = _property_search_run_worker_concurrency()
             queued_state["summary"] = queued_summary
             queued_state["message"] = str(queued_state.get("message") or "Search run queued.")
