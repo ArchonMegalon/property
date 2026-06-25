@@ -52,8 +52,9 @@
             {% set provisional_price_text = provisional.get('price_display') or provisional.get('costs_display') or provisional.get('rent_display') or provisional_facts.get('price_display') or provisional_facts.get('rent_display') or provisional_facts.get('price') or provisional_facts.get('rent') or '' %}
             {% set provisional_price_numeric = provisional.get('price_eur') or provisional.get('purchase_price_eur') or provisional.get('buy_price_eur') or provisional.get('rent_eur') or provisional.get('total_rent_eur') or provisional.get('monthly_rent_eur') or provisional_facts.get('price_eur') or provisional_facts.get('purchase_price_eur') or provisional_facts.get('buy_price_eur') or provisional_facts.get('rent_eur') or provisional_facts.get('total_rent_eur') or provisional_facts.get('monthly_rent_eur') %}
             {% set provisional_price_currency = provisional.get('currency_code') or provisional_facts.get('currency_code') or ('EUR' if provisional_price_numeric else '') %}
-            <div><strong>Price</strong><small>{{ provisional_price_text or ((provisional_price_currency ~ ' ' ~ '{:,.0f}'.format(provisional_price_numeric|float)) if provisional_price_numeric else 'Price not published') }}</small></div>
-            <div><strong>Layout</strong><small>{{ provisional.get('layout_display') or 'Still being verified' }}</small></div>
+            {% set provisional_price_display = provisional_price_text or ((provisional_price_currency ~ ' ' ~ '{:,.0f}'.format(provisional_price_numeric|float)) if provisional_price_numeric else '') %}
+            {% if provisional_price_display %}<div><strong>Price</strong><small>{{ provisional_price_display }}</small></div>{% endif %}
+            {% if provisional.get('layout_display') %}<div><strong>Layout</strong><small>{{ provisional.get('layout_display') }}</small></div>{% endif %}
             <div><strong>Area</strong><small>{{ provisional_location }}</small></div>
           </div>
         </div>

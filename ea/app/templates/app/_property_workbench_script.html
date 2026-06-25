@@ -2189,10 +2189,9 @@
         ? `${String(candidate?.currency_code || facts?.currency_code || 'EUR').trim() || 'EUR'} ${Math.round(derivedPrice).toLocaleString('en-US')}`
         : String(derivedPrice || '').trim()
           || priceSummaryFromText(candidate?.summary)
-          || priceSummaryFromText(candidate?.title)
-          || 'Price not published';
+          || priceSummaryFromText(candidate?.title);
       const fitScore = Number(candidate?.fit_score || candidate?.ranking_score || 0);
-      const layout = String(candidate?.layout_display || '').trim() || 'Still being verified';
+      const layout = String(candidate?.layout_display || '').trim();
       const location = String(candidate?.location_label || candidate?.source_label || '').trim() || 'Source match';
       const reason = String(candidate?.fit_summary || candidate?.compare_reason || candidate?.summary || '').trim() || 'Top-ranked home in the current run.';
       const href = String(candidate?.packet_url || candidate?.property_url || '').trim();
@@ -2203,6 +2202,11 @@
             ? `<a class="pqx-link-button primary" href="${escapeHtml(href)}">Open property</a>`
             : `<a class="pqx-link-button primary" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">Open listing</a>`)
         : '';
+      const factsRow = [
+        price ? `<div><strong>Price</strong><small>${escapeHtml(price)}</small></div>` : '',
+        layout ? `<div><strong>Layout</strong><small>${escapeHtml(layout)}</small></div>` : '',
+        `<div><strong>Area</strong><small>${escapeHtml(location)}</small></div>`,
+      ].filter(Boolean).join('');
       return `
         <section class="pqx-card" style="margin-top:14px;">
           <div class="pqx-section-head">
@@ -2220,9 +2224,7 @@
               </div>
             </div>
             <div class="pqx-pref-row">
-              <div><strong>Price</strong><small>${escapeHtml(price)}</small></div>
-              <div><strong>Layout</strong><small>${escapeHtml(layout)}</small></div>
-              <div><strong>Area</strong><small>${escapeHtml(location)}</small></div>
+              ${factsRow}
             </div>
           </div>
           ${action ? `<div class="pqx-actions">${action}</div>` : ''}

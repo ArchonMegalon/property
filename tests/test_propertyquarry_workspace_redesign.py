@@ -9517,6 +9517,26 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "lanes in progress" not in body
 
 
+def test_property_current_best_omits_unknown_fact_placeholders() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    running_body = (repo_root / "ea/app/templates/app/_property_running_panel.html").read_text(encoding="utf-8")
+    script_body = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
+
+    assert "Price not published" not in running_body
+    assert "Still being verified" not in running_body
+    assert "Price not published" not in script_body
+    assert "Still being verified" not in script_body
+    assert "provisional_price_display" in running_body
+    assert "{% if provisional_price_display %}<div><strong>Price</strong>" in running_body
+    assert "{% if provisional.get('layout_display') %}<div><strong>Layout</strong>" in running_body
+    assert "const factsRow = [" in script_body
+    assert "price ? `<div><strong>Price</strong>" in script_body
+    assert "layout ? `<div><strong>Layout</strong>" in script_body
+    assert "<div class=\"prd-kicker\">Listing facts</div>" in research_detail
+    assert "Listing evidence" not in research_detail
+
+
 def test_propertyquarry_user_facing_copy_avoids_hosted_review_jargon() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     checked_paths = [
