@@ -168,6 +168,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py" in dockerfile
     assert "COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py" in dockerfile
     assert "COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py" in dockerfile
+    assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
     assert "COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py" in dockerfile
     assert "COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py" in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
@@ -188,6 +189,8 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "render_onemin_property_i2v_segment.py",
         "import_3dvista_export.py",
         "import_pano2vr_export.py",
+        "import_property_tour_exports.py",
+        "materialize_property_tour_export_manifest.py",
         "import_magicfit_walkthrough.py",
         "verify_property_tour_controls.py",
     ]
