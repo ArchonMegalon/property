@@ -80,6 +80,36 @@ def test_property_tour_control_verifier_accepts_private_receipt_3dvista_without_
     assert "PRIVATE3D" not in json.dumps(receipt)
 
 
+def test_property_tour_control_verifier_accepts_private_receipt_pano2vr_without_path_leak(tmp_path: Path) -> None:
+    _write_tour(
+        tmp_path,
+        "private-pano2vr",
+        {},
+        {"pano2vr/private-entry.html": "<!doctype html><script src='tour.js'></script><div>Pano2VR</div>"},
+    )
+    private_receipt = tmp_path / "private-pano2vr" / "tour.private.json"
+    private_receipt.write_text(
+        json.dumps(
+            {
+                "pano2vr_entry_relpath": "pano2vr/private-entry.html",
+                "listing_url": "https://private.example.test/pano2vr-source",
+                "source_ref": "PRIVATEPANO2VR",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "pass"
+    assert receipt["provider_counts"]["pano2vr"] == 1
+    assert receipt["ready_provider_modes"] == ["pano2vr"]
+    serialized = json.dumps(receipt)
+    assert "PRIVATEPANO2VR" not in serialized
+    assert "private.example.test" not in serialized
+    assert "private-entry" not in serialized
+
+
 def test_property_tour_control_verifier_summary_omits_tour_rows(tmp_path: Path) -> None:
     _write_tour(tmp_path, "matterport-tour", {"matterport_url": "https://my.matterport.com/show/?m=SUMMARY123"})
 

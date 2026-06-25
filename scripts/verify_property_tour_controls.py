@@ -201,6 +201,10 @@ def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
         return {}
     allowed_keys = {
         "crezlo_public_url",
+        "pano2vr_entry_relpath",
+        "pano2vr_export_entry_relpath",
+        "pano2vr_export_root_relpath",
+        "pano2vr_root_relpath",
         "source_virtual_tour_url",
         "source_virtual_tour_origin",
         "three_d_vista_url",
