@@ -354,6 +354,17 @@ def build_gold_status_receipt(
     )
 
     missing_provider_modes = _missing_provider_modes(tour_controls)
+    magicfit_playback = dict(tour_controls.get("magicfit_playback") or {})
+    magicfit_ready = "magicfit" in {
+        str(provider or "").strip().lower()
+        for provider in list(tour_controls.get("ready_provider_modes") or [])
+        if str(provider or "").strip()
+    }
+    magicfit_playback_ok = (
+        not magicfit_ready
+        or not magicfit_playback
+        or magicfit_playback.get("playback_ok") is True
+    )
     provider_matrix_summary = dict(provider_matrix.get("targeted_search_matrix_summary") or {})
     provider_matrix_case_count = int(provider_matrix_summary.get("case_count") or provider_matrix_summary.get("executed_case_count") or 0)
     provider_matrix_passed_case_count = int(provider_matrix_summary.get("passed_case_count") or 0)
@@ -409,7 +420,7 @@ def build_gold_status_receipt(
             and not failed_live_mobile_coverage_checks
         )
     )
-    tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
+    tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
     billing_ok = billing_receipt_path is None or _billing_handoff_ready(billing_receipt)
     manifest_providers = {
@@ -487,6 +498,16 @@ def build_gold_status_receipt(
                 "area": "verified_tour_provider_modes",
                 "missing_provider_modes": missing_provider_modes,
                 "action": _tour_provider_evidence_action(missing_provider_modes),
+            }
+        )
+    if not magicfit_playback_ok:
+        blockers.append(
+            {
+                "area": "magicfit_walkthrough_playback",
+                "status": "failed",
+                "playable_count": magicfit_playback.get("playable_count"),
+                "ready_count": magicfit_playback.get("ready_count"),
+                "action": "rerun verify_property_tour_controls.py and keep MagicFit ready only when every ready MagicFit control has local playable or live-probed video evidence",
             }
         )
     if not export_discovery_ok:
@@ -645,6 +666,8 @@ def build_gold_status_receipt(
         "tour_controls": {
             "status": tour_controls.get("status"),
             "provider_counts": tour_controls.get("provider_counts"),
+            "magicfit_playback": magicfit_playback,
+            "magicfit_playback_ok": magicfit_playback_ok,
             "ready_provider_modes": tour_controls.get("ready_provider_modes"),
             "missing_provider_modes": missing_provider_modes,
             "receipt_path": str(tour_control_receipt_path),

@@ -589,6 +589,8 @@ def build_property_tour_control_receipt(
     tours: list[dict[str, object]] = []
     provider_counts = {provider: 0 for provider in PROVIDER_MODES}
     action_counts = {provider: 0 for provider in PROVIDER_MODES}
+    magicfit_playback_evidence_count = 0
+    magicfit_playback_evidence: list[dict[str, object]] = []
     failed_probes = 0
     for manifest_path in manifests:
         bundle_dir = manifest_path.parent.resolve()
@@ -626,6 +628,18 @@ def build_property_tour_control_receipt(
                     control["evidence"] = "live_probed_magicfit_video_url"
             if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
                 provider_counts[provider] += 1
+                if provider == "magicfit" and str(control.get("evidence") or "").strip() in {
+                    "local_magicfit_playable_video",
+                    "live_probed_magicfit_video_url",
+                }:
+                    magicfit_playback_evidence_count += 1
+                    magicfit_playback_evidence.append(
+                        {
+                            "slug": slug,
+                            "evidence": str(control.get("evidence") or "").strip(),
+                            "control_path": str(control.get("control_path") or "").strip(),
+                        }
+                    )
         ready_control_providers = {
             str(control.get("provider") or "").strip().lower()
             for control in controls
@@ -684,6 +698,12 @@ def build_property_tour_control_receipt(
         "tour_count": len(manifests),
         "ready_tour_count": sum(1 for tour in tours if tour.get("status") == "ready"),
         "provider_counts": provider_counts,
+        "magicfit_playback": {
+            "playback_ok": provider_counts.get("magicfit", 0) == 0 or magicfit_playback_evidence_count == provider_counts.get("magicfit", 0),
+            "playable_count": magicfit_playback_evidence_count,
+            "ready_count": provider_counts.get("magicfit", 0),
+            "evidence": magicfit_playback_evidence[:12],
+        },
         "ready_provider_modes": ready_provider_modes,
         "required_provider_modes": list(PROVIDER_MODES),
         "missing_provider_modes": missing_provider_modes,

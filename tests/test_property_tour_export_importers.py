@@ -591,6 +591,9 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
 
     receipt = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
     assert receipt["provider_counts"]["magicfit"] == 1
+    assert receipt["magicfit_playback"]["playback_ok"] is True
+    assert receipt["magicfit_playback"]["playable_count"] == 1
+    assert receipt["magicfit_playback"]["ready_count"] == 1
     assert receipt["ready_provider_modes"] == ["magicfit"]
     assert receipt["tours"][0]["controls"][0]["evidence"] == "local_magicfit_playable_video"
 

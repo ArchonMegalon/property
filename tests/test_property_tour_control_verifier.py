@@ -455,6 +455,9 @@ def test_property_tour_control_verifier_counts_remote_magicfit_after_successful_
 
     assert receipt["status"] == "pass"
     assert receipt["provider_counts"]["magicfit"] == 1
+    assert receipt["magicfit_playback"]["playback_ok"] is True
+    assert receipt["magicfit_playback"]["playable_count"] == 1
+    assert receipt["magicfit_playback"]["ready_count"] == 1
     assert receipt["ready_provider_modes"] == ["magicfit"]
     assert seen_urls == ["https://propertyquarry.com/tours/files/remote-magicfit-ready/walkthrough.mp4"]
     control = receipt["tours"][0]["controls"][0]
