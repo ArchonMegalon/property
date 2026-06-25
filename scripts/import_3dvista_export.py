@@ -8,6 +8,9 @@ import shutil
 from pathlib import Path
 
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
+_TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
+_MAX_MARKER_SCAN_BYTES = 1_000_000
+_MAX_MARKER_SCAN_FILES = 240
 
 
 def _public_tour_dir() -> Path:
@@ -42,12 +45,32 @@ def _find_entry(export_dir: Path, explicit_entry: str = "") -> Path:
     return matches[0].resolve()
 
 
-def _entry_has_3dvista_markers(entry: Path) -> bool:
+def _text_asset_has_markers(path: Path, markers: tuple[str, ...]) -> bool:
+    if path.suffix.lower() not in _TEXT_RUNTIME_SUFFIXES:
+        return False
     try:
-        body = entry.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
+        if path.stat().st_size > _MAX_MARKER_SCAN_BYTES:
+            return False
+        body = path.read_text(encoding="utf-8", errors="replace").lower()
     except OSError:
         return False
-    return any(marker in body for marker in _3DVISTA_EXPORT_MARKERS)
+    return any(marker in body for marker in markers)
+
+
+def _entry_has_3dvista_markers(export_dir: Path, entry: Path) -> bool:
+    export_root = export_dir.resolve()
+    candidates = [entry.resolve()]
+    for candidate in sorted(export_root.rglob("*")):
+        if len(candidates) >= _MAX_MARKER_SCAN_FILES:
+            break
+        if candidate.is_file() and candidate.suffix.lower() in _TEXT_RUNTIME_SUFFIXES and candidate.resolve() not in candidates:
+            candidates.append(candidate.resolve())
+    for candidate in candidates:
+        if export_root not in candidate.parents and candidate != export_root:
+            continue
+        if _text_asset_has_markers(candidate, _3DVISTA_EXPORT_MARKERS):
+            return True
+    return False
 
 
 def _copy_export(export_dir: Path, target_dir: Path) -> None:
@@ -78,7 +101,7 @@ def main() -> int:
     if not export_dir.is_dir():
         raise SystemExit("3dvista_export_dir_missing")
     entry = _find_entry(export_dir, args.entry)
-    if not _entry_has_3dvista_markers(entry):
+    if not _entry_has_3dvista_markers(export_dir, entry):
         raise SystemExit("3dvista_export_entry_unverified")
 
     bundle_dir = _public_tour_dir() / slug

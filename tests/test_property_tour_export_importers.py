@@ -100,10 +100,11 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     verified_export = tmp_path / "verified_3dvista"
     verified_export.mkdir()
     (verified_export / "index.html").write_text(
-        "<!doctype html><script src='tdvplayer.js'></script><div>3DVista tourviewer</div>",
+        "<!doctype html><script src='runtime/app.js'></script><div>3DVista export shell</div>",
         encoding="utf-8",
     )
-    (verified_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (verified_export / "runtime").mkdir()
+    (verified_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
 
     imported = _run_importer(
         "import_3dvista_export.py",
@@ -121,7 +122,7 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert manifest["control_mode"] == "3dvista"
     assert manifest["viewer_provider"] == "3dvista_vt_pro"
     assert manifest["three_d_vista_entry_relpath"] == "3dvista/index.html"
-    assert (bundle_dir / "3dvista" / "tdvplayer.js").exists()
+    assert (bundle_dir / "3dvista" / "runtime" / "app.js").exists()
 
 
 def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(tmp_path: Path) -> None:
@@ -149,10 +150,11 @@ def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(
     verified_export = tmp_path / "verified_pano2vr"
     verified_export.mkdir()
     (verified_export / "index.html").write_text(
-        "<!doctype html><script src='tour.js'></script><div>Pano2VR</div>",
+        "<!doctype html><script src='assets/viewer.js'></script><div>Pano2VR export shell</div>",
         encoding="utf-8",
     )
-    (verified_export / "tour.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    (verified_export / "assets").mkdir()
+    (verified_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
 
     imported = _run_importer(
         "import_pano2vr_export.py",
@@ -170,7 +172,7 @@ def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(
     assert manifest["control_mode"] == "pano2vr"
     assert manifest["viewer_provider"] == "pano2vr"
     assert manifest["pano2vr_entry_relpath"] == "pano2vr/index.html"
-    assert (bundle_dir / "pano2vr" / "tour.js").exists()
+    assert (bundle_dir / "pano2vr" / "assets" / "viewer.js").exists()
 
 
 def test_krpano_importer_requires_real_equirectangular_panorama(tmp_path: Path, monkeypatch) -> None:
@@ -256,17 +258,19 @@ def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_ex
     vista_export = tmp_path / "batch_vista_export"
     vista_export.mkdir()
     (vista_export / "index.html").write_text(
-        "<!doctype html><script src='tdvplayer.js'></script><div>3DVista tourviewer</div>",
+        "<!doctype html><script src='runtime/app.js'></script><div>3DVista export shell</div>",
         encoding="utf-8",
     )
-    (vista_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (vista_export / "runtime").mkdir()
+    (vista_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
     pano_export = tmp_path / "batch_pano_export"
     pano_export.mkdir()
     (pano_export / "index.html").write_text(
-        "<!doctype html><script src='tour.js'></script><div>Pano2VR</div>",
+        "<!doctype html><script src='assets/viewer.js'></script><div>Pano2VR export shell</div>",
         encoding="utf-8",
     )
-    (pano_export / "tour.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    (pano_export / "assets").mkdir()
+    (pano_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
     manifest_path = tmp_path / "tour-imports.json"
     receipt_path = tmp_path / "tour-import-receipt.json"
     manifest_path.write_text(
@@ -609,15 +613,19 @@ def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path
     vista_export = drop_dir / "discover-3dvista" / "3dvista"
     vista_export.mkdir(parents=True)
     (vista_export / "index.html").write_text(
-        "<!doctype html><script src='tdvplayer.js'></script><div>tourviewer</div>",
+        "<!doctype html><script src='runtime/app.js'></script><div>3DVista export shell</div>",
         encoding="utf-8",
     )
+    (vista_export / "runtime").mkdir()
+    (vista_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
     pano_export = drop_dir / "pano2vr" / "discover-pano2vr"
     pano_export.mkdir(parents=True)
     (pano_export / "index.html").write_text(
-        "<!doctype html><script src='tour.js'></script><div>ggskin</div>",
+        "<!doctype html><script src='assets/viewer.js'></script><div>Pano2VR export shell</div>",
         encoding="utf-8",
     )
+    (pano_export / "assets").mkdir()
+    (pano_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
     receipt_path = tmp_path / "discovery.json"
     manifest_path = tmp_path / "imports.json"
 

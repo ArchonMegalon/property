@@ -219,13 +219,19 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
         tmp_path,
         "3dvista-tour",
         {"three_d_vista_entry_relpath": "3dvista/index.html"},
-        {"3dvista/index.html": "<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>"},
+        {
+            "3dvista/index.html": "<html><script src='runtime/app.js'></script><div>3DVista shell</div></html>",
+            "3dvista/runtime/app.js": "window.TDVPlayer = true;",
+        },
     )
     _write_tour(
         tmp_path,
         "pano2vr-tour",
         {"pano2vr_entry_relpath": "pano/index.html"},
-        {"pano/index.html": "<html><script src='tour.js'></script></html>"},
+        {
+            "pano/index.html": "<html><script src='assets/viewer.js'></script></html>",
+            "pano/assets/viewer.js": "window.GGSKIN = true;",
+        },
     )
     panorama = tmp_path / "verified-panorama.jpg"
     _write_equirectangular_image(panorama)

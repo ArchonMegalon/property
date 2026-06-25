@@ -15,6 +15,9 @@ MARKERS_BY_PROVIDER = {
     "pano2vr": ("ggpkg", "ggskin", "pano.xml", "tour.js"),
 }
 ENTRY_NAMES = ("index.html", "index.htm", "tour.html", "virtualtour.html", "output/index.html")
+TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
+MAX_MARKER_SCAN_BYTES = 1_000_000
+MAX_MARKER_SCAN_FILES = 240
 
 
 def _default_drop_dir() -> Path:
@@ -50,6 +53,35 @@ def _entry_candidates(export_dir: Path) -> Iterable[Path]:
     yield from sorted(export_dir.rglob("*.htm"))
 
 
+def _text_asset_has_markers(path: Path, markers: tuple[str, ...]) -> bool:
+    if path.suffix.lower() not in TEXT_RUNTIME_SUFFIXES:
+        return False
+    try:
+        if path.stat().st_size > MAX_MARKER_SCAN_BYTES:
+            return False
+        body = path.read_text(encoding="utf-8", errors="replace").lower()
+    except OSError:
+        return False
+    return any(marker in body for marker in markers)
+
+
+def _export_has_provider_markers(export_dir: Path, entry: Path, markers: tuple[str, ...]) -> bool:
+    export_root = export_dir.resolve()
+    candidates = [entry.resolve()]
+    for candidate in sorted(export_root.rglob("*")):
+        if len(candidates) >= MAX_MARKER_SCAN_FILES:
+            break
+        resolved = candidate.resolve()
+        if candidate.is_file() and candidate.suffix.lower() in TEXT_RUNTIME_SUFFIXES and resolved not in candidates:
+            candidates.append(resolved)
+    for candidate in candidates:
+        if export_root not in candidate.parents and candidate != export_root:
+            continue
+        if _text_asset_has_markers(candidate, markers):
+            return True
+    return False
+
+
 def _verified_entry(export_dir: Path, provider: str) -> tuple[Path | None, str]:
     markers = MARKERS_BY_PROVIDER[provider]
     seen: set[Path] = set()
@@ -60,11 +92,7 @@ def _verified_entry(export_dir: Path, provider: str) -> tuple[Path | None, str]:
         seen.add(resolved)
         if export_dir.resolve() not in resolved.parents:
             continue
-        try:
-            body = resolved.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
-        except OSError:
-            continue
-        if any(marker in body for marker in markers):
+        if _export_has_provider_markers(export_dir, resolved, markers):
             return resolved, resolved.relative_to(export_dir.resolve()).as_posix()
     return None, ""
 
@@ -129,7 +157,7 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
         "import_manifest": {"imports": imports},
         "notes": [
             "This discovery step does not publish tours. It only emits rows accepted by the hardened import_property_tour_exports.py importer.",
-            "3DVista and Pano2VR placeholders are rejected unless the entry HTML contains provider runtime markers.",
+            "3DVista and Pano2VR placeholders are rejected unless the entry or bundled local runtime files contain provider markers.",
         ],
     }
 

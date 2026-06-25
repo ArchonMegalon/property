@@ -18,6 +18,9 @@ from typing import Iterable
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
 PUBLIC_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
+MAX_MARKER_SCAN_BYTES = 1_000_000
+MAX_MARKER_SCAN_FILES = 240
 KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 
@@ -227,16 +230,38 @@ def _ffprobe_video_markers(target: str | Path) -> dict[str, object]:
 def _local_html_asset_has_marker(bundle_dir: Path, relpath: str, *, markers: Iterable[str]) -> bool:
     if not relpath:
         return False
-    candidate = (bundle_dir / relpath).resolve()
-    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+    bundle_root = bundle_dir.resolve()
+    entry = (bundle_dir / relpath).resolve()
+    if bundle_root not in entry.parents or not entry.is_file():
         return False
     if PurePosixPath(relpath).suffix.lower() not in {".html", ".htm"}:
         return False
-    try:
-        body = candidate.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
-    except OSError:
+    normalized_markers = tuple(str(marker or "").strip().lower() for marker in markers if str(marker or "").strip())
+    if not normalized_markers:
         return False
-    return any(str(marker or "").strip().lower() in body for marker in markers if str(marker or "").strip())
+    scan_root = entry.parent
+    candidates = [entry]
+    for candidate in sorted(scan_root.rglob("*")):
+        if len(candidates) >= MAX_MARKER_SCAN_FILES:
+            break
+        resolved = candidate.resolve()
+        if (
+            candidate.is_file()
+            and candidate.suffix.lower() in TEXT_RUNTIME_SUFFIXES
+            and bundle_root in resolved.parents
+            and resolved not in candidates
+        ):
+            candidates.append(resolved)
+    for candidate in candidates:
+        try:
+            if candidate.stat().st_size > MAX_MARKER_SCAN_BYTES:
+                continue
+            body = candidate.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            continue
+        if any(marker in body for marker in normalized_markers):
+            return True
+    return False
 
 
 def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
