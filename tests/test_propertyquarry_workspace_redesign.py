@@ -6563,8 +6563,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Gross yield" in packet.text
     assert "Expected monthly rent" in packet.text
     assert "Compare" not in packet.text
+    assert "prd-compare" not in packet.text
     assert "Decision support" not in packet.text
     assert "The next-best properties from this run" not in packet.text
+    assert "Other ranked homes from this run" not in packet.text
+    assert "Ranking from this run" in packet.text
+    assert 'data-research-ranking-list' in packet.text
     assert "Family flat near Tiergarten" in packet.text
     assert "Listing" in packet.text
     assert "Review page" not in packet.text
