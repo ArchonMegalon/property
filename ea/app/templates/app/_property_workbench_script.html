@@ -1386,6 +1386,7 @@
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
       }).join('') || '<div class="pqx-empty">Waiting for the first search update.</div>';
     };
+    const pollRetryEvents = () => [];
     const shouldPreserveRenderedRunEvents = (eventsNode, events) => {
       if (!eventsNode) return false;
       const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;
@@ -2336,7 +2337,7 @@
               status: 'in_progress',
               progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
               message: failedPolls >= 3 ? message : 'Checking run status...',
-              events: [{ step: 'status_refresh', message, status: 'retrying' }],
+              events: pollRetryEvents(),
             });
             await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));
             continue;

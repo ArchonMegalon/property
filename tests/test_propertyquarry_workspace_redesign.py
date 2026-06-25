@@ -11079,6 +11079,7 @@ def test_propertyquarry_run_script_preserves_non_empty_trail_from_omitted_or_emp
     assert "const hasRealEvents = rawRows.some((event) => {" in bundle
     assert "step !== 'status_refresh' && !message.includes('could not load property search status')" in bundle
     assert "const shouldPreserveRenderedRunEvents = (eventsNode, events) => {" in bundle
+    assert "const pollRetryEvents = () => [];" in bundle
     assert "const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;" in bundle
     assert "if (!hasRenderedEvents) return false;" in bundle
     assert "renderedText.includes('could not load property search status')" in bundle
@@ -11087,6 +11088,7 @@ def test_propertyquarry_run_script_preserves_non_empty_trail_from_omitted_or_emp
     assert "return events.length === 0;" in bundle
     assert "if (eventsNode && !shouldPreserveRenderedRunEvents(eventsNode, runPayload.events)) {" in bundle
     assert "eventsNode.innerHTML = renderRunEvents(runPayload.events);" in bundle
+    assert "events: pollRetryEvents()," in bundle
 
 
 def test_propertyquarry_run_script_prefers_concrete_provider_labels_for_grouped_sources() -> None:
