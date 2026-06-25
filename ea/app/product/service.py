@@ -32410,6 +32410,28 @@ class ProductService:
                     return True
             return False
 
+        def _replacement_parent_refs_from_payload(payload: dict[str, object]) -> tuple[str, ...]:
+            payload_summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+            refs: list[str] = []
+            for value in (
+                payload.get("repair_parent_run_id"),
+                payload_summary.get("repair_parent_run_id"),
+            ):
+                if str(value or "").strip():
+                    refs.append(str(value or "").strip())
+            for value in list(payload.get("repair_parent_run_ids") or []) + list(payload_summary.get("repair_parent_run_ids") or []):
+                if str(value or "").strip():
+                    refs.append(str(value or "").strip())
+            return tuple(dict.fromkeys(refs))
+
+        def _has_stale_replacement_execution(payload: dict[str, object]) -> bool:
+            status = str(payload.get("status") or dict(payload.get("summary") or {}).get("status") or "").strip().lower()
+            if not status or status in _PROPERTY_SEARCH_TERMINAL_STATUSES or status == "initialization_required":
+                return False
+            if not _replacement_parent_refs_from_payload(payload):
+                return False
+            return _property_search_replacement_run_is_stale(dict(payload))
+
         if lightweight:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
             if isinstance(compact_snapshot, dict) and compact_snapshot:
@@ -32421,7 +32443,7 @@ class ProductService:
                 )
                 summary = self._apply_property_search_run_repair_receipts(summary=summary)
                 compact_snapshot["summary"] = summary
-                if _has_pending_worker_exception_repair(summary):
+                if _has_pending_worker_exception_repair(summary) or _has_stale_replacement_execution(compact_snapshot):
                     full_snapshot = self.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=run_id,
@@ -32459,6 +32481,25 @@ class ProductService:
             selected_platforms=snapshot.get("selected_platforms") or [],
         )
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
+        replacement_parent_refs = _replacement_parent_refs_from_payload(snapshot)
+        if replacement_parent_refs and _has_stale_replacement_execution(snapshot):
+            pickup = self._pick_up_property_search_run_execution(
+                record=dict(snapshot),
+                actor="property_search_status_recovery",
+                reason="replacement_run_stale",
+                parent_run_ids=replacement_parent_refs,
+            )
+            if str(pickup.get("status") or "").strip() == "started":
+                refreshed = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+                if isinstance(refreshed, dict) and refreshed:
+                    snapshot = refreshed
+                    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+                    summary, sources = _normalize_run_summary_counts(
+                        payload=snapshot,
+                        summary=summary,
+                        selected_platforms=snapshot.get("selected_platforms") or [],
+                    )
+                    status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if _has_pending_worker_exception_repair(summary):
             try:
                 repair_summary = self.process_property_provider_repair_tasks(
