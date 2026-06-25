@@ -13,13 +13,24 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `8f4f1493177881074d1b9f6b8f270f47cddec584` |
+| Runtime commit SHA | `b041caadecfd97e890df3dd57c0d95d1f29c0e18` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `b041caa` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_live_authenticated_smoke.py tests/test_property_live_public_smoke.py`
+- `python3 -m py_compile scripts/propertyquarry_live_authenticated_smoke.py scripts/propertyquarry_live_public_smoke.py`
+- `PYTHONPATH=ea python3 scripts/check_property_surface_accessibility.py`
+- `make deploy`
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
+- `PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py --base-url http://127.0.0.1:8097 --write _completion/smoke/property-live-public-latest.json` returned `status=pass`, `failed_count=0`, and `route_count=22`; the `/sign-in` row now proves `sign_in_provider_creates_account`, `sign_in_no_unavailable_auth_copy`, provider button state, and provider opening feedback.
+- Authenticated live smoke was not run in this shell because `EA_API_TOKEN` was not set; the authenticated smoke unit suite covers the same sign-in account-creation and unavailable-copy regressions.
+- Current gold status remains `blocked`; verified 3DVista, Pano2VR, and krpano tour evidence/export drops are still missing, and `billing.propertyquarry.com` still must resolve before the Brilliant Directories account lane can be proven live.
 
 The candidate at `8f4f149` passed:
 
