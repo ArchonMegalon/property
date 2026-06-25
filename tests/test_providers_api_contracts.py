@@ -4528,6 +4528,39 @@ def test_browser_google_callback_redirects_back_to_setup_when_state_expired(monk
     assert "google_error=google_oauth_state_expired" in callback.headers["location"]
 
 
+def test_browser_google_callback_restarts_sign_in_for_stale_redirect_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    from app.services import google_oauth as google_service
+
+    owner = _client(principal_id="exec-browser-stale-redirect")
+    state = google_service._encode_signed_state(
+        {
+            "browser_source": "sign_in",
+            "issued_at": int(google_service.time.time()),
+            "nonce": "stale-redirect",
+            "principal_id": "",
+            "redirect_uri": "https://old.propertyquarry.example/google/callback",
+            "return_to": "/sign-in?google_connected=1",
+            "scope_bundle": "identity",
+        },
+        secret="google-state-secret",
+    )
+
+    callback = owner.get(
+        "/google/callback",
+        params={"code": "code-from-stale-flow", "state": state},
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/sign-in/google?restart=stale_redirect"
+
+
 def test_browser_google_callback_renders_error_page_for_google_error_params(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")

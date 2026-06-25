@@ -105,6 +105,19 @@ def _google_post_connect_sync(
     }
 
 
+def _google_stale_redirect_retry(state_payload: dict[str, object]) -> RedirectResponse | None:
+    browser_source = str(state_payload.get("browser_source") or "").strip()
+    if browser_source == "sign_in":
+        return RedirectResponse("/sign-in/google?restart=stale_redirect", status_code=303)
+    if browser_source == "settings_google":
+        return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="/app/settings/google")
+        return RedirectResponse(
+            "/app/actions/google/connect?" + urllib.parse.urlencode({"return_to": return_to}),
+            status_code=303,
+        )
+    return None
+
+
 def _google_sync_detail(sync_result: dict[str, object]) -> str:
     status = str(sync_result.get("status") or "").strip().lower()
     if status == "identity_only":
@@ -573,6 +586,10 @@ def google_oauth_browser_callback(
         account = complete_google_oauth_callback(container=container, code=code, state=state)
     except RuntimeError as exc:
         detail = str(exc or "google_oauth_callback_failed")
+        if detail == "google_oauth_redirect_uri_invalid":
+            retry_response = _google_stale_redirect_retry(state_payload)
+            if retry_response is not None:
+                return retry_response
         if detail == "google_oauth_state_expired" and str(state or "").strip():
             try:
                 expired_state = read_google_oauth_state_unchecked(state)
