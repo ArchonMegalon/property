@@ -233,6 +233,18 @@ def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
     return normalized_route == normalized_prefix or normalized_route.startswith(f"{normalized_prefix}/")
 
 
+def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
+    handoff = billing_receipt.get("billing_handoff")
+    if not isinstance(handoff, dict):
+        return False
+    return (
+        bool(handoff.get("configured"))
+        and bool(handoff.get("host_resolves"))
+        and str(handoff.get("url") or "").strip().startswith("https://")
+        and str(billing_receipt.get("status") or "").strip() != "blocked"
+    )
+
+
 def _operator_drop_readme_status(import_manifest: dict[str, Any]) -> tuple[bool, int, list[str], list[dict[str, Any]]]:
     expected_providers = set(PROVIDER_OPERATOR_DROP_README_TOKENS)
     provider_rows = {
@@ -278,6 +290,7 @@ def build_gold_status_receipt(
     import_manifest_receipt_path: Path | None = None,
     repair_canary_receipt_path: Path,
     provider_matrix_receipt_path: Path,
+    billing_receipt_path: Path | None = None,
     live_mobile_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     now: datetime | None = None,
@@ -287,6 +300,7 @@ def build_gold_status_receipt(
     tour_controls = _load_json(tour_control_receipt_path)
     export_discovery = _load_json(export_discovery_receipt_path)
     import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
+    billing_receipt = _load_json(billing_receipt_path) if billing_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
@@ -294,6 +308,7 @@ def build_gold_status_receipt(
             "performance": performance,
             "tour_controls": tour_controls,
             "export_discovery": export_discovery,
+            **({"billing_handoff": billing_receipt} if billing_receipt_path is not None else {}),
             "repair_canary": repair_canary,
             "provider_matrix": provider_matrix,
             **({"live_mobile_surfaces": live_mobile} if live_mobile_receipt_path is not None else {}),
@@ -352,6 +367,7 @@ def build_gold_status_receipt(
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
+    billing_ok = billing_receipt_path is None or _billing_handoff_ready(billing_receipt)
     expected_import_providers = {"3dvista", "pano2vr", "krpano", "magicfit"}
     manifest_providers = {
         str(provider or "").strip().lower()
@@ -429,6 +445,18 @@ def build_gold_status_receipt(
                 "area": "tour_export_drop",
                 "status": export_discovery.get("status") or "unknown",
                 "action": "place verified 3DVista/Pano2VR exports in the configured drop directory and rerun discovery/import",
+            }
+        )
+    if not billing_ok:
+        billing_handoff = billing_receipt.get("billing_handoff") if isinstance(billing_receipt.get("billing_handoff"), dict) else {}
+        blockers.append(
+            {
+                "area": "billing_handoff",
+                "status": billing_receipt.get("status") or "missing",
+                "error": billing_receipt.get("error") or "",
+                "host": str(billing_handoff.get("host") or ""),
+                "host_resolves": bool(billing_handoff.get("host_resolves")),
+                "action": "configure the white-label Brilliant Directories billing host so /app/billing redirects to a resolving external account lane",
             }
         )
     if import_manifest_receipt_path is not None and import_manifest.get("status") == "ready_for_exports" and not hardened_readmes_ok:
@@ -532,6 +560,7 @@ def build_gold_status_receipt(
             and tour_controls_ok
             and export_discovery_ok
             and operator_import_manifest_ok
+            and billing_ok
             and repair_canary_ok
             and provider_matrix_ok
             and receipt_freshness_ok
@@ -592,6 +621,15 @@ def build_gold_status_receipt(
             "receipt_path": str(import_manifest_receipt_path) if import_manifest_receipt_path is not None else "",
             "note": "Prepared operator drop lanes are progress only; gold still requires real imported assets and verified playable controls.",
         },
+        "billing_handoff": {
+            "status": billing_receipt.get("status") or ("not_configured" if billing_receipt_path is None else "missing"),
+            "error": billing_receipt.get("error") or "",
+            "configured": bool((billing_receipt.get("billing_handoff") or {}).get("configured")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
+            "host": str((billing_receipt.get("billing_handoff") or {}).get("host") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
+            "host_resolves": bool((billing_receipt.get("billing_handoff") or {}).get("host_resolves")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
+            "ready": billing_ok,
+            "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",
+        },
         "self_healing": {
             "status": repair_canary.get("status"),
             "run_status": repair_canary.get("run_status"),
@@ -637,6 +675,7 @@ def main() -> int:
     parser.add_argument("--tour-control-receipt", default="_completion/tours/property-tour-controls-live-container-current.json")
     parser.add_argument("--export-discovery-receipt", default="_completion/tours/property-tour-export-discovery-full-current.json")
     parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
+    parser.add_argument("--billing-receipt", default="_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json")
     parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
     parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-current-resumed.json")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
@@ -650,6 +689,7 @@ def main() -> int:
         tour_control_receipt_path=Path(args.tour_control_receipt),
         export_discovery_receipt_path=Path(args.export_discovery_receipt),
         import_manifest_receipt_path=Path(args.import_manifest_receipt),
+        billing_receipt_path=Path(args.billing_receipt),
         repair_canary_receipt_path=Path(args.repair_canary_receipt),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt),
         max_receipt_age_hours=args.max_receipt_age_hours,
