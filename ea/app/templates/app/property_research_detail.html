@@ -1332,28 +1332,23 @@
       gap: 6px;
     }
     .prd-summary-box {
-      padding: 8px;
+      padding: 11px 12px;
+      border-radius: 16px;
     }
     .prd-summary-box span {
-      margin-bottom: 4px;
-      font-size: 10px;
+      margin-bottom: 5px;
+      font-size: 10.5px;
       letter-spacing: 0.04em;
     }
     .prd-summary-box strong {
-      font-size: 0.9rem;
+      font-size: 1rem;
       line-height: 1.18;
     }
     .prd-summary-grid {
-      display: flex;
-      gap: 6px;
-      overflow-x: auto;
-      overscroll-behavior-x: contain;
-      scroll-snap-type: x proximity;
-      scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
-    }
-    .prd-summary-grid::-webkit-scrollbar {
-      display: none;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
+      overflow: visible;
     }
     .prd-summary-box p,
     .prd-key-point span,
@@ -1438,8 +1433,9 @@
       justify-content: center;
     }
     .prd-visual-console {
-      gap: 8px;
-      padding: 10px;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 18px;
       order: 2;
     }
     .prd-visual-grid {
@@ -1447,8 +1443,9 @@
       gap: 8px;
     }
     .prd-visual-card {
-      padding: 10px;
-      gap: 8px;
+      padding: 12px;
+      gap: 9px;
+      border-radius: 16px;
     }
     .prd-visual-toolbar {
       align-items: stretch;
@@ -1456,7 +1453,9 @@
     }
     .prd-visual-card-copy,
     .prd-visual-heading .prd-copy {
-      display: none;
+      display: block;
+      font-size: 12px;
+      line-height: 1.34;
     }
     .prd-status-badge {
       min-height: 24px;
@@ -1513,9 +1512,7 @@
       -webkit-overflow-scrolling: touch;
     }
     .prd-current-read .prd-summary-box {
-      flex: 0 0 min(126px, 40vw);
-      scroll-snap-align: start;
-      min-height: 58px;
+      min-height: 72px;
     }
     .prd-side-stack .object-feedback::-webkit-scrollbar {
       width: 0;

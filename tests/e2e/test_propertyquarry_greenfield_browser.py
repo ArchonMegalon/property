@@ -2828,6 +2828,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const actions = document.querySelector('.prd-actions');
               const headline = document.querySelector('.prd-headline');
               const visualConsole = document.querySelector('.prd-visual-console');
+              const summaryGrid = document.querySelector('.prd-current-read .prd-summary-grid');
               const summaryBoxes = Array.from(document.querySelectorAll('.prd-current-read .prd-summary-box'));
               const shell = document.querySelector('[data-property-research-detail]');
               const feedback = document.querySelector('[data-object-feedback]');
@@ -2836,6 +2837,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const mediaRect = media ? media.getBoundingClientRect() : null;
               const headlineRect = headline ? headline.getBoundingClientRect() : null;
               const visualConsoleRect = visualConsole ? visualConsole.getBoundingClientRect() : null;
+              const summaryGridStyle = summaryGrid ? getComputedStyle(summaryGrid) : null;
+              const summaryBoxRects = summaryBoxes.map((card) => card.getBoundingClientRect());
               const actionsStyle = actions ? getComputedStyle(actions) : null;
               const shellRect = shell ? shell.getBoundingClientRect() : null;
               const feedbackRect = feedback ? feedback.getBoundingClientRect() : null;
@@ -2852,8 +2855,14 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 visualConsoleTop: visualConsoleRect ? Math.round(visualConsoleRect.top) : 0,
                 actionsDisplay: actionsStyle ? actionsStyle.display : '',
                 actionsColumns: actionsStyle ? actionsStyle.gridTemplateColumns : '',
+                summaryDisplay: summaryGridStyle ? summaryGridStyle.display : '',
+                summaryColumns: summaryGridStyle ? summaryGridStyle.gridTemplateColumns.split(' ').filter(Boolean).length : 0,
+                summaryScrollWidth: summaryGrid ? summaryGrid.scrollWidth : 0,
+                summaryClientWidth: summaryGrid ? summaryGrid.clientWidth : 0,
                 summaryBoxCount: summaryBoxes.length,
-                summaryTallestCard: Math.max(0, ...summaryBoxes.map((card) => Math.round(card.getBoundingClientRect().height))),
+                summaryShortestCard: Math.min(...summaryBoxRects.map((rect) => Math.round(rect.height))),
+                summaryTallestCard: Math.max(0, ...summaryBoxRects.map((rect) => Math.round(rect.height))),
+                summaryMaxRight: Math.max(0, ...summaryBoxRects.map((rect) => Math.round(rect.right))),
                 feedbackHeight: feedbackRect ? Math.round(feedbackRect.height) : 0,
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
                 feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
@@ -2869,8 +2878,13 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert 0 < layout["headlineTop"] < layout["visualConsoleTop"]
         assert layout["actionsDisplay"] == "grid"
         assert "px" in layout["actionsColumns"]
+        assert layout["summaryDisplay"] == "grid"
+        assert layout["summaryColumns"] == 1
+        assert layout["summaryScrollWidth"] <= layout["summaryClientWidth"] + 1
         assert layout["summaryBoxCount"] == 4
-        assert layout["summaryTallestCard"] <= 82
+        assert layout["summaryShortestCard"] >= 68
+        assert layout["summaryTallestCard"] <= 112
+        assert layout["summaryMaxRight"] <= layout["viewportWidth"] + 1
         assert 360 <= layout["feedbackHeight"] <= 590
         assert layout["feedbackOverflowY"] in {"auto", "scroll"}
         assert layout["feedbackScrolls"] is True
