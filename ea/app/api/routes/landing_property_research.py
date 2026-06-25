@@ -1067,15 +1067,19 @@ def _property_packet_missing_rows(
     preferences: dict[str, object],
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    def _has_any_fact_value(keys: str | tuple[str, ...]) -> bool:
+        key_group = (keys,) if isinstance(keys, str) else tuple(keys)
+        return any(facts.get(key) not in (None, "", []) for key in key_group)
+
     missing_fact_specs = [
-        ("address", "Exact address", "Needed for precise neighbourhood checks and revisit logistics."),
+        (("address", "exact_address", "street_address", "postal_name"), "Exact address", "Needed for precise neighbourhood checks and revisit logistics."),
         ("heating_type", "Heating type", "Needed to confirm if the building avoids the wrong heating setup."),
         ("has_lift", "Lift status", "Needed because access and daily usability often decide the shortlist."),
-        ("distance_supermarket_m", "Supermarket distance", "Needed to validate daily-errand convenience."),
-        ("distance_playground_m", "Playground distance", "Needed if the search is family-oriented."),
+        (("nearest_supermarket_m", "distance_supermarket_m"), "Supermarket distance", "Needed to validate daily-errand convenience."),
+        (("nearest_playground_m", "distance_playground_m"), "Playground distance", "Needed if the search is family-oriented."),
         ("nearest_library_m", "Library distance", "Needed for family, study, and child logistics when that criterion matters."),
         ("nearest_zoo_m", "Zoo distance", "Needed when zoo or Tiergarten access matters for family routines."),
-        ("distance_pharmacy_m", "Pharmacy distance", "Needed to confirm basic services nearby."),
+        (("nearest_pharmacy_m", "distance_pharmacy_m"), "Pharmacy distance", "Needed to confirm basic services nearby."),
         ("nearest_medical_care_m", "Doctors and hospitals", "Needed when family, elder-care, or health resilience matter."),
         ("nearest_market_m", "Market distance", "Needed if district-life quality or produce-market access matters."),
         ("nearest_hardware_store_m", "Baumarkt distance", "Needed when renovation or practical errand access matters."),
@@ -1083,7 +1087,7 @@ def _property_packet_missing_rows(
         ("nearest_shopping_street_m", "Flaniermeile distance", "Needed when promenade and walkable city life matter."),
         ("nearest_theatre_m", "Theatre distance", "Needed when cultural access matters."),
         ("nearest_public_pool_m", "Public-pool distance", "Needed when family or swimming access matters."),
-        ("distance_underground_m", "Underground distance", "Needed to validate fast transit access."),
+        (("nearest_subway_m", "nearest_transit_m", "distance_underground_m"), "Underground distance", "Needed to validate fast transit access."),
         ("air_quality_risk", "Air-quality risk", "Needed to understand pollution burden and respiratory comfort."),
         ("crime_risk", "Crime pattern", "Needed to understand practical safety burden in the quarter."),
         ("parking_pressure_risk", "Parking pressure", "Needed when there is no garage and street parking might be difficult."),
@@ -1094,31 +1098,32 @@ def _property_packet_missing_rows(
     ]
     wanted_keywords = {str(value).strip().lower() for value in str(preferences.get("keywords") or "").split(",") if str(value).strip()}
     for key, title, detail in missing_fact_specs:
-        if facts.get(key) not in (None, "", []):
+        if _has_any_fact_value(key):
             continue
-        if key == "distance_playground_m" and "playground nearby" not in wanted_keywords and "family" not in wanted_keywords:
+        primary_key = key[0] if isinstance(key, tuple) else key
+        if primary_key == "nearest_playground_m" and "playground nearby" not in wanted_keywords and "family" not in wanted_keywords:
             continue
-        if key == "nearest_library_m" and "library nearby" not in wanted_keywords and "family" not in wanted_keywords:
+        if primary_key == "nearest_library_m" and "library nearby" not in wanted_keywords and "family" not in wanted_keywords:
             continue
-        if key == "distance_underground_m" and "underground nearby" not in wanted_keywords:
+        if primary_key == "nearest_subway_m" and "underground nearby" not in wanted_keywords:
             continue
-        if key == "heating_type" and not ({"no gas", "district heating"} & wanted_keywords):
+        if primary_key == "heating_type" and not ({"no gas", "district heating"} & wanted_keywords):
             continue
-        if key == "air_quality_risk" and not bool(preferences.get("prefer_good_air_quality")):
+        if primary_key == "air_quality_risk" and not bool(preferences.get("prefer_good_air_quality")):
             continue
-        if key == "crime_risk" and not bool(preferences.get("prefer_low_crime_area")):
+        if primary_key == "crime_risk" and not bool(preferences.get("prefer_low_crime_area")):
             continue
-        if key == "parking_pressure_risk" and not bool(preferences.get("require_parking_pressure_check")):
+        if primary_key == "parking_pressure_risk" and not bool(preferences.get("require_parking_pressure_check")):
             continue
-        if key == "drinking_water_risk" and not bool(preferences.get("require_drinking_water_quality_research")):
+        if primary_key == "drinking_water_risk" and not bool(preferences.get("require_drinking_water_quality_research")):
             continue
-        if key == "cesspit_risk" and not bool(preferences.get("avoid_cesspit_or_septic_risk")):
+        if primary_key == "cesspit_risk" and not bool(preferences.get("avoid_cesspit_or_septic_risk")):
             continue
-        if key == "winter_access_risk" and not bool(preferences.get("require_winter_access_research")):
+        if primary_key == "winter_access_risk" and not bool(preferences.get("require_winter_access_research")):
             continue
-        if key == "flood_risk" and not bool(preferences.get("avoid_flood_risk_area")):
+        if primary_key == "flood_risk" and not bool(preferences.get("avoid_flood_risk_area")):
             continue
-        severity = "Critical" if key in {"address", "heating_type", "has_lift"} else "Important"
+        severity = "Critical" if primary_key in {"address", "heating_type", "has_lift"} else "Important"
         rows.append(_object_detail_row(title, detail, severity))
     for item in _property_missing_fact_items(facts):
         if str(item.get("status") or "").strip().lower() == "filled":

@@ -721,6 +721,26 @@ def test_propertyquarry_research_everyday_fit_rows_use_named_confirmed_distances
     assert "with no value" not in json.dumps(rows)
 
 
+def test_propertyquarry_research_missing_rows_respect_confirmed_distance_aliases() -> None:
+    rows = landing_property_research._property_packet_missing_rows(
+        facts={
+            "postal_name": "1020 Wien",
+            "nearest_supermarket_m": 951,
+            "nearest_playground_m": 320,
+            "nearest_pharmacy_m": 180,
+            "nearest_subway_m": 410,
+        },
+        preferences={"keywords": "playground nearby, underground nearby"},
+    )
+
+    titles = {row["title"] for row in rows}
+    assert "Exact address" not in titles
+    assert "Supermarket distance" not in titles
+    assert "Playground distance" not in titles
+    assert "Pharmacy distance" not in titles
+    assert "Underground distance" not in titles
+
+
 def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_code() -> None:
     assert _property_source_display_label("DER STANDARD Immobilien | Austria | Rent | 1010 Vienna") == "DER STANDARD Immobilien"
     assert _property_source_display_label("Willhaben | Austria | Rent | Salzburg") == "Willhaben"
