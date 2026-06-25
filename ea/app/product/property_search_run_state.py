@@ -253,6 +253,18 @@ def property_search_run_sync_summary(
     return normalized_summary
 
 
+def _monotonic_summary_counter(summary: dict[str, object], key: str, value: object) -> int:
+    def _coerce(candidate: object) -> int:
+        try:
+            return max(0, int(float(str(candidate or "").strip())))
+        except Exception:
+            return 0
+
+    preserved = max(_coerce(summary.get(key)), _coerce(value))
+    summary[key] = preserved
+    return preserved
+
+
 def property_search_run_apply_event(
     *,
     state: dict[str, object],
@@ -296,7 +308,17 @@ def property_search_run_apply_event(
         )
     if summary_updates:
         summary = dict(mutated_state.get("summary") or {})
-        summary.update(dict(summary_updates))
+        incoming_summary = dict(summary_updates)
+        for key in (
+            "sources_completed",
+            "reviewed_listing_total",
+            "scanned_listing_total",
+            "listing_total",
+            "raw_listing_total",
+        ):
+            if key in incoming_summary:
+                incoming_summary[key] = _monotonic_summary_counter(summary, key, incoming_summary[key])
+        summary.update(incoming_summary)
         mutated_state["summary"] = summary
     summary = dict(mutated_state.get("summary") or {})
     if normalized_status not in terminal_statuses:
@@ -361,8 +383,11 @@ def property_search_run_progress_projection(
     raw_progress = int((max(0, steps_completed) * 100) / max(1, stages_total))
     sources_total = max(0, int(summary.get("sources_total") or 0))
     source_rows = list(summary.get("sources") or [])
-    source_completed = len([row for row in source_rows if isinstance(row, dict)])
-    summary["sources_completed"] = source_completed
+    source_completed = _monotonic_summary_counter(
+        summary,
+        "sources_completed",
+        len([row for row in source_rows if isinstance(row, dict)]),
+    )
     normalized_step = str(step or "").strip().lower()
 
     bootstrap_without_output = (

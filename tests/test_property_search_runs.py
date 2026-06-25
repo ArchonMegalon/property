@@ -7473,6 +7473,69 @@ def test_property_search_run_progress_stays_monotonic_when_stage_totals_expand()
     assert str(status.get("eta_label") or "").startswith("about") or str(status.get("eta_label") or "").startswith("under")
 
 
+def test_property_search_run_visible_counters_stay_monotonic_during_recovery() -> None:
+    principal_id = "exec-property-search-counter-monotonic"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"counter-monotonic-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "in_progress",
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "selected_platforms": ["willhaben"],
+            "progress": 41,
+            "current_step": "source_previewing",
+            "message": "Reviewing candidate 1 of 2 for Wohnberatung Wien.",
+            "stages_total": 120,
+            "steps_completed": 49,
+            "summary": {
+                "sources_total": 117,
+                "sources_completed": 12,
+                "reviewed_listing_total": 138,
+                "scanned_listing_total": 138,
+                "raw_listing_total": 138,
+                "sources": [
+                    {"source_label": "Willhaben", "reviewed_listing_total": 34, "scanned_listing_total": 34},
+                    {"source_label": "Wohnberatung Wien", "reviewed_listing_total": 2, "scanned_listing_total": 2},
+                    {"source_label": "RE/MAX Austria", "reviewed_listing_total": 1, "scanned_listing_total": 1},
+                ],
+            },
+            "events": [],
+            "property_search_preferences": {},
+            "eta_seconds": 0,
+            "eta_label": "",
+            "eta_seconds_smoothed": 0,
+        }
+
+    service._record_property_search_run_event(
+        run_id=run_id,
+        principal_id=principal_id,
+        step="source_previewing",
+        message="Reviewing candidate 1 of 2 for Wohnberatung Wien.",
+        status="in_progress",
+        steps_delta=1,
+        summary_updates={
+            "sources_total": 117,
+            "sources_completed": 3,
+            "reviewed_listing_total": 70,
+            "scanned_listing_total": 70,
+            "raw_listing_total": 70,
+        },
+    )
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+    assert status is not None
+    summary = dict(status.get("summary") or {})
+    assert int(summary.get("sources_completed") or 0) == 12
+    assert int(summary.get("reviewed_listing_total") or 0) == 138
+    assert int(summary.get("scanned_listing_total") or 0) == 138
+    assert int(summary.get("raw_listing_total") or 0) == 138
+
+
 def test_property_search_run_status_synthesizes_ranked_candidates_and_filtered_totals_from_sources() -> None:
     principal_id = "exec-property-search-synthesized-shortlist"
     client = build_property_client(principal_id=principal_id)

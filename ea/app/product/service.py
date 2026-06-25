@@ -32691,9 +32691,21 @@ class ProductService:
                 if isinstance(source, dict)
             )
             if raw_listing_total > 0:
-                summary["raw_listing_total"] = raw_listing_total
+                summary["raw_listing_total"] = max(
+                    _coerce_non_negative_int(summary.get("raw_listing_total")),
+                    raw_listing_total,
+                )
             if scanned_listing_total > 0:
-                summary["scanned_listing_total"] = scanned_listing_total
+                preserved_scanned_total = max(
+                    _coerce_non_negative_int(summary.get("scanned_listing_total")),
+                    _coerce_non_negative_int(summary.get("reviewed_listing_total")),
+                    scanned_listing_total,
+                )
+                summary["scanned_listing_total"] = preserved_scanned_total
+                summary["reviewed_listing_total"] = max(
+                    _coerce_non_negative_int(summary.get("reviewed_listing_total")),
+                    preserved_scanned_total,
+                )
             if location_mismatch_total > 0:
                 summary["location_mismatch_candidate_total"] = location_mismatch_total
         summary = self._apply_property_search_run_repair_receipts(summary=summary)
