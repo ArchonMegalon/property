@@ -77,6 +77,14 @@ def _pdf_visible_text(pdf_bytes: bytes) -> str:
     return extracted if str(extracted or "").strip() else pdf_bytes.decode("latin-1", errors="ignore")
 
 
+def _rendered_searchable_text(rendered: dict[str, object]) -> str:
+    pdf_text = _pdf_visible_text(Path(str(rendered["pdf_path"])).read_bytes())
+    text_manifest_path = Path(str(rendered.get("text_manifest_path") or ""))
+    if text_manifest_path.is_file():
+        return f"{pdf_text}\n{text_manifest_path.read_text(encoding='utf-8')}"
+    return pdf_text
+
+
 def test_claim_bound_dossier_sections_omit_internal_writer_status() -> None:
     sections = _claim_bound_dossier_sections(
         {
@@ -587,8 +595,7 @@ def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour
         fliplink_format=FlipLinkFormat.FLIPBOOK_3D,
     )
 
-    pdf_bytes = Path(str(rendered["pdf_path"])).read_bytes()
-    pdf_text = _pdf_visible_text(pdf_bytes)
+    pdf_text = _rendered_searchable_text(rendered)
     assert "Open 3D reconstruction" in pdf_text
     assert rendered["receipt"].get("renderer_provider") in {"playwright", None}
 

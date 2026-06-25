@@ -1,7 +1,7 @@
 name: propertyquarry_tester_gold_readiness
 objective: >
   Prove that PropertyQuarry is ready for an external product tester across the
-  main office loop: setup, search, packet, sharing, feedback, timeline,
+  full property decision loop: setup, search, packet, sharing, feedback, timeline,
   premium dossier, hosted tour, notifications, and optimization.
 required_test_modules:
   - tests/test_propertyquarry_phase1_exit_gate.py
@@ -21,7 +21,7 @@ required_browser_workflows:
   - notification_preview_and_action_surface
   - optimization_and_offer_surface
 fail_closed_conditions:
-  - any core office loop route fails in a real browser
+  - any core property route fails in a real browser
   - any packet or dossier lane regresses to a thin fact export
   - hosted tour or flythrough breaks while packet and research still appear healthy
   - sharing, feedback, or timeline state is not persisted across reload

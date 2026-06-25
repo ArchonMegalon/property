@@ -12,6 +12,7 @@ from tests.propertyquarry_exit_gate_helpers import (
 def test_propertyquarry_tester_gold_gate_is_green() -> None:
     payload = load_gate("propertyquarry_tester_gold_gate.yaml")
     assert_master_gate_shape(payload)
+    assert "office loop" not in str(payload).lower()
     modules = assert_test_modules_exist(payload["required_test_modules"])
     assert_contains_strings(
         payload["required_browser_workflows"],
@@ -29,7 +30,7 @@ def test_propertyquarry_tester_gold_gate_is_green() -> None:
     assert_contains_strings(
         payload["fail_closed_conditions"],
         [
-            "any core office loop route fails in a real browser",
+            "any core property route fails in a real browser",
             "any packet or dossier lane regresses to a thin fact export",
             "hosted tour or flythrough breaks while packet and research still appear healthy",
             "sharing, feedback, or timeline state is not persisted across reload",

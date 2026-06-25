@@ -563,6 +563,23 @@ def test_premium_dossier_quality_gate_requires_real_pdf_text_extraction(monkeypa
     assert report.ok is False
 
 
+def test_premium_dossier_quality_gate_can_use_sanitized_manifest_for_required_text(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.premium_dossier.qa._extract_pdf_text", lambda artifact_bytes: "")
+    report = inspect_rendered_artifact(
+        artifact_bytes=b"%PDF-1.4 token https://propertyquarry.com/app/research/raw",
+        expected_text=["PropertyQuarry", "Premium Test Wohnung"],
+        forbidden_text=["token"],
+        supplemental_required_text="PropertyQuarry Premium Test Wohnung",
+        forbid_raw_url_text=True,
+    )
+
+    assert report.required_text_check == "passed"
+    assert report.required_text_hits == ["PropertyQuarry", "Premium Test Wohnung"]
+    assert report.forbidden_text_check == "failed"
+    assert report.raw_url_text_check == "passed"
+    assert report.ok is False
+
+
 def test_premium_dossier_quality_gate_rejects_missing_cover_or_footer_when_required(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.premium_dossier.qa._render_pdf_first_page_png",

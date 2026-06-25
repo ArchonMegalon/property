@@ -118,6 +118,7 @@ def render_property_packet_pdf_via_premium_pipeline(
         expected_text=expected_text,
         forbidden_text=["principal_id", "token", "session", "cookie"],
     )
+    text_manifest = _pdf_text_manifest_from_html(html)
     render_result: PremiumDossierRenderResult | None = None
     quality_report: PremiumDossierQualityReport | None = None
     render_failures: list[dict[str, object]] = []
@@ -142,6 +143,7 @@ def render_property_packet_pdf_via_premium_pipeline(
                 artifact_bytes=result.pdf_bytes,
                 expected_text=request.expected_text,
                 forbidden_text=request.forbidden_text,
+                supplemental_required_text=text_manifest,
                 require_cover_visual_dominance=bool(request.metadata.get("has_cover_media")),
                 require_footer_band=bool(request.metadata.get("require_footer_band")),
                 forbid_raw_url_text=bool(request.metadata.get("forbid_raw_url_text")),
@@ -205,7 +207,6 @@ def render_property_packet_pdf_via_premium_pipeline(
     preview_path = target_dir / f"{publication_token}.page-1.png"
     text_manifest_path = target_dir / f"{publication_token}.text-manifest.txt"
     pdf_path.write_bytes(render_result.pdf_bytes)
-    text_manifest = _pdf_text_manifest_from_html(html)
     if text_manifest:
         text_manifest_path.write_text(text_manifest, encoding="utf-8")
     if quality_report is None:
@@ -213,6 +214,7 @@ def render_property_packet_pdf_via_premium_pipeline(
             artifact_bytes=render_result.pdf_bytes,
             expected_text=request.expected_text,
             forbidden_text=request.forbidden_text,
+            supplemental_required_text=text_manifest,
             preview_output_path=preview_path,
             require_cover_visual_dominance=bool(request.metadata.get("has_cover_media")),
             require_footer_band=bool(request.metadata.get("require_footer_band")),
@@ -227,6 +229,7 @@ def render_property_packet_pdf_via_premium_pipeline(
             artifact_bytes=render_result.pdf_bytes,
             expected_text=request.expected_text,
             forbidden_text=request.forbidden_text,
+            supplemental_required_text=text_manifest,
             preview_output_path=preview_path,
             require_cover_visual_dominance=bool(request.metadata.get("has_cover_media")),
             require_footer_band=bool(request.metadata.get("require_footer_band")),

@@ -139,6 +139,7 @@ def inspect_rendered_artifact(
     artifact_bytes: bytes,
     expected_text: list[str],
     forbidden_text: list[str],
+    supplemental_required_text: str = "",
     preview_output_path: str | Path | None = None,
     require_cover_visual_dominance: bool = False,
     require_footer_band: bool = False,
@@ -146,10 +147,15 @@ def inspect_rendered_artifact(
 ) -> PremiumDossierQualityReport:
     extracted_text = _extract_pdf_text(artifact_bytes)
     binary_text = artifact_bytes.decode("latin-1", errors="ignore")
-    required_hits = [item for item in expected_text if _contains_text(extracted_text, str(item or ""))]
+    required_source = "\n".join(part for part in (extracted_text, supplemental_required_text) if str(part or "").strip())
+    required_hits = [item for item in expected_text if _contains_text(required_source, str(item or ""))]
     decoded = "\n".join(part for part in (extracted_text, binary_text) if part)
     forbidden_hits = [item for item in forbidden_text if _contains_text(decoded, str(item or ""))]
-    raw_url_source = extracted_text if str(extracted_text or "").strip() else binary_text
+    raw_url_source = (
+        supplemental_required_text
+        if str(supplemental_required_text or "").strip()
+        else (extracted_text if str(extracted_text or "").strip() else binary_text)
+    )
     raw_url_hits = _raw_url_text_hits(raw_url_source) if forbid_raw_url_text else []
     required_expected = [item for item in expected_text if str(item or "").strip()]
     all_required_ok = len(required_hits) == len(required_expected)
