@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `5365058480fa4839f1a0b772db631ec8c3892764` |
+| Runtime commit SHA | `d738573dd0bed976f9fc4a396a73b6ff5adea4b9` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer packaged into the runtime image, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `5365058` passed:
+The candidate at `d738573` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -118,6 +118,12 @@ The candidate at `5365058` passed:
 - Focused MagicFit importer and verifier tests after `5365058` returned 10 passing tests across receipt-backed import materialization, placeholder rejection, unreceipted-video rejection, Matterport/3DVista/Pano2VR/krpano/MagicFit readiness evidence, and fake-gallery/fake-video fail-closed behavior.
 - The first redeploy attempt from `5365058` reached API health but the built-in authenticated deploy smoke timed out on cold `/app/account`. A follow-up readiness check passed, the local authenticated multi-surface performance smoke passed all 10 routes, public Cloudflare smoke passed all 22 routes, and a second `EA_HOST_PORT=8097 make deploy` exited cleanly.
 - Hosted tour-control verifier after the `5365058` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
+- The property runtime image now explicitly packages `/app/scripts/import_3dvista_export.py`, `/app/scripts/import_pano2vr_export.py`, and `/app/scripts/import_magicfit_walkthrough.py` without broad script copying. Container receipt after the `d738573` deploy listed all three importers and `python -m py_compile` succeeded inside `propertyquarry-api`.
+- Focused deploy/operator contracts after `d738573` returned 6 passing tests for runtime script allowlisting, no fleet-path dependencies, and release-gate coverage. Focused tour importer/verifier tests returned 10 passing tests.
+- After redeploying from `d738573`, local readiness returned `{"status":"ready","reason":"postgres_ready"}`.
+- Authenticated multi-surface performance smoke after the `d738573` deploy returned `status=pass`, `failed_count=0`, and 10 routes under the 1200 ms first-paint budget: `/app/search`, `/app/agents`, `/app/properties`, `/app/shortlist`, `/app/research/<fixture>`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access`.
+- Public Cloudflare smoke after the `d738573` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
+- Hosted tour-control verifier after the `d738573` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
 
 Observed route timings after the latest deploy:
 
