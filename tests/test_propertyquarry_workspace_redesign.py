@@ -9500,6 +9500,18 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert '{% include "app/_property_workbench_script.html" %}' in body
     assert running_body.count("{{ progress_board(run, run_sources, research_task_counts) }}") == 1
     assert 'data-pqx-running-details' in running_body
+    assert "Search trail" not in running_body
+    assert "<summary><strong>More updates</strong></summary>" in running_body
+    assert "Latest useful search updates." in running_body
+    assert "visible_event_count.value < 4" in running_body
+    assert "suppressed_generic_listing_page" in running_body
+    assert "could not load property search status" in running_body
+    assert "checking run status" in running_body
+    assert "Internal repair receipts and transient refresh failures stay hidden." in running_body
+    assert ".reverse().slice(0, 4)" in script_body
+    assert "message.includes('suppressed_generic_listing_page')" in script_body
+    assert "message.includes('checking run status')" in script_body
+    assert "message.includes('could not load property search status')" in script_body
     assert "source lanes" not in body
     assert "0 lanes in progress" not in body
     assert "lanes in progress" not in body

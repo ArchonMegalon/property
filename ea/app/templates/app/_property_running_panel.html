@@ -68,18 +68,26 @@
       {% endif %}
     </div>
     <details class="pqx-card" data-pqx-running-details>
-      <summary><strong>Search trail</strong></summary>
+      <summary><strong>More updates</strong></summary>
       {% if (research_task_counts.get('open') or 0) %}
       <div class="pqx-note" style="margin:12px 0 0;">{{ research_task_counts.get('open') or 0 }} missing details are still being checked in the background.</div>
       {% endif %}
+      <div class="pqx-note" style="margin:12px 0 0;">Latest useful search updates. Internal repair receipts and transient refresh failures stay hidden.</div>
       <div class="pqx-event-list" data-pqx-run-events>
+        {% set visible_event_count = namespace(value=0) %}
         {% for event in (run.get('events') or [])|reverse %}
+        {% set event_step = (event.get('step') or '')|lower %}
+        {% set event_message = event.get('message') or '' %}
+        {% set event_message_lower = event_message|lower %}
+        {% if visible_event_count.value < 4 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or (event_step == 'status_refresh')) %}
+        {% set visible_event_count.value = visible_event_count.value + 1 %}
         <div class="pqx-event-card">
           <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
-          <span class="pqx-note">{{ event.get('message') or 'No detail yet.' }}</span>
+          <span class="pqx-note">{{ event_message or 'Search is still running.' }}</span>
         </div>
+        {% endif %}
         {% endfor %}
-        {% if not run.get('events') %}
+        {% if not run.get('events') or visible_event_count.value == 0 %}
         <div class="pqx-empty">Waiting for the first search update.</div>
         {% endif %}
       </div>

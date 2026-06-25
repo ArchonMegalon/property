@@ -1389,23 +1389,21 @@
     };
     const renderRunEvents = (events) => {
       const rawRows = Array.isArray(events) ? [...events] : [];
-      const hasRealEvents = rawRows.some((event) => {
+      const isUsefulRunEvent = (event) => {
         const step = String(event?.step || '').trim().toLowerCase();
         const message = String(event?.message || '').trim().toLowerCase();
-        return step !== 'status_refresh' && !message.includes('could not load property search status');
-      });
-      const rows = (hasRealEvents
-        ? rawRows.filter((event) => {
-            const step = String(event?.step || '').trim().toLowerCase();
-            const message = String(event?.message || '').trim().toLowerCase();
-            return step !== 'status_refresh' && !message.includes('could not load property search status');
-          })
-        : rawRows
-      ).reverse().slice(0, 12);
+        return (
+          step !== 'status_refresh'
+          && !message.includes('could not load property search status')
+          && !message.includes('checking run status')
+          && !message.includes('suppressed_generic_listing_page')
+        );
+      };
+      const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 4);
       return rows.map((event) => {
         const step = String(event?.step || 'Update').replaceAll('_', ' ');
         const label = step ? step.charAt(0).toUpperCase() + step.slice(1) : 'Update';
-        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
+        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'Search is still running.')}</span></div>`;
       }).join('') || '<div class="pqx-empty">Waiting for the first search update.</div>';
     };
     const pollRetryEvents = () => [];
@@ -1414,7 +1412,7 @@
       const hasRenderedEvents = eventsNode.querySelectorAll('.pqx-event-card').length > 0;
       if (!hasRenderedEvents) return false;
       const renderedText = String(eventsNode.textContent || '').toLowerCase();
-      if (renderedText.includes('could not load property search status') || renderedText.includes('checking run status')) {
+      if (renderedText.includes('could not load property search status') || renderedText.includes('checking run status') || renderedText.includes('suppressed_generic_listing_page')) {
         return false;
       }
       if (!Array.isArray(events)) return true;
