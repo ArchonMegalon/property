@@ -491,6 +491,15 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "billing_white_label_copy", "ok": not billing_noise_hits, "detail": ", ".join(billing_noise_hits[:5])},
             )
         )
+    if path == "/app/account":
+        checks.extend(
+            (
+                {"name": "notification_destination_controls", "ok": all(token in body for token in ("Email", "Telegram", "WhatsApp", "Destination mix"))},
+                {"name": "notification_primary_channel_controls", "ok": "Primary response lane" in body and "Save notification routing" in body},
+                {"name": "notification_opt_in_copy", "ok": "Strong matches and watch hits" in body and "Near-miss follow-up prompts" in body},
+                {"name": "notification_secret_safe", "ok": "telegram-secret-token" not in body and "raw_delivery_receipts" not in body},
+            )
+        )
     if path == "/app/settings/google":
         checks.extend(
             (

@@ -228,6 +228,7 @@ The candidate at `5d0284f` passed:
 - Visual self-healing now clears stale `tour_*_repair_*` / `flythrough_*_repair_*` markers when a terminal visual-status resolution is persisted, so blocked/skipped media no longer carries old repair-running metadata. Focused visual-status repair tests returned `5 passed`.
 - Billing white-label quality is now part of the authenticated runtime smoke: `/app/billing` must show plan/payment/history/invoice surfaces while hiding PayFunnels, Brilliant Directories, provider endpoint strings, billing-truth jargon, invoice-handoff wording, and internal plan-limit labels.
 - Sign-in quality is now part of the authenticated runtime smoke: `/sign-in` must render as a mobile-ready PropertyQuarry auth surface, state that first-time provider sign-in creates the account automatically, and avoid leaking raw OAuth configuration errors in normal copy.
+- Account notification quality is now part of the authenticated runtime smoke: `/app/account` must render Email, Telegram, WhatsApp destination controls, primary-channel routing, opt-in copy for strong matches and near-miss follow-ups, and no raw Telegram secret or delivery-receipt payload names.
 
 Observed route timings after the latest deploy:
 
