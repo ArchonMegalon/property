@@ -476,6 +476,23 @@ def build_property_tour_control_receipt(
     }
 
 
+def _receipt_summary(receipt: dict[str, object]) -> dict[str, object]:
+    return {
+        "generated_at": receipt.get("generated_at"),
+        "status": receipt.get("status"),
+        "tour_root": receipt.get("tour_root"),
+        "tour_count": receipt.get("tour_count"),
+        "ready_tour_count": receipt.get("ready_tour_count"),
+        "provider_counts": receipt.get("provider_counts"),
+        "ready_provider_modes": receipt.get("ready_provider_modes"),
+        "required_provider_modes": receipt.get("required_provider_modes"),
+        "missing_provider_modes": receipt.get("missing_provider_modes"),
+        "next_required_actions": receipt.get("next_required_actions"),
+        "live_probe": receipt.get("live_probe"),
+        "base_url": receipt.get("base_url"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify PropertyQuarry hosted 3D tour and walkthrough control readiness.")
     parser.add_argument("--tour-root", default="", help="Tour root. Defaults to EA_PUBLIC_TOUR_DIR or state/public_property_tours.")
@@ -483,6 +500,7 @@ def main() -> int:
     parser.add_argument("--live-probe", action="store_true", help="Probe ready control paths over HTTP.")
     parser.add_argument("--timeout-seconds", type=float, default=5.0)
     parser.add_argument("--write", default="", help="Optional JSON receipt path.")
+    parser.add_argument("--summary-only", action="store_true", help="Print only top-level counts/actions; --write still stores the full receipt.")
     args = parser.parse_args()
     receipt = build_property_tour_control_receipt(
         tour_root=Path(args.tour_root) if str(args.tour_root or "").strip() else None,
@@ -494,7 +512,8 @@ def main() -> int:
     if args.write:
         Path(args.write).parent.mkdir(parents=True, exist_ok=True)
         Path(args.write).write_text(output + "\n", encoding="utf-8")
-    print(output)
+    printed_receipt = _receipt_summary(receipt) if args.summary_only else receipt
+    print(json.dumps(printed_receipt, indent=2, sort_keys=True))
     return 0 if str(receipt.get("status") or "").startswith(("pass", "blocked")) else 1
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.verify_property_tour_controls import build_property_tour_control_receipt
+from scripts.verify_property_tour_controls import _receipt_summary, build_property_tour_control_receipt
 
 
 def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[str, str | bytes] | None = None) -> None:
@@ -34,6 +34,18 @@ def test_property_tour_control_verifier_accepts_private_receipt_matterport_witho
     assert receipt["provider_counts"]["matterport"] == 1
     assert receipt["ready_provider_modes"] == ["matterport"]
     assert "PRIVATE123" not in json.dumps(receipt)
+
+
+def test_property_tour_control_verifier_summary_omits_tour_rows(tmp_path: Path) -> None:
+    _write_tour(tmp_path, "matterport-tour", {"matterport_url": "https://my.matterport.com/show/?m=SUMMARY123"})
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+    summary = _receipt_summary(receipt)
+
+    assert summary["status"] == "pass"
+    assert summary["provider_counts"]["matterport"] == 1
+    assert "tours" not in summary
+    assert "SUMMARY123" not in json.dumps(summary)
 
 
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
