@@ -290,6 +290,7 @@ def _build_targeted_provider_search_matrix(
         normalized_country = str(country or "").strip().upper()
         for option in _search_ready_provider_options(normalized_country):
             provider_key = str(option.get("value") or "").strip()
+            provider_country = str(option.get("country_code") or "").strip().upper()
             if not provider_key:
                 continue
             for mode in ("targeted_no_soft_filters", "targeted_soft_filters"):
@@ -303,6 +304,7 @@ def _build_targeted_provider_search_matrix(
                 row: dict[str, object] = {
                     "country_code": normalized_country,
                     "provider": provider_key,
+                    "provider_country_code": provider_country,
                     "provider_label": str(option.get("label") or provider_key).strip(),
                     "provider_family": str(option.get("family") or "").strip(),
                     "mode": mode,
@@ -315,6 +317,7 @@ def _build_targeted_provider_search_matrix(
                     "agent_unlimited_results": "max_results_per_source" not in payload and "max_results_per_source" not in preferences,
                     "payload_contract_ok": (
                         payload.get("selected_platforms") == [provider_key]
+                        and provider_country == normalized_country
                         and preferences.get("country_code") == normalized_country
                         and preferences.get("property_commercial") == _agent_unlimited_commercial_state()
                         and (bool(soft_filter_fields) if mode == "targeted_soft_filters" else not bool(soft_filter_fields))
@@ -439,6 +442,7 @@ def _targeted_search_matrix_summary(
         {
             "country_code": str(row.get("country_code") or "").strip().upper(),
             "provider": str(row.get("provider") or "").strip(),
+            "provider_country_code": str(row.get("provider_country_code") or "").strip().upper(),
             "mode": str(row.get("mode") or "").strip(),
             "status": str(row.get("status") or "").strip().lower(),
             "runtime_status": str(row.get("runtime_status") or "").strip().lower(),
@@ -481,6 +485,10 @@ def _targeted_search_matrix_summary(
         "all_search_ready_providers_covered": not missing_mode_pairs,
         "missing_mode_pairs": missing_mode_pairs,
         "payload_contracts_ok": all(bool(row.get("payload_contract_ok")) for row in rows) if rows else True,
+        "provider_country_scope_ok": all(
+            str(row.get("provider_country_code") or "").strip().upper() == str(row.get("country_code") or "").strip().upper()
+            for row in rows
+        ) if rows else True,
         "agent_unlimited_results_ok": all(bool(row.get("agent_unlimited_results")) for row in rows) if rows else True,
         "strict_without_soft_filters_ok": all(not bool(row.get("soft_filters_present")) for row in strict_rows) if strict_rows else True,
         "soft_filters_present_ok": all(bool(row.get("soft_filters_present")) for row in soft_rows) if soft_rows else True,
@@ -563,6 +571,15 @@ def build_live_provider_smoke_receipt(
                     for item in providers
                     if str(item.get("value") or "").strip()
                 }
+                runtime_provider_country_mismatches = sorted(
+                    {
+                        str(item.get("value") or "").strip()
+                        for item in providers
+                        if str(item.get("value") or "").strip()
+                        and str(item.get("country_code") or "").strip().upper()
+                        and str(item.get("country_code") or "").strip().upper() != country
+                    }
+                )
                 runtime_defaults = {
                     str(item or "").strip()
                     for item in list(payload.get("default_platforms") or [])
@@ -576,6 +593,7 @@ def build_live_provider_smoke_receipt(
                 runtime_contract_ok = (
                     runtime_provider_count_ok
                     and runtime_defaults_present_ok
+                    and not runtime_provider_country_mismatches
                     and runtime_country_code == country
                     and runtime_listing_mode in {"rent", "buy"}
                     and bool(runtime_property_type)
@@ -591,6 +609,8 @@ def build_live_provider_smoke_receipt(
                         "runtime_property_type": runtime_property_type,
                         "runtime_provider_count_ok": runtime_provider_count_ok,
                         "runtime_defaults_present_ok": runtime_defaults_present_ok,
+                        "runtime_provider_country_scope_ok": not runtime_provider_country_mismatches,
+                        "runtime_provider_country_mismatches": runtime_provider_country_mismatches,
                     }
                 )
             except Exception as exc:
@@ -600,6 +620,7 @@ def build_live_provider_smoke_receipt(
                         "error": f"{type(exc).__name__}: {exc}",
                         "runtime_provider_count_ok": False,
                         "runtime_defaults_present_ok": False,
+                        "runtime_provider_country_scope_ok": False,
                     }
                 )
         checks.append(row)

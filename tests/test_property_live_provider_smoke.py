@@ -88,6 +88,7 @@ def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> N
     assert len(matrix) == 2 * (_search_ready_provider_count("AT") + _search_ready_provider_count("CR"))
     assert {row["mode"] for row in matrix} == {"targeted_no_soft_filters", "targeted_soft_filters"}
     assert all(row["payload_contract_ok"] is True for row in matrix)
+    assert all(row["provider_country_code"] == row["country_code"] for row in matrix)
     assert all(row["agent_unlimited_results"] is True for row in matrix)
     assert all(row["status"] == "dry_run" for row in matrix)
     assert all(row["soft_filters_present"] is (row["mode"] == "targeted_soft_filters") for row in matrix)
@@ -97,6 +98,7 @@ def test_live_provider_smoke_dry_run_proves_at_and_cr_catalogs(monkeypatch) -> N
     assert summary["soft_filter_case_count"] == _search_ready_provider_count("AT") + _search_ready_provider_count("CR")
     assert summary["dry_run_case_count"] == len(matrix)
     assert summary["payload_contracts_ok"] is True
+    assert summary["provider_country_scope_ok"] is True
     assert summary["strict_without_soft_filters_ok"] is True
     assert summary["soft_filters_present_ok"] is True
 
@@ -118,7 +120,7 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
                 "genossenschaften_at",
                 "immmo",
             ],
-            "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
+            "providers": [{"value": row.get("value"), "country_code": row.get("country_code")} for row in provider_options(country_code="AT")],
         },
         "CR": {
             "country_code": "CR",
@@ -136,7 +138,7 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
                 "tierraverde_cr",
                 "twocostaricarealestate_cr",
             ],
-            "providers": [{"value": value} for value in [
+            "providers": [{"value": value, "country_code": "CR"} for value in [
                 "encuentra24_cr",
                 "re_cr_mls",
                 "realtor_cr",
@@ -162,10 +164,12 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
     assert rows["AT"]["status"] == "pass"
     assert rows["AT"]["runtime_provider_count_ok"] is True
     assert rows["AT"]["runtime_defaults_present_ok"] is True
+    assert rows["AT"]["runtime_provider_country_scope_ok"] is True
     assert rows["AT"]["runtime_country_code"] == "AT"
     assert rows["CR"]["status"] == "pass"
     assert rows["CR"]["runtime_provider_count_ok"] is True
     assert rows["CR"]["runtime_defaults_present_ok"] is True
+    assert rows["CR"]["runtime_provider_country_scope_ok"] is True
     assert receipt["targeted_search_matrix_status"] == "planned"
     assert receipt["targeted_search_matrix_executed"] is False
     summary = receipt["targeted_search_matrix_summary"]
@@ -193,6 +197,43 @@ def test_live_provider_smoke_live_mode_reports_runtime_mismatch(monkeypatch) -> 
     assert row["status"] == "fail"
     assert row["runtime_provider_count_ok"] is False
     assert row["runtime_defaults_present_ok"] is False
+
+
+def test_live_provider_smoke_live_mode_rejects_cross_country_runtime_provider(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+
+    at_options = [dict(row) for row in provider_options(country_code="AT")]
+    payload = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "property_type": "any",
+        "default_platforms": [
+            "willhaben",
+            "derstandard_at",
+            "immoscout_at",
+            "public_housing_at",
+            "genossenschaften_at",
+            "immmo",
+        ],
+        "providers": [
+            *[
+                {"value": row.get("value"), "country_code": row.get("country_code")}
+                for row in at_options
+                if row.get("value") != "willhaben"
+            ],
+            {"value": "willhaben", "country_code": "PL"},
+        ],
+    }
+
+    receipt = build_live_provider_smoke_receipt(countries=("AT",), fetcher=lambda _country, _timeout: payload)
+
+    assert receipt["status"] == "fail"
+    row = receipt["checks"][0]
+    assert row["runtime_provider_count_ok"] is True
+    assert row["runtime_defaults_present_ok"] is True
+    assert row["runtime_provider_country_scope_ok"] is False
+    assert row["runtime_provider_country_mismatches"] == ["willhaben"]
 
 
 def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp_path) -> None:
@@ -264,6 +305,7 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert summary["status_readback_complete"] is True
     assert summary["all_search_ready_providers_covered"] is True
     assert summary["agent_unlimited_results_ok"] is True
+    assert summary["provider_country_scope_ok"] is True
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     assert checkpoint["checkpoint"] is True
     assert checkpoint["complete"] is False
