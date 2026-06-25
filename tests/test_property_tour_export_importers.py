@@ -158,6 +158,31 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
 
     playable_video = tmp_path / "walkthrough.mp4"
     playable_video.write_bytes(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
+    unreceipted = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(playable_video),
+    )
+
+    assert unreceipted.returncode != 0
+    assert "magicfit_receipt_missing" in unreceipted.stderr
+    assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
+
+    receipt_path = tmp_path / "walkthrough.magicfit.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "provider": "MagicFit",
+                "video_output_url": "https://media.powlcdn.com/magicfit/example.mp4",
+                "output_file": str(playable_video),
+                "generated_at": "2026-06-25T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
 
     imported = _run_importer(
         "import_magicfit_walkthrough.py",
@@ -168,6 +193,8 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
         str(playable_video),
         "--target-relpath",
         "walkthrough/final.mp4",
+        "--source-receipt",
+        str(receipt_path),
     )
 
     assert imported.returncode == 0, imported.stderr
@@ -179,6 +206,7 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert manifest["video_relpath"] == "walkthrough/final.mp4"
     assert manifest["video_coverage_proof"] == "boundary_verified_frame_continuation"
     assert manifest["magicfit_import"]["source"] == "magicfit_rendered_walkthrough"
+    assert manifest["magicfit_import"]["source_receipt_path"] == str(receipt_path)
     assert manifest["magicfit_import"]["size_bytes"] == playable_video.stat().st_size
     assert len(manifest["magicfit_import"]["sha256"]) == 64
     assert (bundle_dir / "walkthrough" / "final.mp4").read_bytes() == playable_video.read_bytes()

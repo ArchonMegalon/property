@@ -48,12 +48,42 @@ def _video_is_playable(path: Path) -> bool:
     return False
 
 
+def _load_magicfit_receipt(path_value: str, *, source: Path, allow_unreceipted: bool) -> tuple[dict[str, object], str]:
+    if allow_unreceipted:
+        return {}, ""
+    receipt_path = Path(path_value or "").expanduser().resolve()
+    if not receipt_path.is_file():
+        raise SystemExit("magicfit_receipt_missing")
+    try:
+        payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise SystemExit(f"magicfit_receipt_invalid:{type(exc).__name__}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit("magicfit_receipt_invalid")
+    provider = str(payload.get("provider") or "").strip().lower()
+    if provider != "magicfit":
+        raise SystemExit("magicfit_receipt_provider_mismatch")
+    output_file = str(payload.get("output_file") or "").strip()
+    if output_file:
+        try:
+            if Path(output_file).expanduser().resolve() != source:
+                raise SystemExit("magicfit_receipt_output_mismatch")
+        except OSError as exc:
+            raise SystemExit(f"magicfit_receipt_output_invalid:{type(exc).__name__}") from exc
+    return payload, str(receipt_path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import a verified MagicFit walkthrough video into a public tour bundle.")
     parser.add_argument("--slug", required=True, help="Existing PropertyQuarry public tour slug.")
     parser.add_argument("--video-path", required=True, help="Playable MagicFit MP4/M4V/MOV/WebM render.")
     parser.add_argument("--target-relpath", default="", help="Optional target path inside the tour bundle.")
-    parser.add_argument("--source-receipt", default="", help="Optional MagicFit render receipt path to reference without embedding secrets.")
+    parser.add_argument("--source-receipt", default="", help="MagicFit render receipt path to reference without embedding secrets.")
+    parser.add_argument(
+        "--allow-unreceipted-test-asset",
+        action="store_true",
+        help="Allow a playable local fixture without MagicFit provenance. Intended for tests only.",
+    )
     args = parser.parse_args()
 
     slug = _safe_relpath(args.slug)
@@ -64,6 +94,11 @@ def main() -> int:
         raise SystemExit("magicfit_video_missing")
     if not _video_is_playable(source):
         raise SystemExit("magicfit_video_unverified")
+    _receipt_payload, receipt_relpath = _load_magicfit_receipt(
+        args.source_receipt,
+        source=source,
+        allow_unreceipted=bool(args.allow_unreceipted_test_asset),
+    )
 
     bundle_dir = _public_tour_dir() / slug
     manifest_path = bundle_dir / "tour.json"
@@ -85,12 +120,6 @@ def main() -> int:
 
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
-
-    receipt_relpath = ""
-    if args.source_receipt:
-        receipt_path = Path(args.source_receipt).expanduser().resolve()
-        if receipt_path.is_file():
-            receipt_relpath = str(receipt_path)
 
     payload["video_provider"] = "magicfit"
     payload["video_relpath"] = target_relpath
