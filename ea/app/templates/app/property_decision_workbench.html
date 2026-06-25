@@ -2886,6 +2886,9 @@
       font-size: 12px;
       line-height: 1.3;
     }
+    .pqx-location-map-dialog-foot {
+      display: none;
+    }
     .pqx-provider-link {
       display: inline-flex;
       align-items: center;
@@ -6804,6 +6807,12 @@
         padding: 12px;
         border-radius: 26px;
       }
+      .pqx-surface-search .pqx-location-map-dialog-head {
+        align-items: center;
+      }
+      .pqx-surface-search .pqx-location-map-dialog-head span {
+        max-width: 24ch;
+      }
       .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-viewport {
         min-height: min(58svh, 450px);
         margin: 0 2px 8px;
@@ -6811,6 +6820,17 @@
       .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-svg {
         height: min(58svh, 450px);
         min-height: 330px;
+      }
+      .pqx-surface-search .pqx-location-map-dialog-foot {
+        display: grid;
+        padding: 0 2px 2px;
+      }
+      .pqx-surface-search .pqx-location-map-dialog-foot .pqx-location-map-close {
+        width: 100%;
+        min-height: 56px;
+        border-radius: 18px;
+        background: var(--pq-charcoal);
+        color: #fffaf1;
       }
       .pqx-surface-search .pqx-choice-groupbox-grid[data-pqx-check-grid="selected_platforms"] {
         max-height: min(56svh, 520px);
@@ -6861,6 +6881,9 @@
         font-size: 13px;
         line-height: 1.35;
       }
+      .pqx-surface-search [data-property-field-name="location_query"][data-location-mode="list"] .pqx-mobile-helper {
+        display: none;
+      }
       .pqx-location-selected-summary {
         display: inline-flex;
         align-items: center;
@@ -6882,18 +6905,42 @@
           linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(246, 242, 234, 0.94));
       }
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox-head {
-        position: sticky;
-        top: 0;
-        z-index: 2;
+        position: static;
+        top: auto;
+        z-index: auto;
         margin: -2px -2px 0;
         padding: 2px 2px 8px;
         border-bottom: 1px solid rgba(185, 173, 154, 0.34);
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(255, 253, 248, 0.9));
       }
-      .pqx-choice-groupbox-head .pqx-choice-groupbox-actions {
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox-actions {
         width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        align-items: stretch;
         justify-content: stretch;
+      }
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-mode-toggle,
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-mobile-helper,
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-selected-summary {
+        grid-column: 1 / -1;
+      }
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-mode-toggle {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+        padding: 4px;
+        gap: 4px;
+      }
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-location-mode-toggle .pqx-field-action {
+        width: 100%;
+        min-height: 52px;
+      }
+      .pqx-surface-search [data-property-field-name="location_query"][data-location-mode="map"] [data-checkbox-group-select-all="location_query"],
+      .pqx-surface-search [data-property-field-name="location_query"][data-location-mode="map"] [data-checkbox-group-clear-all="location_query"] {
+        display: none;
       }
       .pqx-field-tools .pqx-field-action {
         flex: 1 1 0;
@@ -8138,6 +8185,9 @@
                           </svg>
                         </div>
                         <span class="pqx-location-map-note">Selected districts are shown in red. Outskirts remain available in List mode.</span>
+                        <div class="pqx-location-map-dialog-foot">
+                          <button class="pqx-location-map-close" type="button" data-location-map-close>Done</button>
+                        </div>
                       </div>
                     </div>
                   </dialog>

@@ -3199,17 +3199,24 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const areaListButton = locationField?.querySelector('[data-location-mode-button="list"]') || null;
                 const areaMapLaunch = locationField?.querySelector('[data-location-map-launch]') || null;
                 const areaMapOpen = locationField?.querySelector('[data-location-map-open]') || null;
+                const areaSelectAllButton = locationField?.querySelector('[data-checkbox-group-select-all="location_query"]') || null;
+                const areaClearButton = locationField?.querySelector('[data-checkbox-group-clear-all="location_query"]') || null;
                 const areaDialog = locationField?.querySelector('[data-location-map-dialog]') || null;
                 if (areaMapButton) areaMapButton.click();
                 const areaModeInMapValue = locationField ? String(locationField.getAttribute('data-location-mode') || '') : '';
                 const areaMapAvailableValue = locationField ? String(locationField.getAttribute('data-location-map-available') || '') : '';
                 const areaGridDisplayInMapValue = areaGrid ? window.getComputedStyle(areaGrid).display : '';
                 const areaMapLaunchDisplayValue = areaMapLaunch ? window.getComputedStyle(areaMapLaunch).display : '';
+                const areaSelectAllDisplayInMapValue = areaSelectAllButton ? window.getComputedStyle(areaSelectAllButton).display : '';
+                const areaClearDisplayInMapValue = areaClearButton ? window.getComputedStyle(areaClearButton).display : '';
                 if (areaMapOpen) areaMapOpen.click();
                 const areaMap = areaDialog?.querySelector('[data-location-map-picker]') || null;
                 const areaMapViewport = areaDialog?.querySelector('[data-location-map-viewport]') || null;
                 const areaDistricts = Array.from(areaDialog?.querySelectorAll('[data-location-map-district]') || []);
                 const areaZoomButtons = Array.from(areaDialog?.querySelectorAll('[data-location-map-zoom]') || []);
+                const areaCloseButtons = Array.from(areaDialog?.querySelectorAll('[data-location-map-close]') || []);
+                const dialogLockOpen = document.documentElement.dataset.pqxLocationMapOpen === 'true';
+                const bodyOverflowOpen = document.body.style.overflow || '';
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
                 const dockStyle = dock ? window.getComputedStyle(dock) : null;
                 const summaryStyle = areaSummary ? window.getComputedStyle(areaSummary) : null;
@@ -3228,7 +3235,11 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const dialogWasOpen = Boolean(areaDialog && areaDialog.open);
                 const closeButton = areaDialog?.querySelector('[data-location-map-close]') || null;
                 if (closeButton) closeButton.click();
+                const dialogLockAfterClose = document.documentElement.dataset.pqxLocationMapOpen === 'true';
+                const bodyOverflowAfterClose = document.body.style.overflow || '';
                 if (areaListButton) areaListButton.click();
+                const areaSelectAllDisplayAfterListValue = areaSelectAllButton ? window.getComputedStyle(areaSelectAllButton).display : '';
+                const areaClearDisplayAfterListValue = areaClearButton ? window.getComputedStyle(areaClearButton).display : '';
                 const areaRowsAfterList = Array.from(locationField?.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check') || []);
                 const areaRects = areaRowsAfterList.map((node) => node.getBoundingClientRect());
                 const areaStyle = areaRowsAfterList[0] ? window.getComputedStyle(areaRowsAfterList[0]) : null;
@@ -3255,7 +3266,14 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaMapAvailable: areaMapAvailableValue,
                     areaGridDisplayInMap: areaGridDisplayInMapValue,
                     areaMapLaunchDisplay: areaMapLaunchDisplayValue,
+                    areaSelectAllDisplayInMap: areaSelectAllDisplayInMapValue,
+                    areaClearDisplayInMap: areaClearDisplayInMapValue,
                     areaDialogOpen: dialogWasOpen,
+                    areaCloseButtonCount: areaCloseButtons.length,
+                    dialogLockOpen,
+                    bodyOverflowOpen,
+                    dialogLockAfterClose,
+                    bodyOverflowAfterClose,
                     areaRowCount: areaRowsAfterList.length,
                     areaRowMinHeight: areaRects.length ? Math.min(...areaRects.map((rect) => rect.height)) : 0,
                     areaRowsClearOfDock: dockRect ? areaRects.filter((rect) => rect.top >= 0 && rect.bottom <= dockRect.top - 4).length : 0,
@@ -3264,6 +3282,8 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaRowBorderRadius: areaStyle ? areaStyle.borderRadius : '',
                     areaModeAfterList: locationField ? String(locationField.getAttribute('data-location-mode') || '') : '',
                     areaGridDisplayAfterList: areaGridStyle ? areaGridStyle.display : '',
+                    areaSelectAllDisplayAfterList: areaSelectAllDisplayAfterListValue,
+                    areaClearDisplayAfterList: areaClearDisplayAfterListValue,
                     areaGridOverflowY: areaGridStyle ? areaGridStyle.overflowY : '',
                     areaGridColumns: areaGridStyle ? areaGridStyle.gridTemplateColumns : '',
                     areaGridColumnCount: areaGridStyle ? areaGridStyle.gridTemplateColumns.split(' ').filter(Boolean).length : 0,
@@ -3300,13 +3320,22 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaMapAvailable"] == "true"
         assert mobile_metrics["areaGridDisplayInMap"] == "none"
         assert mobile_metrics["areaMapLaunchDisplay"] != "none"
+        assert mobile_metrics["areaSelectAllDisplayInMap"] == "none"
+        assert mobile_metrics["areaClearDisplayInMap"] == "none"
         assert mobile_metrics["areaDialogOpen"] is True
+        assert mobile_metrics["areaCloseButtonCount"] >= 2
+        assert mobile_metrics["dialogLockOpen"] is True
+        assert mobile_metrics["bodyOverflowOpen"] == "hidden"
+        assert mobile_metrics["dialogLockAfterClose"] is False
+        assert mobile_metrics["bodyOverflowAfterClose"] != "hidden"
         assert mobile_metrics["areaRowCount"] >= 6
         assert mobile_metrics["areaRowMinHeight"] >= 60
         assert mobile_metrics["areaRowsClearOfDock"] >= 5
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
         assert mobile_metrics["areaModeAfterList"] == "list"
         assert mobile_metrics["areaGridDisplayAfterList"] != "none"
+        assert mobile_metrics["areaSelectAllDisplayAfterList"] != "none"
+        assert mobile_metrics["areaClearDisplayAfterList"] != "none"
         assert mobile_metrics["areaGridColumnCount"] == 1
         assert "42px" in mobile_metrics["areaRowGridColumns"]
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
@@ -3346,20 +3375,21 @@ def test_propertyquarry_search_desktop_wheel_scroll_recovers_from_bottom(
         box = drawer.bounding_box()
         assert box is not None
         page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        scrollable = drawer.evaluate("(node) => node.scrollHeight > node.clientHeight")
+        max_scroll = float(drawer.evaluate("(node) => Math.max(0, node.scrollHeight - node.clientHeight)"))
+        scrollable = max_scroll > 0
         assert scrollable is True
 
         for _ in range(8):
             page.mouse.wheel(0, 720)
             page.wait_for_timeout(25)
         bottom_scroll = float(drawer.evaluate("(node) => node.scrollTop"))
-        assert bottom_scroll > 80
+        assert bottom_scroll >= max(8.0, max_scroll * 0.65)
 
         for _ in range(8):
             page.mouse.wheel(0, -720)
             page.wait_for_timeout(25)
         recovered_scroll = float(drawer.evaluate("(node) => node.scrollTop"))
-        assert recovered_scroll < bottom_scroll - 40
+        assert recovered_scroll <= max(2.0, bottom_scroll * 0.35)
     finally:
         context.close()
 

@@ -2647,7 +2647,7 @@
       const locationMapPicker = form.querySelector('[data-location-map-picker]');
       const locationMapDialog = form.querySelector('[data-location-map-dialog]');
       const locationMapOpenButton = form.querySelector('[data-location-map-open]');
-      const locationMapCloseButton = form.querySelector('[data-location-map-close]');
+      const locationMapCloseButtons = [...form.querySelectorAll('[data-location-map-close]')];
       const locationMapLaunch = form.querySelector('[data-location-map-launch]');
       const locationMapLaunchNote = form.querySelector('[data-location-map-launch-note]');
       const locationMapLayer = locationMapPicker?.querySelector('[data-location-map-layer]');
@@ -2662,6 +2662,24 @@
       let locationMapMoved = false;
       let locationMapStartX = 0;
       let locationMapStartY = 0;
+      let locationMapPreviousBodyOverflow = '';
+      const setLocationMapDialogOpenState = (open) => {
+        const html = document.documentElement;
+        const body = document.body;
+        if (!html || !body) return;
+        if (open) {
+          if (html.dataset.pqxLocationMapOpen !== 'true') {
+            locationMapPreviousBodyOverflow = body.style.overflow || '';
+          }
+          html.dataset.pqxLocationMapOpen = 'true';
+          body.style.overflow = 'hidden';
+          return;
+        }
+        if (html.dataset.pqxLocationMapOpen === 'true') {
+          delete html.dataset.pqxLocationMapOpen;
+          body.style.overflow = locationMapPreviousBodyOverflow;
+        }
+      };
       const locationMapPoint = (event) => ({ x: Number(event.clientX || 0), y: Number(event.clientY || 0) });
       const applyLocationMapTransform = () => {
         if (!locationMapLayer) return;
@@ -2707,6 +2725,7 @@
         });
         if (nextMode === 'list' && locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) {
           locationMapDialog.close();
+          setLocationMapDialogOpenState(false);
         }
       };
       const locationOptionRows = () => [...form.querySelectorAll('input[name="location_query"]')]
@@ -2807,13 +2826,23 @@
           if (typeof locationMapDialog.showModal === 'function') locationMapDialog.showModal();
           else locationMapDialog.setAttribute('open', '');
         }
+        setLocationMapDialogOpenState(true);
       });
-      locationMapCloseButton?.addEventListener('click', (event) => {
-        event.preventDefault();
-        if (locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) locationMapDialog.close();
+      locationMapCloseButtons.forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          if (locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) locationMapDialog.close();
+          setLocationMapDialogOpenState(false);
+        });
       });
       locationMapDialog?.addEventListener('click', (event) => {
-        if (event.target === locationMapDialog && locationMapDialog instanceof HTMLDialogElement) locationMapDialog.close();
+        if (event.target === locationMapDialog && locationMapDialog instanceof HTMLDialogElement) {
+          locationMapDialog.close();
+          setLocationMapDialogOpenState(false);
+        }
+      });
+      locationMapDialog?.addEventListener('close', () => {
+        setLocationMapDialogOpenState(false);
       });
       locationMapPicker?.addEventListener('click', (event) => {
         const district = event.target?.closest?.('[data-location-map-district]');
@@ -2842,6 +2871,7 @@
       });
       locationMapViewport?.addEventListener('pointermove', (event) => {
         if (!locationMapDragging || !(event instanceof PointerEvent)) return;
+        if (event.cancelable) event.preventDefault();
         const point = locationMapPoint(event);
         const nextX = point.x - locationMapStartX;
         const nextY = point.y - locationMapStartY;
