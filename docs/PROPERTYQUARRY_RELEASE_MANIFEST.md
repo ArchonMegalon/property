@@ -13,13 +13,25 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `f26f6ab2673941e9a0a18d4109bc0264fff79b72` |
+| Runtime commit SHA | `e10f0f37f1c7e79169860e4a44b159f16a2b64d6` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `e10f0f3` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'running_state_explains_slow_provider_checks or search_status_replaces_internal_suppression_only_compact_events or search_status_replaces_stale_status_refresh_noise'`
+- `PYTHONPATH=ea python3 scripts/check_property_surface_accessibility.py`
+- `python3 -m py_compile ea/app/api/routes/landing_property_workspace_payload.py ea/app/api/routes/product_api_delivery.py`
+- Search-progress UI now renders `More updates` instead of `Search trail`, caps the visible update list at four useful rows, and hides internal repair receipts, `suppressed_generic_listing_page`, transient status-refresh failures, and stale “checking run status” messages in both server-rendered and live-polled states.
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
+- Current gold status remains `blocked`; verified 3DVista, Pano2VR, and krpano tour evidence/export drops are still missing, and `billing.propertyquarry.com` still must resolve before the Brilliant Directories account lane can be proven live.
 
 The candidate at `f26f6ab` passed:
 
