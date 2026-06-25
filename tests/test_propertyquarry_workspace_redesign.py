@@ -606,6 +606,43 @@ def test_propertyquarry_candidate_display_facts_fill_price_display_from_listing_
     assert facts["listing_fact_confirmation"]["sources"]["price"] == "listing_text"
 
 
+def test_propertyquarry_listing_fact_confirmation_does_not_confirm_fallback_price_display() -> None:
+    candidate = {
+        "title": "Vienna apartment",
+        "property_facts": {
+            "postal_name": "1010 Wien",
+            "price_display": "EUR 1,490",
+            "price_display_source": "title_fallback",
+            "area_sqm": 71,
+            "rooms": 3,
+        },
+    }
+
+    facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
+
+    confirmation = facts["listing_fact_confirmation"]
+    assert "price" not in confirmation["fields"]
+    assert set(confirmation["fields"]) >= {"area", "rooms", "location"}
+    assert confirmation["requires_manual_confirmation"] is False
+
+
+def test_propertyquarry_listing_fact_confirmation_does_not_confirm_manual_required_price() -> None:
+    candidate = {
+        "title": "Vienna apartment",
+        "property_facts": {
+            "postal_name": "1010 Wien",
+            "price_display": "EUR 1,490",
+            "price_verification_status": "manual_required",
+        },
+    }
+
+    facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
+
+    confirmation = facts["listing_fact_confirmation"]
+    assert confirmation["fields"] == ["location"]
+    assert "price" not in confirmation["sources"]
+
+
 def test_propertyquarry_listing_fact_confirmation_marks_core_provider_facts_confirmed() -> None:
     candidate = {
         "title": "1220 Wien apartment",

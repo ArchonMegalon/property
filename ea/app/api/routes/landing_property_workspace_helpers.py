@@ -186,6 +186,45 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
     def _normalized(value: object) -> str:
         return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
 
+    def _source_token(*keys: str) -> str:
+        for key in keys:
+            value = str(merged.get(key) or top_level_facts.get(key) or "").strip().lower()
+            if value:
+                return value
+        return ""
+
+    def _source_is_provisional(source: str) -> bool:
+        normalized_source = str(source or "").strip().lower()
+        if not normalized_source:
+            return False
+        return any(
+            token in normalized_source
+            for token in (
+                "estimate",
+                "estimated",
+                "fallback",
+                "inferred",
+                "manual",
+                "placeholder",
+                "provisional",
+                "synthetic",
+            )
+        )
+
+    def _field_confirmation_allowed(field: str, *, source: str) -> bool:
+        if _source_is_provisional(source):
+            return False
+        return not _source_is_provisional(
+            _source_token(
+                f"{field}_source",
+                f"{field}_display_source",
+                f"{field}_evidence_source",
+                f"{field}_confirmation_source",
+                f"{field}_status",
+                f"{field}_verification_status",
+            )
+        )
+
     source_scope_location = str(top_level_facts.get("source_scope_location") or merged.get("source_scope_location") or "").strip()
     source_city = str(top_level_facts.get("source_city") or merged.get("source_city") or "").strip()
     source_postal_code = str(top_level_facts.get("source_postal_code") or merged.get("source_postal_code") or "").strip()
@@ -267,17 +306,20 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
                     break
         if fallback_price:
             merged["price_display"] = fallback_price
-            direct_fact_sources["price"] = price_source or "provider_fact"
+            if _field_confirmation_allowed("price", source=price_source or "provider_fact"):
+                direct_fact_sources["price"] = price_source or "provider_fact"
     elif any(str(merged.get(key) or "").strip() for key in ("price_display", "rent_display", "purchase_price_display", "buy_price_display")):
-        direct_fact_sources["price"] = "provider_structured_fact"
+        if _field_confirmation_allowed("price", source="provider_structured_fact"):
+            direct_fact_sources["price"] = "provider_structured_fact"
     elif any(merged.get(key) not in (None, "", 0, 0.0) for key in ("price_eur", "purchase_price_eur", "buy_price_eur", "rent_eur", "total_rent_eur", "monthly_rent_eur")):
-        direct_fact_sources["price"] = "provider_numeric_fact"
+        if _field_confirmation_allowed("price", source="provider_numeric_fact"):
+            direct_fact_sources["price"] = "provider_numeric_fact"
 
-    if any(merged.get(key) not in (None, "", 0, 0.0) for key in ("area_sqm", "area_m2", "living_area_m2", "living_area_sqm")):
+    if _field_confirmation_allowed("area", source="provider_structured_fact") and any(merged.get(key) not in (None, "", 0, 0.0) for key in ("area_sqm", "area_m2", "living_area_m2", "living_area_sqm")):
         direct_fact_sources["area"] = "provider_structured_fact"
-    if any(merged.get(key) not in (None, "", 0, 0.0) for key in ("rooms", "room_count")):
+    if _field_confirmation_allowed("rooms", source="provider_structured_fact") and any(merged.get(key) not in (None, "", 0, 0.0) for key in ("rooms", "room_count")):
         direct_fact_sources["rooms"] = "provider_structured_fact"
-    if not direct_fact_sources.get("location") and any(str(merged.get(key) or "").strip() for key in ("exact_address", "street_address", "address", "postal_name", "district", "city")):
+    if not direct_fact_sources.get("location") and _field_confirmation_allowed("location", source="provider_structured_fact") and any(str(merged.get(key) or "").strip() for key in ("exact_address", "street_address", "address", "postal_name", "district", "city")):
         direct_fact_sources["location"] = "provider_structured_fact"
 
     if direct_fact_sources:
