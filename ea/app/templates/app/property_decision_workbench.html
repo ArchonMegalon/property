@@ -7680,6 +7680,214 @@
         align-items: flex-start;
       }
     }
+    @media (max-width: 760px) {
+      .pqx-shell {
+        --pq-mobile-gap: 6px;
+        --pq-mobile-radius: 11px;
+        background: var(--pq-bg);
+      }
+      .pqx-topbar {
+        min-height: 0;
+        margin: 0 -8px 2px;
+        padding: calc(2px + env(safe-area-inset-top, 0px)) 8px 3px;
+        border-bottom-color: color-mix(in srgb, var(--pq-line) 72%, transparent);
+        background: color-mix(in srgb, var(--pq-paper) 96%, transparent);
+        box-shadow: none;
+      }
+      .pqx-brand {
+        min-height: 34px;
+      }
+      .pqx-brand .pqx-mark {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+      }
+      .pqx-brand strong {
+        font-size: 0.82rem;
+      }
+      .pqx-primary-nav {
+        gap: 2px;
+        padding: 0 0 1px;
+      }
+      .pqx-primary-nav :is(a, span) {
+        min-height: 32px;
+        padding: 0 9px;
+        border-radius: 999px;
+        font-size: 11px;
+      }
+      .pqx-main {
+        width: min(calc(100vw - 12px), 760px);
+        padding-top: 0;
+        padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+      }
+      .pqx-mobile-switch {
+        top: calc(64px + env(safe-area-inset-top, 0px));
+        margin-bottom: 4px;
+        padding: 2px;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 76%, transparent);
+        background: color-mix(in srgb, var(--pq-paper) 96%, transparent);
+      }
+      .pqx-mobile-switch .pqx-mode-button {
+        min-height: 38px;
+        padding: 6px 8px;
+        font-size: 12px;
+      }
+      .pqx-setup,
+      .pqx-stage,
+      .pqx-results,
+      .pqx-results-list,
+      .pqx-brief-stack,
+      .pqx-pref-list,
+      .pqx-form,
+      .pqx-form-body,
+      .pqx-account-action-grid,
+      .pqx-billing-grid,
+      .pqx-automation-grid {
+        gap: var(--pq-mobile-gap) !important;
+      }
+      .pqx-card,
+      .pqx-panel,
+      .pqx-command,
+      .pqx-run-hero,
+      .pqx-result-panel,
+      .pqx-review,
+      .pqx-result,
+      .pqx-account-action-card,
+      .pqx-billing-card,
+      .pqx-billing-summary-card,
+      .pqx-account-logout-strip {
+        border-radius: var(--pq-mobile-radius) !important;
+        box-shadow: none !important;
+        background-image: none !important;
+      }
+      .pqx-card,
+      .pqx-panel,
+      .pqx-command,
+      .pqx-run-hero,
+      .pqx-result-panel,
+      .pqx-review {
+        padding: 7px !important;
+      }
+      .pqx-section-head,
+      .pqx-result-panel-head,
+      .pqx-card-title {
+        gap: 3px;
+        margin-bottom: 0;
+      }
+      .pqx-section-head h2,
+      .pqx-account-action-card h2,
+      .pqx-billing-card h2 {
+        margin: 0;
+        font-size: 0.98rem;
+        line-height: 1.12;
+      }
+      .pqx-note,
+      .pqx-section-head .pqx-note,
+      .pqx-title .pqx-note,
+      .pqx-account-action-card p,
+      .pqx-billing-card p,
+      .pqx-automation-card p {
+        display: none !important;
+      }
+      .pqx-small {
+        font-size: 10.5px;
+        line-height: 1.2;
+        letter-spacing: 0.04em;
+      }
+      .pqx-pill,
+      .pqx-result-fact,
+      .pqx-trust-chip,
+      .pqx-evidence-chip,
+      .pqx-route-chip {
+        min-height: 28px;
+        padding: 0 8px;
+        font-size: 10.5px;
+      }
+      .pqx-result {
+        gap: 5px;
+        padding: 7px !important;
+      }
+      .pqx-result-title {
+        font-size: 0.92rem;
+        line-height: 1.12;
+      }
+      .pqx-result-media:not(.no-thumb) {
+        grid-template-columns: 76px minmax(0, 1fr);
+        gap: 7px;
+      }
+      .pqx-result-media:not(.no-thumb) .pqx-thumb {
+        width: 76px;
+        border-radius: 10px;
+      }
+      .pqx-result-facts {
+        max-height: 30px;
+      }
+      .pqx-result-price {
+        font-size: 0.92rem;
+      }
+      .pqx-result-open,
+      .pqx-progress-button,
+      .pqx-button,
+      .pqx-link-button,
+      .pqx-field-action {
+        min-height: 44px;
+        border-radius: 11px;
+      }
+      .pqx-account-action-card,
+      .pqx-billing-card,
+      .pqx-billing-summary-card,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-pref-row {
+        padding: 9px !important;
+      }
+      .pqx-account-channel-option {
+        min-height: 52px;
+        padding: 8px 10px;
+        border-radius: 12px;
+      }
+      .pqx-account-channel-option input {
+        width: 22px;
+        height: 22px;
+      }
+      .pqx-account-channel-detail {
+        padding: 8px;
+        border-radius: 12px;
+      }
+      .pqx-pref-row {
+        gap: 6px;
+        padding: 8px 0;
+      }
+      .pqx-pref-row strong {
+        font-size: 0.92rem;
+        line-height: 1.15;
+      }
+      .pqx-pref-row small {
+        display: none;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
+        padding: 7px !important;
+        border-radius: 13px !important;
+        box-shadow: none;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field:not([hidden]) {
+        gap: 5px;
+        padding: 7px;
+        border-radius: 11px;
+        box-shadow: none;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-field input:not([type="checkbox"]),
+      .pqx-shell[data-pqx-surface="search"] .pqx-field select {
+        min-height: 48px;
+        border-radius: 11px;
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] {
+        padding: 5px;
+        border-radius: 12px;
+        box-shadow: none;
+      }
+      .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button {
+        min-height: 48px;
+      }
+    }
     html[data-pq-theme="dark"] .pqx-shell :is(
       input:not([type="checkbox"]):not([type="radio"]),
       select,
