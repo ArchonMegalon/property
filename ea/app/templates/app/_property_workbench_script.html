@@ -1406,6 +1406,22 @@
         return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'Search is still running.')}</span></div>`;
       }).join('') || '<div class="pqx-empty">Waiting for the first search update.</div>';
     };
+    const displayRunMessage = (runPayload) => {
+      const raw = String(runPayload?.message || '').trim();
+      const lowered = raw.toLowerCase();
+      const summary = runPayload?.summary || {};
+      if (
+        !raw
+        || lowered.includes('could not load property search status')
+        || lowered.includes('checking run status')
+        || lowered.includes('suppressed_generic_listing_page')
+      ) {
+        const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
+        const providers = Number(summary.provider_total || summary.source_variant_total || 0);
+        return `Search is still running across ${providers} provider checks; ${reviewed} homes reviewed so far.`;
+      }
+      return raw;
+    };
     const pollRetryEvents = () => [];
     const shouldPreserveRenderedRunEvents = (eventsNode, events) => {
       if (!eventsNode) return false;
@@ -2266,7 +2282,7 @@
       const sourceNode = root.querySelector('[data-pqx-source-breakdown]');
       const liveBestMatchNode = root.querySelector('[data-pqx-live-best-match]');
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
-      if (messageNode) messageNode.textContent = String(runPayload.message || 'Up next.');
+      if (messageNode) messageNode.textContent = displayRunMessage(runPayload);
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
       if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
       if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);

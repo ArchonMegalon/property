@@ -2091,6 +2091,43 @@ def test_propertyquarry_running_panel_does_not_use_raw_url_as_best_title(monkeyp
     assert "1010 Vienna" in response.text
 
 
+def test_propertyquarry_running_panel_replaces_internal_status_message_with_progress_summary(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-internal-message")
+    start_workspace(client, mode="personal", workspace_name="Running Internal Message Office")
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-internal-message", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 37,
+            "message": "Could not load property search status.",
+            "summary": {
+                "status": "in_progress",
+                "provider_total": 29,
+                "reviewed_listing_total": 179,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-live-internal-message"}, headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    message_match = re.search(r'<div class="pqx-note" data-pqx-run-message>(?P<message>.*?)</div>', response.text, re.S)
+    assert message_match
+    visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
+    assert "Could not load property search status." not in visible_message
+    assert "Search is still running across 29 provider checks; 179 homes reviewed so far." in visible_message
+
+
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
     client = build_property_client(principal_id="pq-what-matters-comboboxes")
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -9515,6 +9552,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
 
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
+    assert "displayRunMessage" in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
@@ -9534,6 +9572,9 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "message.includes('suppressed_generic_listing_page')" in script_body
     assert "message.includes('checking run status')" in script_body
     assert "message.includes('could not load property search status')" in script_body
+    assert "lowered.includes('checking run status')" in script_body
+    assert "lowered.includes('could not load property search status')" in script_body
+    assert "lowered.includes('suppressed_generic_listing_page')" in script_body
     assert "source lanes" not in body
     assert "0 lanes in progress" not in body
     assert "lanes in progress" not in body
