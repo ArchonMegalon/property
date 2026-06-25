@@ -25588,7 +25588,42 @@ class ProductService:
         normalized_summary = dict(summary or {})
         receipts = [dict(row) for row in list(normalized_summary.get("repair_receipts") or []) if isinstance(row, dict)]
         sources = [dict(row) for row in list(normalized_summary.get("sources") or []) if isinstance(row, dict)]
-        if not receipts or not sources:
+        if not receipts:
+            return normalized_summary
+        receipt_by_task_ref: dict[str, dict[str, object]] = {}
+        for receipt in receipts:
+            task_ref = str(receipt.get("human_task_id") or "").strip()
+            if task_ref:
+                receipt_by_task_ref[task_ref] = receipt
+        top_level_tasks = [
+            dict(row)
+            for row in list(normalized_summary.get("provider_repair_tasks") or [])
+            if isinstance(row, dict)
+        ]
+        if top_level_tasks and receipt_by_task_ref:
+            tasks_changed = False
+            for repair_task in top_level_tasks:
+                task_ref = str(repair_task.get("queue_item_ref") or repair_task.get("human_task_id") or "").strip()
+                receipt = receipt_by_task_ref.get(task_ref)
+                if not receipt:
+                    continue
+                repair_task["status"] = "returned"
+                repair_task["resolution"] = str(receipt.get("resolution") or "").strip()
+                repair_task["reason"] = str(receipt.get("reason") or "").strip()
+                repair_task["human_task_id"] = task_ref
+                repair_task["queue_item_ref"] = task_ref
+                repair_task["filter_key"] = str(repair_task.get("filter_key") or receipt.get("filter_key") or "").strip()
+                replacement_run_id = str(receipt.get("replacement_run_id") or "").strip()
+                if replacement_run_id:
+                    repair_task["replacement_run_id"] = replacement_run_id
+                    repair_task["replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
+                    normalized_summary["repair_replacement_run_id"] = replacement_run_id
+                    normalized_summary["repair_replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
+                    normalized_summary.setdefault("repair_step_label", "Started a replacement search run from the saved brief.")
+                tasks_changed = True
+            if tasks_changed:
+                normalized_summary["provider_repair_tasks"] = top_level_tasks[-10:]
+        if not sources:
             return normalized_summary
         latest_receipt_by_key: dict[str, dict[str, object]] = {}
         for receipt in receipts:

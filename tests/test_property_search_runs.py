@@ -185,6 +185,40 @@ def test_property_search_compact_run_preserves_repair_lifecycle_fields() -> None
     assert summary["can_auto_repair"] is True
 
 
+def test_property_search_repair_receipts_normalize_historical_top_level_tasks() -> None:
+    client = build_property_client(principal_id="cf-email:historical.repair@example.com")
+    service = ProductService(client.app.state.container)
+
+    summary = service._apply_property_search_run_repair_receipts(  # type: ignore[attr-defined]
+        summary={
+            "repair_status": "repairing",
+            "provider_repair_tasks": [
+                {
+                    "status": "opened",
+                    "filter_key": "run_worker_exception",
+                    "human_task_id": "human_task:old-repair",
+                    "queue_item_ref": "human_task:old-repair",
+                }
+            ],
+            "repair_receipts": [
+                {
+                    "human_task_id": "human_task:old-repair",
+                    "filter_key": "run_worker_exception",
+                    "resolution": "worker_exception_restart_required",
+                    "reason": "started a fresh bounded run from the saved brief",
+                    "replacement_run_id": "replacement-run",
+                }
+            ],
+        }
+    )
+
+    assert summary["provider_repair_tasks"][0]["status"] == "returned"
+    assert summary["provider_repair_tasks"][0]["resolution"] == "worker_exception_restart_required"
+    assert summary["provider_repair_tasks"][0]["replacement_run_id"] == "replacement-run"
+    assert summary["repair_replacement_run_id"] == "replacement-run"
+    assert summary["repair_replacement_status_url"] == "/app/api/signals/property/search/run/replacement-run"
+
+
 def test_property_plan_investment_research_levels_follow_tier() -> None:
     plus = property_commercial_snapshot(
         {"property_commercial": {"active_plan_key": "plus", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"}}
