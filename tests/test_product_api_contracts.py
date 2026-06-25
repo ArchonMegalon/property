@@ -23671,6 +23671,9 @@ def test_property_billing_surface_is_not_local_payment_state() -> None:
 
     assert billing.status_code == 503
     assert "Billing handoff unavailable" in billing.text
+    assert 'name="viewport"' in billing.text
+    assert "PropertyQuarry account" in billing.text
+    assert 'href="/app/account"' in billing.text
     assert "Your plan" not in billing.text
     assert "Current search access" not in billing.text
     assert "Latest payment" not in billing.text
