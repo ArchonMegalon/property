@@ -3,7 +3,7 @@
 {% set upgrade_card = namespace(value={}) %}
 {% set history_card = namespace(value={}) %}
 {% for card in billing_cards %}
-  {% if card.get('title') == 'Payment' %}{% set checkout_card.value = card %}{% endif %}
+  {% if card.get('title') in ['Payment', 'Account'] %}{% set checkout_card.value = card %}{% endif %}
   {% if card.get('title') == 'Tier changes' %}{% set upgrade_card.value = card %}{% endif %}
   {% if card.get('title') == 'Billing history' %}{% set history_card.value = card %}{% endif %}
 {% endfor %}
@@ -35,7 +35,7 @@
     {% if payment_status.get('tag') == 'Ready' %}
     Payment updates are ready. Plan changes can happen without losing the current search context.
     {% elif payment_status.get('tag') == 'Active' %}
-    Current access is already active. Use this page to compare tiers, confirm coverage, and spot the latest payment state.
+    Access is active. Use this page for plan state, invoices, and account handoff.
     {% elif payment_status.get('tag') == 'Pending' %}
     A payment change is still settling. PropertyQuarry keeps the current plan visible until the provider confirms the new state.
     {% else %}

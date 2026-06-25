@@ -1281,7 +1281,7 @@ def build_property_empty_outcome_summary(
             else "The brief and selected providers were still saved."
         )
     if status_value == "failed":
-        next_move = "Wait for repair; this page refreshes quietly every 10s and will switch to the usable run when one is ready."
+        next_move = "Wait for repair; this page checks repair progress every 3s and will switch to the usable run when one is ready."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
     elif filtered_total <= 0 and score_demoted_total > 0:
@@ -1310,7 +1310,7 @@ def build_property_empty_outcome_summary(
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":
-        eta_feedback = "Repair has the run queued; this page refreshes quietly every 10s and will switch when a usable rerun is ready."
+        eta_feedback = "Repair has the run queued; this page checks repair progress every 3s and will switch when a usable rerun is ready."
     else:
         eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
     return {

@@ -1206,6 +1206,10 @@ def _property_missing_fact_research_items(facts: dict[str, object] | None) -> li
     return []
 
 
+def _property_missing_fact_items(facts: dict[str, object] | None) -> list[dict[str, object]]:
+    return _property_missing_fact_research_items(facts)
+
+
 def _property_enrich_missing_fact_research(
     *,
     facts: dict[str, object] | None,

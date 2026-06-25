@@ -6938,9 +6938,51 @@ def test_property_billing_surface_keeps_paid_plan_active_when_checkout_is_disabl
     billing = client.get("/app/billing", headers=headers)
 
     assert billing.status_code == 200
-    assert "Included with the current plan" in billing.text
-    assert "Current access is already active." in billing.text
+    assert "Access active" in billing.text
+    assert "Included with the current plan" not in billing.text
+    assert "Current access is already active." not in billing.text
     assert "Not active yet" not in billing.text
+
+
+def test_property_search_status_synthesizes_repair_events_for_compact_failed_runs(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-compact-repair-events")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Repair Events Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert lightweight is True
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "failed",
+            "message": "provider worker interrupted",
+            "summary": {
+                "repair_status": "repairing",
+                "repair_status_label": "Repairing",
+                "repair_step_label": "Repairing interrupted run.",
+                "repair_receipts": [
+                    {
+                        "source_label": "Willhaben",
+                        "resolution": "suppressed_generic_listing_page",
+                        "at": "2026-06-25T13:00:32+00:00",
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/api/signals/property/search/run/run-repair-events?lightweight=1",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    messages = [str(event.get("message") or "") for event in payload["events"]]
+    assert "Repairing interrupted run." in messages
+    assert "Willhaben: suppressed_generic_listing_page." in messages
 
 
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
@@ -9240,18 +9282,19 @@ def test_propertyquarry_dark_mode_covers_nested_search_controls() -> None:
         assert selector in dark_block
 
 
-def test_propertyquarry_mobile_top_nav_scrolls_instead_of_clipping_sections() -> None:
+def test_propertyquarry_mobile_top_nav_uses_compact_menu_instead_of_noisy_tab_strip() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
-    nav_match = re.search(r"\.pqx-primary-nav\s*\{(?P<body>.*?)\}", body, re.S)
+    nav_match = re.search(r"@media \(max-width: 760px\).*?\.pqx-primary-nav\s*\{(?P<body>.*?)\}", body, re.S)
 
     assert nav_match is not None
     nav_block = nav_match.group("body")
-    assert "overflow-x: auto;" in nav_block
-    assert "overflow: hidden;" not in nav_block
-    assert "scrollbar-width: none;" in nav_block
-    assert "-webkit-overflow-scrolling: touch;" in nav_block
-    assert ".pqx-primary-nav::-webkit-scrollbar" in body
+    assert 'data-pqx-mobile-nav-menu' in body
+    assert ".pqx-mobile-nav-menu > summary" in body
+    assert "display: none;" in nav_block
+    assert "position: fixed;" in nav_block
+    assert ".pqx-mobile-nav-menu[open] .pqx-primary-nav" in body
+    assert "overflow-x: auto;" not in nav_block
 
 
 def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> None:
@@ -12363,7 +12406,8 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     assert "Plan and payments" in rendered_text
     assert "Current access and payments" in rendered_text
     assert "When to upgrade" not in rendered_text
-    assert "Compare plans" in rendered_text
+    assert "White-label account lane" not in rendered_text
+    assert "Local billing is active" not in rendered_text
     assert "Open guide" in rendered_text
     assert "Back to search" not in rendered_text
 
@@ -12420,9 +12464,9 @@ def test_propertyquarry_billing_surface_keeps_local_board_when_white_label_comme
     assert 'class="pq-billing-lane-frame"' not in billing.text
     assert 'src="https://billing.brilliantdirectories.com/account"' not in billing.text
     assert "Plan and payments" in billing.text
-    assert "White-label account lane" in billing.text
-    assert "Local billing is active" in billing.text
-    assert "external account lane is not enabled for this workspace" in billing.text
+    assert "White-label account lane" not in billing.text
+    assert "Local billing is active" not in billing.text
+    assert "external account lane is not enabled for this workspace" not in billing.text
     assert "billing.brilliantdirectories.com" not in billing.text.lower()
     assert "Brilliant Directories" not in billing.text
 

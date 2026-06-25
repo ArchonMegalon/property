@@ -539,6 +539,12 @@
       background: rgba(255, 255, 255, 0.07);
       box-shadow: inset 0 0 0 1px rgba(210, 161, 74, 0.28);
     }
+    .pqx-mobile-nav-menu {
+      display: contents;
+    }
+    .pqx-mobile-nav-menu > summary {
+      display: none;
+    }
     .pqx-brand {
       grid-area: brand;
       display: inline-flex;
@@ -6444,13 +6450,12 @@
         position: sticky;
         top: 0;
         z-index: 42;
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas:
-          "brand actions"
-          "nav nav";
-        gap: 2px 8px;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas: "brand nav actions";
+        gap: 8px;
         margin: 0 -8px 4px;
-        padding: calc(3px + env(safe-area-inset-top, 0px)) 8px 4px;
+        min-height: 52px;
+        padding: calc(5px + env(safe-area-inset-top, 0px)) 8px 5px;
         border-color: color-mix(in srgb, var(--pq-line) 86%, transparent);
         border-radius: 0;
         background:
@@ -6459,29 +6464,64 @@
         box-shadow: 0 6px 18px rgba(41, 37, 30, 0.055);
         backdrop-filter: blur(18px);
       }
-      .pqx-primary-nav {
-        display: flex;
-        width: 100%;
-        justify-content: flex-start;
-        gap: 4px;
-        margin: 0;
-        padding: 0 2px 2px;
-        overflow-x: auto;
-        overscroll-behavior-x: contain;
-        scroll-snap-type: x proximity;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
+      .pqx-mobile-nav-menu {
+        position: relative;
+        grid-area: nav;
+        display: block;
       }
-      .pqx-primary-nav::-webkit-scrollbar {
+      .pqx-mobile-nav-menu > summary {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 12px;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 88%, transparent);
+        border-radius: 999px;
+        background: rgba(255, 252, 245, 0.88);
+        color: var(--pq-ink);
+        font-size: 12px;
+        font-weight: 760;
+        list-style: none;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .pqx-mobile-nav-menu > summary::-webkit-details-marker {
         display: none;
       }
-      .pqx-primary-nav :is(a, span) {
-        flex: 0 0 auto;
-        scroll-snap-align: start;
-        min-height: 34px;
-        padding: 0 10px;
-        border-radius: 999px;
+      .pqx-mobile-nav-menu > summary::after {
+        content: "Menu";
+        color: var(--pq-muted);
         font-size: 11px;
+        font-weight: 720;
+      }
+      .pqx-primary-nav {
+        position: fixed;
+        left: 8px;
+        right: 8px;
+        top: calc(58px + env(safe-area-inset-top, 0px));
+        z-index: 80;
+        display: none;
+        width: auto;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px;
+        overflow: visible;
+        border: 1px solid color-mix(in srgb, var(--pq-line) 90%, transparent);
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--pq-paper) 96%, white);
+        box-shadow: 0 18px 48px rgba(41, 37, 30, 0.16);
+      }
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav {
+        display: grid;
+      }
+      .pqx-primary-nav :is(a, span) {
+        width: 100%;
+        min-height: 48px;
+        justify-content: center;
+        padding: 0 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.54);
+        font-size: 12px;
       }
       .pqx-brand {
         gap: 8px;
@@ -6502,7 +6542,8 @@
       }
       .pqx-top-actions > .pqx-link-button,
       .pqx-top-actions > .pqx-context-actions,
-      .pqx-top-actions > [data-pqx-browser-alerts] {
+      .pqx-top-actions > [data-pqx-browser-alerts],
+      .pqx-top-actions > [data-pqx-theme-toggle] {
         display: none;
       }
       .pqx-account-menu summary::after {
@@ -7886,6 +7927,8 @@
           <span class="pqx-brand-copy">Research desk</span>
         </span>
       </a>
+      <details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu>
+        <summary>{% if surface_mode in ['properties', 'search'] %}Search{% elif surface_mode == 'shortlist' %}Shortlist{% elif surface_mode == 'research' %}Research{% elif surface_mode == 'agents' %}Saved{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'billing' %}Billing{% elif surface_mode == 'account' %}Account{% else %}Menu{% endif %}</summary>
       <nav class="pqx-primary-nav" aria-label="PropertyQuarry sections">
         {% if surface_mode in ['properties', 'search'] %}
         <span class="is-active" aria-current="page">Search</span>
@@ -7923,6 +7966,7 @@
         <a href="/app/account{{ topnav_query_suffix }}">Account</a>
         {% endif %}
       </nav>
+      </details>
       <div class="pqx-top-actions" data-pq-context-actions>
         {% if run_active or has_results or run_terminal_no_results %}
         <div class="pqx-run-summary" data-property-pulse-strip aria-label="Current search summary">

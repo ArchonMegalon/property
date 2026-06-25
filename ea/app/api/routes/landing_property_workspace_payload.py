@@ -2686,24 +2686,14 @@ def property_workspace_payload(
     payment_status_detail = (
         "Available"
         if bool(property_state.get("billing_checkout_enabled"))
-        else ("Included with the current plan" if has_active_paid_plan else "Payment lane not active yet")
+        else ("Access active" if has_active_paid_plan else "Payment lane not active yet")
     )
     payment_status_tag = (
         "Ready"
         if bool(property_state.get("billing_checkout_enabled"))
         else ("Active" if has_active_paid_plan else "Inactive")
     )
-    billing_handoff_status = str(billing_handoff.get("status") or "").strip().lower()
     billing_handoff_available = bool(billing_handoff.get("available"))
-    if billing_handoff_available:
-        billing_handoff_detail = "Ready inside the PropertyQuarry account lane. Local plan, invoice, and entitlement state still decides access."
-        billing_handoff_tag = "Ready"
-    elif billing_handoff_status == "unavailable":
-        billing_handoff_detail = "Local recovery is active. The external account lane is misconfigured or unavailable, so access stays governed here."
-        billing_handoff_tag = "Recovery"
-    else:
-        billing_handoff_detail = "Local billing is active. The external account lane is not enabled for this workspace."
-        billing_handoff_tag = "Local"
     billing_rows = [
         row_item(
             "Current plan",
@@ -2752,11 +2742,6 @@ def property_workspace_payload(
             "Status",
             payment_status_detail,
             payment_status_tag,
-        ),
-        row_item(
-            "White-label account lane",
-            billing_handoff_detail,
-            billing_handoff_tag,
         ),
     ]
     if last_payment_status:
@@ -3302,23 +3287,27 @@ def property_workspace_payload(
                 },
                 {
                     "eyebrow": "Payment",
-                    "title": "Payment",
+                    "title": "Account",
                     "body": "",
                     "items": [
                         *billing_payment_rows,
                         {
                             **row_item(
-                                "Compare plans",
+                                "Billing account" if billing_handoff_available else "Compare plans",
                                 (
-                                    "Review limits before the next upgrade."
-                                    if bool(property_state.get("billing_checkout_enabled"))
-                                    else ("Current access is already active." if has_active_paid_plan else "Payments are not enabled for this workspace yet.")
+                                    "Open the account and payment lane."
+                                    if billing_handoff_available
+                                    else (
+                                        "Review limits before the next upgrade."
+                                        if bool(property_state.get("billing_checkout_enabled"))
+                                        else ("Access is active." if has_active_paid_plan else "Payments are not enabled for this workspace yet.")
+                                    )
                                 ),
                                 "Decision",
                             ),
                             "action_href": signed_in_billing_href,
                             "action_method": "get",
-                            "action_label": "Compare plans",
+                            "action_label": "Open billing account" if billing_handoff_available else "Compare plans",
                         },
                     ],
                 },

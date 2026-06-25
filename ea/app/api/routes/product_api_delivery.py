@@ -339,6 +339,32 @@ def _property_search_run_status_payload(
     if not str(normalized.get("generated_at") or "").strip():
         normalized["generated_at"] = str(normalized.get("updated_at") or normalized.get("created_at") or "")
     summary = dict(normalized.get("summary") or {}) if isinstance(normalized.get("summary"), dict) else {}
+    if not [item for item in list(normalized.get("events") or []) if isinstance(item, dict)]:
+        synthesized_events: list[dict[str, object]] = []
+        repair_label = str(summary.get("repair_status_label") or summary.get("repair_status") or "").strip()
+        repair_step = str(summary.get("repair_step_label") or "").strip()
+        if repair_label or repair_step:
+            synthesized_events.append(
+                {
+                    "step": "repair_status",
+                    "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
+                    "message": repair_step or f"Repair status: {repair_label}.",
+                    "created_at": str(summary.get("repair_last_updated_at") or normalized.get("updated_at") or normalized.get("generated_at") or ""),
+                }
+            )
+        for receipt in [dict(item) for item in list(summary.get("repair_receipts") or []) if isinstance(item, dict)][-3:]:
+            source_label = str(receipt.get("source_label") or "Provider").strip()
+            resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
+            synthesized_events.append(
+                {
+                    "step": "repair_receipt",
+                    "status": "repaired",
+                    "message": f"{source_label}: {resolution}.",
+                    "created_at": str(receipt.get("at") or normalized.get("updated_at") or normalized.get("generated_at") or ""),
+                }
+            )
+        if synthesized_events:
+            normalized["events"] = synthesized_events
     if summary:
         ranked_candidates = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
         if not ranked_candidates:

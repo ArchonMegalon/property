@@ -205,7 +205,7 @@ def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
         "available": True,
         "status": "ready",
         "hosted_href": hosted_url,
-        "open_href": "/app/billing",
+        "open_href": hosted_url,
     }
 
 

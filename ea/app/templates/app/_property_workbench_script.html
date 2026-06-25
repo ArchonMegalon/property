@@ -2377,6 +2377,7 @@
           }
           if (signature !== lastSignature) {
             lastSignature = signature;
+            renderRun(payload);
           }
         } catch (_error) {
           // Keep the repair card stable; the next interval can try again.
@@ -2384,8 +2385,8 @@
           inFlight = false;
         }
       };
-      window.setTimeout(check, 1200);
-      window.setInterval(check, 10000);
+      window.setTimeout(check, 900);
+      window.setInterval(check, 3000);
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
     const wizardStepPresentation = (step, isInvestment) => {

@@ -90,6 +90,7 @@ def _collect_metrics_script() -> str:
       const visibleNodes = (selector) => Array.from(document.querySelectorAll(selector)).filter(visible);
       const topbar = document.querySelector('[data-property-research-topnav], .pqx-topbar, .prd-topbar');
       const topnav = document.querySelector('nav[aria-label="PropertyQuarry sections"]');
+      const mobileNavMenu = document.querySelector('[data-pqx-mobile-nav-menu] > summary, .pq-appbar-mobile-nav');
       const actionNodes = visibleNodes('main button, main a.pqx-button, main a.pqx-link-button, main a.pq-pack-button, main .console-action, .pqx-account-logout-strip button, .pqx-account-logout-strip a');
       const actionHeights = actionNodes.map((node) => node.getBoundingClientRect().height).filter((height) => height > 0);
       const cardNodes = visibleNodes('.pqx-card, .pqx-panel, .pqx-result, .pqx-account-action-card, .pqx-billing-card, .pqx-billing-summary-card, .pqx-automation-card, .prd-panel, .prd-band');
@@ -139,7 +140,7 @@ def _collect_metrics_script() -> str:
         body_width: document.documentElement.scrollWidth,
         viewport_width: window.innerWidth,
         topbar_height: topbar ? Math.round(topbar.getBoundingClientRect().height) : 0,
-        topnav_visible: visible(topnav),
+        topnav_visible: visible(topnav) || visible(mobileNavMenu),
         min_action_height: actionHeights.length ? Math.min(...actionHeights) : 44,
         visible_card_count: cardNodes.length,
         heavy_shadow_count: heavyShadowNodes.length,
