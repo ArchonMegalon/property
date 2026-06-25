@@ -114,6 +114,27 @@ def test_property_search_agents_can_be_managed_independently() -> None:
     assert [agent["agent_id"] for agent in agents] == [duplicate_id]
 
 
+def test_property_search_preferences_drop_cross_country_providers() -> None:
+    client = build_property_client(principal_id="exec-property-cross-country-providers")
+    start_workspace(client, mode="personal", workspace_name="Property office")
+
+    created = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben", "otodom", "olx_pl_nieruchomosci"],
+        },
+    )
+
+    assert created.status_code == 200, created.text
+    preferences = created.json()["property_search_preferences"]
+    assert preferences["country_code"] == "AT"
+    assert preferences["selected_platforms"] == ["willhaben"]
+
+
 def test_property_search_agents_can_delete_the_last_saved_search() -> None:
     client = build_property_client(principal_id="exec-property-search-agent-delete-last")
     start_workspace(client, mode="personal", workspace_name="Property office")

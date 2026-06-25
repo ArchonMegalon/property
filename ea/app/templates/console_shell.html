@@ -1478,7 +1478,16 @@
       : null
   );
 
-  const selectedPlatformsForForm = (form) => selectedValuesForForm(form, 'selected_platforms');
+  const selectedPlatformsForForm = (form) => {
+    const selectedCountry = String(fieldValue(form, 'country_code') || 'AT').trim().toUpperCase();
+    return [...form.querySelectorAll('input[name="selected_platforms"]:checked')]
+      .filter((node) => {
+        const providerCountry = String(node.getAttribute('data-country-code') || '').trim().toUpperCase();
+        return !providerCountry || !selectedCountry || providerCountry === selectedCountry;
+      })
+      .map((node) => String(node.value || '').trim())
+      .filter(Boolean);
+  };
 
   const renderCheckboxOptions = (form, name, options, selectedValues) => {
     const grid = form?.querySelector(`[data-console-check-grid="${name}"]`) || [...form.querySelectorAll(`input[name="${name}"]`)][0]?.closest('.console-choice-grid');
@@ -1500,7 +1509,7 @@
       const detail = String(option.detail || option.description || '').trim();
       return `
         <label class="console-choice">
-          <input type="checkbox" name="${name}" value="${value}" ${nextSelected.has(value) ? 'checked' : ''}>
+          <input type="checkbox" name="${name}" value="${value}" ${option.country_code ? `data-country-code="${escapeHtml(option.country_code)}"` : ''} ${nextSelected.has(value) ? 'checked' : ''}>
           <span>
             <span class="console-choice-label">${label}</span>
             ${detail ? `<span class="console-choice-detail">${detail}</span>` : ''}

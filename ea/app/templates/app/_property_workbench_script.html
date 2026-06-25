@@ -3002,6 +3002,13 @@
         const hasAreaOptions = form.querySelectorAll('input[name="location_query"]').length > 0;
         const selectedLocations = checkedValues(form, 'location_query');
         const allLocationsSelected = hasAreaOptions && selectedLocations.length > 0 && selectedLocations.length === form.querySelectorAll('input[name="location_query"]').length;
+        form.querySelectorAll('[data-location-selected-summary]').forEach((node) => {
+          const count = selectedLocations.length;
+          const total = form.querySelectorAll('input[name="location_query"]').length;
+          node.textContent = count
+            ? `${count} of ${total} district${total === 1 ? '' : 's'} selected`
+            : 'No districts selected';
+        });
         setConditionalWrapVisibility(fullRegionScopeFieldWrap, false, 'redundant_full_region_scope');
         if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
         if (fullRegionScopeField) fullRegionScopeField.checked = allLocationsSelected;

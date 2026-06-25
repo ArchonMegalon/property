@@ -1899,7 +1899,7 @@
     .pqx-brief-drawer-panel {
       max-height: calc(100vh - 136px);
       overflow: auto;
-      overscroll-behavior: contain;
+      overscroll-behavior: auto;
     }
     .pqx-form-body {
       display: grid;
@@ -2254,7 +2254,7 @@
       gap: 4px 8px;
       max-height: 316px;
       overflow-y: auto;
-      overscroll-behavior: contain;
+      overscroll-behavior-y: auto;
       padding-right: 2px;
       scrollbar-gutter: stable;
     }
@@ -2309,6 +2309,9 @@
       gap: 8px;
     }
     .pqx-mobile-helper {
+      display: none;
+    }
+    .pqx-location-selected-summary {
       display: none;
     }
     .pqx-check {
@@ -2640,6 +2643,9 @@
       border-radius: 8px;
       background: rgba(255, 253, 248, 0.72);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+      box-sizing: border-box;
+      min-width: 0;
+      max-width: 100%;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox {
       grid-column: 1 / -1;
@@ -2691,12 +2697,15 @@
       max-height: none;
       overflow: visible;
       align-items: start;
+      box-sizing: border-box;
+      min-width: 0;
+      max-width: 100%;
     }
     .pqx-what-matters-panel .pqx-choice-groupbox[data-active-distance-rows="true"] .pqx-pref-list {
-      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     }
     .pqx-what-matters-panel .pqx-pref-row {
-      grid-template-columns: minmax(108px, 1fr) minmax(112px, 128px);
+      grid-template-columns: minmax(96px, 1fr) max-content;
       padding: 5px 6px;
       gap: 6px;
       align-items: center;
@@ -2704,6 +2713,9 @@
       border-radius: 8px;
       background: rgba(255, 253, 249, 0.58);
       min-height: 0;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
       position: relative;
       transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
     }
@@ -2743,16 +2755,17 @@
       display: none;
     }
     .pqx-what-matters-panel .pqx-pref-row select {
-      min-width: 0;
-      max-width: none;
+      min-width: 96px;
+      max-width: 100%;
       min-height: 30px;
       padding: 4px 24px 4px 7px;
       font-size: 11px;
       align-self: center;
-      width: 100%;
+      justify-self: end;
+      width: max-content;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
-      grid-template-columns: minmax(136px, 1.25fr) minmax(136px, 164px) minmax(112px, 140px);
+      grid-template-columns: minmax(92px, 1fr) max-content max-content;
       row-gap: 5px;
       align-items: center;
       transform: translateY(-1px);
@@ -2768,13 +2781,13 @@
       grid-column: 3 / 4;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="false"] {
-      grid-template-columns: minmax(108px, 1fr) minmax(112px, 128px);
+      grid-template-columns: minmax(96px, 1fr) max-content;
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="false"] [data-keyword-distance-select] {
       display: none;
     }
     .pqx-what-matters-panel .pqx-school-priority-row {
-      grid-template-columns: minmax(110px, 1fr) minmax(110px, 128px);
+      grid-template-columns: minmax(110px, 1fr) max-content;
     }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row] {
       margin-left: 12px;
@@ -2804,8 +2817,8 @@
     }
     .pqx-what-matters-panel .pqx-keyword-priority-row select:only-of-type,
     .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
-      grid-column: 2 / 4;
-      max-width: none;
+      grid-column: 2 / 3;
+      max-width: 100%;
     }
     .pqx-what-matters-panel .pqx-school-priority-row select:only-of-type {
       grid-column: auto;
@@ -6104,12 +6117,13 @@
         grid-template-columns: minmax(0, 1fr);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] {
-        gap: 10px;
-        max-height: min(54svh, 480px);
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        max-height: min(48svh, 420px);
         overflow-y: auto;
         overscroll-behavior: contain;
-        padding: 2px 2px 10px;
-        scroll-padding-bottom: 16px;
+        padding: 4px 4px calc(92px + env(safe-area-inset-bottom, 0px));
+        scroll-padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
         -webkit-overflow-scrolling: touch;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"]::-webkit-scrollbar {
@@ -6127,36 +6141,72 @@
         width: 0;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check {
-        min-height: 64px;
-        grid-template-columns: 34px minmax(0, 1fr);
+        min-height: 68px;
+        grid-template-columns: 42px minmax(0, 1fr);
         align-items: center;
-        padding: 11px 12px;
-        border: 1px solid rgba(185, 173, 154, 0.58);
-        border-radius: 16px;
-        background: rgba(255, 253, 248, 0.72);
+        padding: 12px 14px;
+        border: 1px solid rgba(166, 149, 119, 0.46);
+        border-radius: 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(249, 246, 239, 0.92));
+        box-shadow: 0 8px 18px rgba(42, 36, 27, 0.055);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check:has(input:checked) {
-        border-color: rgba(137, 93, 28, 0.58);
-        background: linear-gradient(180deg, rgba(255, 244, 214, 0.95), rgba(255, 250, 238, 0.9));
-        box-shadow: inset 0 0 0 1px rgba(137, 93, 28, 0.12);
+        border-color: rgba(137, 93, 28, 0.62);
+        background:
+          linear-gradient(180deg, rgba(255, 244, 214, 0.98), rgba(255, 250, 238, 0.94));
+        box-shadow:
+          inset 4px 0 0 rgba(137, 93, 28, 0.54),
+          0 10px 22px rgba(80, 55, 18, 0.1);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check input {
-        width: 24px;
-        height: 24px;
+        width: 28px;
+        height: 28px;
         margin: 0;
         justify-self: center;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check span span {
         font-size: 16px;
-        line-height: 1.15;
+        line-height: 1.18;
+        letter-spacing: -0.01em;
       }
       .pqx-mobile-helper {
         display: block;
         flex: 1 1 100%;
-        margin: 0 0 2px;
+        margin: 0;
         color: var(--pq-muted);
         font-size: 13px;
         line-height: 1.35;
+      }
+      .pqx-location-selected-summary {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        margin: 0;
+        padding: 0 10px;
+        border: 1px solid rgba(137, 93, 28, 0.18);
+        border-radius: 999px;
+        background: rgba(255, 248, 232, 0.9);
+        color: var(--pq-ink);
+        font-size: 13px;
+        font-weight: 760;
+      }
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox {
+        gap: 10px;
+        padding: 10px;
+        border-radius: 20px;
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(246, 242, 234, 0.94));
+      }
+      .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox-head {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        margin: -2px -2px 0;
+        padding: 2px 2px 8px;
+        border-bottom: 1px solid rgba(185, 173, 154, 0.34);
+        background:
+          linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(255, 253, 248, 0.9));
       }
       .pqx-choice-groupbox-head .pqx-choice-groupbox-actions {
         width: 100%;
@@ -7191,7 +7241,8 @@
                       {% if field.name == 'selected_platforms' %}
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all providers">All providers</button>
                       {% else %}
-                      <p class="pqx-mobile-helper">Tap only the areas you want. Big rows are easier than map pins on a phone.</p>
+                      <p class="pqx-mobile-helper">Choose districts one at a time. Large rows are easier than map pins.</p>
+                      <p class="pqx-location-selected-summary" data-location-selected-summary>0 districts selected</p>
                       <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all areas">All areas</button>
                       <button class="pqx-field-action" type="button" data-checkbox-group-clear-all="{{ field.name }}" aria-label="Clear selected areas">Clear</button>
                       {% endif %}
@@ -7217,7 +7268,7 @@
                       {% for option in group.get('options') or [] %}
                       {% set option_value = option.get('value') or '' %}
                       <label class="pqx-check">
-                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
+                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
                         <span>
                           <span>{{ option.get('label') }}</span>
                           {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
@@ -7235,7 +7286,7 @@
                     {% for option in field.options or [] %}
                     {% set option_value = option.get('value') or '' %}
                     <label class="pqx-check"{% if field.name == 'school_stage_preferences' and option_value == 'volksschule' %} data-school-stage-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('ganztags_volksschule', 'halbtags_volksschule') %} data-school-stage-variant{% endif %}{% if field.name == 'school_stage_preferences' and option_value == 'kindergarten' %} data-kindergarten-parent{% endif %}{% if field.name == 'school_stage_preferences' and option_value in ('public_kindergarten', 'private_kindergarten') %} data-kindergarten-variant{% endif %}>
-                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
+                      <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
                       <span>
                         <span>{{ option.get('label') }}</span>
                         {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}

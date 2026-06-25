@@ -2290,17 +2290,34 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
               const list = group?.querySelector('.pqx-pref-list');
               const groupRect = group?.getBoundingClientRect();
               const listRect = list?.getBoundingClientRect();
+              const offenders = Array.from(group?.querySelectorAll('*') || [])
+                .map((node) => {
+                  const rect = node.getBoundingClientRect();
+                  return {
+                    tag: node.tagName,
+                    cls: node.className || '',
+                    attr: node.getAttribute('data-keyword-value') || node.getAttribute('data-school-value') || '',
+                    width: rect.width,
+                    rightOver: groupRect ? rect.right - groupRect.right : 0,
+                    scrollWidth: node.scrollWidth || 0,
+                    clientWidth: node.clientWidth || 0,
+                  };
+                })
+                .filter((item) => item.rightOver > 1 || item.scrollWidth > item.clientWidth + 1)
+                .sort((a, b) => Math.max(b.rightOver, b.scrollWidth - b.clientWidth) - Math.max(a.rightOver, a.scrollWidth - a.clientWidth))
+                .slice(0, 8);
               return {
                 groupWidth: groupRect ? groupRect.width : 0,
                 groupScrollWidth: group ? group.scrollWidth : 0,
                 listWidth: listRect ? listRect.width : 0,
                 listScrollWidth: list ? list.scrollWidth : 0,
+                offenders,
               };
             }
             """
         )
-        assert float(group_overflow["groupScrollWidth"]) <= float(group_overflow["groupWidth"]) + 1.0, group_overflow
-        assert float(group_overflow["listScrollWidth"]) <= float(group_overflow["listWidth"]) + 1.0, group_overflow
+        assert float(group_overflow["groupScrollWidth"]) <= float(group_overflow["groupWidth"]) + 1.0, json.dumps(group_overflow)
+        assert float(group_overflow["listScrollWidth"]) <= float(group_overflow["listWidth"]) + 1.0, json.dumps(group_overflow)
         rows = page.evaluate(
             """
             () => Array.from(document.querySelectorAll('[data-keyword-priority-row][data-keyword-distance-enabled="true"]'))
@@ -2334,34 +2351,50 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             if inner_width >= 900:
                 assert float(row["rowWidth"]) >= 320.0, row
             for control in row["controls"]:
-                assert float(control["width"]) >= 104.0, row
+                assert float(control["width"]) >= 96.0, row
+                if inner_width >= 900:
+                    assert float(control["width"]) <= 132.0, row
                 assert float(control["left"]) >= -1.0, row
                 assert float(control["right"]) >= -1.0, row
         playground_clip = page.evaluate(
             """
             () => {
               const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const preference = row?.querySelector('[data-keyword-preference-select]');
               const select = row?.querySelector('[data-keyword-distance-select]');
               const list = row?.closest('.pqx-pref-list');
               row?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
               const rowRect = row?.getBoundingClientRect();
+              const preferenceRect = preference?.getBoundingClientRect();
               const selectRect = select?.getBoundingClientRect();
               const listRect = list?.getBoundingClientRect();
               return {
                 rowTop: rowRect ? rowRect.top : 0,
                 rowBottom: rowRect ? rowRect.bottom : 0,
+                preferenceWidth: preferenceRect ? preferenceRect.width : 0,
+                preferenceRight: preferenceRect && rowRect ? rowRect.right - preferenceRect.right : -999,
+                preferenceValue: preference?.value || '',
+                selectWidth: selectRect ? selectRect.width : 0,
                 selectTop: selectRect ? selectRect.top : 0,
                 selectBottom: selectRect ? selectRect.bottom : 0,
+                selectRight: selectRect && rowRect ? rowRect.right - selectRect.right : -999,
                 listTop: listRect ? listRect.top : 0,
                 listBottom: listRect ? listRect.bottom : 0,
+                viewportWidth: window.innerWidth,
               };
             }
             """
         )
+        assert playground_clip["preferenceValue"] == "nice_to_have", playground_clip
         assert playground_clip["selectTop"] >= playground_clip["rowTop"] - 1, playground_clip
         assert playground_clip["selectBottom"] <= playground_clip["rowBottom"] + 1, playground_clip
         assert playground_clip["selectTop"] >= playground_clip["listTop"] - 1, playground_clip
         assert playground_clip["selectBottom"] <= playground_clip["listBottom"] + 1, playground_clip
+        if int(playground_clip["viewportWidth"]) >= 900:
+            assert 96 <= float(playground_clip["preferenceWidth"]) <= 132, playground_clip
+            assert 96 <= float(playground_clip["selectWidth"]) <= 132, playground_clip
+            assert float(playground_clip["preferenceRight"]) >= -1.0, playground_clip
+            assert float(playground_clip["selectRight"]) >= -1.0, playground_clip
         if int(page.evaluate("window.innerWidth")) <= 760:
             playground_viewport = page.evaluate(
                 """
@@ -3018,8 +3051,10 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const thumb = result?.querySelector('.pqx-thumb');
                 const areaRows = Array.from(document.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check'));
                 const areaGrid = document.querySelector('[data-pqx-check-grid="location_query"]');
+                const areaSummary = document.querySelector('[data-location-selected-summary]');
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
                 const dockStyle = dock ? window.getComputedStyle(dock) : null;
+                const summaryStyle = areaSummary ? window.getComputedStyle(areaSummary) : null;
                 const dockRect = dock ? dock.getBoundingClientRect() : null;
                 const resultRect = result ? result.getBoundingClientRect() : null;
                 const thumbRect = thumb ? thumb.getBoundingClientRect() : null;
@@ -3051,6 +3086,10 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaRowGridColumns: areaStyle ? areaStyle.gridTemplateColumns : '',
                     areaRowBorderRadius: areaStyle ? areaStyle.borderRadius : '',
                     areaGridOverflowY: areaGridStyle ? areaGridStyle.overflowY : '',
+                    areaGridColumns: areaGridStyle ? areaGridStyle.gridTemplateColumns : '',
+                    areaGridColumnCount: areaGridStyle ? areaGridStyle.gridTemplateColumns.split(' ').filter(Boolean).length : 0,
+                    areaSummaryDisplay: summaryStyle ? summaryStyle.display : '',
+                    areaSummaryText: areaSummary ? areaSummary.textContent || '' : '',
                     areaGridScrolls: areaGrid ? areaGrid.scrollHeight > areaGrid.clientHeight + 2 : false,
                     areaGridBottomAfterScroll: scrolledGridRect ? scrolledGridRect.bottom : 0,
                     lastAreaBottomAfterScroll: lastAreaRect ? lastAreaRect.bottom : 0,
@@ -3073,8 +3112,11 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaRowMinHeight"] >= 60
         assert mobile_metrics["areaRowsClearOfDock"] >= 6
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
-        assert "34px" in mobile_metrics["areaRowGridColumns"]
+        assert mobile_metrics["areaGridColumnCount"] == 1
+        assert "42px" in mobile_metrics["areaRowGridColumns"]
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
+        assert mobile_metrics["areaSummaryDisplay"] != "none"
+        assert "district" in mobile_metrics["areaSummaryText"].lower()
         assert mobile_metrics["areaGridOverflowY"] in {"auto", "scroll"}
         assert mobile_metrics["areaGridBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
         assert mobile_metrics["lastAreaBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
@@ -3083,6 +3125,98 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
     finally:
         desktop.close()
         mobile.close()
+
+
+def test_propertyquarry_search_desktop_wheel_scroll_recovers_from_bottom(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=760)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+        drawer = page.locator("[data-workbench-brief-drawer]")
+        drawer.wait_for(state="visible")
+        box = drawer.bounding_box()
+        assert box is not None
+        page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        scrollable = drawer.evaluate("(node) => node.scrollHeight > node.clientHeight")
+        assert scrollable is True
+
+        for _ in range(8):
+            page.mouse.wheel(0, 720)
+            page.wait_for_timeout(25)
+        bottom_scroll = float(drawer.evaluate("(node) => node.scrollTop"))
+        assert bottom_scroll > 80
+
+        for _ in range(8):
+            page.mouse.wheel(0, -720)
+            page.wait_for_timeout(25)
+        recovered_scroll = float(drawer.evaluate("(node) => node.scrollTop"))
+        assert recovered_scroll < bottom_scroll - 40
+    finally:
+        context.close()
+
+
+def test_propertyquarry_search_launch_strips_cross_country_provider_selection(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    observed: dict[str, object] = {}
+    try:
+        def _capture_preferences(route):
+            observed["preferences"] = route.request.post_data_json
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"status": "saved"}),
+            )
+
+        def _capture_run(route):
+            observed["run"] = route.request.post_data_json
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"run_id": "run-cross-country-provider"}),
+            )
+
+        page.route("**/v1/onboarding/property-search/preferences", _capture_preferences)
+        page.route("**/app/api/property/search-runs**", _capture_run)
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.select_option('select[name="country_code"]', "AT")
+        page.evaluate(
+            """
+            () => {
+              const grid = document.querySelector('[data-pqx-check-grid="selected_platforms"]');
+              const stale = document.createElement('input');
+              stale.type = 'checkbox';
+              stale.name = 'selected_platforms';
+              stale.value = 'otodom';
+              stale.checked = true;
+              stale.setAttribute('data-country-code', 'PL');
+              grid?.appendChild(stale);
+            }
+            """
+        )
+        page.locator("[data-property-start-top]").click()
+        expect(page).to_have_url(re.compile("run-cross-country-provider"), timeout=10000)
+
+        preferences = observed.get("preferences")
+        run = observed.get("run")
+        assert isinstance(preferences, dict)
+        assert isinstance(run, dict)
+        assert preferences["country_code"] == "AT"
+        assert "otodom" not in preferences.get("selected_platforms", [])
+        assert "otodom" not in run.get("selected_platforms", [])
+        assert "otodom" not in run.get("property_preferences", {}).get("selected_platforms", [])
+    finally:
+        context.close()
 
 
 def test_propertyquarry_automation_page_uses_compact_card_cockpit(
