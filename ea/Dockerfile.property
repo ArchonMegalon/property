@@ -26,6 +26,7 @@ COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_pr
 COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py
 COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py
 COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py
+COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py
 COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py
 COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
 COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py

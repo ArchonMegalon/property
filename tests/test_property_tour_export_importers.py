@@ -366,3 +366,95 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert receipt["provider_counts"]["magicfit"] == 1
     assert receipt["ready_provider_modes"] == ["magicfit"]
     assert receipt["tours"][0]["controls"][0]["evidence"] == "local_magicfit_playable_video"
+
+
+def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "discover-3dvista")
+    _write_base_tour(tmp_path, "discover-pano2vr")
+    drop_dir = tmp_path / "drop"
+    vista_export = drop_dir / "discover-3dvista" / "3dvista"
+    vista_export.mkdir(parents=True)
+    (vista_export / "index.html").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script><div>tourviewer</div>",
+        encoding="utf-8",
+    )
+    pano_export = drop_dir / "pano2vr" / "discover-pano2vr"
+    pano_export.mkdir(parents=True)
+    (pano_export / "index.html").write_text(
+        "<!doctype html><script src='tour.js'></script><div>ggskin</div>",
+        encoding="utf-8",
+    )
+    receipt_path = tmp_path / "discovery.json"
+    manifest_path = tmp_path / "imports.json"
+
+    discovered = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "discover_property_tour_exports.py"),
+            "--drop-dir",
+            str(drop_dir),
+            "--public-tour-dir",
+            str(public_root),
+            "--write",
+            str(receipt_path),
+            "--manifest-write",
+            str(manifest_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert discovered.returncode == 0, discovered.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "ready"
+    assert receipt["import_count"] == 2
+    assert receipt["rejected_count"] == 0
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert {row["provider"] for row in manifest["imports"]} == {"3dvista", "pano2vr"}
+    assert {row["slug"] for row in manifest["imports"]} == {"discover-3dvista", "discover-pano2vr"}
+    assert all(row["entry"] == "index.html" for row in manifest["imports"])
+
+
+def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "placeholder-tour")
+    drop_dir = tmp_path / "drop"
+    placeholder = drop_dir / "placeholder-tour" / "pano2vr"
+    placeholder.mkdir(parents=True)
+    (placeholder / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+    orphan = drop_dir / "orphan-tour" / "3dvista"
+    orphan.mkdir(parents=True)
+    (orphan / "index.html").write_text("<!doctype html><script src='tdvplayer.js'></script>", encoding="utf-8")
+    receipt_path = tmp_path / "discovery.json"
+
+    discovered = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "discover_property_tour_exports.py"),
+            "--drop-dir",
+            str(drop_dir),
+            "--public-tour-dir",
+            str(public_root),
+            "--write",
+            str(receipt_path),
+            "--fail-on-blocked",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert discovered.returncode == 2
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert {row["reason"] for row in receipt["rejected"]} == {
+        "pano2vr_export_entry_unverified",
+        "tour_manifest_missing",
+    }
