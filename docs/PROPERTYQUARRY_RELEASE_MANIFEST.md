@@ -13,13 +13,26 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `d640b5bb288a4ced7c45fed32b44dfa1b089a166` |
+| Runtime commit SHA | `3daed352c472d75613302253650a95edfa9b5993` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `3daed35` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_gold_status.py -k 'cli_defaults or authenticated_billing_surface or billing_handoff'`
+- `python3 -m py_compile scripts/propertyquarry_gold_status.py`
+- `bash -n scripts/deploy_propertyquarry.sh`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_gold_status.py tests/test_property_live_authenticated_smoke.py -k 'authenticated_billing_surface or billing_handoff or live_authenticated_smoke'`
+- `PYTHONPATH=ea python3 scripts/propertyquarry_live_authenticated_smoke.py --base-url http://localhost:8097 --principal-id "$EA_PRINCIPAL_ID" --expected-plan-label "$PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL" --country-code "$PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE" --timeout-seconds 20 > _completion/smoke/property-live-authenticated-latest.json` returned `status=pass`, `failed_count=0`, and `route_count=3`.
+- The authenticated smoke receipt proves `/app/account` returned `200`, `/app/billing` returned `303`, and `/sign-in` returned `200`; the `/app/billing` row proves `billing_external_handoff`, `billing_local_board_deleted`, and `billing_no_customer_noise`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --write _completion/property_gold_status/release-gate.json`
+- The gold receipt now includes `authenticated_customer_surfaces` from `_completion/smoke/property-live-authenticated-latest.json`; current values are `status=pass`, `failed_count=0`, `route_count=3`, `billing_checks_ok=true`, `billing_status_code=303`, and no missing or failed billing checks.
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`.
+- Current gold status remains `blocked`; verified 3DVista, Pano2VR, and krpano tour evidence/export drops are still missing, and `billing.propertyquarry.com` still must resolve before the Brilliant Directories account lane can be proven live.
 
 The candidate at `d640b5b` passed:
 
