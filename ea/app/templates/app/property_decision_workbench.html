@@ -6272,6 +6272,80 @@
         align-items: stretch;
         scroll-margin-top: 86px;
       }
+      .pqx-account-board,
+      .pqx-account-action-grid,
+      .pqx-account-channel-form {
+        gap: 10px;
+      }
+      .pqx-account-action-card {
+        padding: 12px;
+        border-radius: 18px;
+        box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
+      }
+      .pqx-account-action-card h2 {
+        font-size: 1rem;
+        line-height: 1.12;
+      }
+      .pqx-account-action-card p {
+        font-size: 12px;
+        line-height: 1.36;
+      }
+      .pqx-account-channel-options {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+      }
+      .pqx-account-channel-option {
+        min-height: 68px;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        font-size: 15px;
+        line-height: 1.18;
+        background:
+          linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(249, 246, 239, 0.92));
+        box-shadow: 0 8px 18px rgba(42, 36, 27, 0.055);
+      }
+      .pqx-account-channel-option:has(input:checked) {
+        box-shadow:
+          inset 4px 0 0 rgba(137, 93, 28, 0.54),
+          0 10px 22px rgba(80, 55, 18, 0.1);
+      }
+      .pqx-account-channel-option input {
+        width: 28px;
+        height: 28px;
+        margin: 0;
+      }
+      .pqx-account-channel-option small {
+        display: block;
+        margin-top: 3px;
+        font-size: 12px;
+        line-height: 1.25;
+      }
+      .pqx-account-channel-detail {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+        gap: 8px;
+        min-height: 0;
+        padding: 12px;
+        border-radius: 18px;
+        font-size: 12px;
+      }
+      .pqx-account-channel-detail[data-channel-detail] {
+        display: none;
+      }
+      .pqx-account-channel-form:has(input[name="notification_channels"][value="email"]:checked) [data-channel-detail="email"],
+      .pqx-account-channel-form:has(input[name="notification_channels"][value="telegram"]:checked) [data-channel-detail="telegram"],
+      .pqx-account-channel-form:has(input[name="notification_channels"][value="whatsapp"]:checked) [data-channel-detail="whatsapp"] {
+        display: grid;
+      }
+      .pqx-account-channel-detail input {
+        flex: none;
+        width: 100%;
+        min-height: 54px !important;
+        border-radius: 14px;
+        font-size: 16px;
+      }
       .pqx-result {
         grid-template-columns: minmax(0, 1fr);
         align-items: start;
@@ -6392,6 +6466,9 @@
       }
       .pqx-shell :is(button, summary, select, textarea, input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), .console-action):not(.pqx-tooltip) {
         min-height: 48px !important;
+      }
+      .pqx-shell .pqx-account-channel-detail input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
+        min-height: 54px !important;
       }
       .pqx-shell .console-action {
         display: inline-flex;

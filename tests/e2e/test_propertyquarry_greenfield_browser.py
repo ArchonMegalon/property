@@ -1948,6 +1948,64 @@ def test_propertyquarry_account_notifications_save_multi_channel_preferences_in_
         context.close()
 
 
+def test_propertyquarry_account_notifications_have_dedicated_phone_layout(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/account#delivery", wait_until="networkidle")
+        assert response is not None and response.ok
+        delivery_card = page.locator("#delivery")
+        expect(delivery_card).to_be_visible()
+        delivery_card.locator('input[name="notification_channels"][value="whatsapp"]').check()
+
+        metrics = page.evaluate(
+            """() => {
+                const options = document.querySelector('.pqx-account-channel-options');
+                const rows = Array.from(document.querySelectorAll('.pqx-account-channel-option'));
+                const details = Array.from(document.querySelectorAll('.pqx-account-channel-detail'))
+                    .filter((node) => {
+                        const style = window.getComputedStyle(node);
+                        const rect = node.getBoundingClientRect();
+                        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+                    });
+                const inputs = details.flatMap((detail) => Array.from(detail.querySelectorAll('input')));
+                const rowRects = rows.map((row) => row.getBoundingClientRect());
+                const detailRects = details.map((detail) => detail.getBoundingClientRect());
+                const inputRects = inputs.map((input) => input.getBoundingClientRect());
+                return {
+                    viewportWidth: window.innerWidth,
+                    columns: options ? window.getComputedStyle(options).gridTemplateColumns.split(' ').filter(Boolean).length : 0,
+                    rowCount: rows.length,
+                    minRowHeight: Math.min(...rowRects.map((rect) => rect.height)),
+                    maxRowRight: Math.max(...rowRects.map((rect) => rect.right)),
+                    visibleDetailCount: details.length,
+                    maxDetailRight: Math.max(...detailRects.map((rect) => rect.right)),
+                    minInputHeight: Math.min(...inputRects.map((rect) => rect.height)),
+                    maxInputRight: Math.max(...inputRects.map((rect) => rect.right)),
+                    bodyWidth: document.documentElement.scrollWidth,
+                };
+            }"""
+        )
+        assert metrics["columns"] == 1, metrics
+        assert metrics["rowCount"] >= 3, metrics
+        assert metrics["minRowHeight"] >= 64, metrics
+        assert metrics["visibleDetailCount"] >= 2, metrics
+        assert metrics["minInputHeight"] >= 52, metrics
+        assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1, metrics
+        assert metrics["maxRowRight"] <= metrics["viewportWidth"] + 1, metrics
+        assert metrics["maxDetailRight"] <= metrics["viewportWidth"] + 1, metrics
+        assert metrics["maxInputRight"] <= metrics["viewportWidth"] + 1, metrics
+    finally:
+        context.close()
+
+
 def test_propertyquarry_account_and_billing_hide_redundant_top_actions(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
