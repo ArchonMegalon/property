@@ -20,6 +20,12 @@ REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_mobile_open_property_compact_layout",
     "research_mobile_visual_frame_compact",
 )
+REQUIRED_RYBBIT_PERFORMANCE_CHECKS = (
+    "rybbit_no_identify",
+    "rybbit_taxonomy_events_only",
+    "rybbit_allowed_attributes_only",
+    "rybbit_no_private_payload",
+)
 REQUIRED_LIVE_MOBILE_ROUTES = (
     "/app/search",
     "/app/shortlist",
@@ -223,6 +229,53 @@ def _performance_research_detail_checks(performance: dict[str, Any]) -> tuple[bo
         missing = [name for name in REQUIRED_RESEARCH_PERFORMANCE_CHECKS if name not in passed_checks]
         return (not missing, missing, path)
     return (False, list(REQUIRED_RESEARCH_PERFORMANCE_CHECKS), "")
+
+
+def _performance_analytics_checks(performance: dict[str, Any]) -> tuple[bool, list[dict[str, Any]], list[dict[str, Any]], int]:
+    missing_by_route: list[dict[str, Any]] = []
+    failed_checks: list[dict[str, Any]] = []
+    routes_with_analytics_checks = 0
+
+    for row in list(performance.get("routes") or []):
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("path") or "").split("?", 1)[0].strip()
+        checks = [check for check in list(row.get("checks") or []) if isinstance(check, dict)]
+        rybbit_checks = [
+            check
+            for check in checks
+            if str(check.get("name") or "").startswith("rybbit_")
+        ]
+        if not rybbit_checks:
+            continue
+
+        routes_with_analytics_checks += 1
+        passed = {
+            str(check.get("name") or "")
+            for check in rybbit_checks
+            if check.get("ok") is True
+        }
+        missing = [name for name in REQUIRED_RYBBIT_PERFORMANCE_CHECKS if name not in passed]
+        if missing:
+            missing_by_route.append({"path": path, "missing_checks": missing})
+        failed_checks.extend(
+            {
+                "path": path,
+                "name": str(check.get("name") or "unnamed_check"),
+                "detail": str(check.get("detail") or ""),
+            }
+            for check in rybbit_checks
+            if check.get("ok") is not True
+        )
+
+    if routes_with_analytics_checks == 0:
+        missing_by_route.append(
+            {
+                "path": "*",
+                "missing_checks": list(REQUIRED_RYBBIT_PERFORMANCE_CHECKS),
+            }
+        )
+    return not missing_by_route and not failed_checks, missing_by_route, failed_checks, routes_with_analytics_checks
 
 
 def _covered_live_mobile_routes(live_mobile: dict[str, Any]) -> set[str]:
@@ -479,6 +532,7 @@ def build_gold_status_receipt(
         and int(dict(cross_country_sanitization_summary.get("status_counts") or {}).get("fail") or 0) == 0
     )
     research_performance_ok, missing_research_performance_checks, research_performance_path = _performance_research_detail_checks(performance)
+    analytics_ok, missing_analytics_checks, failed_analytics_checks, analytics_route_count = _performance_analytics_checks(performance)
     performance_ok = (
         performance.get("status") == "pass"
         and int(performance.get("failed_count") or 0) == 0
@@ -582,6 +636,16 @@ def build_gold_status_receipt(
                 "status": performance.get("status") or "unknown",
                 "missing_research_detail_checks": missing_research_performance_checks,
                 "action": "rerun and fix propertyquarry_authenticated_performance_smoke until every measured route passes",
+            }
+        )
+    if not analytics_ok:
+        blockers.append(
+            {
+                "area": "analytics_privacy",
+                "status": performance.get("status") or "unknown",
+                "missing_checks": missing_analytics_checks,
+                "failed_checks": failed_analytics_checks,
+                "action": "rerun propertyquarry_authenticated_performance_smoke.py and keep Rybbit taxonomy, no-identify, allowed-attribute, and private-payload checks passing on measured app routes",
             }
         )
     if not live_mobile_ok:
@@ -752,6 +816,7 @@ def build_gold_status_receipt(
         "pass"
         if (
             performance_ok
+            and analytics_ok
             and live_mobile_ok
             and public_auth_ok
             and authenticated_customer_ok
@@ -776,6 +841,15 @@ def build_gold_status_receipt(
             "research_detail_checks_ok": research_performance_ok,
             "missing_research_detail_checks": missing_research_performance_checks,
             "receipt_path": str(performance_receipt_path),
+        },
+        "analytics": {
+            "status": "pass" if analytics_ok else "fail",
+            "route_count": analytics_route_count,
+            "required_checks": list(REQUIRED_RYBBIT_PERFORMANCE_CHECKS),
+            "missing_checks": missing_analytics_checks,
+            "failed_checks": failed_analytics_checks,
+            "receipt_path": str(performance_receipt_path),
+            "note": "This proves app-side Rybbit privacy and taxonomy hygiene, not external dashboard delivery.",
         },
         "live_mobile_surfaces": {
             "status": live_mobile.get("status") or ("not_configured" if live_mobile_receipt_path is None else "missing"),
