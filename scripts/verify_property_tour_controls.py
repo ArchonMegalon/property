@@ -431,6 +431,7 @@ def build_property_tour_control_receipt(
             }
         )
     ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
+    missing_provider_modes = [provider for provider in PROVIDER_MODES if provider not in ready_provider_modes]
     status = (
         "blocked_no_tour_manifests"
         if not manifests
@@ -449,7 +450,7 @@ def build_property_tour_control_receipt(
         "provider_counts": provider_counts,
         "ready_provider_modes": ready_provider_modes,
         "required_provider_modes": list(PROVIDER_MODES),
-        "missing_provider_modes": [provider for provider in PROVIDER_MODES if provider not in ready_provider_modes],
+        "missing_provider_modes": missing_provider_modes,
         "next_required_actions": [
             {
                 "provider": provider,
@@ -463,7 +464,7 @@ def build_property_tour_control_receipt(
                 }[provider],
             }
             for provider in PROVIDER_MODES
-            if action_counts[provider] > 0
+            if provider in missing_provider_modes and action_counts[provider] > 0
         ],
         "live_probe": bool(live_probe),
         "base_url": base_url if live_probe else "",

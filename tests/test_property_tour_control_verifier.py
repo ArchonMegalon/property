@@ -48,6 +48,22 @@ def test_property_tour_control_verifier_summary_omits_tour_rows(tmp_path: Path) 
     assert "SUMMARY123" not in json.dumps(summary)
 
 
+def test_property_tour_control_verifier_next_actions_only_include_globally_missing_modes(tmp_path: Path) -> None:
+    _write_tour(tmp_path, "matterport-tour", {"matterport_url": "https://my.matterport.com/show/?m=READY123"})
+    _write_tour(tmp_path, "blocked-gallery", {"scene_strategy": "photo_gallery_hosted"})
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["ready_provider_modes"] == ["matterport"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert {row["provider"] for row in receipt["next_required_actions"]} == {
+        "3dvista",
+        "pano2vr",
+        "krpano",
+        "magicfit",
+    }
+
+
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     tmp_path: Path,
     monkeypatch,
