@@ -48,6 +48,7 @@ BEARER_LITERAL_RE = re.compile(
     r"Authorization:\s*Bearer\s+(?!\$\{?[A-Z_][A-Z0-9_]*\}?|\{\{[^}]+\}\}|<token>|REDACTED\b)([A-Za-z0-9._-]+)",
     flags=re.IGNORECASE,
 )
+MANIFEST_RUNTIME_COMMIT_RE = re.compile(r"^\|\s*Runtime commit SHA\s*\|\s*`?([0-9a-f]{7,40})`?\s*\|", flags=re.MULTILINE)
 
 
 def tracked_paths() -> list[str]:
@@ -61,6 +62,38 @@ def tracked_paths() -> list[str]:
     return [path for path in result.stdout.decode("utf-8").split("\0") if path]
 
 
+def git_head_sha() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def git_head_parent_sha() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD^"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def release_manifest_runtime_sha() -> str:
+    manifest = ROOT / "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md"
+    try:
+        body = manifest.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    match = MANIFEST_RUNTIME_COMMIT_RE.search(body)
+    return match.group(1).strip() if match else ""
+
+
 def looks_like_text(path: Path) -> bool:
     if path.suffix.lower() in TEXT_SUFFIXES:
         return True
@@ -69,6 +102,21 @@ def looks_like_text(path: Path) -> bool:
 
 def main() -> int:
     failures: list[str] = []
+    manifest_sha = release_manifest_runtime_sha()
+    head_sha = git_head_sha()
+    parent_sha = git_head_parent_sha()
+    if not manifest_sha:
+        failures.append("release manifest runtime commit missing: docs/PROPERTYQUARRY_RELEASE_MANIFEST.md")
+    elif not (
+        head_sha.startswith(manifest_sha)
+        or manifest_sha.startswith(head_sha)
+        or (parent_sha and parent_sha.startswith(manifest_sha))
+        or (parent_sha and manifest_sha.startswith(parent_sha))
+    ):
+        failures.append(
+            "release manifest runtime commit does not match current HEAD or deployed parent: "
+            f"manifest={manifest_sha} head={head_sha} parent={parent_sha}"
+        )
     for rel_path in tracked_paths():
         normalized = rel_path.replace("\\", "/")
         path = ROOT / normalized

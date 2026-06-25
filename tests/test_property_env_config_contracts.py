@@ -172,6 +172,16 @@ def test_release_hygiene_forbids_tracked_live_env_files() -> None:
     assert '".env.local"' in script
 
 
+def test_release_hygiene_requires_manifest_to_match_current_head() -> None:
+    script = (ROOT / "scripts/check_property_release_hygiene.py").read_text(encoding="utf-8")
+
+    assert "release_manifest_runtime_sha" in script
+    assert "git_head_sha" in script
+    assert "git_head_parent_sha" in script
+    assert "release manifest runtime commit does not match current HEAD or deployed parent" in script
+    assert "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md" in script
+
+
 def test_prod_compose_keeps_fastestvpn_repo_local_and_default_off() -> None:
     compose = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
 
