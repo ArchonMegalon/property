@@ -314,6 +314,16 @@ def build_gold_status_receipt(
                 "action": "rerun materialize_property_tour_export_manifest.py --prepare-dirs so each provider drop folder has current import and verification instructions",
             }
         )
+    if import_manifest_receipt_path is not None and not operator_import_manifest_ready:
+        blockers.append(
+            {
+                "area": "tour_operator_import_manifest",
+                "status": import_manifest.get("status") or "missing",
+                "missing_prepared_providers": sorted(expected_import_providers - prepared_drop_providers),
+                "hardened_readmes_ok": hardened_readmes_ok,
+                "action": "prepare the 3DVista, Pano2VR, krpano, and MagicFit operator import lanes before claiming gold",
+            }
+        )
     if not repair_canary_ok:
         blockers.append(
             {
@@ -342,7 +352,20 @@ def build_gold_status_receipt(
             }
         )
 
-    status = "pass" if performance_ok and live_mobile_ok and tour_controls_ok and export_discovery_ok and repair_canary_ok and provider_matrix_ok else "blocked"
+    operator_import_manifest_ok = import_manifest_receipt_path is None or operator_import_manifest_ready
+    status = (
+        "pass"
+        if (
+            performance_ok
+            and live_mobile_ok
+            and tour_controls_ok
+            and export_discovery_ok
+            and operator_import_manifest_ok
+            and repair_canary_ok
+            and provider_matrix_ok
+        )
+        else "blocked"
+    )
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
@@ -428,9 +451,9 @@ def build_gold_status_receipt(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize current PropertyQuarry gold-readiness receipts.")
     parser.add_argument("--performance-receipt", default="_completion/smoke/property-auth-performance-latest.json")
-    parser.add_argument("--live-mobile-receipt", default="_completion/smoke/property-live-mobile-surface-latest.json")
-    parser.add_argument("--tour-control-receipt", default="_completion/property_tour_controls/latest-current.json")
-    parser.add_argument("--export-discovery-receipt", default="_completion/property_tour_exports/discovery-current.json")
+    parser.add_argument("--live-mobile-receipt", default="_completion/smoke/property-live-mobile-surface-after-monotonic-counters-auth.json")
+    parser.add_argument("--tour-control-receipt", default="_completion/tours/property-tour-controls-after-monotonic-counters.json")
+    parser.add_argument("--export-discovery-receipt", default="_completion/tours/property-tour-export-discovery-full-current.json")
     parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
     parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
     parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-current-resumed.json")
