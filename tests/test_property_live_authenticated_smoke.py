@@ -10,6 +10,18 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=()",
 }
 
+SIGN_IN_BODY = (
+    "PropertyQuarry Open search Continue with Google "
+    "First-time provider sign-in still creates the account automatically. "
+    "<button>Log out</button> Open current session"
+)
+
+SIGN_IN_ACTIVE_BODY = (
+    "PropertyQuarry Open search Continue with Google "
+    "First-time provider sign-in still creates the account automatically. "
+    "<button>Log out</button>"
+)
+
 
 def _fake_response(
     body: str,
@@ -31,7 +43,7 @@ def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network(
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -50,7 +62,7 @@ def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network(
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button>",
+        "https://propertyquarry.com/sign-in": SIGN_IN_ACTIVE_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -69,7 +81,7 @@ def test_live_authenticated_smoke_accepts_external_billing_redirect_without_netw
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
@@ -99,7 +111,7 @@ def test_live_authenticated_smoke_accepts_fail_closed_billing_recovery_without_n
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
@@ -124,7 +136,7 @@ def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_exp
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -143,7 +155,7 @@ def test_live_authenticated_smoke_fails_when_account_loses_paid_plan_projection(
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -163,7 +175,7 @@ def test_live_authenticated_smoke_fails_when_account_loses_logout_strip() -> Non
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <button>Log out</button> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -183,7 +195,7 @@ def test_live_authenticated_smoke_fails_when_account_duplicates_logout_actions()
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section><button>Log out</button> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -203,7 +215,7 @@ def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout()
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button><button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY.replace("<button>Log out</button>", "<button>Log out</button><button>Log out</button>"),
     }
 
     receipt = build_live_authenticated_smoke_receipt(
@@ -219,11 +231,30 @@ def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout()
     assert any(check["name"] == "sign_in_single_logout" and check["ok"] is False for check in sign_in_row["checks"])
 
 
+def test_live_authenticated_smoke_fails_when_sign_in_loses_account_creation_copy() -> None:
+    bodies = {
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session Email sign-in links are temporarily unavailable.",
+    }
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        routes=("/sign-in",),
+        fetcher=lambda url, _timeout: _fake_response(bodies[url], final_url=url),
+    )
+
+    sign_in_row = next(row for row in receipt["checks"] if row["path"] == "/sign-in")
+    assert receipt["status"] == "fail"
+    assert any(check["name"] == "sign_in_provider_creates_account" and check["ok"] is False for check in sign_in_row["checks"])
+    assert any(check["name"] == "sign_in_no_unavailable_auth_copy" and check["ok"] is False for check in sign_in_row["checks"])
+
+
 def test_live_authenticated_smoke_retries_transient_transport_failures_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Billing handoff unavailable. PropertyQuarry billing is handled in the external account lane. Configure the white-label billing URL before exposing this route.",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
     attempts: dict[str, int] = {}
 
@@ -259,7 +290,7 @@ def test_live_authenticated_smoke_rejects_local_billing_board_without_network() 
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Plan Agent Deep Multi All ranked Billing history Compare plans Open pricing",
-        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
     }
 
     receipt = build_live_authenticated_smoke_receipt(

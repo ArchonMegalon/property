@@ -199,13 +199,50 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
         )
     elif path == "/sign-in":
         lowered_visible = visible_text.lower()
+        google_active = 'href="/sign-in/google"' in text and "Continue with Google" in text
+        google_unavailable = 'href="/sign-in/google"' not in text and "Google unavailable" in text
+        facebook_active = 'href="/sign-in/facebook"' in text and "Continue with Facebook" in text
+        facebook_unavailable = 'href="/sign-in/facebook"' not in text and "Facebook unavailable" in text
+        google_hidden = 'href="/sign-in/google"' not in text and "Google unavailable" not in text
+        facebook_hidden = 'href="/sign-in/facebook"' not in text and "Facebook unavailable" not in text
         checks.extend(
             (
-                ("sign_in_live_service_copy", "Use a saved session, email link, or connected identity." in text),
+                (
+                    "sign_in_minimal_copy",
+                    "Use a saved session, email link, or connected identity." in text
+                    and "Identity only" not in text
+                    and "Identity-only." not in text
+                    and "Google?" not in text
+                    and "Facebook?" not in text,
+                ),
+                (
+                    "sign_in_provider_creates_account",
+                    "First-time provider sign-in" in text
+                    and "creates the account automatically" in text,
+                ),
+                (
+                    "sign_in_no_unavailable_auth_copy",
+                    "temporarily unavailable" not in lowered_visible
+                    and "email delivery is unavailable" not in lowered_visible
+                    and "config_missing" not in lowered_visible,
+                ),
                 ("sign_in_no_rollout_language", "verified rollout" not in lowered_visible and "invite only" not in lowered_visible),
                 ("sign_in_no_waitlist_language", "waitlist" not in lowered_visible and "request access" not in lowered_visible),
+                ("sign_in_google_state", google_active or google_unavailable or google_hidden),
+                ("sign_in_facebook_state", facebook_active or facebook_unavailable or facebook_hidden),
+                (
+                    "sign_in_google_feedback",
+                    (not google_active) or 'data-submitting-label="Opening Google..."' in text,
+                ),
             )
         )
+        if "Continue with Facebook" in text or 'href="/sign-in/facebook"' in text:
+            checks.extend(
+                (
+                    ("sign_in_facebook_control", 'href="/sign-in/facebook"' in text),
+                    ("sign_in_facebook_feedback", 'data-submitting-label="Opening Facebook..."' in text),
+                )
+            )
     elif path == "/directory":
         lowered_visible = visible_text.lower()
         checks.extend(
@@ -282,38 +319,6 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ),
             )
         )
-    elif path == "/sign-in":
-        google_active = 'href="/sign-in/google"' in text and "Continue with Google" in text
-        google_unavailable = 'href="/sign-in/google"' not in text and "Google unavailable" in text
-        facebook_active = 'href="/sign-in/facebook"' in text and "Continue with Facebook" in text
-        facebook_unavailable = 'href="/sign-in/facebook"' not in text and "Facebook unavailable" in text
-        google_hidden = 'href="/sign-in/google"' not in text and "Google unavailable" not in text
-        facebook_hidden = 'href="/sign-in/facebook"' not in text and "Facebook unavailable" not in text
-        checks.extend(
-            (
-                (
-                    "sign_in_minimal_copy",
-                    "Use a saved session, email link, or connected identity." in text
-                    and "Identity only" not in text
-                    and "Identity-only." not in text
-                    and "Google?" not in text
-                    and "Facebook?" not in text,
-                ),
-                ("sign_in_google_state", google_active or google_unavailable or google_hidden),
-                ("sign_in_facebook_state", facebook_active or facebook_unavailable or facebook_hidden),
-                (
-                    "sign_in_google_feedback",
-                    (not google_active) or 'data-submitting-label="Opening Google..."' in text,
-                ),
-            )
-        )
-        if "Continue with Facebook" in text or 'href="/sign-in/facebook"' in text:
-            checks.extend(
-                (
-                    ("sign_in_facebook_control", 'href="/sign-in/facebook"' in text),
-                    ("sign_in_facebook_feedback", 'data-submitting-label="Opening Facebook..."' in text),
-                )
-            )
     elif path == "/manifest.webmanifest":
         try:
             manifest_payload = json.loads(text)

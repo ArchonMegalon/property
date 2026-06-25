@@ -11,6 +11,11 @@ SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
 }
 
+SIGN_IN_COPY = (
+    "PropertyQuarry Use a saved session, email link, or connected identity. "
+    "First-time provider sign-in also creates the account automatically. "
+)
+
 
 def _fake_response(
     body: str,
@@ -56,6 +61,7 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/register": "PropertyQuarry Create account",
         "https://propertyquarry.com/sign-in": (
             'PropertyQuarry Use a saved session, email link, or connected identity. '
+            "First-time provider sign-in also creates the account automatically. "
             "Any provider below reopens the same account or creates it automatically on first use. "
             '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
         ),
@@ -168,8 +174,8 @@ def test_live_public_smoke_fails_broken_google_sign_in_redirect_without_network(
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use a saved session, email link, or connected identity. '
-                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
+                SIGN_IN_COPY
+                + '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
                 final_url=url,
             )
         if url.endswith("/sign-in/google"):
@@ -188,12 +194,29 @@ def test_live_public_smoke_fails_broken_google_sign_in_redirect_without_network(
     assert any(check["name"] == "google_redirect_host" and check["ok"] is False for check in rows["/sign-in/google"]["checks"])
 
 
+def test_live_public_smoke_fails_sign_in_without_account_creation_copy() -> None:
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        return _fake_response(
+            'PropertyQuarry Use a saved session, email link, or connected identity. '
+            'Email sign-in links are temporarily unavailable. '
+            '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
+            final_url=url,
+        )
+
+    receipt = build_live_public_smoke_receipt(routes=("/sign-in",), fetcher=fetcher)
+    row = next(row for row in receipt["checks"] if row["path"] == "/sign-in")
+
+    assert receipt["status"] == "fail"
+    assert any(check["name"] == "sign_in_provider_creates_account" and check["ok"] is False for check in row["checks"])
+    assert any(check["name"] == "sign_in_no_unavailable_auth_copy" and check["ok"] is False for check in row["checks"])
+
+
 def test_live_public_smoke_accepts_when_facebook_lane_is_hidden_without_network() -> None:
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use a saved session, email link, or connected identity. '
-                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
+                SIGN_IN_COPY
+                + '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>',
                 final_url=url,
             )
         if url.endswith("/sign-in/google"):
@@ -219,8 +242,8 @@ def test_live_public_smoke_fails_facebook_email_scope_without_network() -> None:
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use a saved session, email link, or connected identity. '
-                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+                SIGN_IN_COPY
+                + '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<a href="/sign-in/facebook" data-submitting-label="Opening Facebook...">Continue with Facebook</a>',
                 final_url=url,
             )
@@ -261,8 +284,8 @@ def test_live_public_smoke_accepts_id_austria_identity_redirect_without_network(
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use a saved session, email link, or connected identity. '
-                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+                SIGN_IN_COPY
+                + '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<button disabled>Facebook unavailable</button>'
                 '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
                 final_url=url,
@@ -305,8 +328,8 @@ def test_live_public_smoke_fails_broken_id_austria_redirect_without_network() ->
     def fetcher(url: str, _timeout: float) -> dict[str, object]:
         if url.endswith("/sign-in"):
             return _fake_response(
-                'PropertyQuarry Use a saved session, email link, or connected identity. '
-                '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+                SIGN_IN_COPY
+                + '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
                 '<a href="/sign-in/id-austria" data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>',
                 final_url=url,
             )

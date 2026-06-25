@@ -177,6 +177,17 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
                 ("sign_in_current_session", "Open current session" in visible_text or "Open search" in visible_text),
                 ("sign_in_single_logout", logout_count == 1),
                 ("sign_in_google_state", "Continue with Google" in visible_text),
+                (
+                    "sign_in_provider_creates_account",
+                    "First-time provider sign-in" in visible_text
+                    and "creates the account automatically" in visible_text,
+                ),
+                (
+                    "sign_in_no_unavailable_auth_copy",
+                    "temporarily unavailable" not in lowered_visible
+                    and "email delivery is unavailable" not in lowered_visible
+                    and "config_missing" not in lowered_visible,
+                ),
                 ("sign_in_no_double_logout", logout_count <= 1),
             )
         )
