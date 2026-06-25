@@ -1063,12 +1063,15 @@ def _property_search_run_is_stale(state: dict[str, object]) -> bool:
     for event in list(liveness_state.get("events") or []):
         if not isinstance(event, dict):
             continue
+        event_step = str(event.get("step") or "").strip().lower()
+        if event_step in {"", "queued", "starting", "recovery_pickup_started"}:
+            continue
         parsed_event_at = _parse_utcish(str(event.get("at") or ""))
         if parsed_event_at is not None:
             event_times.append(parsed_event_at)
     latest_event_at = max(event_times) if event_times else None
     row_updated_at = _parse_utcish(str(liveness_state.get("updated_at") or ""))
-    if latest_event_at is not None and (row_updated_at is None or latest_event_at < row_updated_at):
+    if latest_event_at is not None:
         liveness_state["updated_at"] = latest_event_at.isoformat()
     return _state_property_search_run_is_stale(
         liveness_state,
@@ -1108,12 +1111,15 @@ def _property_search_active_run_is_stale(state: dict[str, object]) -> bool:
     for event in list(liveness_state.get("events") or []):
         if not isinstance(event, dict):
             continue
+        event_step = str(event.get("step") or "").strip().lower()
+        if event_step in {"", "queued", "starting", "recovery_pickup_started"}:
+            continue
         parsed_event_at = _parse_utcish(str(event.get("at") or ""))
         if parsed_event_at is not None:
             event_times.append(parsed_event_at)
     latest_event_at = max(event_times) if event_times else None
     row_updated_at = _parse_utcish(str(liveness_state.get("updated_at") or ""))
-    if latest_event_at is not None and (row_updated_at is None or latest_event_at < row_updated_at):
+    if latest_event_at is not None:
         liveness_state["updated_at"] = latest_event_at.isoformat()
     return _state_property_search_run_is_stale(
         liveness_state,

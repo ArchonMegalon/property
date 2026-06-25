@@ -2045,12 +2045,36 @@
 
   const pollRun = async (form, statusUrl) => {
     if (!statusUrl) return;
+    let failedRefreshCount = 0;
     while (true) {
-      const response = await fetch(statusUrl, { headers: { accept: 'application/json' } });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(String(body.detail || 'Could not load property search status.'));
+      let response = null;
+      let body = {};
+      try {
+        response = await fetch(statusUrl, { headers: { accept: 'application/json' } });
+        body = await response.json().catch(() => ({}));
+      } catch (error) {
+        body = { detail: error instanceof Error ? error.message : 'Network refresh failed.' };
       }
+      if (!response || !response.ok) {
+        failedRefreshCount += 1;
+        const panel = form.querySelector('[data-property-run]');
+        const statusNode = form.querySelector('[data-property-run-status]');
+        const messageNode = form.querySelector('[data-property-run-message]');
+        const eventsNode = form.querySelector('[data-property-run-events]');
+        if (panel) panel.hidden = false;
+        if (statusNode) statusNode.textContent = 'Status: refresh retrying';
+        if (messageNode) {
+          const detail = String(body.detail || 'Could not load property search status.').trim();
+          messageNode.textContent = `${detail} Retrying quietly (${failedRefreshCount}).`;
+        }
+        if (eventsNode) {
+          eventsNode.innerHTML = `<div class="console-row"><div><strong>Status refresh</strong><small>${escapeHtml(String(body.detail || 'Could not load property search status.'))}</small></div><span class="console-tag">Retrying</span></div>`;
+        }
+        const retryDelayMs = Math.min(10000, 1500 + failedRefreshCount * 750);
+        await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
+        continue;
+      }
+      failedRefreshCount = 0;
       renderRun(form, body);
       if (terminalStates.has(String(body.status || '').trim())) {
         return body;

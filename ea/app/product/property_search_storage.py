@@ -166,6 +166,36 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
     return compact
 
 
+def _compact_property_search_run_record_with_row_timestamps(
+    payload: object,
+    *,
+    created_at: object = "",
+    updated_at: object = "",
+) -> dict[str, object] | None:
+    if not isinstance(payload, dict):
+        return None
+    compact = dict(payload or {})
+
+    def _timestamp_text(value: object) -> str:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value or "").strip()
+
+    row_created_at = _timestamp_text(created_at)
+    row_updated_at = _timestamp_text(updated_at)
+    if not str(compact.get("created_at") or "").strip() and row_created_at:
+        compact["created_at"] = row_created_at
+    if not str(compact.get("updated_at") or "").strip() and row_updated_at:
+        compact["updated_at"] = row_updated_at
+    summary = compact.get("summary")
+    if isinstance(summary, dict):
+        compact_summary = dict(summary)
+        if not str(compact_summary.get("updated_at") or "").strip() and row_updated_at:
+            compact_summary["updated_at"] = row_updated_at
+        compact["summary"] = compact_summary
+    return compact
+
+
 def _compact_pruned_property_search_run_record(
     record: dict[str, object],
     *,
@@ -448,7 +478,9 @@ def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) 
                         'created_at', to_jsonb(created_at),
                         'updated_at', to_jsonb(updated_at)
                     )
-                )
+                ),
+                created_at,
+                updated_at
                 FROM property_search_runs
                 WHERE run_id = %s AND principal_id = %s
                 """,
@@ -457,7 +489,11 @@ def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) 
             row = cur.fetchone()
     if not row:
         return None
-    return dict(row[0] or {}) if isinstance(row[0], dict) else None
+    return _compact_property_search_run_record_with_row_timestamps(
+        row[0],
+        created_at=row[1] if len(row) > 1 else "",
+        updated_at=row[2] if len(row) > 2 else "",
+    )
 
 
 def _list_property_search_run_records(
@@ -498,7 +534,9 @@ def _list_property_search_run_records(
                 'created_at', to_jsonb(created_at),
                 'updated_at', to_jsonb(updated_at)
             )
-        )
+        ),
+        created_at,
+        updated_at
         FROM property_search_runs
         """
         if lightweight
@@ -523,8 +561,13 @@ def _list_property_search_run_records(
     results: list[dict[str, object]] = []
     for row in rows:
         payload = row[0] if row else None
-        if isinstance(payload, dict):
-            results.append(dict(payload))
+        compact = _compact_property_search_run_record_with_row_timestamps(
+            payload,
+            created_at=row[1] if len(row) > 1 else "",
+            updated_at=row[2] if len(row) > 2 else "",
+        )
+        if compact is not None:
+            results.append(compact)
     return tuple(results)
 
 

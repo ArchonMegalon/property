@@ -185,6 +185,28 @@ def test_property_search_compact_run_preserves_repair_lifecycle_fields() -> None
     assert summary["can_auto_repair"] is True
 
 
+def test_property_search_compact_run_backfills_missing_row_timestamps() -> None:
+    compact = property_search_storage._compact_property_search_run_record_with_row_timestamps(  # type: ignore[attr-defined]
+        {
+            "run_id": "compact-run",
+            "principal_id": "compact-principal",
+            "status": "in_progress",
+            "updated_at": None,
+            "summary": {
+                "status": "in_progress",
+                "updated_at": None,
+            },
+        },
+        created_at="2026-06-25T14:55:00+00:00",
+        updated_at="2026-06-25T15:03:00+00:00",
+    )
+
+    assert compact is not None
+    assert compact["created_at"] == "2026-06-25T14:55:00+00:00"
+    assert compact["updated_at"] == "2026-06-25T15:03:00+00:00"
+    assert compact["summary"]["updated_at"] == "2026-06-25T15:03:00+00:00"
+
+
 def test_property_search_repair_receipts_normalize_historical_top_level_tasks() -> None:
     client = build_property_client(principal_id="cf-email:historical.repair@example.com")
     service = ProductService(client.app.state.container)
@@ -5046,6 +5068,56 @@ def test_property_search_status_picks_up_stale_active_checkpoint_from_lightweigh
     assert pickup_calls[0]["reason"] == "active_run_checkpoint_stale"
     assert pickup_calls[0]["parent_run_ids"] == ()
     assert pickup_calls[0]["record"]["run_id"] == run_id
+
+
+def test_property_search_status_does_not_pick_up_active_checkpoint_with_fresh_progress_event(monkeypatch) -> None:
+    principal_id = "exec-property-search-status-recovery-active-fresh-event"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Status Active Fresh Event Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_ACTIVE_RUN_STALE_SECONDS", "60")
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = "status-active-fresh-event-run"
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+    fresh_timestamp = datetime.now(timezone.utc).isoformat()
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        force_refresh=True,
+    )
+    state["status"] = "in_progress"
+    state["current_step"] = "source_previewing"
+    state["message"] = "Reviewing candidate 12 of 34 for Willhaben."
+    state["updated_at"] = stale_timestamp
+    state["events"] = [
+        {
+            "at": fresh_timestamp,
+            "step": "source_previewing",
+            "status": "in_progress",
+            "message": "Reviewing candidate 12 of 34 for Willhaben.",
+        }
+    ]
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    pickup_calls: list[dict[str, object]] = []
+
+    def _fake_pickup(self, **kwargs):
+        pickup_calls.append(dict(kwargs))
+        return {"status": "started"}
+
+    monkeypatch.setattr(ProductService, "_pick_up_property_search_run_execution", _fake_pickup)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    assert status["current_step"] == "source_previewing"
+    assert pickup_calls == []
 
 
 def test_property_search_recovery_allows_pickup_after_real_progress(monkeypatch) -> None:
@@ -11556,6 +11628,15 @@ def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
     assert "compact_only" in source
     assert "UPDATE property_search_runs AS runs" in source
     assert "DELETE FROM property_search_runs WHERE updated_at < %s" not in source
+
+
+def test_property_search_status_polling_retries_refresh_failures() -> None:
+    source = Path("ea/app/templates/console_shell.html").read_text(encoding="utf-8")
+
+    assert "let failedRefreshCount = 0;" in source
+    assert "Status: refresh retrying" in source
+    assert "Retrying quietly" in source
+    assert "throw new Error(String(body.detail || 'Could not load property search status.'));" not in source
 
 
 def test_property_search_run_schema_ready_does_not_backfill_existing_compact_columns(monkeypatch: pytest.MonkeyPatch) -> None:
