@@ -13,16 +13,25 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `d830ef06e6610316478fe734da5a0f82c2be866c` |
+| Runtime commit SHA | `7e34e7ef08eb13bc51479d16de42ab04deb7fd11` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `d830ef0` passed:
+The candidate at `7e34e7e` passed:
 
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_fliplink_packet_privacy.py -k 'paid_market_report_redaction_is_market_level_only or fliplink_pdf_receipt_matches_pdf_hash or fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour_url or fliplink_pdf_can_embed_magic_fit_scene_for_private_packet'`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_premium_dossier_contracts.py -k 'sanitized_manifest_for_required_text or quality_gate_rejects_visible_raw_urls or quality_gate_requires_real_pdf_text_extraction or text_manifest'`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_phase7_exit_gate.py`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_tester_gold_gate.py`
+- `python3 -m py_compile ea/app/services/premium_dossier/qa.py ea/app/services/premium_dossier/__init__.py`
+- Premium dossier PDF rendering now uses the sanitized text manifest as required-text evidence when Chromium/Playwright PDFs have weak extractable text, while forbidden/private text and visible raw-URL checks remain fail-closed. FlipLink packet tests again prove PDF artifact paths, hashes, MagicFit scene payloads, market-level redaction, and tour fallback links.
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_property_deploy_operator_contracts.py -k 'cached_evidence_overlay_contracts or phase_and_master_regressions or live_mobile_surface_smoke'`
 - `bash -n scripts/property_release_gates.sh`
 - The gold release bundle now runs `tests/test_property_evidence_overlays.py`, so unavailable/stale/verified overlay states and the no-inline-source-indexing guarantee cannot be skipped by a release-gate pass.
