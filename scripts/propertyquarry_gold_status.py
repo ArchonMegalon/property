@@ -907,6 +907,38 @@ def build_gold_status_receipt(
         )
 
     operator_import_manifest_ok = import_manifest_receipt_path is None or operator_import_manifest_ready
+    pass_areas = [
+        {"area": "performance", "status": "pass", "receipt_path": str(performance_receipt_path)}
+        if performance_ok
+        else None,
+        {"area": "analytics_privacy", "status": "pass", "receipt_path": str(performance_receipt_path)}
+        if analytics_ok
+        else None,
+        {"area": "live_mobile_surfaces", "status": "pass", "receipt_path": str(live_mobile_receipt_path)}
+        if live_mobile_receipt_path is not None and live_mobile_ok
+        else None,
+        {"area": "public_auth_surfaces", "status": "pass", "receipt_path": str(public_smoke_receipt_path)}
+        if public_smoke_receipt_path is not None and public_auth_ok
+        else None,
+        {"area": "authenticated_customer_surfaces", "status": "pass", "receipt_path": str(authenticated_smoke_receipt_path)}
+        if authenticated_smoke_receipt_path is not None and authenticated_customer_ok
+        else None,
+        {
+            "area": "provider_targeted_search_matrix",
+            "status": "pass",
+            "targeted_search_matrix_count": provider_matrix.get("targeted_search_matrix_count"),
+            "cross_country_sanitization_case_count": cross_country_sanitization_summary.get("case_count"),
+            "receipt_path": str(provider_matrix_receipt_path),
+        }
+        if provider_matrix_ok
+        else None,
+        {"area": "self_healing", "status": "pass", "receipt_path": str(repair_canary_receipt_path)}
+        if repair_canary_ok
+        else None,
+        {"area": "receipt_freshness", "status": "pass"}
+        if receipt_freshness_ok
+        else None,
+    ]
     status = (
         "pass"
         if (
@@ -1065,6 +1097,7 @@ def build_gold_status_receipt(
             "stale_receipts": stale_receipts,
         },
         "blockers": blockers,
+        "pass_areas": [row for row in pass_areas if row is not None],
         "next_required_actions": next_required_actions,
         "notes": [
             "Gold is not claimable until every required provider mode is backed by verified evidence.",

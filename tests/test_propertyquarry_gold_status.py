@@ -556,6 +556,14 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["analytics"]["status"] == "pass"
     assert receipt["analytics"]["route_count"] == 2
     assert receipt["blockers"] == []
+    pass_areas = {str(row["area"]) for row in receipt["pass_areas"]}
+    assert {
+        "performance",
+        "analytics_privacy",
+        "provider_targeted_search_matrix",
+        "self_healing",
+        "receipt_freshness",
+    }.issubset(pass_areas)
 
 
 def test_gold_status_blocks_when_public_sign_in_account_creation_smoke_is_missing(tmp_path: Path) -> None:
