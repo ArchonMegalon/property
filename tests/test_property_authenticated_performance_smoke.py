@@ -63,6 +63,10 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "notification_primary_channel_controls" and check["ok"] for check in routes["/app/account"]["checks"])
     assert any(check["name"] == "notification_opt_in_copy" and check["ok"] for check in routes["/app/account"]["checks"])
     assert any(check["name"] == "notification_secret_safe" and check["ok"] for check in routes["/app/account"]["checks"])
+    assert any(check["name"] == "account_direct_logout_strip" and check["ok"] for check in routes["/app/account"]["checks"])
+    assert any(check["name"] == "account_single_logout_action" and check["ok"] for check in routes["/app/account"]["checks"])
+    assert any(check["name"] == "account_no_top_dropdown_duplicate_logout" and check["ok"] for check in routes["/app/account"]["checks"])
+    assert any(check["name"] == "account_logout_mobile_target" and check["ok"] for check in routes["/app/account"]["checks"])
     assert any(check["name"] == "implicit_account_creation_copy" and check["ok"] for check in routes["/app/settings/google"]["checks"])
     assert any(check["name"] == "account_access_controls" and check["ok"] for check in routes["/app/settings/access"]["checks"])
     assert any(check["name"] == "usage_metrics_visible" and check["ok"] for check in routes["/app/settings/usage"]["checks"])
@@ -100,6 +104,8 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"research_visual_requests_honest"' in result.stdout
     assert '"research_no_fake_visual_ready"' in result.stdout
     assert '"notification_destination_controls"' in result.stdout
+    assert '"account_direct_logout_strip"' in result.stdout
+    assert '"account_single_logout_action"' in result.stdout
     assert '"rybbit_taxonomy_events_only"' in result.stdout
     assert '"rybbit_no_private_payload"' in result.stdout
 

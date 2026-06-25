@@ -446,6 +446,27 @@ def _start_synthetic_run(client: TestClient) -> str:
         ProductService.sync_direct_property_scout = original  # type: ignore[method-assign]
 
 
+def _open_workspace_access_session(client: TestClient) -> None:
+    response = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "performance-smoke@propertyquarry.test",
+            "role": "principal",
+            "display_name": "Performance Smoke",
+            "expires_in_hours": 24,
+        },
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"access_session_seed_failed:{response.status_code}:{response.text[:280]}")
+    access_url = str(response.json().get("access_url") or "").strip()
+    if not access_url:
+        raise RuntimeError("access_session_seed_failed:missing_access_url")
+    client.headers.pop("X-EA-Principal-ID", None)
+    opened = client.get(access_url, follow_redirects=False)
+    if opened.status_code != 303 or not client.cookies.get("ea_workspace_session"):
+        raise RuntimeError(f"access_session_open_failed:{opened.status_code}:{opened.text[:280]}")
+
+
 def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str, object]:
     started = time.perf_counter()
     response = client.get(
@@ -514,6 +535,10 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     if path == "/app/account":
         checks.extend(
             (
+                {"name": "account_direct_logout_strip", "ok": "pqx-account-logout-strip" in body and "Current session" in body},
+                {"name": "account_single_logout_action", "ok": body.count('data-account-page-sign-out') == 1 and body.count(">Log out</button>") == 1},
+                {"name": "account_no_top_dropdown_duplicate_logout", "ok": '<form class="pqx-account-menu-form"' not in body},
+                {"name": "account_logout_mobile_target", "ok": ".pqx-account-logout-strip-form .pqx-link-button" in body and "min-height: 56px;" in body},
                 {"name": "notification_destination_controls", "ok": all(token in body for token in ("Email", "Telegram", "WhatsApp", "Destination mix"))},
                 {"name": "notification_primary_channel_controls", "ok": "Primary response lane" in body and "Save notification routing" in body},
                 {"name": "notification_opt_in_copy", "ok": "Strong matches and watch hits" in body and "Near-miss follow-up prompts" in body},
@@ -591,6 +616,7 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
     _seed_workspace(client)
     _seed_saved_agents(client)
     run_id = _start_synthetic_run(client)
+    _open_workspace_access_session(client)
     routes = [
         "/sign-in",
         "/app/search",
