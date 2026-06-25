@@ -3360,6 +3360,67 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         mobile.close()
 
 
+def test_propertyquarry_desktop_district_map_click_selects_shape_and_zoom_toggles(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=860)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.select_option('select[name="country_code"]', "AT")
+        page.select_option('select[name="region_code"]', "vienna")
+        page.wait_for_function(
+            """() => document.querySelector('[data-property-field-name="location_query"]')?.dataset.locationMapAvailable === 'true'"""
+        )
+        page.locator('[data-location-mode-button="map"]').click()
+        page.locator("[data-location-map-open]").click()
+        district = page.locator("[data-location-map-district]").first
+        district.wait_for(state="visible")
+        value = str(district.get_attribute("data-location-value") or "")
+        assert value
+        before_checked = page.evaluate(
+            """(value) => {
+              const input = document.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`);
+              return Boolean(input && input.checked);
+            }""",
+            value,
+        )
+        box = district.bounding_box()
+        assert box is not None
+        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.wait_for_function(
+            """([value, beforeChecked]) => {
+              const input = document.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`);
+              return Boolean(input) && input.checked !== beforeChecked;
+            }""",
+            arg=[value, before_checked],
+        )
+        assert district.evaluate("(node) => node.classList.contains('is-selected')") is (not before_checked)
+
+        layer = page.locator("[data-location-map-layer]")
+        initial_transform = str(layer.get_attribute("transform") or "")
+        zoom_toggle = page.locator('[data-location-map-zoom="reset"]')
+        zoom_toggle.click()
+        page.wait_for_function(
+            """(initialTransform) => {
+              const layer = document.querySelector('[data-location-map-layer]');
+              return layer && String(layer.getAttribute('transform') || '') !== initialTransform;
+            }""",
+            arg=initial_transform,
+        )
+        zoomed_transform = str(layer.get_attribute("transform") or "")
+        assert "scale(" in zoomed_transform and zoomed_transform != initial_transform
+        expect(zoom_toggle).to_have_text(re.compile("fit", re.I))
+        zoom_toggle.click()
+        expect(zoom_toggle).to_have_text(re.compile("1x", re.I))
+        assert "scale(1)" in str(layer.get_attribute("transform") or "")
+    finally:
+        context.close()
+
+
 def test_propertyquarry_search_desktop_wheel_scroll_recovers_from_bottom(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],

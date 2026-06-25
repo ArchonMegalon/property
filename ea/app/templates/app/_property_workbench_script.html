@@ -2663,6 +2663,7 @@
       let locationMapStartX = 0;
       let locationMapStartY = 0;
       let locationMapPreviousBodyOverflow = '';
+      let locationMapSuppressNextClick = false;
       const setLocationMapDialogOpenState = (open) => {
         const html = document.documentElement;
         const body = document.body;
@@ -2681,6 +2682,23 @@
         }
       };
       const locationMapPoint = (event) => ({ x: Number(event.clientX || 0), y: Number(event.clientY || 0) });
+      const findLocationMapDistrictFromEvent = (event) => {
+        const directDistrict = event.target?.closest?.('[data-location-map-district]');
+        if (directDistrict) return directDistrict;
+        const point = locationMapPoint(event);
+        if (!point.x && !point.y) return null;
+        const pointElement = document.elementFromPoint(point.x, point.y);
+        return pointElement?.closest?.('[data-location-map-district]') || null;
+      };
+      const toggleLocationMapDistrict = (district) => {
+        if (!district) return false;
+        const value = String(district.getAttribute('data-location-value') || '').trim();
+        const input = value ? form.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`) : null;
+        if (!(input instanceof HTMLInputElement) || input.disabled) return false;
+        input.checked = !input.checked;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      };
       const applyLocationMapTransform = () => {
         if (!locationMapLayer) return;
         const boundedScale = Math.max(1, Math.min(2.4, locationMapScale));
@@ -2689,6 +2707,10 @@
         locationMapPanX = Math.max(-maxPan, Math.min(maxPan, locationMapPanX));
         locationMapPanY = Math.max(-maxPan, Math.min(maxPan, locationMapPanY));
         locationMapLayer.setAttribute('transform', `translate(${locationMapPanX} ${locationMapPanY}) scale(${boundedScale})`);
+        locationMapPicker?.querySelectorAll('[data-location-map-zoom="reset"]').forEach((button) => {
+          button.textContent = boundedScale <= 1.02 ? '1x' : 'Fit';
+          button.setAttribute('aria-label', boundedScale <= 1.02 ? 'Zoom map' : 'Reset map zoom');
+        });
       };
       const locationOptionMetaByValue = () => {
         const selectedCountry = String(countryField?.value || 'AT').trim();
@@ -2845,13 +2867,13 @@
         setLocationMapDialogOpenState(false);
       });
       locationMapPicker?.addEventListener('click', (event) => {
-        const district = event.target?.closest?.('[data-location-map-district]');
+        if (locationMapSuppressNextClick) {
+          locationMapSuppressNextClick = false;
+          return;
+        }
+        const district = findLocationMapDistrictFromEvent(event);
         if (!district || locationMapMoved) return;
-        const value = String(district.getAttribute('data-location-value') || '').trim();
-        const input = value ? form.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`) : null;
-        if (!(input instanceof HTMLInputElement) || input.disabled) return;
-        input.checked = !input.checked;
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        toggleLocationMapDistrict(district);
       });
       locationMapPicker?.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -2880,11 +2902,27 @@
         locationMapPanY = nextY;
         applyLocationMapTransform();
       });
-      ['pointerup', 'pointercancel', 'pointerleave'].forEach((eventName) => {
+      locationMapViewport?.addEventListener('pointerup', (event) => {
+        const shouldToggle = locationMapDragging && !locationMapMoved;
+        if (event instanceof PointerEvent && shouldToggle) {
+          const district = findLocationMapDistrictFromEvent(event);
+          if (toggleLocationMapDistrict(district)) locationMapSuppressNextClick = true;
+        }
+        locationMapDragging = false;
+        if (event instanceof PointerEvent) locationMapViewport.releasePointerCapture?.(event.pointerId);
+        window.setTimeout(() => {
+          locationMapMoved = false;
+          locationMapSuppressNextClick = false;
+        }, 0);
+      });
+      ['pointercancel', 'pointerleave'].forEach((eventName) => {
         locationMapViewport?.addEventListener(eventName, (event) => {
           locationMapDragging = false;
           if (event instanceof PointerEvent) locationMapViewport.releasePointerCapture?.(event.pointerId);
-          window.setTimeout(() => { locationMapMoved = false; }, 0);
+          window.setTimeout(() => {
+            locationMapMoved = false;
+            locationMapSuppressNextClick = false;
+          }, 0);
         });
       });
       locationMapPicker?.querySelectorAll('[data-location-map-zoom]').forEach((button) => {
@@ -2894,9 +2932,12 @@
           if (mode === 'in') locationMapScale += 0.28;
           else if (mode === 'out') locationMapScale -= 0.28;
           else {
-            locationMapScale = 1;
-            locationMapPanX = 0;
-            locationMapPanY = 0;
+            if (locationMapScale <= 1.02) locationMapScale = 1.56;
+            else {
+              locationMapScale = 1;
+              locationMapPanX = 0;
+              locationMapPanY = 0;
+            }
           }
           applyLocationMapTransform();
         });
