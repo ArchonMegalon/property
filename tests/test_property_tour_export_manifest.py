@@ -6,7 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.materialize_property_tour_export_manifest import build_export_manifest, prepare_export_drop_dirs
+from scripts.materialize_property_tour_export_manifest import (
+    build_drop_status_rows,
+    build_export_manifest,
+    prepare_export_drop_dirs,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +39,9 @@ def test_materialize_property_tour_export_manifest_writes_operator_drop_paths(tm
     assert imports[("pano2vr", "needs-exports")]["export_dir"] == str(incoming_root.resolve() / "needs-exports" / "pano2vr")
     assert imports[("krpano", "needs-exports")]["asset_dir"] == str(incoming_root.resolve() / "needs-exports" / "krpano")
     assert imports[("magicfit", "needs-exports")]["asset_dir"] == str(incoming_root.resolve() / "needs-exports" / "magicfit")
+    assert len(manifest["drop_status"]) == 4
+    assert {row["status"] for row in manifest["drop_status"]} == {"waiting_for_assets"}
+    assert {row["missing"][0] for row in manifest["drop_status"]} == {"drop_folder"}
     assert "import_property_tour_exports.py" in manifest["next_command"]
 
 
@@ -81,6 +88,8 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
         assert f"Slug: {row['slug']}" in body
         assert f"Provider: {row['provider']}" in body
         assert "Do not copy placeholder HTML" in body
+        assert "Current drop status: waiting_for_assets" in body
+        assert "Missing now:" in body
         assert "import_property_tour_exports.py" in body
         assert "Single-provider dry import example:" in body
         assert "Gold only passes when verify_property_tour_controls reports ready provider modes" in body
@@ -102,6 +111,39 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
             assert "magicfit-walkthrough.mp4" in body
             assert "magicfit-receipt.json" in body
             assert "import_magicfit_walkthrough.py" in body
+        assert row["drop_status"]["status"] == "waiting_for_assets"
+        assert row["drop_status"]["missing"]
+
+
+def test_materialize_property_tour_export_manifest_reports_ready_drop_status(tmp_path: Path) -> None:
+    tour_root = tmp_path / "public_tours"
+    incoming_root = tmp_path / "incoming"
+    _write_base_tour(tour_root, "needs-krpano")
+    manifest = build_export_manifest(
+        tour_root=tour_root,
+        incoming_root=incoming_root,
+        providers={"krpano"},
+        limit_per_provider=1,
+    )
+    krpano_row = next(row for row in manifest["imports"] if row["provider"] == "krpano")
+    asset_dir = Path(krpano_row["asset_dir"])
+    asset_dir.mkdir(parents=True)
+    (asset_dir / "panorama.jpg").write_bytes(b"\xff\xd8\xff\xe0real-panorama-candidate")
+
+    status_rows = build_drop_status_rows({"imports": [krpano_row]})
+
+    assert status_rows == [
+        {
+            "slug": "needs-krpano",
+            "provider": "krpano",
+            "export_dir": str(asset_dir.resolve()),
+            "status": "ready_for_import",
+            "file_count": 1,
+            "present_sample": ["panorama.jpg"],
+            "missing": [],
+            "accepted_entry": "panorama.jpg",
+        }
+    ]
 
 
 def test_materialize_property_tour_export_manifest_cli_writes_receipt(tmp_path: Path) -> None:
@@ -135,6 +177,7 @@ def test_materialize_property_tour_export_manifest_cli_writes_receipt(tmp_path: 
     manifest = json.loads(output.read_text(encoding="utf-8"))
     assert manifest["status"] == "ready_for_exports"
     assert manifest["import_count"] == 4
+    assert len(manifest["drop_status"]) == 4
     assert "cli-needs-exports" in result.stdout
 
 
@@ -170,3 +213,4 @@ def test_materialize_property_tour_export_manifest_cli_can_prepare_drop_dirs(tmp
     manifest = json.loads(output.read_text(encoding="utf-8"))
     assert len(manifest["prepared_drop_dirs"]) == 4
     assert all(Path(row["readme"]).is_file() for row in manifest["prepared_drop_dirs"])
+    assert all(row["drop_status"]["status"] == "waiting_for_assets" for row in manifest["prepared_drop_dirs"])

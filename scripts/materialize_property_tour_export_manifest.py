@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from discover_property_tour_exports import (  # noqa: E402
+    _discover_cube_faces,
+    _discover_panorama,
+    _discover_receipt,
+    _discover_video,
+    _magicfit_receipt_rejection_reason,
+    _verified_entry,
+    _video_has_playable_stream,
+)
 from verify_property_tour_controls import build_property_tour_control_receipt
 
 
@@ -109,6 +118,99 @@ def _provider_import_example(row: dict[str, str]) -> str:
     return ""
 
 
+def _relative_file_sample(export_dir: Path, *, limit: int = 8) -> list[str]:
+    if not export_dir.is_dir():
+        return []
+    rows: list[str] = []
+    for path in sorted(export_dir.rglob("*")):
+        if len(rows) >= limit:
+            break
+        if not path.is_file() or path.name == "README.propertyquarry-export.txt":
+            continue
+        try:
+            rows.append(path.relative_to(export_dir).as_posix())
+        except ValueError:
+            rows.append(path.name)
+    return rows
+
+
+def _drop_preflight(row: dict[str, str]) -> dict[str, Any]:
+    provider = str(row.get("provider") or "").strip().lower()
+    slug = str(row.get("slug") or "").strip()
+    export_dir = Path(str(row.get("export_dir") or row.get("asset_dir") or "")).expanduser().resolve()
+    file_sample = _relative_file_sample(export_dir)
+    file_count = 0
+    if export_dir.is_dir():
+        file_count = sum(
+            1
+            for path in export_dir.rglob("*")
+            if path.is_file() and path.name != "README.propertyquarry-export.txt"
+        )
+    status: dict[str, Any] = {
+        "slug": slug,
+        "provider": provider,
+        "export_dir": str(export_dir),
+        "status": "waiting_for_assets",
+        "file_count": file_count,
+        "present_sample": file_sample,
+        "missing": [],
+        "accepted_entry": "",
+    }
+    if not export_dir.is_dir():
+        status["missing"] = ["drop_folder"]
+        return status
+    if provider in {"3dvista", "pano2vr"}:
+        entry, entry_relpath = _verified_entry(export_dir, provider)
+        if entry is None:
+            status["missing"] = [f"{provider}_verified_runtime_entry"]
+            return status
+        status["status"] = "ready_for_import"
+        status["accepted_entry"] = entry_relpath
+        return status
+    if provider == "krpano":
+        panorama = _discover_panorama(export_dir)
+        cube_faces = _discover_cube_faces(export_dir)
+        if panorama is None and len(cube_faces) != 6:
+            status["missing"] = ["krpano_panorama_or_six_cube_faces"]
+            return status
+        status["status"] = "ready_for_import"
+        status["accepted_entry"] = panorama.name if panorama is not None else "cube-face-1..6"
+        return status
+    if provider == "magicfit":
+        video = _discover_video(export_dir)
+        receipt = _discover_receipt(export_dir)
+        if video is None:
+            status["missing"] = ["magicfit_walkthrough_video"]
+            return status
+        if not _video_has_playable_stream(video):
+            status["missing"] = ["magicfit_playable_video_stream"]
+            status["accepted_entry"] = video.name
+            return status
+        if receipt is None:
+            status["missing"] = ["magicfit_render_receipt"]
+            status["accepted_entry"] = video.name
+            return status
+        receipt_rejection = _magicfit_receipt_rejection_reason(receipt, video=video, slug=slug)
+        if receipt_rejection:
+            status["missing"] = [receipt_rejection]
+            status["accepted_entry"] = video.name
+            return status
+        status["status"] = "ready_for_import"
+        status["accepted_entry"] = video.name
+        status["receipt"] = receipt.name
+        return status
+    status["missing"] = ["supported_provider"]
+    return status
+
+
+def build_drop_status_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in list(manifest.get("imports") or []):
+        if isinstance(row, dict):
+            rows.append(_drop_preflight({str(key): str(value) for key, value in row.items()}))
+    return rows
+
+
 def _tour_sort_key(tour: dict[str, Any]) -> tuple[int, int, str]:
     controls = [row for row in list(tour.get("controls") or []) if isinstance(row, dict)]
     is_ready = str(tour.get("status") or "").strip().lower() == "ready"
@@ -199,6 +301,7 @@ def build_export_manifest(
         "providers": sorted(selected_providers),
         "import_count": len(imports),
         "imports": imports,
+        "drop_status": build_drop_status_rows({"imports": imports}),
         "next_command": "python /app/scripts/import_property_tour_exports.py --manifest /data/artifacts/property-tour-export-import-manifest.json --write /data/artifacts/property-tour-export-import-receipt.json",
         "notes": [
             "Copy each real provider export or asset into its export_dir before running the import command.",
@@ -208,8 +311,8 @@ def build_export_manifest(
     }
 
 
-def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, str]]:
-    prepared: list[dict[str, str]] = []
+def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
     for row in list(manifest.get("imports") or []):
         if not isinstance(row, dict):
             continue
@@ -219,6 +322,7 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, str]]:
         if provider not in IMPORTABLE_PROVIDERS or not slug:
             continue
         export_dir.mkdir(parents=True, exist_ok=True)
+        drop_status = _drop_preflight({str(key): str(value) for key, value in row.items()})
         readme_path = export_dir / "README.propertyquarry-export.txt"
         readme_path.write_text(
             "\n".join(
@@ -230,6 +334,8 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, str]]:
                     f"Provider: {provider}",
                     f"Current verified controls: {str(row.get('current_control_providers') or 'none').strip()}",
                     f"Expected entry: {PROVIDER_ENTRY_MARKERS[provider]}",
+                    f"Current drop status: {drop_status.get('status')}",
+                    f"Missing now: {', '.join(list(drop_status.get('missing') or [])) or 'nothing'}",
                     "",
                     "Checklist:",
                     *[f"- {item}" for item in PROVIDER_DROP_CHECKLISTS[provider]],
@@ -253,6 +359,7 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, str]]:
                 "provider": provider,
                 "export_dir": str(export_dir),
                 "readme": str(readme_path),
+                "drop_status": drop_status,
             }
         )
     return prepared

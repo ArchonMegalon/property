@@ -51,6 +51,7 @@ EOF
 fi
 
 cd "${EA_ROOT}"
+tour_export_incoming_dir="${PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR:-${PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR:-${EA_ROOT}/state/incoming_property_tours}}"
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_docs_links.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
@@ -68,8 +69,10 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --write _completion/property_tour_controls/release-gate.json \
   --summary-only
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
+  --drop-dir "${tour_export_incoming_dir}" \
   --write _completion/property_tour_exports/release-gate-discovery.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/materialize_property_tour_export_manifest.py \
+  --incoming-root "${tour_export_incoming_dir}" \
   --prepare-dirs \
   --write _completion/property_tour_exports/release-gate-import-manifest.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
