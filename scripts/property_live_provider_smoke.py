@@ -20,7 +20,12 @@ if str(ROOT) not in sys.path:
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 
-from app.services.property_market_catalog import COUNTRIES, default_platforms_for_country, provider_options
+from app.services.property_market_catalog import (
+    COUNTRIES,
+    default_platforms_for_country,
+    provider_options,
+    selectable_property_platform_keys,
+)
 
 
 _TARGET_CONTEXT_BY_COUNTRY = {
@@ -184,13 +189,43 @@ def _agent_unlimited_commercial_state() -> dict[str, object]:
     }
 
 
-def _targeted_search_payload(*, country_code: str, provider_key: str, mode: str) -> dict[str, object]:
+def _selectable_provider_keys_for_mode(country_code: str, listing_mode: str) -> tuple[str, ...]:
+    return tuple(
+        str(value or "").strip()
+        for value in selectable_property_platform_keys(
+            country_code=str(country_code or "").strip().upper(),
+            listing_mode=str(listing_mode or "").strip().lower() or "rent",
+        )
+        if str(value or "").strip()
+    )
+
+
+def _listing_mode_for_provider(country_code: str, provider_key: str) -> str:
+    normalized_provider = str(provider_key or "").strip()
+    for listing_mode in ("rent", "buy"):
+        if normalized_provider in _selectable_provider_keys_for_mode(country_code, listing_mode):
+            return listing_mode
+    return "rent"
+
+
+def _first_selectable_provider(country_code: str, listing_mode: str = "rent") -> dict[str, object]:
+    normalized_country = str(country_code or "").strip().upper()
+    selectable = set(_selectable_provider_keys_for_mode(normalized_country, listing_mode))
+    for option in _search_ready_provider_options(normalized_country):
+        if str(option.get("value") or "").strip() in selectable:
+            return dict(option)
+    options = _search_ready_provider_options(normalized_country)
+    return dict(options[0]) if options else {}
+
+
+def _targeted_search_payload(*, country_code: str, provider_key: str, mode: str, listing_mode: str = "rent") -> dict[str, object]:
     context = _target_context_for_country(country_code)
     normalized_mode = str(mode or "").strip().lower()
     soft_mode = normalized_mode == "targeted_soft_filters"
+    normalized_listing_mode = str(listing_mode or "").strip().lower() or "rent"
     preferences: dict[str, object] = {
         "country_code": str(country_code or "").strip().upper(),
-        "listing_mode": "rent",
+        "listing_mode": normalized_listing_mode,
         "search_goal": "home",
         "location_query": str(context["location_query"]),
         "selected_location_values": list(context["selected_location_values"]),
@@ -278,17 +313,12 @@ def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeo
     return json.loads(body.decode("utf-8", errors="replace"))
 
 
-def _first_search_ready_provider(country_code: str) -> dict[str, object]:
-    options = _search_ready_provider_options(str(country_code or "").strip().upper())
-    return dict(options[0]) if options else {}
-
-
 def _first_foreign_search_ready_provider(country_code: str) -> dict[str, object]:
     normalized_country = str(country_code or "").strip().upper()
     for foreign_country in _all_search_ready_country_codes():
         if foreign_country == normalized_country:
             continue
-        provider = _first_search_ready_provider(foreign_country)
+        provider = _first_selectable_provider(foreign_country, "rent")
         if provider:
             return provider
     return {}
@@ -299,13 +329,14 @@ def _cross_country_sanitization_payload(
     country_code: str,
     local_provider_key: str,
     foreign_provider_key: str,
+    listing_mode: str = "rent",
 ) -> dict[str, object]:
     context = _target_context_for_country(country_code)
     return {
         "selected_platforms": [str(foreign_provider_key or "").strip(), str(local_provider_key or "").strip()],
         "property_preferences": {
             "country_code": str(country_code or "").strip().upper(),
-            "listing_mode": "rent",
+            "listing_mode": str(listing_mode or "").strip().lower() or "rent",
             "search_goal": "home",
             "location_query": str(context["location_query"]),
             "selected_location_values": list(context["selected_location_values"]),
@@ -332,12 +363,14 @@ def _build_cross_country_sanitization_checks(
     rows: list[dict[str, object]] = []
     for country in countries:
         normalized_country = str(country or "").strip().upper()
-        local_provider = _first_search_ready_provider(normalized_country)
+        local_provider = _first_selectable_provider(normalized_country, "rent")
         foreign_provider = _first_foreign_search_ready_provider(normalized_country)
         local_provider_key = str(local_provider.get("value") or "").strip()
         foreign_provider_key = str(foreign_provider.get("value") or "").strip()
+        listing_mode = _listing_mode_for_provider(normalized_country, local_provider_key)
         row: dict[str, object] = {
             "country_code": normalized_country,
+            "listing_mode": listing_mode,
             "local_provider": local_provider_key,
             "local_provider_country_code": str(local_provider.get("country_code") or "").strip().upper(),
             "foreign_provider": foreign_provider_key,
@@ -358,6 +391,7 @@ def _build_cross_country_sanitization_checks(
             country_code=normalized_country,
             local_provider_key=local_provider_key,
             foreign_provider_key=foreign_provider_key,
+            listing_mode=listing_mode,
         )
         row["requested_platforms"] = list(payload.get("selected_platforms") or [])
         if enabled and not dry_run:
@@ -474,8 +508,15 @@ def _build_targeted_provider_search_matrix(
             provider_country = str(option.get("country_code") or "").strip().upper()
             if not provider_key:
                 continue
+            listing_mode = _listing_mode_for_provider(normalized_country, provider_key)
+            selectable_for_mode = provider_key in _selectable_provider_keys_for_mode(normalized_country, listing_mode)
             for mode in ("targeted_no_soft_filters", "targeted_soft_filters"):
-                payload = _targeted_search_payload(country_code=normalized_country, provider_key=provider_key, mode=mode)
+                payload = _targeted_search_payload(
+                    country_code=normalized_country,
+                    provider_key=provider_key,
+                    mode=mode,
+                    listing_mode=listing_mode,
+                )
                 preferences = dict(payload.get("property_preferences") or {})
                 target_context_country_scope_ok = _target_context_country_scope_ok(
                     normalized_country,
@@ -493,6 +534,7 @@ def _build_targeted_provider_search_matrix(
                     "provider_country_code": provider_country,
                     "provider_label": str(option.get("label") or provider_key).strip(),
                     "provider_family": str(option.get("family") or "").strip(),
+                    "listing_mode": listing_mode,
                     "mode": mode,
                     "endpoint": "/app/api/property/search-runs",
                     "selected_platforms": [provider_key],
@@ -507,6 +549,8 @@ def _build_targeted_provider_search_matrix(
                         payload.get("selected_platforms") == [provider_key]
                         and provider_country == normalized_country
                         and preferences.get("country_code") == normalized_country
+                        and preferences.get("listing_mode") == listing_mode
+                        and selectable_for_mode
                         and preferences.get("property_commercial") == _agent_unlimited_commercial_state()
                         and target_context_country_scope_ok
                         and (bool(soft_filter_fields) if mode == "targeted_soft_filters" else not bool(soft_filter_fields))

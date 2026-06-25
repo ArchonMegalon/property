@@ -96,6 +96,14 @@ def test_live_provider_smoke_can_expand_to_all_search_ready_countries(monkeypatc
         row["country_code"] == "AT" or "Vienna" not in str(row.get("location_query") or "")
         for row in receipt["targeted_search_matrix"]
     )
+    taxsales_rows = [
+        row
+        for row in receipt["targeted_search_matrix"]
+        if row.get("country_code") == "CA" and row.get("provider") == "taxsales_ca"
+    ]
+    assert {row.get("mode") for row in taxsales_rows} == {"targeted_no_soft_filters", "targeted_soft_filters"}
+    assert all(row["listing_mode"] == "buy" for row in taxsales_rows)
+    assert all(row["payload_contract_ok"] is True for row in taxsales_rows)
 
 
 def test_live_provider_smoke_explicit_countries_can_override_all_country_env(monkeypatch) -> None:
