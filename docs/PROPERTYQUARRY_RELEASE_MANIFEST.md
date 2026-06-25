@@ -13,17 +13,21 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `19ab60598bd9e8d82f1bff0d4dab02ff45d738d2` |
+| Runtime commit SHA | `365f792038be8c3e3acd5e4c376e9ae489d76006` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `19ab605` passed:
+The candidate at `365f792` passed:
 
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_whole_project_scope.py`
+- `PYTHONPATH=ea python3 scripts/check_property_whole_project_scope.py`
+- `python3 -m json.tool docs/PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json`
+- Evidence overlay scope now has an enforced registry contract for environmental quality, summer heat, traffic/noise, public mobility, school context, official aggregate safety context, media-attention statistics with article links, and fiber/broadband coverage. The contract requires async Teable-first ingestion, cached Postgres/read-model rollups, unavailable/stale/verified UI states, provenance/freshness fields, and no inline source indexing during search execution.
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - Whole-project gold blockers are now explicitly tracked for implemented evidence overlays with Teable-backed ingestion, Rybbit dashboard/API receipts, continuous visual/accessibility release gates, and production security/supply-chain/RBAC hardening receipts.
 - `make deploy`
 - `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
