@@ -135,6 +135,13 @@ def test_property_release_gate_runs_offline_ranking_benchmark() -> None:
     assert "scripts/check_property_ranking_benchmark.py" in release_gate
 
 
+def test_property_release_gate_runs_cached_evidence_overlay_contracts() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert "cached evidence-overlay contracts for unavailable/stale/verified states and no inline source indexing" in release_gate
+    assert "tests/test_property_evidence_overlays.py" in release_gate
+
+
 def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 

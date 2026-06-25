@@ -27,6 +27,7 @@ Runs the focused PropertyQuarry release bundle:
   - phase and master exit-gate specs plus flagship browser workflows
   - property workspace real-browser greenfield checks
   - property search run contracts
+  - cached evidence-overlay contracts for unavailable/stale/verified states and no inline source indexing
   - offline ranking benchmark for hard filters, soft scoring, ordering, and scout thresholds
   - property search storage schema guard
   - saved search-agent management contracts
@@ -153,6 +154,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
   tests/test_property_live_mobile_surface_smoke.py \
   tests/test_property_worker_queues.py \
+  tests/test_property_evidence_overlays.py \
   tests/test_property_delivery_governance.py \
   tests/test_property_heyy_adapter_contracts.py \
   tests/test_property_heyy_api_contracts.py \
