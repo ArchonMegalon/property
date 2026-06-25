@@ -8951,6 +8951,8 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
     assert status["summary"]["repair_replacement_status_url"] == "/app/api/signals/property/search/run/worker-exception-repair-run"
     assert status["summary"]["provider_repair_task_opened_total"] == 1
     assert status["summary"]["repair_receipts"][0]["resolution"] == "worker_exception_restart_required"
+    assert status["summary"]["provider_repair_tasks"][0]["status"] == "returned"
+    assert status["summary"]["provider_repair_tasks"][0]["replacement_run_id"] == "worker-exception-repair-run"
     assert any(event["step"] == "run_repair_queued" for event in status["events"])
     tasks = [
         task

@@ -25536,6 +25536,28 @@ class ProductService:
             summary["repair_receipts"] = receipts[-25:]
             summary["repair_resolved_total"] = max(int(summary.get("repair_resolved_total") or 0), len(summary["repair_receipts"]))
             summary["repair_last_updated_at"] = receipt["at"]
+            summary_repair_tasks = [
+                dict(row)
+                for row in list(summary.get("provider_repair_tasks") or [])
+                if isinstance(row, dict)
+            ]
+            if summary_repair_tasks:
+                for repair_task in summary_repair_tasks:
+                    task_ref = str(repair_task.get("queue_item_ref") or repair_task.get("human_task_id") or "").strip()
+                    if task_ref and task_ref != human_task_ref:
+                        continue
+                    repair_task["status"] = "returned"
+                    repair_task["filter_key"] = str(repair_task.get("filter_key") or filter_key).strip() or filter_key
+                    repair_task["resolution"] = str(resolution or "").strip()
+                    repair_task["reason"] = str(reason or "").strip()
+                    repair_task["human_task_id"] = human_task_ref
+                    repair_task["queue_item_ref"] = human_task_ref
+                    repair_task["repair_owner"] = str(repair_task.get("repair_owner") or input_json.get("repair_owner") or "ea_one_manager").strip() or "ea_one_manager"
+                    repair_task["repair_workflow"] = str(input_json.get("repair_workflow") or repair_task.get("repair_workflow") or "ea_provider_ooda").strip() or "ea_provider_ooda"
+                    if replacement_run_id:
+                        repair_task["replacement_run_id"] = replacement_run_id
+                        repair_task["replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
+                summary["provider_repair_tasks"] = summary_repair_tasks[-10:]
             if replacement_run_id:
                 summary["repair_replacement_run_id"] = replacement_run_id
                 summary["repair_replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
