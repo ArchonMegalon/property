@@ -105,7 +105,7 @@ fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
-  > _completion/smoke/property-auth-performance-release-gate.json
+  --write _completion/smoke/property-auth-performance-release-gate.json >/dev/null
 live_mobile_base_url="${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:-${PROPERTYQUARRY_LIVE_SMOKE_BASE_URL:-}}"
 if [[ -z "${live_mobile_base_url}" ]]; then
   echo "error: set PROPERTYQUARRY_LIVE_MOBILE_BASE_URL or PROPERTYQUARRY_LIVE_SMOKE_BASE_URL before running the gold release gate" >&2

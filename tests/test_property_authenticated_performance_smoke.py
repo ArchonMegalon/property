@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import os
+import json
 
 from scripts.propertyquarry_authenticated_performance_smoke import build_authenticated_performance_receipt, _route_budget_for
 
@@ -147,6 +148,33 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"account_single_logout_action"' in result.stdout
     assert '"rybbit_taxonomy_events_only"' in result.stdout
     assert '"rybbit_no_private_payload"' in result.stdout
+
+
+def test_property_authenticated_performance_smoke_script_writes_receipt(tmp_path) -> None:
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    receipt_path = tmp_path / "property-auth-performance.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/propertyquarry_authenticated_performance_smoke.py",
+            "--write",
+            str(receipt_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert receipt_path.exists()
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "pass"
+    assert payload["failed_count"] == 0
+    assert payload["route_count"] == 15
+    assert '"status": "pass"' in result.stdout
 
 
 def test_property_authenticated_performance_smoke_budget_override_applies_to_default_routes() -> None:

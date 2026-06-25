@@ -817,9 +817,15 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run authenticated PropertyQuarry route performance smoke.")
     parser.add_argument("--route-budget-ms", type=int, default=1200)
+    parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
     args = parser.parse_args()
     receipt = build_authenticated_performance_receipt(route_budget_ms=max(1, int(args.route_budget_ms or 1200)))
-    print(json.dumps(receipt, indent=2, sort_keys=True))
+    body = json.dumps(receipt, indent=2, sort_keys=True)
+    if str(args.write or "").strip():
+        out_path = Path(str(args.write)).expanduser()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(body + "\n", encoding="utf-8")
+    print(body)
     return 0 if receipt.get("status") == "pass" else 1
 
 
