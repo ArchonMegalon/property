@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +35,32 @@ def _write_base_tour(tmp_path: Path, slug: str) -> Path:
         encoding="utf-8",
     )
     return bundle_dir
+
+
+def _write_playable_mp4(path: Path) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise AssertionError("ffmpeg is required for playable MagicFit importer fixtures")
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=16x16:d=1",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> None:
@@ -156,8 +183,24 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert "video_relpath" not in manifest
     assert "magicfit_import" not in manifest
 
+    stub_video = tmp_path / "signature-only.mp4"
+    stub_video.write_bytes(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
+    stub_rejected = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(stub_video),
+        "--allow-unreceipted-test-asset",
+    )
+
+    assert stub_rejected.returncode != 0
+    assert "magicfit_video_unverified" in stub_rejected.stderr
+    assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
+
     playable_video = tmp_path / "walkthrough.mp4"
-    playable_video.write_bytes(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
+    _write_playable_mp4(playable_video)
     unreceipted = _run_importer(
         "import_magicfit_walkthrough.py",
         tmp_path,

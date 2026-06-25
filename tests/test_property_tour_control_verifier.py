@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 from scripts.verify_property_tour_controls import _receipt_summary, build_property_tour_control_receipt
@@ -18,6 +20,32 @@ def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[s
             target.write_bytes(content)
         else:
             target.write_text(content, encoding="utf-8")
+
+
+def _write_playable_mp4(path: Path) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise AssertionError("ffmpeg is required for playable MagicFit verifier fixtures")
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=16x16:d=1",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_property_tour_control_verifier_accepts_private_receipt_matterport_without_url_leak(tmp_path: Path) -> None:
@@ -119,11 +147,13 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
         {"pano/index.html": "<html>Pano2VR</html>"},
     )
     _write_tour(tmp_path, "krpano-tour", {"walkable_scene": {"rooms": []}})
+    playable_magicfit = tmp_path / "walkthrough.mp4"
+    _write_playable_mp4(playable_magicfit)
     _write_tour(
         tmp_path,
         "magicfit-tour",
         {"video_provider": "magicfit", "video_relpath": "walkthrough.mp4"},
-        {"walkthrough.mp4": b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"},
+        {"walkthrough.mp4": playable_magicfit.read_bytes()},
     )
 
     receipt = build_property_tour_control_receipt(tour_root=tmp_path)
@@ -153,6 +183,22 @@ def test_property_tour_control_verifier_rejects_magicfit_placeholder_video(tmp_p
     assert receipt["status"] == "blocked_missing_verified_controls"
     assert receipt["provider_counts"]["magicfit"] == 0
     assert receipt["tours"][0]["blocked_reason"] == "missing_verified_provider_control"
+
+
+def test_property_tour_control_verifier_rejects_magicfit_signature_only_stub(tmp_path: Path) -> None:
+    _write_tour(
+        tmp_path,
+        "magicfit-stub",
+        {"video_provider": "magicfit", "video_relpath": "walkthrough.mp4"},
+        {"walkthrough.mp4": b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"},
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "blocked_missing_verified_controls"
+    assert receipt["provider_counts"]["magicfit"] == 0
+    missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
+    assert missing["magicfit"]["reason"] == "magicfit_video_missing_or_unplayable"
 
 
 def test_property_tour_control_verifier_rejects_placeholder_local_3d_exports(tmp_path: Path) -> None:

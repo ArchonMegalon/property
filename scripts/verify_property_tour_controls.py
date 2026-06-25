@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -93,6 +95,59 @@ def _file_exists(bundle_dir: Path, relpath: str) -> bool:
     return bundle_dir.resolve() in candidate.parents and candidate.is_file()
 
 
+def _ffprobe_video_markers(target: str | Path) -> dict[str, object]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return {"ffprobe_available": False}
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_type,duration:format=duration",
+                "-of",
+                "json",
+                str(target),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        return {"ffprobe_available": True, "ffprobe_error": f"{type(exc).__name__}: {exc}"}
+    if result.returncode != 0:
+        return {"ffprobe_available": True, "ffprobe_error": (result.stderr or "ffprobe_failed")[:200]}
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except Exception as exc:
+        return {"ffprobe_available": True, "ffprobe_error": f"json_{type(exc).__name__}"}
+    streams = [row for row in list(payload.get("streams") or []) if isinstance(row, dict)]
+    has_video_stream = any(str(row.get("codec_type") or "").strip().lower() == "video" for row in streams)
+    durations: list[float] = []
+    for value in [payload.get("format", {}).get("duration") if isinstance(payload.get("format"), dict) else None]:
+        try:
+            durations.append(float(value))
+        except Exception:
+            pass
+    for row in streams:
+        try:
+            durations.append(float(row.get("duration")))
+        except Exception:
+            pass
+    duration_seconds = max(durations) if durations else 0.0
+    return {
+        "ffprobe_available": True,
+        "video_stream": has_video_stream,
+        "duration_seconds": round(duration_seconds, 3),
+        "duration_positive": duration_seconds > 0.0,
+    }
+
+
 def _local_html_asset_has_marker(bundle_dir: Path, relpath: str, *, markers: Iterable[str]) -> bool:
     if not relpath:
         return False
@@ -121,11 +176,17 @@ def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
         return False
     if len(header) < 12:
         return False
+    signature_ok = False
     if suffix in {".mp4", ".m4v", ".mov"}:
-        return b"ftyp" in header[:32]
-    if suffix == ".webm":
-        return header.startswith(b"\x1aE\xdf\xa3")
-    return False
+        signature_ok = b"ftyp" in header[:32]
+    elif suffix == ".webm":
+        signature_ok = header.startswith(b"\x1aE\xdf\xa3")
+    if not signature_ok:
+        return False
+    markers = _ffprobe_video_markers(candidate)
+    if not markers.get("ffprobe_available"):
+        return True
+    return bool(markers.get("video_stream") and markers.get("duration_positive"))
 
 
 def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
@@ -346,13 +407,19 @@ def _probe_url(url: str, *, timeout_seconds: float, provider: str = "") -> dict[
                     (suffix in {".mp4", ".m4v", ".mov"} and b"ftyp" in sample[:32])
                     or (suffix == ".webm" and sample.startswith(b"\x1aE\xdf\xa3"))
                 )
+                ffprobe_markers = _ffprobe_video_markers(url)
+                playback_markers = {
+                    "video_content_type": content_type.startswith("video/"),
+                    "video_signature": signature_ok,
+                }
+                if ffprobe_markers.get("ffprobe_available"):
+                    playback_markers["video_stream"] = bool(ffprobe_markers.get("video_stream"))
+                    playback_markers["duration_positive"] = bool(ffprobe_markers.get("duration_positive"))
                 return {
                     "http_status": int(getattr(response, "status", 0) or 0),
                     "content_type": content_type,
-                    "playback_markers": {
-                        "video_content_type": content_type.startswith("video/"),
-                        "video_signature": signature_ok,
-                    },
+                    "playback_markers": playback_markers,
+                    "ffprobe": ffprobe_markers,
                 }
             body = response.read(80_000).decode("utf-8", errors="replace")
             return {

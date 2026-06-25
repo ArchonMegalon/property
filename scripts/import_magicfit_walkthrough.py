@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -41,11 +42,58 @@ def _video_is_playable(path: Path) -> bool:
         return False
     if len(header) < 12:
         return False
+    signature_ok = False
     if suffix in {".mp4", ".m4v", ".mov"}:
-        return b"ftyp" in header[:32]
-    if suffix == ".webm":
-        return header.startswith(b"\x1aE\xdf\xa3")
-    return False
+        signature_ok = b"ftyp" in header[:32]
+    elif suffix == ".webm":
+        signature_ok = header.startswith(b"\x1aE\xdf\xa3")
+    if not signature_ok:
+        return False
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return True
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_type,duration:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception:
+        return False
+    if result.returncode != 0:
+        return False
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except Exception:
+        return False
+    streams = [row for row in list(payload.get("streams") or []) if isinstance(row, dict)]
+    if not any(str(row.get("codec_type") or "").strip().lower() == "video" for row in streams):
+        return False
+    durations: list[float] = []
+    if isinstance(payload.get("format"), dict):
+        try:
+            durations.append(float(payload["format"].get("duration")))
+        except Exception:
+            pass
+    for row in streams:
+        try:
+            durations.append(float(row.get("duration")))
+        except Exception:
+            pass
+    return bool(durations and max(durations) > 0.0)
 
 
 def _load_magicfit_receipt(path_value: str, *, source: Path, allow_unreceipted: bool) -> tuple[dict[str, object], str]:
