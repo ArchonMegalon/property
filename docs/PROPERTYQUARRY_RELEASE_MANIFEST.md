@@ -13,16 +13,24 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `a4cb6c217f2199d2c9d489250933bd181651dbfc` |
+| Runtime commit SHA | `1d1b33a1327a42243247a5f722dc066aeba69390` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for top-only mobile navigation gate hardening, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `a4cb6c2` passed:
+The candidate at `1d1b33a` passed:
 
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_surface_accessibility_gate.py tests/test_propertyquarry_workspace_redesign.py -k 'surface_accessibility_gate or shell_uses_the_new_surface_navigation or settings_subpages_keep_property_shell_and_mobile_dock'`
+- `PYTHONPATH=ea python3 scripts/check_property_surface_accessibility.py`
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
+- `docker exec propertyquarry-api sh -lc "grep -n 'mobile-dock-target\|pq-appbar-mobile-nav a' /app/app/templates/base_console.html | head -20"` showed top appbar nav selectors and no `mobile-dock-target` token.
+- `bash scripts/smoke_api.sh`
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_property_search_runs.py -k 'distance_gate_records_relaxed_and_unknown_distances or property_filter_near_miss_feedback_buttons_fit_telegram_callback_limit or property_filter_near_miss_message or property_scout_queued_near_miss'`
 - `python3 -m py_compile ea/app/product/service.py`
 - `make deploy`
