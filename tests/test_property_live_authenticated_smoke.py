@@ -65,6 +65,36 @@ def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network(
     assert receipt["failed_count"] == 0
 
 
+def test_live_authenticated_smoke_accepts_external_billing_redirect_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/account"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+    )
+
+    assert receipt["status"] == "pass"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_external_handoff" and check["ok"] is True for check in billing_row["checks"])
+
+
 def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_expected() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",

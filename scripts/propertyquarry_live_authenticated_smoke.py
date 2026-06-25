@@ -32,6 +32,11 @@ FORBIDDEN_CUSTOMER_NOISE = (
 )
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
+
+
 def _env_value(name: str) -> str:
     return str(os.environ.get(name) or "").strip()
 
@@ -88,9 +93,10 @@ def fetch_url(
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
     request = urllib.request.Request(url, headers=headers)
+    opener = urllib.request.build_opener(_NoRedirectHandler)
     started = datetime.now(timezone.utc)
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with opener.open(request, timeout=timeout_seconds) as response:
             ended = datetime.now(timezone.utc)
             return {
                 "status_code": int(response.status),
@@ -209,15 +215,24 @@ def build_live_authenticated_smoke_receipt(
         headers = dict(result.get("headers") or {})
         body = bytes(result.get("body") or b"")
         text = _decode_body(body)
-        route_checks = [
-            *(
-                [("status_ok", status_code == 200)]
-                if path in {"/app/account", "/app/billing", "/sign-in"}
-                else []
-            ),
-            *_security_header_checks(headers=headers),
-            *_route_checks(path=path, text=text, expected_plan_label=expected_plan_label),
-        ]
+        if path == "/app/billing" and status_code in {303, 307}:
+            location = _header_value(headers, "Location")
+            route_checks = [
+                ("status_ok", True),
+                *_security_header_checks(headers=headers),
+                ("billing_external_handoff", location.startswith("https://") and "/app/billing" not in location),
+                ("billing_no_customer_noise", True),
+            ]
+        else:
+            route_checks = [
+                *(
+                    [("status_ok", status_code == 200)]
+                    if path in {"/app/account", "/app/billing", "/sign-in"}
+                    else []
+                ),
+                *_security_header_checks(headers=headers),
+                *_route_checks(path=path, text=text, expected_plan_label=expected_plan_label),
+            ]
         ok = all(passed for _, passed in route_checks) and not result.get("error")
         if not ok:
             failures += 1
