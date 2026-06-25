@@ -32086,16 +32086,20 @@ class ProductService:
             with _PROPERTY_SEARCH_RUN_WORKER_SEMAPHORE:
                 _worker()
 
-        threading.Thread(target=_bounded_worker, daemon=True).start()
         if dispatch_only:
+            deferred_worker = threading.Timer(0.05, _bounded_worker)
+            deferred_worker.daemon = True
+            deferred_worker.start()
             queued_state = dict(persisted_state)
             queued_summary = dict(queued_state.get("summary") or {})
             queued_summary["dispatch_only"] = True
             queued_summary["worker_started"] = True
+            queued_summary["worker_deferred"] = True
             queued_summary["worker_concurrency_limit"] = _property_search_run_worker_concurrency()
             queued_state["summary"] = queued_summary
             queued_state["message"] = str(queued_state.get("message") or "Search run queued.")
             return queued_state
+        threading.Thread(target=_bounded_worker, daemon=True).start()
         return self._snapshot_property_search_run(run_id=run_id, principal_id=normalized_principal) or _new_property_search_run_record(
             run_id=run_id,
             principal_id=normalized_principal,
