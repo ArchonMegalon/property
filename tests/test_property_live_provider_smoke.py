@@ -215,6 +215,7 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
         "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
     }
     observed_payloads: list[dict[str, object]] = []
+    observed_status_reads: list[tuple[str, str]] = []
     checkpoint_path = tmp_path / "provider-matrix-checkpoint.json"
 
     def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
@@ -228,10 +229,20 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
             "status": "queued",
         }
 
+    def _status_fetcher(run_id: str, status_url: str, _timeout: float) -> dict[str, object]:
+        observed_status_reads.append((run_id, status_url))
+        return {
+            "run_id": run_id,
+            "status_url": status_url,
+            "status": "queued",
+            "candidate_count": 0,
+        }
+
     receipt = build_live_provider_smoke_receipt(
         countries=("AT",),
         fetcher=lambda _country, _timeout: catalog_payload,
         search_executor=_search_executor,
+        status_fetcher=_status_fetcher,
         checkpoint_path=checkpoint_path,
     )
 
@@ -252,6 +263,9 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert checkpoint["targeted_search_matrix_status"] == "running"
     assert checkpoint["targeted_search_matrix_count"] == 2 * _search_ready_provider_count("AT")
     assert len(observed_payloads) == 2 * _search_ready_provider_count("AT")
+    assert len(observed_status_reads) == len(observed_payloads)
+    assert all(row["status_probe_ok"] is True for row in receipt["targeted_search_matrix"])
+    assert all(row["status_probe_status"] == "queued" for row in receipt["targeted_search_matrix"])
     assert all(payload.get("dispatch_only") is True for payload in observed_payloads)
     assert all("max_results_per_source" not in payload for payload in observed_payloads)
     assert {
@@ -262,3 +276,46 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
         dict(payload.get("property_preferences") or {}).get("property_commercial", {}).get("active_plan_key") == "agent"
         for payload in observed_payloads
     )
+
+
+def test_live_provider_smoke_execution_fails_when_status_probe_is_unreadable(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E", "1")
+
+    catalog_payload = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "property_type": "apartment",
+        "default_platforms": [
+            "willhaben",
+            "derstandard_at",
+            "immoscout_at",
+            "public_housing_at",
+            "genossenschaften_at",
+            "immmo",
+        ],
+        "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
+    }
+
+    def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
+        provider = str((payload.get("selected_platforms") or ["provider"])[0])
+        return {
+            "run_id": f"run-{provider}",
+            "status_url": f"/app/api/property/search-runs/run-{provider}",
+            "status": "queued",
+        }
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        fetcher=lambda _country, _timeout: catalog_payload,
+        search_executor=_search_executor,
+        status_fetcher=lambda _run_id, _status_url, _timeout: {"run_id": "wrong-run", "status": "missing"},
+    )
+
+    assert receipt["status"] == "fail"
+    assert receipt["targeted_search_matrix_status"] == "fail"
+    summary = receipt["targeted_search_matrix_summary"]
+    assert summary["execution_requested"] is True
+    assert summary["failed_case_count"] == 2 * _search_ready_provider_count("AT")
+    assert all(row["status_probe_ok"] is False for row in receipt["targeted_search_matrix"])

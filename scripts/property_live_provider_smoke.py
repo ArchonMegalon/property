@@ -221,6 +221,38 @@ def _post_search_run_payload(*, base_url: str, payload: dict[str, object], timeo
     return json.loads(body.decode("utf-8", errors="replace"))
 
 
+def _fetch_search_run_status_payload(*, base_url: str, status_url: str, run_id: str, timeout_seconds: float) -> dict[str, object]:
+    raw_status_url = str(status_url or "").strip()
+    if raw_status_url:
+        url = urllib.parse.urljoin(base_url.rstrip("/") + "/", raw_status_url.lstrip("/"))
+    else:
+        url = urllib.parse.urljoin(base_url.rstrip("/") + "/", f"app/api/property/search-runs/{urllib.parse.quote(str(run_id or '').strip())}?lightweight=true")
+    api_token = str(os.getenv("EA_API_TOKEN") or "").strip()
+    principal_id = str(os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID") or os.getenv("EA_PRINCIPAL_ID") or "cf-email:tibor.girschele@gmail.com").strip()
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={
+            "User-Agent": "PropertyQuarry-live-provider-search-status/1.0",
+            "Accept": "application/json,text/html,*/*",
+            "Host": "propertyquarry.com",
+            "X-EA-Principal-ID": principal_id,
+            **(
+                {
+                    "Authorization": f"Bearer {api_token}",
+                    "X-EA-API-Token": api_token,
+                }
+                if api_token
+                else {}
+            ),
+        },
+    )
+    with _wall_clock_timeout(timeout_seconds):
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            body = response.read(220_000)
+    return json.loads(body.decode("utf-8", errors="replace"))
+
+
 def _build_targeted_provider_search_matrix(
     *,
     countries: Iterable[str],
@@ -230,10 +262,19 @@ def _build_targeted_provider_search_matrix(
     execute: bool,
     timeout_seconds: float,
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
+    status_fetcher: Callable[[str, str, float], dict[str, object]] | None = None,
     checkpoint_writer: Callable[[list[dict[str, object]]], None] | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     executor = search_executor or (lambda payload, timeout: _post_search_run_payload(base_url=base_url, payload=payload, timeout_seconds=timeout))
+    status_reader = status_fetcher or (
+        lambda run_id, status_url, timeout: _fetch_search_run_status_payload(
+            base_url=base_url,
+            run_id=run_id,
+            status_url=status_url,
+            timeout_seconds=timeout,
+        )
+    )
     for country in countries:
         normalized_country = str(country or "").strip().upper()
         for option in _search_ready_provider_options(normalized_country):
@@ -276,12 +317,26 @@ def _build_targeted_provider_search_matrix(
                         status_url = str(response.get("status_url") or "").strip()
                         response_status = str(response.get("status") or "").strip().lower()
                         accepted = bool(run_id and status_url and response_status in {"queued", "in_progress", "processed", "completed", "completed_partial"})
+                        status_payload: dict[str, object] = {}
+                        status_probe_ok = False
+                        status_probe_status = ""
+                        if accepted:
+                            status_payload = dict(status_reader(run_id, status_url, timeout_seconds) or {})
+                            status_probe_run_id = str(status_payload.get("run_id") or "").strip()
+                            status_probe_status = str(status_payload.get("status") or "").strip().lower()
+                            status_probe_ok = (
+                                status_probe_run_id == run_id
+                                and status_probe_status in {"queued", "in_progress", "processed", "completed", "completed_partial", "failed"}
+                            )
                         row.update(
                             {
-                                "status": "pass" if accepted and row["payload_contract_ok"] else "fail",
+                                "status": "pass" if accepted and status_probe_ok and row["payload_contract_ok"] else "fail",
                                 "run_id": run_id,
                                 "status_url": status_url,
                                 "runtime_status": response_status,
+                                "status_probe_ok": status_probe_ok,
+                                "status_probe_status": status_probe_status,
+                                "status_probe_candidate_count": int(status_payload.get("candidate_count") or 0) if status_payload else 0,
                             }
                         )
                     except Exception as exc:
@@ -394,6 +449,7 @@ def build_live_provider_smoke_receipt(
     execute_search_matrix: bool | None = None,
     all_search_ready_countries: bool | None = None,
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
+    status_fetcher: Callable[[str, str, float], dict[str, object]] | None = None,
     checkpoint_path: str | Path = "",
 ) -> dict[str, object]:
     requested_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
@@ -514,6 +570,7 @@ def build_live_provider_smoke_receipt(
         execute=should_execute_search_matrix,
         timeout_seconds=timeout_seconds,
         search_executor=search_executor,
+        status_fetcher=status_fetcher,
         checkpoint_writer=_write_checkpoint if should_execute_search_matrix and enabled and not dry_run else None,
     )
     search_matrix_summary = _targeted_search_matrix_summary(
@@ -565,6 +622,7 @@ def build_live_provider_smoke_receipt(
             "Dry-run mode proves provider catalog, default provider, floorplan, and filter-pushdown contracts without crawling.",
             "Live mode probes the runtime provider catalog endpoint and checks provider/default-provider parity.",
             "The targeted search matrix covers every search-ready provider with one strict no-soft-filter payload and one discovery soft-filter payload.",
+            "When the targeted matrix is executed, each accepted dispatch must also return a readable search-run status receipt.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES=1 or pass --all-search-ready-countries to expand the matrix to every country with search-ready providers.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 with live mode to execute the targeted search matrix against /app/api/property/search-runs.",
         ],
