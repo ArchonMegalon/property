@@ -243,6 +243,14 @@ def _check_accessibility_primitives(path: Path, text: str, failures: list[str]) 
             failures.append(f"{path} must increase interactive targets for coarse pointers")
         if "min-height: var(--touch-target)" not in text:
             failures.append(f"{path} must use --touch-target for primary buttons")
+    if relative == "ea/app/templates/base_console.html":
+        for token in ("--mobile-dock-target:", "--mobile-dock-target-coarse:"):
+            if token not in text:
+                failures.append(f"{path} must define {token.rstrip(':')}")
+        if ".pq-mobile-nav a" not in text or "min-height: var(--mobile-dock-target)" not in text:
+            failures.append(f"{path} must give mobile dock links a minimum touch target")
+        if "var(--mobile-dock-target-coarse)" not in text:
+            failures.append(f"{path} must enlarge mobile dock links for coarse pointers")
     if relative == "ea/app/templates/app/property_decision_workbench.html":
         for token in ("--pq-touch-target:", "--pq-touch-target-coarse:", "--pq-focus-ring:"):
             if token not in text:

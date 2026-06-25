@@ -534,7 +534,7 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .prd-visual-proof {
+  .prd-visual-evidence {
     display: inline-flex;
     align-items: center;
     width: fit-content;
@@ -550,6 +550,10 @@
     font-weight: 780;
     line-height: 1.25;
     overflow-wrap: anywhere;
+  }
+  html[data-pq-theme="dark"] .prd-visual-evidence {
+    background: color-mix(in srgb, var(--panel-2) 88%, var(--prd-gold) 12%);
+    color: var(--text);
   }
   .prd-visual-card .prd-actions {
     display: grid;
@@ -1845,19 +1849,19 @@
           </div>
           <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
           {% if visual_card.get('key') == 'tour' %}
-          <p class="prd-visual-proof" data-prd-visual-proof="tour">
+          <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
             {% if action.get('href') %}
-            Proof: verified {{ research_media.get('provider_label') or 'hosted 3D' }} control.
+            Evidence: verified {{ research_media.get('provider_label') or 'hosted 3D' }} control.
             {% else %}
-            Proof needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control.
+            Evidence needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control.
             {% endif %}
           </p>
           {% elif visual_card.get('key') == 'walkthrough' %}
-          <p class="prd-visual-proof" data-prd-visual-proof="walkthrough">
+          <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
             {% if action.get('href') %}
-            Proof: playable {{ research_media.get('walkthrough_provider_label') or 'rendered' }} walkthrough video.
+            Evidence: playable {{ research_media.get('walkthrough_provider_label') or 'rendered' }} walkthrough video.
             {% else %}
-            Proof needed: playable MagicFit rendered walkthrough video.
+            Evidence needed: playable MagicFit rendered walkthrough video.
             {% endif %}
           </p>
           {% endif %}

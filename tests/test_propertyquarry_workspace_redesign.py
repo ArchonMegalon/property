@@ -11735,8 +11735,8 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert '>Request 3D tour</button>' in rendered_html
     assert 'data-pw-visual-request="flythrough"' in rendered_html
     assert '>Request walkthrough</button>' in rendered_html
-    assert "Proof needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control." in rendered_html
-    assert "Proof needed: playable MagicFit rendered walkthrough video." in rendered_html
+    assert "Evidence needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control." in rendered_html
+    assert "Evidence needed: playable MagicFit rendered walkthrough video." in rendered_html
     assert '>Open 3D tour</a>' not in rendered_html
 
 
@@ -11881,7 +11881,7 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open Matterport</a>' in rendered_html
     assert "Matterport control is live inside the hosted PropertyQuarry tour." in rendered_html
-    assert "Proof: verified Matterport control." in rendered_html
+    assert "Evidence: verified Matterport control." in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
@@ -11971,7 +11971,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     assert '>Open Matterport</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
     assert "MagicFit rendered walkthrough is ready on this page." in rendered_html
-    assert "Proof: playable MagicFit walkthrough video." in rendered_html
+    assert "Evidence: playable MagicFit walkthrough video." in rendered_html
     assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
     assert 'data-pw-visual-request="flythrough"' not in rendered_html

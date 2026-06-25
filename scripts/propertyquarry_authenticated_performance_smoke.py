@@ -172,6 +172,17 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
             "name": "mobile_dock_target",
             "ok": "data-property-mobile-dock" in body,
         },
+        {
+            "name": "mobile_dock_touch_target",
+            "ok": (
+                "min-height: var(--mobile-dock-target)" in body
+                and "var(--mobile-dock-target-coarse)" in body
+            )
+            or (
+                "pqx-mobile-switch .pqx-mode-button" in body
+                and "min-height: 56px" in body
+            ),
+        },
     ]
 
 

@@ -47,6 +47,8 @@
       --max: 1180px;
       --touch-target: 40px;
       --touch-target-coarse: 44px;
+      --mobile-dock-target: 48px;
+      --mobile-dock-target-coarse: 56px;
       --focus-ring: 3px solid rgba(214, 166, 63, 0.46);
       color-scheme: light;
     }
@@ -1058,6 +1060,7 @@
       }
       .pq-mobile-nav a {
         min-width: 0;
+        min-height: var(--mobile-dock-target);
         display: grid;
         gap: 2px;
         place-items: center;
@@ -1074,6 +1077,12 @@
       .pq-mobile-nav a.active {
         background: var(--accent-soft);
         color: var(--text);
+      }
+      @media (pointer: coarse) {
+        .pq-mobile-nav a {
+          min-height: var(--mobile-dock-target-coarse);
+          padding-block: 10px;
+        }
       }
       .pq-appbar-mobile-nav {
         display: flex;
