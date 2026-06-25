@@ -13,18 +13,24 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `d2305163741e71363f5745ca14f23cad44e9e8a7` |
+| Runtime commit SHA | `7a71d31d085c64535db93368724066e88a8d2d94` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for visual-state self-healing, deploy-probe, mobile What Matters, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `d230516` passed:
+The candidate at `7a71d31` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
+- `PYTHONPATH=ea pytest -q tests/test_property_live_authenticated_smoke.py tests/test_property_authenticated_performance_smoke.py`
+- `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'account_and_billing_templates_keep_controls_minimal or billing_surface_stays_compact or static_property_surfaces_skip_full_fleet_digest_on_first_paint'`
+- `python3 -m py_compile ea/app/services/onboarding.py ea/app/api/routes/landing.py`
+- `EA_HOST_PORT=8097 make deploy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready`
+- `PYTHONPATH=ea python3 scripts/propertyquarry_authenticated_performance_smoke.py`
 - `bash -n scripts/deploy_propertyquarry.sh`
 - `PYTHONPATH=ea pytest -q tests/test_property_deploy_operator_contracts.py`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'account_and_billing_templates_keep_controls_minimal or account_lifecycle_controls'`
@@ -58,15 +64,18 @@ The candidate at `d230516` passed:
 - Authenticated origin smoke for `/app/search` after Rybbit analytics sanitization rendered `pq.property.opened`, `pq.tour.opened`, and `pq.flythrough.opened`, did not render `data-rybbit-prop-candidate`, did not render old `data-rybbit-event="property_*"` app event names, and did not render `saved_search_id` analytics payloads.
 - Hosted tour-control verifier after deploy returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The live-probe receipt was written to `_completion/property_tour_controls/latest-live.json` and intentionally omits raw provider URLs.
 - All-search-ready provider matrix dry-run after deploy returned `status=dry_run`, `country_scope=all_search_ready`, 17 countries, 121 search-ready providers, 242 cases, 121 strict no-soft-filter payloads, 121 soft-filter payloads, `payload_contracts_ok=True`, `agent_unlimited_results_ok=True`, `strict_without_soft_filters_ok=True`, and `soft_filters_present_ok=True`. Receipt written to `_completion/provider_smoke/all-search-ready-dry-run.json`.
+- Deploy-gated authenticated smoke after compact first-paint returned `status=pass`, `failed_count=0`, and one-attempt `200` responses for `/app/account`, `/app/billing`, and `/sign-in` with security headers and paid-plan/sign-in checks intact.
+- Direct authenticated origin timings after compact first-paint were `/sign-in` 1.83s, `/app/account` 3.16s, and `/app/billing` 2.83s; before the fix the same surfaces were approximately 9.83s, 15.36s, and 17.03s under the same local-origin probe pattern.
+- Local authenticated multi-surface performance smoke returned `status=pass`, `failed_count=0`, and seven routes under the 1200 ms first-paint budget while also proving `mobile_viewport_meta`, `shared_top_navigation`, `property_app_shell`, and `mobile_dock_target` for search, agents, properties, shortlist, research, account, and billing.
 
 Observed route timings after the latest deploy:
 
 | Route | Latest observed timing |
 | --- | --- |
 | `/app/search` | 1.87s single cross-surface probe |
-| `/app/billing` | 1.62s single cross-surface probe; authenticated smoke observed 1.29s |
-| `/app/account` | 2.26s single cross-surface probe; authenticated smoke observed 1.65s |
-| `/sign-in` | authenticated smoke observed 1.00s |
+| `/app/billing` | direct authenticated origin probe 2.83s; deploy-smoke observed 2.92s; local first-paint gate 0.024s |
+| `/app/account` | direct authenticated origin probe 3.16s; deploy-smoke observed 3.96s; local first-paint gate 0.032s |
+| `/sign-in` | direct authenticated origin probe 1.83s; deploy-smoke observed 1.66s |
 | `/app/shortlist` | 3.75s cold probe, then 2.02s, 1.49s, 1.20s, 2.39s warmed probes; 1.58s single cross-surface probe |
 | `/app/research/<listing>` | authenticated origin smoke observed 1.70s, 1.34s, and 1.36s after removing repeated write contention; terminal-visual smokes observed 0.812s and 4.657s for the user-referenced route |
 
