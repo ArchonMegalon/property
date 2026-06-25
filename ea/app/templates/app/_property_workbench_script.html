@@ -2642,6 +2642,158 @@
       const fullRegionScopeFieldWrap = form.querySelector('[data-property-field-name="full_region_scope"]');
       const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const whatMattersFieldSelector = '[data-property-field-step="children"]';
+      const locationMapPicker = form.querySelector('[data-location-map-picker]');
+      const locationMapLayer = locationMapPicker?.querySelector('[data-location-map-layer]');
+      const locationMapViewport = locationMapPicker?.querySelector('[data-location-map-viewport]');
+      const locationMapTitle = locationMapPicker?.querySelector('[data-location-map-title]');
+      const locationMapCaption = locationMapPicker?.querySelector('[data-location-map-caption]');
+      let locationMapSignature = '';
+      let locationMapScale = 1;
+      let locationMapPanX = 0;
+      let locationMapPanY = 0;
+      let locationMapDragging = false;
+      let locationMapMoved = false;
+      let locationMapStartX = 0;
+      let locationMapStartY = 0;
+      const locationMapPoint = (event) => ({ x: Number(event.clientX || 0), y: Number(event.clientY || 0) });
+      const applyLocationMapTransform = () => {
+        if (!locationMapLayer) return;
+        const boundedScale = Math.max(1, Math.min(2.4, locationMapScale));
+        locationMapScale = boundedScale;
+        const maxPan = Math.round(42 * boundedScale);
+        locationMapPanX = Math.max(-maxPan, Math.min(maxPan, locationMapPanX));
+        locationMapPanY = Math.max(-maxPan, Math.min(maxPan, locationMapPanY));
+        locationMapLayer.setAttribute('transform', `translate(${locationMapPanX} ${locationMapPanY}) scale(${boundedScale})`);
+      };
+      const districtMapPath = (index, total) => {
+        const columns = Math.max(3, Math.ceil(Math.sqrt(Math.max(1, total) * 1.15)));
+        const rows = Math.max(2, Math.ceil(Math.max(1, total) / columns));
+        const cellW = 302 / columns;
+        const cellH = 210 / rows;
+        const col = index % columns;
+        const row = Math.floor(index / columns);
+        const x = 28 + col * cellW + ((row % 2) * cellW * 0.14);
+        const y = 36 + row * cellH;
+        const w = Math.max(34, cellW * 0.88);
+        const h = Math.max(28, cellH * 0.82);
+        const skew = (index % 3 - 1) * 4;
+        return {
+          d: `M ${x + 5} ${y + 3} L ${x + w - 7} ${y + skew} Q ${x + w + 2} ${y + h * 0.42} ${x + w - 4} ${y + h - 5} L ${x + w * 0.32} ${y + h + 3} Q ${x - 2} ${y + h * 0.66} ${x + 5} ${y + 3} Z`,
+          cx: x + w * 0.5,
+          cy: y + h * 0.56,
+        };
+      };
+      const locationOptionRows = () => [...form.querySelectorAll('input[name="location_query"]')]
+        .filter((input) => input instanceof HTMLInputElement && !input.disabled)
+        .map((input, index) => {
+          const labelNode = input.closest('label')?.querySelector('span span');
+          const label = String(labelNode?.textContent || input.value || '').trim();
+          return { input, value: String(input.value || '').trim(), label, index };
+        })
+        .filter((row) => row.value);
+      const syncLocationMapPickerSelection = () => {
+        if (!locationMapPicker) return;
+        const selected = new Set(checkedValues(form, 'location_query').map((value) => String(value || '').trim()));
+        locationMapPicker.querySelectorAll('[data-location-map-district]').forEach((node) => {
+          const value = String(node.getAttribute('data-location-value') || '').trim();
+          const active = selected.has(value);
+          node.classList.toggle('is-selected', active);
+          node.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        if (locationMapCaption) {
+          locationMapCaption.textContent = selected.size
+            ? `${selected.size} district${selected.size === 1 ? '' : 's'} selected. Drag to pan.`
+            : 'Tap a district to add it. Drag to pan.';
+        }
+      };
+      const renderLocationMapPicker = () => {
+        if (!locationMapPicker || !locationMapLayer) return;
+        const rows = locationOptionRows();
+        const signature = rows.map((row) => `${row.value}:${row.label}`).join('|');
+        locationMapPicker.hidden = rows.length === 0;
+        if (!rows.length) return;
+        if (signature === locationMapSignature) {
+          syncLocationMapPickerSelection();
+          return;
+        }
+        locationMapSignature = signature;
+        locationMapScale = 1;
+        locationMapPanX = 0;
+        locationMapPanY = 0;
+        if (locationMapTitle) {
+          const regionLabel = String(regionField?.selectedOptions?.[0]?.textContent || regionField?.value || 'municipality').trim();
+          locationMapTitle.textContent = `${regionLabel} districts`;
+        }
+        const streets = [
+          '<path class="pqx-location-map-street" d="M 12 84 C 78 68, 146 92, 218 62 S 318 44, 352 66"></path>',
+          '<path class="pqx-location-map-street" d="M 36 210 C 98 178, 158 186, 222 154 S 314 132, 348 148"></path>',
+          '<path class="pqx-location-map-street" d="M 132 18 C 144 74, 132 122, 158 174 S 210 232, 194 270"></path>',
+        ].join('');
+        const districts = rows.map((row, index) => {
+          const geometry = districtMapPath(index, rows.length);
+          const shortLabel = (row.label.match(/\b\d{4}\b/) || [String(index + 1)])[0];
+          return `<path class="pqx-location-map-district" data-location-map-district data-location-value="${escapeHtml(row.value)}" role="button" tabindex="0" aria-pressed="false" aria-label="Toggle ${escapeHtml(row.label)}" d="${geometry.d}"></path><text class="pqx-location-map-label" x="${geometry.cx}" y="${geometry.cy}">${escapeHtml(shortLabel)}</text>`;
+        }).join('');
+        locationMapLayer.innerHTML = `<rect x="0" y="0" width="360" height="286" rx="22" fill="rgba(211,226,216,0.2)"></rect>${streets}${districts}`;
+        applyLocationMapTransform();
+        syncLocationMapPickerSelection();
+      };
+      locationMapPicker?.addEventListener('click', (event) => {
+        const district = event.target?.closest?.('[data-location-map-district]');
+        if (!district || locationMapMoved) return;
+        const value = String(district.getAttribute('data-location-value') || '').trim();
+        const input = value ? form.querySelector(`input[name="location_query"][value="${CSS.escape(value)}"]`) : null;
+        if (!(input instanceof HTMLInputElement) || input.disabled) return;
+        input.checked = !input.checked;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      locationMapPicker?.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const district = event.target?.closest?.('[data-location-map-district]');
+        if (!district) return;
+        event.preventDefault();
+        district.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+      locationMapViewport?.addEventListener('pointerdown', (event) => {
+        if (!(event instanceof PointerEvent)) return;
+        locationMapDragging = true;
+        locationMapMoved = false;
+        const point = locationMapPoint(event);
+        locationMapStartX = point.x - locationMapPanX;
+        locationMapStartY = point.y - locationMapPanY;
+        locationMapViewport.setPointerCapture?.(event.pointerId);
+      });
+      locationMapViewport?.addEventListener('pointermove', (event) => {
+        if (!locationMapDragging || !(event instanceof PointerEvent)) return;
+        const point = locationMapPoint(event);
+        const nextX = point.x - locationMapStartX;
+        const nextY = point.y - locationMapStartY;
+        if (Math.abs(nextX - locationMapPanX) + Math.abs(nextY - locationMapPanY) > 4) locationMapMoved = true;
+        locationMapPanX = nextX;
+        locationMapPanY = nextY;
+        applyLocationMapTransform();
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach((eventName) => {
+        locationMapViewport?.addEventListener(eventName, (event) => {
+          locationMapDragging = false;
+          if (event instanceof PointerEvent) locationMapViewport.releasePointerCapture?.(event.pointerId);
+          window.setTimeout(() => { locationMapMoved = false; }, 0);
+        });
+      });
+      locationMapPicker?.querySelectorAll('[data-location-map-zoom]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          const mode = String(button.getAttribute('data-location-map-zoom') || '').trim();
+          if (mode === 'in') locationMapScale += 0.28;
+          else if (mode === 'out') locationMapScale -= 0.28;
+          else {
+            locationMapScale = 1;
+            locationMapPanX = 0;
+            locationMapPanY = 0;
+          }
+          applyLocationMapTransform();
+        });
+      });
       const syncKeywordDistanceSelects = (form) => {
         const activeGroups = new Map();
         form?.querySelectorAll('[data-keyword-priority-row]').forEach((row) => {
@@ -3009,6 +3161,7 @@
             ? `${count} of ${total} district${total === 1 ? '' : 's'} selected`
             : 'No districts selected';
         });
+        renderLocationMapPicker();
         setConditionalWrapVisibility(fullRegionScopeFieldWrap, false, 'redundant_full_region_scope');
         if (!hasAreaOptions && fullRegionScopeField) fullRegionScopeField.checked = false;
         if (fullRegionScopeField) fullRegionScopeField.checked = allLocationsSelected;

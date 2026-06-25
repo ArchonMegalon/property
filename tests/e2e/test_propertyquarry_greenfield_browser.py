@@ -3124,15 +3124,27 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const areaRows = Array.from(document.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check'));
                 const areaGrid = document.querySelector('[data-pqx-check-grid="location_query"]');
                 const areaSummary = document.querySelector('[data-location-selected-summary]');
+                const areaMap = document.querySelector('[data-location-map-picker]');
+                const areaMapViewport = document.querySelector('[data-location-map-viewport]');
+                const areaDistricts = Array.from(document.querySelectorAll('[data-location-map-district]'));
+                const areaZoomButtons = Array.from(document.querySelectorAll('[data-location-map-zoom]'));
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
                 const dockStyle = dock ? window.getComputedStyle(dock) : null;
                 const summaryStyle = areaSummary ? window.getComputedStyle(areaSummary) : null;
+                const mapStyle = areaMap ? window.getComputedStyle(areaMap) : null;
                 const dockRect = dock ? dock.getBoundingClientRect() : null;
                 const resultRect = result ? result.getBoundingClientRect() : null;
                 const thumbRect = thumb ? thumb.getBoundingClientRect() : null;
+                const mapRect = areaMap ? areaMap.getBoundingClientRect() : null;
+                const mapViewportRect = areaMapViewport ? areaMapViewport.getBoundingClientRect() : null;
                 const areaRects = areaRows.map((node) => node.getBoundingClientRect());
                 const areaStyle = areaRows[0] ? window.getComputedStyle(areaRows[0]) : null;
                 const areaGridStyle = areaGrid ? window.getComputedStyle(areaGrid) : null;
+                const firstDistrict = areaDistricts[0] || null;
+                if (firstDistrict) firstDistrict.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                const selectedDistrict = document.querySelector('[data-location-map-district].is-selected');
+                const selectedInput = document.querySelector('input[name="location_query"]:checked');
+                const selectedFill = selectedDistrict ? window.getComputedStyle(selectedDistrict).fill : '';
                 if (areaGrid) {
                     areaGrid.scrollTop = areaGrid.scrollHeight;
                 }
@@ -3162,6 +3174,14 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaGridColumnCount: areaGridStyle ? areaGridStyle.gridTemplateColumns.split(' ').filter(Boolean).length : 0,
                     areaSummaryDisplay: summaryStyle ? summaryStyle.display : '',
                     areaSummaryText: areaSummary ? areaSummary.textContent || '' : '',
+                    areaMapDisplay: mapStyle ? mapStyle.display : '',
+                    areaMapHeight: mapRect ? mapRect.height : 0,
+                    areaMapRight: mapRect ? mapRect.right : 0,
+                    areaMapViewportHeight: mapViewportRect ? mapViewportRect.height : 0,
+                    areaDistrictCount: areaDistricts.length,
+                    areaZoomButtonCount: areaZoomButtons.length,
+                    selectedDistrictFill: selectedFill,
+                    selectedMapMatchesInput: Boolean(selectedDistrict && selectedInput && selectedDistrict.getAttribute('data-location-value') === selectedInput.value),
                     areaGridScrolls: areaGrid ? areaGrid.scrollHeight > areaGrid.clientHeight + 2 : false,
                     areaGridBottomAfterScroll: scrolledGridRect ? scrolledGridRect.bottom : 0,
                     lastAreaBottomAfterScroll: lastAreaRect ? lastAreaRect.bottom : 0,
@@ -3189,6 +3209,14 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaRowBorderRadius"] != "0px"
         assert mobile_metrics["areaSummaryDisplay"] != "none"
         assert "district" in mobile_metrics["areaSummaryText"].lower()
+        assert mobile_metrics["areaMapDisplay"] == "grid"
+        assert mobile_metrics["areaMapHeight"] >= 340
+        assert mobile_metrics["areaMapRight"] <= mobile_metrics["viewportWidth"] + 1
+        assert mobile_metrics["areaMapViewportHeight"] >= 260
+        assert mobile_metrics["areaDistrictCount"] >= 6
+        assert mobile_metrics["areaZoomButtonCount"] == 3
+        assert mobile_metrics["selectedMapMatchesInput"] is True
+        assert "209" in mobile_metrics["selectedDistrictFill"] or "rgb" in mobile_metrics["selectedDistrictFill"]
         assert mobile_metrics["areaGridOverflowY"] in {"auto", "scroll"}
         assert mobile_metrics["areaGridBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
         assert mobile_metrics["lastAreaBottomAfterScroll"] <= mobile_metrics["dockTop"] - 4
