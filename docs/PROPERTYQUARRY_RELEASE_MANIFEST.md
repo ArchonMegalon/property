@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `871ad109dbb08a54fe8da4c37ce38f078740334b` |
+| Runtime commit SHA | `0143a996e4243b585d61a31338eac3586f4a02d8` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer packaged into the runtime image, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route and authenticated local reconciliation, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, all-search-ready provider matrix candidate with live status-probe enforcement, and hardened mobile phone browser gates for app secondary/settings surfaces |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, automatic provider/listing fact confirmation, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer packaged into the runtime image, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route and authenticated local reconciliation, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, all-search-ready provider matrix candidate with live status-probe enforcement, and hardened mobile phone browser gates for app secondary/settings surfaces |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `871ad10` passed:
+The candidate at `0143a99` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -146,6 +146,14 @@ The candidate at `871ad10` passed:
 - Live public smoke against `http://127.0.0.1:8097` after the `871ad10` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
 - Live authenticated smoke against `http://127.0.0.1:8097` after the `871ad10` deploy returned `status=pass`, `failed_count=0`, and one-attempt `200` responses for `/app/account`, `/app/billing`, and `/sign-in` with security headers and paid-plan/sign-in checks intact.
 - Hosted tour-control verifier after the `871ad10` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
+- Automatic listing-fact confirmation after `0143a99` now marks provider/listing-backed price, area, rooms, and location facts as `confirmed` with `requires_manual_confirmation=False`. Ranking cards render a compact `Facts confirmed` badge, and research fact rows tag confirmed budget/layout/location signals as `Confirmed` instead of leaving already-present facts in a vague confirmation state.
+- Focused confirmation tests after `0143a99` returned `5 passed` for numeric price confirmation, listing-text price confirmation, core provider fact confirmation, research confirmed-row tags, and candidate snapshot serialization. `python3 -m py_compile` passed for the touched helper, payload, research, model, and surface-state modules.
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py` passed after `0143a99`.
+- After redeploying from `0143a99`, local readiness returned `{"status":"ready","reason":"postgres_ready"}`.
+- Authenticated multi-surface performance smoke after the `0143a99` deploy returned `status=pass`, `failed_count=0`, and 10 routes under the 1200 ms first-paint budget: `/app/search`, `/app/agents`, `/app/properties`, `/app/shortlist`, `/app/research/<fixture>`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access`.
+- Live public smoke against `http://127.0.0.1:8097` after the `0143a99` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
+- Live authenticated smoke against `http://127.0.0.1:8097` after the `0143a99` deploy returned `status=pass`, `failed_count=0`, and one-attempt `200` responses for `/app/account`, `/app/billing`, and `/sign-in` with security headers and paid-plan/sign-in checks intact.
+- Hosted tour-control verifier after the `0143a99` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
 
 Observed route timings after the latest deploy:
 
