@@ -9,6 +9,16 @@ from typing import Any
 
 
 REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
+    "research_candidate",
+    "research_visual_cards_present",
+    "research_visual_requests_honest",
+    "research_no_fake_visual_ready",
+    "research_confirmed_listing_facts",
+    "research_confirmed_price_signal",
+    "research_mobile_open_property_compact_layout",
+    "research_mobile_visual_frame_compact",
+)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -43,6 +53,23 @@ def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
         if provider not in missing:
             missing.append(provider)
     return missing
+
+
+def _performance_research_detail_checks(performance: dict[str, Any]) -> tuple[bool, list[str], str]:
+    for row in list(performance.get("routes") or []):
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("path") or "").split("?", 1)[0]
+        if not path.startswith("/app/research/"):
+            continue
+        passed_checks = {
+            str(check.get("name") or "")
+            for check in list(row.get("checks") or [])
+            if isinstance(check, dict) and check.get("ok") is True
+        }
+        missing = [name for name in REQUIRED_RESEARCH_PERFORMANCE_CHECKS if name not in passed_checks]
+        return (not missing, missing, path)
+    return (False, list(REQUIRED_RESEARCH_PERFORMANCE_CHECKS), "")
 
 
 def build_gold_status_receipt(
@@ -86,7 +113,12 @@ def build_gold_status_receipt(
         provider_matrix_summary.get("target_context_country_scope_ok") is True
         or provider_matrix.get("country_scope") == "all_search_ready"
     )
-    performance_ok = performance.get("status") == "pass" and int(performance.get("failed_count") or 0) == 0
+    research_performance_ok, missing_research_performance_checks, research_performance_path = _performance_research_detail_checks(performance)
+    performance_ok = (
+        performance.get("status") == "pass"
+        and int(performance.get("failed_count") or 0) == 0
+        and research_performance_ok
+    )
     live_mobile_ok = (
         live_mobile_receipt_path is None
         or (
@@ -144,6 +176,7 @@ def build_gold_status_receipt(
             {
                 "area": "mobile_and_authenticated_surfaces",
                 "status": performance.get("status") or "unknown",
+                "missing_research_detail_checks": missing_research_performance_checks,
                 "action": "rerun and fix propertyquarry_authenticated_performance_smoke until every measured route passes",
             }
         )
@@ -207,6 +240,9 @@ def build_gold_status_receipt(
             "status": performance.get("status"),
             "failed_count": performance.get("failed_count"),
             "route_count": performance.get("route_count"),
+            "research_detail_path": research_performance_path,
+            "research_detail_checks_ok": research_performance_ok,
+            "missing_research_detail_checks": missing_research_performance_checks,
             "receipt_path": str(performance_receipt_path),
         },
         "live_mobile_surfaces": {
