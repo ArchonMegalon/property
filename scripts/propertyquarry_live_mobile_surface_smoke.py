@@ -60,6 +60,11 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "district_picker_available", "ok": bool(metrics.get("district_picker_available"))},
                 {"name": "district_map_popup_available", "ok": bool(metrics.get("district_map_popup_available"))},
                 {"name": "district_list_not_visible_in_map_mode", "ok": bool(metrics.get("district_list_hidden_in_map_mode"))},
+                {"name": "district_map_modal_opens", "ok": bool(metrics.get("district_map_modal_opened"))},
+                {"name": "district_map_click_selects_shape", "ok": bool(metrics.get("district_map_click_selected"))},
+                {"name": "district_map_zoom_toggle_changes_scale", "ok": bool(metrics.get("district_map_zoom_changed"))},
+                {"name": "district_map_close_restores_scroll", "ok": bool(metrics.get("district_map_close_restored_scroll"))},
+                {"name": "mobile_what_matters_single_open_section", "ok": bool(metrics.get("mobile_what_matters_single_open"))},
             )
         )
     if expectations.get("needs_single_logout"):
@@ -93,6 +98,41 @@ def _collect_metrics_script() -> str:
       if (mapButton) mapButton.click();
       const locationGrid = locationField?.querySelector('[data-pqx-check-grid="location_query"]') || null;
       const mapOpen = locationField?.querySelector('[data-location-map-open]') || null;
+      const dialog = locationField?.querySelector('[data-location-map-dialog]') || null;
+      if (mapOpen) mapOpen.click();
+      const firstDistrict = dialog?.querySelector('[data-location-map-district]') || null;
+      const firstValue = String(firstDistrict?.getAttribute('data-location-value') || '').trim();
+      const firstInput = firstValue ? locationField?.querySelector(`input[name="location_query"][value="${CSS.escape(firstValue)}"]`) : null;
+      const districtWasChecked = Boolean(firstInput?.checked);
+      if (firstDistrict) {
+        const rect = firstDistrict.getBoundingClientRect();
+        firstDistrict.dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2
+        }));
+      }
+      const districtIsChecked = Boolean(firstInput?.checked);
+      const mapLayer = dialog?.querySelector('[data-location-map-layer]') || null;
+      const initialTransform = String(mapLayer?.getAttribute('transform') || '');
+      const zoomToggle = dialog?.querySelector('[data-location-map-zoom="reset"]') || null;
+      if (zoomToggle) zoomToggle.click();
+      const zoomedTransform = String(mapLayer?.getAttribute('transform') || '');
+      const closeButton = dialog?.querySelector('[data-location-map-close]') || null;
+      const modalOpened = Boolean(dialog?.open) || document.documentElement.dataset.pqxLocationMapOpen === 'true';
+      if (closeButton) closeButton.click();
+      const modalClosed = !(dialog?.open) && document.documentElement.dataset.pqxLocationMapOpen !== 'true' && document.body.style.overflow !== 'hidden';
+      const whatMatters = document.querySelector('[data-property-what-matters-panel]');
+      const whatMatterGroups = Array.from(whatMatters?.querySelectorAll('details[data-what-matters-group]') || []);
+      let singleOpen = true;
+      if (whatMatterGroups.length >= 2) {
+        whatMatterGroups[0].open = true;
+        whatMatterGroups[0].dispatchEvent(new Event('toggle'));
+        whatMatterGroups[1].open = true;
+        whatMatterGroups[1].dispatchEvent(new Event('toggle'));
+        singleOpen = whatMatterGroups.filter((node) => node.open).length === 1 && whatMatterGroups[1].open;
+      }
       const logoutButtons = visibleNodes('button, a').filter((node) => String(node.textContent || '').trim() === 'Log out');
       return {
         body_width: document.documentElement.scrollWidth,
@@ -105,6 +145,11 @@ def _collect_metrics_script() -> str:
         district_picker_available: Boolean(locationField),
         district_map_popup_available: visible(mapOpen),
         district_list_hidden_in_map_mode: locationGrid ? window.getComputedStyle(locationGrid).display === 'none' : false,
+        district_map_modal_opened: modalOpened,
+        district_map_click_selected: Boolean(firstDistrict && firstInput && districtIsChecked !== districtWasChecked),
+        district_map_zoom_changed: Boolean(zoomToggle && mapLayer && zoomedTransform !== initialTransform && zoomedTransform.includes('scale(')),
+        district_map_close_restored_scroll: Boolean(!dialog || modalClosed),
+        mobile_what_matters_single_open: singleOpen,
         account_logout_strip_visible: visible(document.querySelector('.pqx-account-logout-strip')),
         logout_button_count: logoutButtons.length,
       };

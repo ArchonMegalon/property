@@ -17,6 +17,11 @@ def _base_metrics() -> dict[str, object]:
         "district_picker_available": True,
         "district_map_popup_available": True,
         "district_list_hidden_in_map_mode": True,
+        "district_map_modal_opened": True,
+        "district_map_click_selected": True,
+        "district_map_zoom_changed": True,
+        "district_map_close_restored_scroll": True,
+        "mobile_what_matters_single_open": True,
         "account_logout_strip_visible": True,
         "logout_button_count": 1,
     }
@@ -82,6 +87,32 @@ def test_live_mobile_smoke_requires_search_district_picker_popup() -> None:
         "district_map_popup_available",
         "district_list_not_visible_in_map_mode",
     }
+
+
+def test_live_mobile_smoke_requires_interactive_search_district_map() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "district_map_modal_opened": False,
+            "district_map_click_selected": False,
+            "district_map_zoom_changed": False,
+            "district_map_close_restored_scroll": False,
+        }
+    )
+
+    assert _failed_names("/app/search", metrics) == {
+        "district_map_modal_opens",
+        "district_map_click_selects_shape",
+        "district_map_zoom_toggle_changes_scale",
+        "district_map_close_restores_scroll",
+    }
+
+
+def test_live_mobile_smoke_requires_single_open_what_matters_group() -> None:
+    metrics = _base_metrics()
+    metrics.update({"mobile_what_matters_single_open": False})
+
+    assert _failed_names("/app/search", metrics) == {"mobile_what_matters_single_open_section"}
 
 
 def test_live_mobile_smoke_requires_single_account_logout() -> None:
