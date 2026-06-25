@@ -530,6 +530,22 @@
     font-size: 12px;
     line-height: 1.35;
   }
+  .prd-visual-proof {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 30px;
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--line) 78%, var(--prd-gold) 22%);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel-2) 88%, white);
+    color: var(--ink);
+    font-size: 11px;
+    font-weight: 780;
+    line-height: 1.25;
+  }
   .prd-visual-card .prd-actions {
     display: grid;
     grid-template-columns: 1fr;
@@ -1822,6 +1838,23 @@
             <strong>{{ visual_card.get('title') }}</strong>
           </div>
           <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
+          {% if visual_card.get('key') == 'tour' %}
+          <p class="prd-visual-proof" data-prd-visual-proof="tour">
+            {% if action.get('href') %}
+            Proof: verified {{ research_media.get('provider_label') or 'hosted 3D' }} control.
+            {% else %}
+            Proof needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control.
+            {% endif %}
+          </p>
+          {% elif visual_card.get('key') == 'walkthrough' %}
+          <p class="prd-visual-proof" data-prd-visual-proof="walkthrough">
+            {% if action.get('href') %}
+            Proof: playable {{ research_media.get('walkthrough_provider_label') or 'rendered' }} walkthrough video.
+            {% else %}
+            Proof needed: playable MagicFit rendered walkthrough video.
+            {% endif %}
+          </p>
+          {% endif %}
           <div class="prd-actions prd-media-actions" aria-label="Media requests">
           {% if action.get('href') %}
           <a

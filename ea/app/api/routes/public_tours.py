@@ -4856,7 +4856,260 @@ def _safe_matterport_external_url(value: object) -> str:
     return normalized
 
 
-def _tour_control_external_iframe_html(*, title: str, iframe_src: str, badge: str) -> str:
+def _tour_control_media_context(payload: dict[str, object]) -> tuple[list[dict[str, str]], str, str]:
+    slug = str(payload.get("slug") or "").strip()
+    scene_data: list[dict[str, str]] = []
+    for index, scene in enumerate(payload.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        asset_relpath = _public_tour_safe_asset_relpath(str(scene.get("asset_relpath") or "").strip())
+        image_url = f"/tours/files/{slug}/{asset_relpath}" if slug and asset_relpath else str(scene.get("image_url") or "").strip()
+        if not image_url:
+            continue
+        name = str(scene.get("name") or f"Scene {index + 1}").strip() or f"Scene {index + 1}"
+        scene_data.append(
+            {
+                "name": name,
+                "role": str(scene.get("role") or "photo").strip() or "photo",
+                "image_url": image_url,
+                "mime_type": str(scene.get("mime_type") or "").strip(),
+            }
+        )
+
+    video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
+    raw_video_url = str(payload.get("video_url") or "").strip()
+    video_url = ""
+    if slug and video_relpath:
+        video_url = f"/tours/files/{slug}/{video_relpath}"
+    elif raw_video_url and _public_tour_external_media_url_allowed(raw_video_url):
+        video_url = raw_video_url
+    video_mime_type = mimetypes.guess_type(urllib.parse.urlparse(video_url).path)[0] or "video/mp4"
+    return scene_data, video_url, video_mime_type
+
+
+def _tour_control_external_iframe_html(
+    *,
+    title: str,
+    iframe_src: str,
+    badge: str,
+    payload: dict[str, object] | None = None,
+) -> str:
+    scene_data, video_url, video_mime_type = _tour_control_media_context(payload or {})
+    if scene_data or video_url:
+        data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
+        first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
+        provider_badge = html.escape(badge)
+        video_html = (
+            f"""<div class="video-card">
+              <div class="card-label">Walkthrough</div>
+              <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(first_scene.get("image_url", ""))}">
+                <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
+              </video>
+            </div>"""
+            if video_url
+            else ""
+        )
+        scene_viewer_html = (
+            f"""<div class="tour-toolbar">
+            <div class="toggle" id="role-filter">
+              <button type="button" class="active" data-role="all">All</button>
+              <button type="button" data-role="photo">Photos</button>
+              <button type="button" data-role="floorplan">Floorplans</button>
+            </div>
+          </div>
+          <div id="viewer" class="viewer">
+            <img id="stage-image" src="{html.escape(first_scene.get("image_url", ""))}" alt="{html.escape(first_scene.get("name", title))}" referrerpolicy="no-referrer">
+            <iframe src="" id="stage-frame" title="{html.escape(first_scene.get("name", title))}" referrerpolicy="no-referrer" hidden></iframe>
+            <div class="caption">
+              <small id="stage-role">{html.escape(first_scene.get("role", "photo"))}</small>
+              <div id="stage-name">{html.escape(first_scene.get("name", title))}</div>
+            </div>
+          </div>
+          <div id="thumbs" class="thumbs"></div>"""
+            if scene_data
+            else """<p class="empty">No local floorplan or photo evidence is attached to this provider control yet.</p>"""
+        )
+        return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title} - {provider_badge}</title>
+    <style>
+      :root {{ color-scheme: dark; --bg: #0c0d0b; --panel: rgba(255,250,240,.08); --line: rgba(255,250,240,.18); --text: #fff9ed; --muted: rgba(255,249,237,.70); --gold: #d7b56d; }}
+      html, body {{ margin: 0; min-height: 100%; background: radial-gradient(circle at 16% 0%, rgba(215,181,109,.16), transparent 34%), var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }}
+      body {{ overflow-x: hidden; }}
+      .shell {{ width: min(1520px, 100%); margin: 0 auto; padding: 14px; box-sizing: border-box; display: grid; gap: 14px; }}
+      .topbar {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 18px; background: rgba(12,13,11,.66); backdrop-filter: blur(14px); }}
+      .badge {{ width: fit-content; padding: 7px 10px; border-radius: 999px; background: rgba(215,181,109,.16); border: 1px solid rgba(215,181,109,.36); color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
+      .summary {{ min-width: 0; }}
+      .summary p {{ margin: 0 0 3px; font-size: 11px; font-weight: 800; letter-spacing: .10em; text-transform: uppercase; color: var(--muted); }}
+      .summary h1 {{ margin: 0; max-width: 72ch; overflow-wrap: anywhere; font-size: clamp(1.1rem, 2vw, 1.7rem); line-height: 1.08; }}
+      .grid {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 460px); gap: 14px; align-items: start; }}
+      .panel {{ border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 26px 80px rgba(0,0,0,.26); overflow: hidden; }}
+      .provider-panel {{ min-height: min(74vh, 820px); display: grid; grid-template-rows: auto 1fr; background: linear-gradient(145deg, rgba(255,250,240,.10), rgba(255,250,240,.03)); }}
+      .provider-launch {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }}
+      .provider-launch strong {{ display: block; margin-bottom: 3px; }}
+      .provider-actions {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
+      .provider-actions button, .provider-actions a {{ min-height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: var(--text); color: #111; font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
+      .provider-actions a {{ background: transparent; color: var(--text); }}
+      .provider-frame {{ display: block; width: 100%; height: 100%; min-height: 520px; border: 0; background: #111; }}
+      .evidence {{ padding: 14px; display: grid; gap: 12px; }}
+      .evidence h2 {{ margin: 0; font-size: 1rem; letter-spacing: -.02em; }}
+      .hint, .empty {{ margin: 0; color: var(--muted); line-height: 1.45; font-size: .92rem; }}
+      .card-label {{ margin-bottom: 8px; color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
+      .video-card video {{ display: block; width: 100%; max-height: 280px; border-radius: 18px; background: #050505; }}
+      .tour-toolbar {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+      .toggle {{ display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: rgba(255,250,240,.08); border: 1px solid var(--line); }}
+      .toggle button {{ min-height: 40px; border: 0; border-radius: 999px; padding: 0 13px; background: transparent; color: var(--muted); font: inherit; font-weight: 750; cursor: pointer; }}
+      .toggle button.active {{ background: var(--text); color: #111; }}
+      .viewer {{ position: relative; overflow: hidden; border-radius: 20px; border: 1px solid var(--line); background: rgba(0,0,0,.26); }}
+      #stage-image, #stage-frame {{ display: block; width: 100%; min-height: 310px; max-height: 45vh; object-fit: contain; border: 0; background: #0b0b0b; }}
+      #stage-frame {{ height: 45vh; }}
+      #stage-image[hidden], #stage-frame[hidden] {{ display: none; }}
+      .caption {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); }}
+      .caption small {{ color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
+      .thumbs {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }}
+      .thumb {{ position: relative; min-height: 84px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; padding: 0; background: rgba(255,255,255,.06); cursor: pointer; }}
+      .thumb.active {{ outline: 2px solid var(--gold); outline-offset: 2px; }}
+      .thumb.hidden {{ display: none; }}
+      .thumb img {{ display: block; width: 100%; height: 100%; min-height: 84px; object-fit: cover; }}
+      .thumb-doc {{ min-height: 84px; display: grid; place-items: center; color: var(--muted); font-weight: 800; }}
+      .thumb .mini-badge {{ position: absolute; left: 7px; top: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(0,0,0,.62); color: #fff; font-size: 10px; font-weight: 800; text-transform: uppercase; }}
+      @media (max-width: 940px) {{
+        .shell {{ padding: 10px; }}
+        .topbar {{ align-items: flex-start; flex-direction: column; border-radius: 16px; }}
+        .grid {{ grid-template-columns: 1fr; }}
+        .provider-panel {{ min-height: 58vh; }}
+        .provider-launch {{ align-items: stretch; flex-direction: column; }}
+        .provider-actions {{ justify-content: stretch; }}
+        .provider-actions button, .provider-actions a {{ width: 100%; }}
+        .provider-frame {{ height: 58vh; min-height: 380px; }}
+        .evidence {{ padding: 12px; }}
+        .toggle {{ width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 18px; }}
+        .toggle button {{ min-height: 48px; padding: 0 8px; border-radius: 14px; }}
+        #stage-image, #stage-frame {{ min-height: 280px; max-height: 52vh; }}
+        .thumbs {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="summary" aria-label="Property tour summary">
+          <p>PROPERTY TOUR</p>
+          <h1>{title}</h1>
+        </div>
+        <div class="badge">{provider_badge}</div>
+      </header>
+      <main class="grid">
+        <section class="panel provider-panel" aria-label="{provider_badge}">
+          <div class="provider-launch">
+            <div>
+              <strong>{provider_badge}</strong>
+              <p class="hint">Load the external provider only when you need the live vendor control.</p>
+            </div>
+            <div class="provider-actions">
+              <button type="button" id="load-provider">Load provider viewer</button>
+              <a href="{html.escape(iframe_src)}" target="_blank" rel="noopener noreferrer">Open externally</a>
+            </div>
+          </div>
+          <iframe src="about:blank" data-src="{html.escape(iframe_src)}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+        </section>
+        <aside class="panel evidence" aria-label="Verified visual evidence">
+          <div>
+            <h2>Verified evidence</h2>
+            <p class="hint">Provider tour, floorplan, and walkthrough stay together so the spatial check does not split across tabs.</p>
+          </div>
+          {video_html}
+          {scene_viewer_html}
+        </aside>
+      </main>
+    </div>
+    <script id="scene-data" type="application/json">{data_json}</script>
+    <script>
+      const scenes = JSON.parse(document.getElementById("scene-data").textContent || "[]");
+      const stageImage = document.getElementById("stage-image");
+      const stageFrame = document.getElementById("stage-frame");
+      const stageName = document.getElementById("stage-name");
+      const stageRole = document.getElementById("stage-role");
+      const thumbs = document.getElementById("thumbs");
+      const tourVideo = document.getElementById("tour-video");
+      const providerFrame = document.querySelector(".provider-frame");
+      const loadProvider = document.getElementById("load-provider");
+      let activeIndex = 0;
+      let activeRoleFilter = "all";
+      if (loadProvider && providerFrame) {{
+        loadProvider.addEventListener("click", () => {{
+          const src = providerFrame.dataset.src || "";
+          if (src && providerFrame.getAttribute("src") !== src) providerFrame.setAttribute("src", src);
+          loadProvider.textContent = "Provider loaded";
+          loadProvider.disabled = true;
+        }});
+      }}
+      function visibleSceneIndexes() {{
+        return scenes
+          .map((scene, index) => (activeRoleFilter === "all" || scene.role === activeRoleFilter ? index : -1))
+          .filter((index) => index >= 0);
+      }}
+      function renderThumbs() {{
+        if (!thumbs) return;
+        thumbs.innerHTML = "";
+        scenes.forEach((scene, index) => {{
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "thumb" + (index === activeIndex ? " active" : "");
+          if (activeRoleFilter !== "all" && scene.role !== activeRoleFilter) button.classList.add("hidden");
+          const isPdf = String(scene.mime_type || "").includes("pdf") || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ""));
+          button.innerHTML = isPdf
+            ? `<span class="mini-badge">${{scene.role || "doc"}}</span><span class="thumb-doc">PDF</span>`
+            : `<span class="mini-badge">${{scene.role || "photo"}}</span><img src="${{scene.image_url || ""}}" alt="${{scene.name || "Scene"}}" referrerpolicy="no-referrer">`;
+          button.addEventListener("click", () => setActive(index));
+          thumbs.appendChild(button);
+        }});
+      }}
+      function setActive(index) {{
+        if (!scenes.length || !stageImage || !stageFrame) return;
+        activeIndex = (index + scenes.length) % scenes.length;
+        const scene = scenes[activeIndex] || {{}};
+        const isPdf = String(scene.mime_type || "").includes("pdf") || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ""));
+        if (isPdf) {{
+          stageFrame.src = scene.image_url || "";
+          stageFrame.title = scene.name || "Floorplan";
+          stageFrame.hidden = false;
+          stageImage.hidden = true;
+        }} else {{
+          stageImage.src = scene.image_url || "";
+          stageImage.alt = scene.name || "Scene";
+          stageImage.hidden = false;
+          stageFrame.hidden = true;
+        }}
+        if (stageName) stageName.textContent = scene.name || "Scene";
+        if (stageRole) stageRole.textContent = scene.role || "photo";
+        renderThumbs();
+      }}
+      document.querySelectorAll("#role-filter button").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          activeRoleFilter = button.dataset.role || "all";
+          document.querySelectorAll("#role-filter button").forEach((candidate) => candidate.classList.toggle("active", candidate === button));
+          const visible = visibleSceneIndexes();
+          setActive(visible.length ? visible[0] : activeIndex);
+        }});
+      }});
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("pane") === "floorplan-pane") {{
+        const floorplanIndex = scenes.findIndex((scene) => scene.role === "floorplan");
+        setActive(floorplanIndex >= 0 ? floorplanIndex : 0);
+      }} else {{
+        setActive(0);
+      }}
+      if (params.get("pane") === "flythrough-pane" && tourVideo && params.get("autoplay") === "1") {{
+        tourVideo.muted = true;
+        tourVideo.play().catch(() => null);
+      }}
+    </script>
+  </body>
+</html>"""
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -4898,7 +5151,12 @@ def _tour_control_matterport_html(payload: dict[str, object]) -> str:
         if external_url:
             break
     if external_url:
-        return _tour_control_external_iframe_html(title=title, iframe_src=external_url, badge="Matterport Control")
+        return _tour_control_external_iframe_html(
+            title=title,
+            iframe_src=external_url,
+            badge="Matterport Control",
+            payload=payload,
+        )
     raise HTTPException(status_code=404, detail="tour_control_matterport_export_missing")
 
 
@@ -4922,7 +5180,12 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
     if not iframe_src and entry_relpath and slug:
         iframe_src = f"/tours/files/{slug}/{entry_relpath}"
     if iframe_src:
-        return _tour_control_external_iframe_html(title=title, iframe_src=iframe_src, badge="3DVista Control")
+        return _tour_control_external_iframe_html(
+            title=title,
+            iframe_src=iframe_src,
+            badge="3DVista Control",
+            payload=payload,
+        )
     raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
 
 
@@ -4933,7 +5196,12 @@ def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
     if not slug or not entry_relpath:
         raise HTTPException(status_code=404, detail="tour_control_pano2vr_export_missing")
     iframe_src = f"/tours/pano2vr/{urllib.parse.quote(slug, safe='')}/{urllib.parse.quote(entry_relpath, safe='/')}"
-    return _tour_control_external_iframe_html(title=title, iframe_src=iframe_src, badge="Pano2VR Control")
+    return _tour_control_external_iframe_html(
+        title=title,
+        iframe_src=iframe_src,
+        badge="Pano2VR Control",
+        payload=payload,
+    )
 
 
 def _tour_control_walkable_html(

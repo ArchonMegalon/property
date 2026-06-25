@@ -4817,8 +4817,8 @@ def test_property_workspace_payload_exposes_visual_provider_labels_for_ready_del
     assert result["tour"]["status"] == "source"
     assert result["tour"]["label"] == "Source 360"
     assert "no verified PropertyQuarry-hosted control is ready yet" in result["tour"]["status_detail"]
-    assert result["flythrough"]["provider_label"] == "Magicfit"
-    assert "Magicfit rendered walkthrough ready" in result["flythrough"]["detail"]
+    assert result["flythrough"]["provider_label"] == "MagicFit"
+    assert "MagicFit rendered walkthrough ready" in result["flythrough"]["detail"]
 
 
 def test_property_workspace_payload_does_not_count_raw_provider_tour_as_ready() -> None:
@@ -5333,7 +5333,7 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert ready_payload["primary_label"] == "Open Matterport"
     assert ready_payload["status_label"] == "Matterport ready"
     assert ready_payload["status_detail"] == "Matterport control is live inside the hosted PropertyQuarry tour."
-    assert ready_payload["walkthrough_status_detail"] == "Magicfit rendered walkthrough is ready on this page."
+    assert ready_payload["walkthrough_status_detail"] == "MagicFit rendered walkthrough is ready on this page."
 
 
 def test_property_research_media_uses_pano2vr_label_for_verified_controls(monkeypatch) -> None:
@@ -11658,6 +11658,8 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert '>Request 3D tour</button>' in rendered_html
     assert 'data-pw-visual-request="flythrough"' in rendered_html
     assert '>Request walkthrough</button>' in rendered_html
+    assert "Proof needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control." in rendered_html
+    assert "Proof needed: playable MagicFit rendered walkthrough video." in rendered_html
     assert '>Open 3D tour</a>' not in rendered_html
 
 
@@ -11802,6 +11804,7 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert f'href="{hosted_href}"' in rendered_html
     assert '>Open Matterport</a>' in rendered_html
     assert "Matterport control is live inside the hosted PropertyQuarry tour." in rendered_html
+    assert "Proof: verified Matterport control." in rendered_html
     assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
@@ -11890,7 +11893,8 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     assert f'href="{verified_walkthrough_href}"' in rendered_html
     assert '>Open Matterport</a>' in rendered_html
     assert '>Open walkthrough</a>' in rendered_html
-    assert "Magicfit rendered walkthrough is ready on this page." in rendered_html
+    assert "MagicFit rendered walkthrough is ready on this page." in rendered_html
+    assert "Proof: playable MagicFit walkthrough video." in rendered_html
     assert 'data-prd-visual-card="walkthrough"' in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
     assert 'data-pw-visual-request="flythrough"' not in rendered_html

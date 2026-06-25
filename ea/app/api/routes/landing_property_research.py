@@ -616,9 +616,9 @@ def _property_visual_provider_label(value: object) -> str:
         "pano2vr": "Pano2VR",
         "pano_2_vr": "Pano2VR",
         "krpano": "krpano",
-        "magicfit": "Magicfit",
-        "ea_one_manager_onemin_i2v": "Magicfit",
-        "onemin_i2v": "Magicfit",
+        "magicfit": "MagicFit",
+        "ea_one_manager_onemin_i2v": "MagicFit",
+        "onemin_i2v": "MagicFit",
         "poppy_ai": "Poppy AI",
     }
     if normalized in label_map:
