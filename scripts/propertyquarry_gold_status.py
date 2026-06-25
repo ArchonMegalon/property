@@ -859,6 +859,11 @@ def build_gold_status_receipt(
             "reason": str(row.get("reason") or ""),
             "action": str(row.get("action") or ""),
             "drop_layout": str(row.get("drop_layout") or ""),
+            **({"file_count": row.get("file_count")} if "file_count" in row else {}),
+            **({"present_sample": row.get("present_sample")} if "present_sample" in row else {}),
+            **({"entry_candidates": row.get("entry_candidates")} if "entry_candidates" in row else {}),
+            **({"missing": row.get("missing")} if "missing" in row else {}),
+            **({"missing_markers": row.get("missing_markers")} if "missing_markers" in row else {}),
         }
         for row in list(export_discovery.get("rejected") or [])[:6]
         if isinstance(row, dict)
@@ -872,6 +877,11 @@ def build_gold_status_receipt(
             "required_action": str(row.get("required_action") or ""),
             "drop_path": str(row.get("drop_path") or ""),
             "import_command_after_assets_arrive": str(row.get("import_command_after_assets_arrive") or ""),
+            **({"file_count": row.get("file_count")} if "file_count" in row else {}),
+            **({"present_sample": row.get("present_sample")} if "present_sample" in row else {}),
+            **({"entry_candidates": row.get("entry_candidates")} if "entry_candidates" in row else {}),
+            **({"missing": row.get("missing")} if "missing" in row else {}),
+            **({"missing_markers": row.get("missing_markers")} if "missing_markers" in row else {}),
         }
         for row in list(export_discovery.get("repair_manifest") or [])[:6]
         if isinstance(row, dict)

@@ -398,7 +398,18 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
             "rejected_count": 4,
             "rejected": [
                 {"slug": "flat", "provider": "3dvista", "reason": "3dvista_export_entry_unverified", "action": "copy the complete 3DVista export", "drop_layout": "<drop>/<slug>/3dvista/"},
-                {"slug": "flat", "provider": "pano2vr", "reason": "pano2vr_export_entry_unverified", "action": "copy the complete Pano2VR export", "drop_layout": "<drop>/<slug>/pano2vr/"},
+                {
+                    "slug": "flat",
+                    "provider": "pano2vr",
+                    "reason": "pano2vr_export_entry_unverified",
+                    "action": "copy the complete Pano2VR export",
+                    "drop_layout": "<drop>/<slug>/pano2vr/",
+                    "file_count": 1,
+                    "present_sample": ["index.html"],
+                    "entry_candidates": ["index.html"],
+                    "missing": ["pano2vr_runtime_marker"],
+                    "missing_markers": ["ggpkg", "ggskin", "pano.xml", "tour.js"],
+                },
                 {"slug": "flat", "provider": "krpano", "reason": "krpano_assets_missing", "action": "copy a real panorama", "drop_layout": "<drop>/<slug>/krpano/"},
                 {"slug": "flat", "provider": "magicfit", "reason": "magicfit_video_missing", "action": "copy the MagicFit walkthrough", "drop_layout": "<drop>/<slug>/magicfit/"},
             ],
@@ -436,6 +447,9 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
     aggregate_action = receipt["next_required_actions"][-1]
     assert aggregate_action["provider"] == "3dvista_pano2vr_krpano"
     assert {row["provider"] for row in aggregate_action["rejected_sample"]} == {"3dvista", "pano2vr", "krpano"}
+    pano_sample = next(row for row in aggregate_action["rejected_sample"] if row["provider"] == "pano2vr")
+    assert pano_sample["present_sample"] == ["index.html"]
+    assert pano_sample["missing_markers"] == ["ggpkg", "ggskin", "pano.xml", "tour.js"]
     missing_note = receipt["notes"][-1]
     assert "MagicFit" not in missing_note
     assert "Matterport" not in missing_note

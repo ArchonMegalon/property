@@ -1122,11 +1122,21 @@ def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(t
         assert row["action"]
         assert row["drop_layout"]
         assert row["drop_path"]
+    pano_rejection = next(row for row in receipt["rejected"] if row["provider"] == "pano2vr")
+    assert pano_rejection["file_count"] == 1
+    assert pano_rejection["present_sample"] == ["index.html"]
+    assert pano_rejection["entry_candidates"] == ["index.html"]
+    assert pano_rejection["missing"] == ["pano2vr_runtime_marker"]
+    assert pano_rejection["missing_markers"] == ["ggpkg", "ggskin", "pano.xml", "tour.js"]
     for row in receipt["repair_manifest"]:
         assert row["status"] == "waiting_for_verified_assets"
         assert row["required_action"]
         assert row["drop_layout"]
         assert row["drop_path"]
+    pano_repair = next(row for row in receipt["repair_manifest"] if row["provider"] == "pano2vr")
+    assert pano_repair["file_count"] == 1
+    assert pano_repair["present_sample"] == ["index.html"]
+    assert pano_repair["missing_markers"] == ["ggpkg", "ggskin", "pano.xml", "tour.js"]
     assert any("import_pano2vr_export.py" in row["import_command_after_assets_arrive"] for row in receipt["repair_manifest"])
     assert any("import_krpano_walkable_scene.py" in row["import_command_after_assets_arrive"] for row in receipt["repair_manifest"])
     assert any("import_magicfit_walkthrough.py" in row["import_command_after_assets_arrive"] for row in receipt["repair_manifest"])

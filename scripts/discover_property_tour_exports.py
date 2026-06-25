@@ -288,7 +288,64 @@ def _magicfit_receipt_rejection_reason(receipt: Path, *, video: Path, slug: str)
     return ""
 
 
-def _rejection_row(*, slug: str, provider: str, reason: str, export_dir: Path | None = None) -> dict[str, str]:
+def _relative_file_sample(export_dir: Path, *, limit: int = 8) -> list[str]:
+    if not export_dir.is_dir():
+        return []
+    rows: list[str] = []
+    for path in sorted(export_dir.rglob("*")):
+        if len(rows) >= limit:
+            break
+        if not path.is_file() or path.name == "README.propertyquarry-export.txt":
+            continue
+        try:
+            rows.append(path.relative_to(export_dir).as_posix())
+        except ValueError:
+            rows.append(path.name)
+    return rows
+
+
+def _file_count(export_dir: Path) -> int:
+    if not export_dir.is_dir():
+        return 0
+    return sum(
+        1
+        for path in export_dir.rglob("*")
+        if path.is_file() and path.name != "README.propertyquarry-export.txt"
+    )
+
+
+def _entry_candidate_sample(export_dir: Path, *, limit: int = 6) -> list[str]:
+    if not export_dir.is_dir():
+        return []
+    rows: list[str] = []
+    seen: set[str] = set()
+    for entry in _entry_candidates(export_dir):
+        if len(rows) >= limit:
+            break
+        try:
+            relpath = entry.relative_to(export_dir).as_posix()
+        except ValueError:
+            relpath = entry.name
+        if relpath not in seen:
+            seen.add(relpath)
+            rows.append(relpath)
+    return rows
+
+
+def _provider_drop_diagnostics(export_dir: Path, provider: str) -> dict[str, object]:
+    if provider not in MARKERS_BY_PROVIDER:
+        return {}
+    marker_label = f"{provider}_runtime_marker"
+    return {
+        "file_count": _file_count(export_dir),
+        "present_sample": _relative_file_sample(export_dir),
+        "entry_candidates": _entry_candidate_sample(export_dir),
+        "missing": [marker_label],
+        "missing_markers": list(MARKERS_BY_PROVIDER[provider]),
+    }
+
+
+def _rejection_row(*, slug: str, provider: str, reason: str, export_dir: Path | None = None) -> dict[str, Any]:
     row = {
         "slug": slug,
         "provider": provider,
@@ -298,11 +355,12 @@ def _rejection_row(*, slug: str, provider: str, reason: str, export_dir: Path | 
     }
     if export_dir is not None:
         row["drop_path"] = str(export_dir)
+        row.update(_provider_drop_diagnostics(export_dir, provider))
     return row
 
 
-def _repair_manifest_rows(rejected: Iterable[dict[str, str]]) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+def _repair_manifest_rows(rejected: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     for row in rejected:
         provider = str(row.get("provider") or "").strip().lower()
         slug = str(row.get("slug") or "").strip()
@@ -321,18 +379,20 @@ def _repair_manifest_rows(rejected: Iterable[dict[str, str]]) -> list[dict[str, 
                 f"--slug {slug} --video-path {drop_path}/magicfit-walkthrough.mp4 "
                 f"--source-receipt {drop_path}/magicfit-receipt.json"
             )
-        rows.append(
-            {
-                "slug": slug,
-                "provider": provider,
-                "status": "waiting_for_verified_assets",
-                "reason": reason,
-                "drop_path": drop_path,
-                "required_action": str(row.get("action") or "").strip(),
-                "drop_layout": str(row.get("drop_layout") or "").strip(),
-                "import_command_after_assets_arrive": command,
-            }
-        )
+        repair_row: dict[str, Any] = {
+            "slug": slug,
+            "provider": provider,
+            "status": "waiting_for_verified_assets",
+            "reason": reason,
+            "drop_path": drop_path,
+            "required_action": str(row.get("action") or "").strip(),
+            "drop_layout": str(row.get("drop_layout") or "").strip(),
+            "import_command_after_assets_arrive": command,
+        }
+        for key in ("file_count", "present_sample", "entry_candidates", "missing", "missing_markers"):
+            if key in row:
+                repair_row[key] = row[key]
+        rows.append(repair_row)
     return rows
 
 
