@@ -79,7 +79,7 @@ Brilliant Directories may provide only:
 - public-safe directory profile data after field-rights review;
 - signed webhook notifications that are stored as receipts and reconciled locally before any user-visible state changes.
 
-Every billing state must have a mobile-safe UI path and a local receipt. If Brilliant Directories is unavailable, misconfigured, unsigned, replayed, or returns a non-allowlisted URL, PropertyQuarry must fail closed and keep the user on the local billing/recovery surface.
+Every billing state must have a local receipt. `/app/billing` is not a local plan/payment page; it redirects to the configured white-label Brilliant Directories account lane. If Brilliant Directories is unavailable, misconfigured, unsigned, replayed, returns a non-allowlisted URL, or the white-label billing host does not resolve, PropertyQuarry must fail closed instead of rendering a local billing board.
 
 ## Verification
 
@@ -87,7 +87,7 @@ Every billing state must have a mobile-safe UI path and a local receipt. If Bril
 PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py
 ```
 
-The default verification is dry and makes no live network request. It writes a redacted provider receipt that records whether configuration is disabled or ready, and whether the local request executor, redirect blocking, byte limit, public projection, and private-field stripping contracts are present.
+The default verification is mostly dry and writes a redacted provider receipt that records whether configuration is disabled or ready, and whether the local request executor, redirect blocking, byte limit, public projection, billing handoff, and private-field stripping contracts are present. When a white-label billing URL is configured, the verifier performs a DNS resolution check for that host and blocks release if the target does not resolve.
 
 ## Provider Sources
 

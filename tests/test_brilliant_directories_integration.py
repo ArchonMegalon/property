@@ -181,6 +181,39 @@ def test_brilliant_directories_billing_handoff_allows_url_only_white_label(monke
     assert brilliant_directories_billing_handoff_url(config) == "https://billing.propertyquarry.com/account"
 
 
+def test_brilliant_directories_verifier_blocks_unresolved_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+
+    def unresolved(_host: str, _port: int) -> None:
+        raise OSError("missing dns")
+
+    receipt = build_brilliant_directories_verification_receipt(billing_handoff_resolver=unresolved)
+
+    assert receipt["status"] == "blocked"
+    assert receipt["error"].startswith("billing_handoff_host_unresolved")
+    assert receipt["billing_handoff"]["configured"] is True
+    assert receipt["billing_handoff"]["host"] == "billing.propertyquarry.com"
+    assert receipt["billing_handoff"]["host_resolves"] is False
+
+
+def test_brilliant_directories_verifier_accepts_resolving_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+
+    def resolved(_host: str, _port: int) -> list[tuple[object, ...]]:
+        return [(object(),)]
+
+    receipt = build_brilliant_directories_verification_receipt(billing_handoff_resolver=resolved)
+
+    assert receipt["status"] == "disabled"
+    assert receipt["error"] == ""
+    assert receipt["billing_handoff"]["configured"] is True
+    assert receipt["billing_handoff"]["host_resolves"] is True
+
+
 def test_property_billing_route_redirects_to_allowlisted_brilliant_directories_account(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
@@ -1262,7 +1295,7 @@ def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytes
     completed = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "verify_brilliant_directories_provider.py")],
         cwd=ROOT,
-        env={**dict(os.environ), "PYTHONPATH": str(ROOT / "ea")},
+        env={**dict(os.environ), "PYTHONPATH": str(ROOT / "ea"), "PROPERTYQUARRY_SKIP_DOTENV": "1"},
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

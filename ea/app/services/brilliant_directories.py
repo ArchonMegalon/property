@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -288,6 +289,49 @@ def brilliant_directories_billing_handoff_url(config: BrilliantDirectoriesConfig
         str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL") or "").strip(),
         allowed_hosts=allowed_hosts,
     )
+
+
+def _billing_handoff_dns_receipt(
+    handoff_url: str,
+    *,
+    resolver: object | None = None,
+) -> dict[str, object]:
+    parsed = urllib.parse.urlparse(handoff_url)
+    host = str(parsed.hostname or "").strip().lower()
+    if not handoff_url:
+        return {
+            "configured": False,
+            "url": "",
+            "host": "",
+            "host_resolves": False,
+            "error": "",
+        }
+    if not host:
+        return {
+            "configured": True,
+            "url": handoff_url,
+            "host": "",
+            "host_resolves": False,
+            "error": "billing_handoff_host_missing",
+        }
+    resolve = resolver or socket.getaddrinfo
+    try:
+        resolve(host, 443)
+    except OSError as exc:
+        return {
+            "configured": True,
+            "url": handoff_url,
+            "host": host,
+            "host_resolves": False,
+            "error": f"billing_handoff_host_unresolved:{exc.__class__.__name__}",
+        }
+    return {
+        "configured": True,
+        "url": handoff_url,
+        "host": host,
+        "host_resolves": True,
+        "error": "",
+    }
 
 
 def _assert_no_forbidden_keys(value: Any, *, path: str = "$") -> None:
@@ -734,7 +778,7 @@ def build_brilliant_directories_projection_packet_from_profile_response(
     return build_brilliant_directories_projection_packet((profile,), purpose=purpose, projection_mode="public_directory_profile_detail")
 
 
-def build_brilliant_directories_verification_receipt() -> dict[str, object]:
+def build_brilliant_directories_verification_receipt(*, billing_handoff_resolver: object | None = None) -> dict[str, object]:
     try:
         config = load_brilliant_directories_config()
         status = "dry_verified_configured" if config.configured else "disabled"
@@ -743,6 +787,16 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
         config = BrilliantDirectoriesConfig(False, "", "", (), "X-Api-Key")
         status = "blocked"
         error = str(exc)
+    handoff_url = ""
+    if not error:
+        handoff_url = brilliant_directories_billing_handoff_url(config)
+    billing_handoff = _billing_handoff_dns_receipt(
+        handoff_url,
+        resolver=billing_handoff_resolver,
+    )
+    if billing_handoff["configured"] and not billing_handoff["host_resolves"]:
+        status = "blocked"
+        error = str(billing_handoff["error"] or "billing_handoff_host_unresolved")
     return {
         "contract_name": BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME,
         "generated_at": _utc_now_iso(),
@@ -750,6 +804,7 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
         "status": status,
         "error": error,
         "config": config.as_receipt(),
+        "billing_handoff": billing_handoff,
         "live_network_called": False,
         "verified_capabilities": {
             "api_key_config_contract": True,
@@ -773,6 +828,7 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
             "billing_webhook_timestamped_hmac_contract": True,
             "billing_webhook_replay_guard_contract": True,
             "billing_webhook_entitlement_mutation_disabled": True,
+            "billing_handoff_dns_resolution_required": True,
         },
         "sources": [
             "https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000101842-brilliant-directories-api-endpoints-technical-reference",
