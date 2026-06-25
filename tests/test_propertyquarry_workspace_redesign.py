@@ -3841,6 +3841,49 @@ def test_property_console_context_uses_lightweight_status_for_explicit_research_
     assert context["run"]["summary"]["ranked_candidates"][0]["candidate_ref"] == "research-cand-1"
 
 
+def test_property_console_context_uses_compact_recent_runs_for_research_index(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-research-index-compact")
+    recent_hydrate_calls: list[bool] = []
+    status_lightweight_calls: list[bool] = []
+
+    class _Product:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+            recent_hydrate_calls.append(hydrate)
+            return [
+                {
+                    "run_id": "run-active",
+                    "status": "in_progress",
+                    "summary": {"status": "in_progress", "sources_total": 117, "ranked_candidates": []},
+                }
+            ]
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+            status_lightweight_calls.append(lightweight)
+            return {
+                "run_id": run_id,
+                "status": "in_progress",
+                "summary": {
+                    "status": "in_progress",
+                    "sources_total": 117,
+                    "sources_completed": 22,
+                    "ranked_candidates": [],
+                },
+            }
+
+    monkeypatch.setattr(landing_routes, "build_product_service", lambda container: _Product())
+
+    context = landing_routes._property_console_context(
+        container=client.app.state.container,
+        principal_id="pq-research-index-compact",
+        status={"property_search_preferences": {"country_code": "AT"}},
+        surface_mode="research",
+    )
+
+    assert recent_hydrate_calls == [False]
+    assert status_lightweight_calls == [True]
+    assert context["run"]["run_id"] == "run-active"
+
+
 def test_property_console_context_keeps_preference_profile_hydration_on_account(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-account-profile")
     seen = {"profile": 0, "learning": 0}

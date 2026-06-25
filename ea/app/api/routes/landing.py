@@ -1767,7 +1767,7 @@ def _property_console_context(
                 for row in product.list_property_search_runs(
                     principal_id=principal_id,
                     limit=8,
-                    hydrate=surface_scope.section not in {"properties", "shortlist"},
+                    hydrate=surface_scope.section not in {"properties", "shortlist", "research"},
                 )
                 if isinstance(row, dict)
             ]
