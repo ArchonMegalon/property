@@ -13,16 +13,22 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `3f2960fe5ac3f9ca13c6497168e27495d66ae8d0` |
+| Runtime commit SHA | `d830ef06e6610316478fe734da5a0f82c2be866c` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `3f2960f` passed:
+The candidate at `d830ef0` passed:
 
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_deploy_operator_contracts.py -k 'cached_evidence_overlay_contracts or phase_and_master_regressions or live_mobile_surface_smoke'`
+- `bash -n scripts/property_release_gates.sh`
+- The gold release bundle now runs `tests/test_property_evidence_overlays.py`, so unavailable/stale/verified overlay states and the no-inline-source-indexing guarantee cannot be skipped by a release-gate pass.
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_property_evidence_overlays.py`
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'research_packet_snapshot_normalizes_route_payload or research_packet_renders_cached_evidence_overlays'`
 - `python3 -m py_compile ea/app/product/property_evidence_overlays.py ea/app/product/property_surface_state.py ea/app/product/models.py ea/app/api/routes/landing.py ea/app/api/routes/landing_property_research.py`
