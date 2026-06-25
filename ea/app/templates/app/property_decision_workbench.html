@@ -8229,14 +8229,16 @@
           {% set live_preview_price_text = live_preview.get('price_display') or live_preview.get('costs_display') or live_preview.get('rent_display') or live_preview_facts.get('price_display') or live_preview_facts.get('rent_display') or live_preview_facts.get('price') or live_preview_facts.get('rent') or '' %}
           {% set live_preview_price_numeric = live_preview.get('price_eur') or live_preview.get('purchase_price_eur') or live_preview.get('buy_price_eur') or live_preview.get('rent_eur') or live_preview.get('total_rent_eur') or live_preview.get('monthly_rent_eur') or live_preview_facts.get('price_eur') or live_preview_facts.get('purchase_price_eur') or live_preview_facts.get('buy_price_eur') or live_preview_facts.get('rent_eur') or live_preview_facts.get('total_rent_eur') or live_preview_facts.get('monthly_rent_eur') %}
           {% set live_preview_currency = live_preview.get('currency_code') or live_preview_facts.get('currency_code') or ('EUR' if live_preview_price_numeric else '') %}
-          {% set live_preview_price = live_preview_price_text or ((live_preview_currency ~ ' ' ~ '{:,.0f}'.format(live_preview_price_numeric|float)) if live_preview_price_numeric else 'Still verifying') %}
+          {% set live_preview_price = live_preview_price_text or ((live_preview_currency ~ ' ' ~ '{:,.0f}'.format(live_preview_price_numeric|float)) if live_preview_price_numeric else '') %}
           <div class="pqx-pref-row">
             <div>
                   <strong>Current best so far</strong>
                   <small>{{ live_preview_title }}</small>
                 </div>
                 <div><strong>Fit</strong><small>{{ (live_preview.get('fit_score') or 0)|int }}/100</small></div>
+                {% if live_preview_price %}
                 <div><strong>Price</strong><small>{{ live_preview_price }}</small></div>
+                {% endif %}
               </div>
               {% if live_preview_location %}
               <div class="pqx-pref-row">
@@ -9332,7 +9334,7 @@
             {% for event in (run.get('events') or [])|reverse %}
             <div class="pqx-event-card">
               <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
-              <span class="pqx-note">{{ event.get('message') or 'No detail yet.' }}</span>
+              <span class="pqx-note">{{ event.get('message') or 'Search is still running.' }}</span>
             </div>
             {% endfor %}
             {% if not run.get('events') %}

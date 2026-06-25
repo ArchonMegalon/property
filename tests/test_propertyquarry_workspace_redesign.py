@@ -9521,12 +9521,17 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     running_body = (repo_root / "ea/app/templates/app/_property_running_panel.html").read_text(encoding="utf-8")
     script_body = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    workbench_body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
 
     assert "Price not published" not in running_body
     assert "Still being verified" not in running_body
     assert "Price not published" not in script_body
     assert "Still being verified" not in script_body
+    assert "Still verifying" not in workbench_body
+    assert "No detail yet." not in workbench_body
+    assert "{% if live_preview_price %}" in workbench_body
+    assert "Search is still running." in workbench_body
     assert "provisional_price_display" in running_body
     assert "{% if provisional_price_display %}<div><strong>Price</strong>" in running_body
     assert "{% if provisional.get('layout_display') %}<div><strong>Layout</strong>" in running_body
