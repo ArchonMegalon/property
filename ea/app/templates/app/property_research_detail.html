@@ -2136,9 +2136,6 @@
   {'href': '/app/properties' ~ research_query_suffix, 'label': 'Search', 'key': 'search'},
   {'href': '/app/shortlist' ~ research_query_suffix, 'label': 'Shortlist', 'key': 'shortlist'},
   {'href': '/app/research' ~ research_query_suffix, 'label': 'Research', 'key': 'research'},
-  {'href': '/app/agents' ~ research_query_suffix, 'label': 'Saved searches', 'key': 'agents'},
-  {'href': '/app/alerts' ~ research_query_suffix, 'label': 'Alerts', 'key': 'alerts'},
-  {'href': '/app/billing' ~ research_query_suffix, 'label': 'Billing', 'key': 'billing'},
   {'href': '/app/account' ~ research_query_suffix, 'label': 'Account', 'key': 'account'},
 ) %}
 <header class="prd-topbar pqx-topbar" data-property-research-topnav>
@@ -2151,7 +2148,7 @@
   </a>
   <nav class="prd-primary-nav" aria-label="PropertyQuarry sections">
     {% for item in research_topnav_items %}
-      {% if item.key == current_nav %}
+      {% if item.key == current_nav or (item.key == 'account' and current_nav in ['agents', 'alerts', 'billing', 'settings']) %}
       <span class="is-active" aria-current="page">{{ item.label }}</span>
       {% else %}
       <a href="{{ item.href }}">{{ item.label }}</a>

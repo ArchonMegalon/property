@@ -5483,11 +5483,11 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert 'href="/app/properties{{ research_query_suffix }}"' in body
     assert "{'href': '/app/properties' ~ research_query_suffix, 'label': 'Search', 'key': 'search'}" in body
     assert "{'href': '/app/shortlist' ~ research_query_suffix, 'label': 'Shortlist', 'key': 'shortlist'}" in body
-    assert "{'href': '/app/agents' ~ research_query_suffix, 'label': 'Saved searches', 'key': 'agents'}" in body
-    assert "{'href': '/app/alerts' ~ research_query_suffix, 'label': 'Alerts', 'key': 'alerts'}" in body
-    assert "{% if item.key == current_nav %}" in body
+    assert "{'href': '/app/agents' ~ research_query_suffix, 'label': 'Saved searches', 'key': 'agents'}" not in body
+    assert "{'href': '/app/alerts' ~ research_query_suffix, 'label': 'Alerts', 'key': 'alerts'}" not in body
+    assert "{% if item.key == current_nav or (item.key == 'account' and current_nav in ['agents', 'alerts', 'billing', 'settings']) %}" in body
     assert '<span class="is-active" aria-current="page">{{ item.label }}</span>' in body
-    assert "{'href': '/app/billing' ~ research_query_suffix, 'label': 'Billing', 'key': 'billing'}" in body
+    assert "{'href': '/app/billing' ~ research_query_suffix, 'label': 'Billing', 'key': 'billing'}" not in body
     assert "{'href': '/app/account' ~ research_query_suffix, 'label': 'Account', 'key': 'account'}" in body
     assert 'aria-label="Account navigation"' in body
     assert 'href="{{ account_nav.profile_href }}"' in body
@@ -7490,9 +7490,9 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     assert 'href="/app/properties{{ packet_query_suffix or \'\' }}">Search</a>' in body
     assert 'href="/app/shortlist{{ packet_query_suffix or \'\' }}">Shortlist</a>' in body
     assert '<span class="is-active" aria-current="page">Research</span>' in body
-    assert 'href="/app/agents{{ packet_query_suffix or \'\' }}">Saved searches</a>' in body
-    assert 'href="/app/alerts{{ packet_query_suffix or \'\' }}">Alerts</a>' in body
-    assert 'href="/app/billing{{ packet_query_suffix or \'\' }}">Billing</a>' in body
+    assert 'href="/app/agents{{ packet_query_suffix or \'\' }}">Saved searches</a>' not in body
+    assert 'href="/app/alerts{{ packet_query_suffix or \'\' }}">Alerts</a>' not in body
+    assert 'href="/app/billing{{ packet_query_suffix or \'\' }}">Billing</a>' not in body
     assert 'href="/app/account{{ packet_query_suffix or \'\' }}">Account</a>' in body
     assert 'aria-label="Account navigation"' in body
     assert "Packet posture" not in body
@@ -7505,9 +7505,9 @@ def test_property_packets_dashboard_keeps_mobile_shell_compact() -> None:
 
     assert mobile_start > 0
     mobile_block = body[mobile_start:body.find("</style>", mobile_start)]
-    assert "grid-template-columns: minmax(0, 1fr) 40px;" in mobile_block
+    assert "grid-template-columns: minmax(0, 1fr) auto;" in mobile_block
     assert "grid-row: 1;" in mobile_block
-    assert "grid-row: 2;" in mobile_block
+    assert "grid-row: 2;" not in mobile_block
     assert ".pq-pack-nav {" in mobile_block
     assert "overflow-x: auto;" in mobile_block
     assert ".pq-pack-actions > .pq-pack-button { display: none; }" in mobile_block
@@ -7528,7 +7528,13 @@ def test_property_decision_workbench_uses_shared_research_shell_contract() -> No
     assert 'href="/app/properties{{ topnav_query_suffix }}">{{ row.get(\'action_label\') or \'Adjust search\' }}</a>' in body
     assert 'href="/app/properties{{ topnav_query_suffix }}">Review what matters</a>' in body
     assert 'href="/app/search">New search</a>' in body
-    assert 'href="/app/agents{{ topnav_query_suffix }}">Saved searches</a>' in body
+    nav_start = body.index('<nav class="pqx-primary-nav"')
+    nav_end = body.index("</nav>", nav_start)
+    nav_block = body[nav_start:nav_end]
+    assert 'href="/app/agents{{ topnav_query_suffix }}">Saved searches</a>' not in nav_block
+    assert 'href="/app/alerts{{ topnav_query_suffix }}">Alerts</a>' not in nav_block
+    assert 'href="/app/billing{{ topnav_query_suffix }}">Billing</a>' not in nav_block
+    assert "{% if surface_mode in ['account', 'agents', 'alerts', 'billing'] %}" in body
     assert 'href="/app/properties{{ topnav_query_suffix }}">' in body
     assert "Decision desk" not in body
 
@@ -9722,7 +9728,7 @@ def test_propertyquarry_dark_mode_covers_nested_search_controls() -> None:
         assert selector in dark_block
 
 
-def test_propertyquarry_mobile_top_nav_uses_compact_menu_instead_of_noisy_tab_strip() -> None:
+def test_propertyquarry_mobile_top_nav_uses_core_loop_instead_of_noisy_tab_strip() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     nav_match = re.search(r"@media \(max-width: 760px\).*?\.pqx-primary-nav\s*\{(?P<body>.*?)\}", body, re.S)
@@ -9731,10 +9737,15 @@ def test_propertyquarry_mobile_top_nav_uses_compact_menu_instead_of_noisy_tab_st
     nav_block = nav_match.group("body")
     assert 'data-pqx-mobile-nav-menu' in body
     assert ".pqx-mobile-nav-menu > summary" in body
-    assert "display: none;" in nav_block
-    assert "position: fixed;" in nav_block
-    assert ".pqx-mobile-nav-menu[open] .pqx-primary-nav" in body
-    assert "overflow-x: auto;" not in nav_block
+    assert "display: flex;" in nav_block
+    assert "position: static;" in nav_block
+    nav_start = body.index('<nav class="pqx-primary-nav"')
+    nav_end = body.index("</nav>", nav_start)
+    topnav = body[nav_start:nav_end]
+    assert topnav.count('href="/app/') == 4
+    assert "Saved searches" not in topnav
+    assert ">Alerts<" not in topnav
+    assert ">Billing<" not in topnav
 
 
 def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> None:
@@ -10789,7 +10800,7 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in workbench
     assert ".pqx-mobile-nav-menu {\n        display: contents;" in workbench
     assert ".pqx-primary-nav {\n        position: static;" in workbench
-    assert "overflow-x: auto;" in workbench
+    assert ".pqx-primary-nav {\n        position: static;" in workbench
 
 
 def test_property_research_detail_decision_fits_one_screen_by_default() -> None:
@@ -13452,9 +13463,6 @@ def test_property_settings_subpages_keep_property_shell_and_top_mobile_nav() -> 
         "/app/search": "Search",
         "/app/shortlist": "Shortlist",
         "/app/research": "Research",
-        "/app/agents": "Saved searches",
-        "/app/alerts": "Alerts",
-        "/app/billing": "Billing",
         "/app/account": "Account",
     }
 
@@ -13526,12 +13534,19 @@ def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     assert ">Run<" not in response.text
     assert ">Shortlist<" in response.text
     assert ">Research<" in response.text
-    assert ">Saved searches<" in response.text
     assert ">Automation<" not in response.text
     assert ">Account<" in response.text
     assert 'href="/app/research"' in response.text
-    assert ">Alerts<" in response.text
-    assert ">Billing<" in response.text
+    topnav_match = re.search(
+        r'<nav class="(?:pq-appbar-mobile-nav|pqx-primary-nav)"[^>]*aria-label="PropertyQuarry sections"[^>]*>(?P<nav>.*?)</nav>',
+        response.text,
+        flags=re.DOTALL,
+    )
+    assert topnav_match
+    topnav = topnav_match.group("nav")
+    assert ">Saved searches<" not in topnav
+    assert ">Alerts<" not in topnav
+    assert ">Billing<" not in topnav
 
 
 def test_property_alerts_surface_exposes_routing_and_recovery_language() -> None:

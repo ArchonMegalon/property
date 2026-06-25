@@ -4085,7 +4085,7 @@ def test_propertyquarry_mobile_settings_surfaces_keep_consistent_top_navigation(
         ("/app/settings/access", "propertyquarry-settings-access-mobile-topnav.png"),
         ("/app/settings/outcomes", "propertyquarry-settings-outcomes-mobile-topnav.png"),
     ]
-    expected_labels = ["Search", "Shortlist", "Research", "Saved searches", "Alerts", "Billing", "Account"]
+    expected_labels = ["Search", "Shortlist", "Research", "Account"]
     try:
         page = context.new_page()
         for route, screenshot_name in routes:

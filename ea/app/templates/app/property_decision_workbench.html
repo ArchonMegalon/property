@@ -8078,22 +8078,7 @@
         {% else %}
         <a href="/app/research{{ topnav_query_suffix }}">Research</a>
         {% endif %}
-        {% if surface_mode == 'agents' %}
-        <span class="is-active" aria-current="page">Saved searches</span>
-        {% else %}
-        <a href="/app/agents{{ topnav_query_suffix }}">Saved searches</a>
-        {% endif %}
-        {% if surface_mode == 'alerts' %}
-        <span class="is-active" aria-current="page">Alerts</span>
-        {% else %}
-        <a href="/app/alerts{{ topnav_query_suffix }}">Alerts</a>
-        {% endif %}
-        {% if surface_mode == 'billing' %}
-        <span class="is-active" aria-current="page">Billing</span>
-        {% else %}
-        <a href="/app/billing{{ topnav_query_suffix }}">Billing</a>
-        {% endif %}
-        {% if surface_mode == 'account' %}
+        {% if surface_mode in ['account', 'agents', 'alerts', 'billing'] %}
         <span class="is-active" aria-current="page">Account</span>
         {% else %}
         <a href="/app/account{{ topnav_query_suffix }}">Account</a>

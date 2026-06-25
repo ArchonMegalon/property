@@ -1303,22 +1303,10 @@
       {% endif %}
     {% endfor %}
   {% endfor %}
-  {% set mobile_nav = namespace(items=(
-    {'href': '/app/search' ~ query_suffix, 'label': 'Search', 'key': 'search'},
-    {'href': '/app/shortlist' ~ query_suffix, 'label': 'Shortlist', 'key': 'shortlist'},
-    {'href': '/app/research' ~ query_suffix, 'label': 'Research', 'key': 'research'},
-    {'href': '/app/agents' ~ query_suffix, 'label': 'Saved searches', 'key': 'agents'},
-    {'href': '/app/alerts' ~ query_suffix, 'label': 'Alerts', 'key': 'alerts'},
-    {'href': '/app/billing' ~ query_suffix, 'label': 'Billing', 'key': 'billing'},
-    {'href': '/app/account' ~ query_suffix, 'label': 'Account', 'key': 'account'},
-  )) %}
   {% set property_top_nav_items = (
     {'href': '/app/search' ~ query_suffix, 'label': 'Search', 'key': 'search'},
     {'href': '/app/shortlist' ~ query_suffix, 'label': 'Shortlist', 'key': 'shortlist'},
     {'href': '/app/research' ~ query_suffix, 'label': 'Research', 'key': 'research'},
-    {'href': '/app/agents' ~ query_suffix, 'label': 'Saved searches', 'key': 'agents'},
-    {'href': '/app/alerts' ~ query_suffix, 'label': 'Alerts', 'key': 'alerts'},
-    {'href': '/app/billing' ~ query_suffix, 'label': 'Billing', 'key': 'billing'},
     {'href': '/app/account' ~ query_suffix, 'label': 'Account', 'key': 'account'},
   ) %}
   <div class="pq-shell" data-pq-greenfield-shell data-property-app-shell>
@@ -1371,7 +1359,7 @@
         </div>
         <nav class="pq-appbar-mobile-nav" aria-label="PropertyQuarry sections" data-property-console-topnav data-property-research-topnav>
           {% for item in property_top_nav_items %}
-            {% if shell_nav_key == item.key %}
+            {% if shell_nav_key == item.key or (item.key == 'account' and shell_nav_key in ['agents', 'alerts', 'billing']) %}
             <span aria-current="page">{{ item.label }}</span>
             {% else %}
             <a href="{{ item.href }}">{{ item.label }}</a>
