@@ -360,6 +360,13 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["performance"]["status"] == "pass"
     assert receipt["self_healing"]["status"] == "pass"
     assert receipt["provider_matrix"]["targeted_search_matrix_executed"] is True
+    assert receipt["provider_matrix"]["strict_case_count"] == 121
+    assert receipt["provider_matrix"]["soft_filter_case_count"] == 121
+    assert receipt["provider_matrix"]["strict_without_soft_filters_ok"] is True
+    assert receipt["provider_matrix"]["soft_filters_present_ok"] is True
+    assert receipt["provider_matrix"]["dispatch_acceptance_complete"] is True
+    assert receipt["provider_matrix"]["status_readback_complete"] is True
+    assert receipt["provider_matrix"]["payload_contracts_ok"] is True
     assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano", "magicfit"]
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
     assert receipt["operator_import_manifest"]["status"] == "waiting_for_verified_assets"
