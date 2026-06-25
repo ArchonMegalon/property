@@ -174,7 +174,20 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     )
     discovery = _write_json(
         tmp_path / "discovery.json",
-        {"status": "blocked_no_verified_exports", "import_count": 0, "rejected_count": 0},
+        {
+            "status": "blocked_no_verified_exports",
+            "import_count": 0,
+            "rejected_count": 1,
+            "rejected": [
+                {
+                    "slug": "family-flat",
+                    "provider": "magicfit",
+                    "reason": "magicfit_receipt_missing",
+                    "action": "copy the matching MagicFit render receipt as magicfit-receipt.json or receipt.json",
+                    "drop_layout": "<drop>/<slug>/magicfit/",
+                }
+            ],
+        },
     )
     import_manifest = _write_json(tmp_path / "import-manifest.json", _import_manifest_payload(tmp_path))
     repair_canary = _write_json(
@@ -207,6 +220,9 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is True
     assert receipt["operator_import_manifest"]["hardened_readme_provider_count"] == 4
     assert "gold still requires real imported assets" in receipt["operator_import_manifest"]["note"]
+    assert receipt["export_discovery"]["rejected_sample"][0]["reason"] == "magicfit_receipt_missing"
+    assert "magicfit-receipt.json" in receipt["next_required_actions"][-1]["action"]
+    assert receipt["next_required_actions"][-1]["rejected_sample"][0]["provider"] == "magicfit"
     assert any(row["area"] == "verified_tour_provider_modes" for row in receipt["blockers"])
     assert any(row["area"] == "tour_export_drop" for row in receipt["blockers"])
 

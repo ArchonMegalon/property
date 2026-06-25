@@ -13,6 +13,27 @@ from typing import Any, Iterable
 
 
 PROVIDERS = ("3dvista", "pano2vr", "krpano", "magicfit")
+PROVIDER_DROP_LAYOUTS = {
+    "3dvista": "<drop>/<slug>/3dvista/ or <drop>/3dvista/<slug>/ with a complete 3DVista export",
+    "pano2vr": "<drop>/<slug>/pano2vr/ or <drop>/pano2vr/<slug>/ with a complete Pano2VR export",
+    "krpano": "<drop>/<slug>/krpano/ or <drop>/krpano/<slug>/ with panorama.jpg/png/webp or cube-face-1..6",
+    "magicfit": "<drop>/<slug>/magicfit/ or <drop>/magicfit/<slug>/ with magicfit-walkthrough.mp4 and magicfit-receipt.json",
+}
+REJECTION_ACTIONS = {
+    "tour_manifest_missing": "create or import the base hosted tour bundle first so tour.json exists under the public tour directory",
+    "3dvista_export_entry_unverified": "copy the complete 3DVista export; the entry or bundled runtime must contain tdvplayer, tdvplayerapi, or tourviewer markers",
+    "pano2vr_export_entry_unverified": "copy the complete Pano2VR export; the entry or bundled runtime must contain ggpkg, ggskin, pano.xml, or tour.js markers",
+    "krpano_assets_missing": "copy a real 2:1 panorama named panorama.jpg/png/webp or six cube faces named cube-face-1..6",
+    "magicfit_video_missing": "copy the playable MagicFit walkthrough as magicfit-walkthrough.mp4/mov/webm or walkthrough.mp4/mov/webm",
+    "magicfit_video_unverified": "replace the placeholder with a playable MagicFit video stream with positive duration",
+    "magicfit_receipt_missing": "copy the matching MagicFit render receipt as magicfit-receipt.json or receipt.json",
+    "magicfit_receipt_invalid": "replace the MagicFit receipt with valid JSON containing provider=magicfit and the target slug/output",
+    "magicfit_receipt_provider_mismatch": "use the MagicFit receipt for this walkthrough; provider must be magicfit",
+    "magicfit_receipt_output_mismatch": "use the MagicFit receipt that names the exact walkthrough video file in this drop folder",
+    "magicfit_receipt_output_invalid": "fix the MagicFit receipt output_file path so it resolves to the copied video",
+    "magicfit_receipt_target_mismatch": "use a MagicFit receipt whose target_slug, tour_slug, property_slug, slug, or hosted URL matches this tour slug",
+    "unsupported_provider": "use one of the supported providers: 3dvista, pano2vr, krpano, or magicfit",
+}
 MARKERS_BY_PROVIDER = {
     "3dvista": ("tdvplayer", "tdvplayerapi", "tourviewer"),
     "pano2vr": ("ggpkg", "ggskin", "pano.xml", "tour.js"),
@@ -194,6 +215,19 @@ def _magicfit_receipt_rejection_reason(receipt: Path, *, video: Path, slug: str)
     return ""
 
 
+def _rejection_row(*, slug: str, provider: str, reason: str, export_dir: Path | None = None) -> dict[str, str]:
+    row = {
+        "slug": slug,
+        "provider": provider,
+        "reason": reason,
+        "action": REJECTION_ACTIONS.get(reason, "replace the dropped asset with a verified provider export and rerun discovery"),
+        "drop_layout": PROVIDER_DROP_LAYOUTS.get(provider, "<drop>/<slug>/<provider>/"),
+    }
+    if export_dir is not None:
+        row["drop_path"] = str(export_dir)
+    return row
+
+
 def _video_has_playable_stream(path: Path) -> bool:
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         return False
@@ -281,12 +315,12 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
     for slug, provider, export_dir in _candidate_layouts(drop_dir.expanduser()):
         manifest_path = public_root / slug / "tour.json"
         if not manifest_path.is_file():
-            rejected.append({"slug": slug, "provider": provider, "reason": "tour_manifest_missing"})
+            rejected.append(_rejection_row(slug=slug, provider=provider, reason="tour_manifest_missing", export_dir=export_dir))
             continue
         if provider in {"3dvista", "pano2vr"}:
             entry, entry_relpath = _verified_entry(export_dir, provider)
             if entry is None:
-                rejected.append({"slug": slug, "provider": provider, "reason": f"{provider}_export_entry_unverified"})
+                rejected.append(_rejection_row(slug=slug, provider=provider, reason=f"{provider}_export_entry_unverified", export_dir=export_dir))
                 continue
             imports.append(
                 {
@@ -301,7 +335,7 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
             panorama = _discover_panorama(export_dir)
             cube_faces = _discover_cube_faces(export_dir)
             if panorama is None and len(cube_faces) != 6:
-                rejected.append({"slug": slug, "provider": provider, "reason": "krpano_assets_missing"})
+                rejected.append(_rejection_row(slug=slug, provider=provider, reason="krpano_assets_missing", export_dir=export_dir))
                 continue
             row = {
                 "slug": slug,
@@ -319,17 +353,17 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
             video = _discover_video(export_dir)
             receipt = _discover_receipt(export_dir)
             if video is None:
-                rejected.append({"slug": slug, "provider": provider, "reason": "magicfit_video_missing"})
+                rejected.append(_rejection_row(slug=slug, provider=provider, reason="magicfit_video_missing", export_dir=export_dir))
                 continue
             if not _video_has_playable_stream(video):
-                rejected.append({"slug": slug, "provider": provider, "reason": "magicfit_video_unverified"})
+                rejected.append(_rejection_row(slug=slug, provider=provider, reason="magicfit_video_unverified", export_dir=export_dir))
                 continue
             if receipt is None:
-                rejected.append({"slug": slug, "provider": provider, "reason": "magicfit_receipt_missing"})
+                rejected.append(_rejection_row(slug=slug, provider=provider, reason="magicfit_receipt_missing", export_dir=export_dir))
                 continue
             receipt_rejection_reason = _magicfit_receipt_rejection_reason(receipt, video=video, slug=slug)
             if receipt_rejection_reason:
-                rejected.append({"slug": slug, "provider": provider, "reason": receipt_rejection_reason})
+                rejected.append(_rejection_row(slug=slug, provider=provider, reason=receipt_rejection_reason, export_dir=export_dir))
                 continue
             imports.append(
                 {
@@ -341,7 +375,7 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
                 }
             )
             continue
-        rejected.append({"slug": slug, "provider": provider, "reason": "unsupported_provider"})
+        rejected.append(_rejection_row(slug=slug, provider=provider, reason="unsupported_provider", export_dir=export_dir))
     status = "ready" if imports else "blocked_no_verified_exports"
     return {
         "status": status,

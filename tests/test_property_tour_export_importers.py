@@ -762,9 +762,13 @@ def test_tour_export_discovery_rejects_magicfit_receipt_mismatch_before_import(t
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "blocked_no_verified_exports"
     assert receipt["import_count"] == 0
-    assert receipt["rejected"] == [
-        {"slug": "discover-magicfit", "provider": "magicfit", "reason": "magicfit_receipt_target_mismatch"}
-    ]
+    assert len(receipt["rejected"]) == 1
+    rejection = receipt["rejected"][0]
+    assert rejection["slug"] == "discover-magicfit"
+    assert rejection["provider"] == "magicfit"
+    assert rejection["reason"] == "magicfit_receipt_target_mismatch"
+    assert "target_slug" in rejection["action"]
+    assert "magicfit-walkthrough" in rejection["drop_layout"]
 
 
 def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(tmp_path: Path) -> None:
@@ -812,3 +816,9 @@ def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(t
         "pano2vr_export_entry_unverified",
         "tour_manifest_missing",
     }
+    for row in receipt["rejected"]:
+        assert row["action"]
+        assert row["drop_layout"]
+        assert row["drop_path"]
+    assert any("ggpkg" in row["action"] for row in receipt["rejected"] if row["provider"] == "pano2vr")
+    assert any("panorama" in row["action"] for row in receipt["rejected"] if row["provider"] == "krpano")

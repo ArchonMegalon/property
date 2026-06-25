@@ -444,11 +444,27 @@ def build_gold_status_receipt(
         )
 
     next_required_actions = list(tour_controls.get("next_required_actions") or [])
+    export_rejection_sample = [
+        {
+            "slug": str(row.get("slug") or ""),
+            "provider": str(row.get("provider") or ""),
+            "reason": str(row.get("reason") or ""),
+            "action": str(row.get("action") or ""),
+            "drop_layout": str(row.get("drop_layout") or ""),
+        }
+        for row in list(export_discovery.get("rejected") or [])[:6]
+        if isinstance(row, dict)
+    ]
     if export_discovery.get("status") == "blocked_no_verified_exports":
         next_required_actions.append(
             {
                 "provider": "3dvista_pano2vr_krpano_magicfit",
-                "action": "drop real 3DVista/Pano2VR export folders, krpano panorama/cube assets, and receipt-backed MagicFit video assets into the prepared import directories",
+                "action": (
+                    export_rejection_sample[0]["action"]
+                    if export_rejection_sample and export_rejection_sample[0].get("action")
+                    else "drop real 3DVista/Pano2VR export folders, krpano panorama/cube assets, and receipt-backed MagicFit video assets into the prepared import directories"
+                ),
+                "rejected_sample": export_rejection_sample,
             }
         )
 
@@ -501,6 +517,7 @@ def build_gold_status_receipt(
             "status": export_discovery.get("status"),
             "import_count": export_discovery.get("import_count"),
             "rejected_count": export_discovery.get("rejected_count"),
+            "rejected_sample": export_rejection_sample,
             "receipt_path": str(export_discovery_receipt_path),
         },
         "operator_import_manifest": {
