@@ -727,6 +727,7 @@ def test_property_repair_fleet_canary_script_emits_receipt() -> None:
     payload = json.loads(result.stdout)
 
     assert payload["status"] == "pass"
+    assert str(payload.get("generated_at") or "").strip()
     assert payload["run_status"] == "completed_partial"
     assert payload["receipt_resolution"] == "provider_quarantined_retry_budget_exhausted"
     assert payload["source_repair_status"] == "returned"

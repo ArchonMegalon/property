@@ -78,6 +78,74 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _parse_receipt_datetime(value: object) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _receipt_generated_at(payload: dict[str, Any]) -> tuple[datetime | None, str, str]:
+    candidates: tuple[tuple[str, object], ...] = (
+        ("generated_at", payload.get("generated_at")),
+        ("updated_at", payload.get("updated_at")),
+        ("completed_at", payload.get("completed_at")),
+        ("repair_summary.generated_at", (payload.get("repair_summary") or {}).get("generated_at") if isinstance(payload.get("repair_summary"), dict) else ""),
+        ("summary.generated_at", (payload.get("summary") or {}).get("generated_at") if isinstance(payload.get("summary"), dict) else ""),
+    )
+    for source, value in candidates:
+        parsed = _parse_receipt_datetime(value)
+        if parsed is not None:
+            return parsed, source, str(value or "").strip()
+    return None, "", ""
+
+
+def _receipt_freshness_status(
+    receipts: dict[str, dict[str, Any]],
+    *,
+    now: datetime | None = None,
+    max_age_hours: float | None = None,
+) -> tuple[bool, list[dict[str, Any]]]:
+    if max_age_hours is None or max_age_hours <= 0:
+        return True, []
+    current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    rows: list[dict[str, Any]] = []
+    for area, payload in receipts.items():
+        generated_at, timestamp_source, raw_generated_at = _receipt_generated_at(payload)
+        if generated_at is None:
+            rows.append(
+                {
+                    "area": area,
+                    "status": "missing_or_invalid_generated_at",
+                    "generated_at": str(payload.get("generated_at") or ""),
+                }
+            )
+            continue
+        age_seconds = max(0.0, (current_time - generated_at).total_seconds())
+        age_hours = age_seconds / 3600.0
+        if age_hours > max_age_hours:
+            rows.append(
+                {
+                    "area": area,
+                    "status": "stale",
+                    "generated_at": generated_at.isoformat(),
+                    "timestamp_source": timestamp_source,
+                    "raw_generated_at": raw_generated_at,
+                    "age_hours": round(age_hours, 2),
+                    "max_age_hours": max_age_hours,
+                }
+            )
+    return not rows, rows
+
+
 def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
     ready = {
         str(provider or "").strip().lower()
@@ -174,6 +242,8 @@ def build_gold_status_receipt(
     repair_canary_receipt_path: Path,
     provider_matrix_receipt_path: Path,
     live_mobile_receipt_path: Path | None = None,
+    max_receipt_age_hours: float | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     performance = _load_json(performance_receipt_path)
     live_mobile = _load_json(live_mobile_receipt_path) if live_mobile_receipt_path is not None else {}
@@ -182,6 +252,18 @@ def build_gold_status_receipt(
     import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
+    receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
+        {
+            "performance": performance,
+            "tour_controls": tour_controls,
+            "export_discovery": export_discovery,
+            "repair_canary": repair_canary,
+            "provider_matrix": provider_matrix,
+            **({"live_mobile_surfaces": live_mobile} if live_mobile_receipt_path is not None else {}),
+        },
+        now=now,
+        max_age_hours=max_receipt_age_hours,
+    )
 
     missing_provider_modes = _missing_provider_modes(tour_controls)
     provider_matrix_summary = dict(provider_matrix.get("targeted_search_matrix_summary") or {})
@@ -350,6 +432,16 @@ def build_gold_status_receipt(
                 "action": "run property_live_provider_smoke.py for all search-ready countries with --execute-search-matrix so every provider has strict and soft-filter targeted search evidence",
             }
         )
+    if not receipt_freshness_ok:
+        blockers.append(
+            {
+                "area": "receipt_freshness",
+                "status": "stale_or_missing",
+                "max_age_hours": max_receipt_age_hours,
+                "stale_receipts": stale_receipts,
+                "action": "rerun the stale live smoke, tour, repair, provider, or discovery verifiers before claiming gold",
+            }
+        )
 
     next_required_actions = list(tour_controls.get("next_required_actions") or [])
     if export_discovery.get("status") == "blocked_no_verified_exports":
@@ -371,6 +463,7 @@ def build_gold_status_receipt(
             and operator_import_manifest_ok
             and repair_canary_ok
             and provider_matrix_ok
+            and receipt_freshness_ok
         )
         else "blocked"
     )
@@ -447,6 +540,11 @@ def build_gold_status_receipt(
             "target_context_country_scope_ok": provider_matrix_target_context_ok,
             "receipt_path": str(provider_matrix_receipt_path),
         },
+        "receipt_freshness": {
+            "status": "pass" if receipt_freshness_ok else "fail",
+            "max_age_hours": max_receipt_age_hours,
+            "stale_receipts": stale_receipts,
+        },
         "blockers": blockers,
         "next_required_actions": next_required_actions,
         "notes": [
@@ -468,6 +566,7 @@ def main() -> int:
     parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
     parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-current-resumed.json")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
+    parser.add_argument("--max-receipt-age-hours", type=float, default=24.0)
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
 
@@ -479,6 +578,7 @@ def main() -> int:
         import_manifest_receipt_path=Path(args.import_manifest_receipt),
         repair_canary_receipt_path=Path(args.repair_canary_receipt),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt),
+        max_receipt_age_hours=args.max_receipt_age_hours,
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:

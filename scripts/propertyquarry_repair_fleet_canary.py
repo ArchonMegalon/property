@@ -117,6 +117,7 @@ def main() -> int:
         and str(source.get("repair_status") or "") == "returned"
     )
     output = {
+        "generated_at": property_service._now_iso(),
         "status": "pass" if ok else "failed",
         "principal_id": principal_id,
         "run_id": run_id,

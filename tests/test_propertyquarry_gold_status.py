@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from scripts.propertyquarry_gold_status import build_gold_status_receipt
@@ -251,6 +252,116 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["performance"]["research_detail_checks_ok"] is True
     assert receipt["performance"]["missing_research_detail_checks"] == []
     assert receipt["blockers"] == []
+
+
+def test_gold_status_blocks_when_receipts_are_stale_even_if_checks_pass(tmp_path: Path) -> None:
+    now = datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc)
+    fresh_generated_at = (now - timedelta(minutes=10)).isoformat()
+    stale_generated_at = (now - timedelta(hours=3)).isoformat()
+    performance_payload = _performance_payload()
+    performance_payload["generated_at"] = fresh_generated_at
+    provider_matrix_payload = _provider_matrix_payload()
+    provider_matrix_payload["generated_at"] = fresh_generated_at
+    performance = _write_json(tmp_path / "performance.json", performance_payload)
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "generated_at": stale_generated_at,
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"generated_at": fresh_generated_at, "status": "ready", "import_count": 2, "rejected_count": 0},
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "generated_at": fresh_generated_at,
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", provider_matrix_payload)
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["receipt_freshness"]["status"] == "fail"
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "receipt_freshness")
+    assert blocker["stale_receipts"] == [
+        {
+            "area": "tour_controls",
+            "status": "stale",
+            "generated_at": stale_generated_at,
+            "timestamp_source": "generated_at",
+            "raw_generated_at": stale_generated_at,
+            "age_hours": 3.0,
+            "max_age_hours": 1,
+        }
+    ]
+
+
+def test_gold_status_accepts_repair_summary_timestamp_for_freshness(tmp_path: Path) -> None:
+    now = datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc)
+    fresh_generated_at = (now - timedelta(minutes=10)).isoformat()
+    performance_payload = _performance_payload()
+    performance_payload["generated_at"] = fresh_generated_at
+    provider_matrix_payload = _provider_matrix_payload()
+    provider_matrix_payload["generated_at"] = fresh_generated_at
+    performance = _write_json(tmp_path / "performance.json", performance_payload)
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "generated_at": fresh_generated_at,
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"generated_at": fresh_generated_at, "status": "ready", "import_count": 2, "rejected_count": 0},
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+            "repair_summary": {"generated_at": fresh_generated_at},
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", provider_matrix_payload)
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["receipt_freshness"]["status"] == "pass"
+    assert receipt["receipt_freshness"]["stale_receipts"] == []
 
 
 def test_gold_status_blocks_when_repair_canary_is_missing_or_failed(tmp_path: Path) -> None:
