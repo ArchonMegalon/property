@@ -764,18 +764,13 @@ def settings_usage_detail(
         surface="settings_usage",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
-    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
-    usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
-    analytics = dict(diagnostics.get("analytics") or {})
-    reliability = dict(analytics.get("reliability") or {})
-    billing = dict(diagnostics.get("billing") or {})
-    operators = dict(diagnostics.get("operators") or {})
-    readiness = dict(diagnostics.get("readiness") or {})
-    queue_health = dict(diagnostics.get("queue_health") or {})
-    providers = dict(diagnostics.get("providers") or {})
-    counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
     if is_property_brand:
         property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        property_billing, property_commercial = _property_settings_commercial(status)
+        current_plan = (
+            str(property_commercial.get("current_plan_key") or property_commercial.get("active_plan_key") or "").strip()
+            or str(property_billing.get("current_plan_key") or property_billing.get("active_plan_key") or "free").strip()
+        )
         return _render_console_object_detail(
             request=request,
             context=context,
@@ -838,8 +833,8 @@ def settings_usage_detail(
                     "items": [
                         _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
                         _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
-                        _object_detail_row("Support opened", str(counts.get("support_bundle_opened") or 0), "Support"),
-                        _object_detail_row("Current plan", str(billing.get("current_plan_key") or "free").replace("_", " ").title(), "Plan"),
+                        _object_detail_row("Support", "Available from settings", "Support", href="/app/settings/support"),
+                        _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan"),
                     ],
                 },
                 {
@@ -849,12 +844,21 @@ def settings_usage_detail(
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
                         _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
                         _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
-                        _object_detail_row("Source status", str(providers.get("risk_state") or "unknown"), "Sources"),
-                        _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Delivery"),
+                        _object_detail_row("Source status", "Derived from recent runs", "Sources"),
+                        _object_detail_row("Delivery reliability", "Account notifications", "Delivery", href="/app/settings/google"),
                     ],
                 },
             ],
         )
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+    usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
+    analytics = dict(diagnostics.get("analytics") or {})
+    reliability = dict(analytics.get("reliability") or {})
+    billing = dict(diagnostics.get("billing") or {})
+    operators = dict(diagnostics.get("operators") or {})
+    readiness = dict(diagnostics.get("readiness") or {})
+    queue_health = dict(diagnostics.get("queue_health") or {})
+    providers = dict(diagnostics.get("providers") or {})
     return _render_console_object_detail(
         request=request,
         context=context,
