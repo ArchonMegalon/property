@@ -472,8 +472,6 @@ def build_property_tour_control_receipt(
         controls = _control_candidates(slug=slug, bundle_dir=bundle_dir, payload=payload)
         for control in controls:
             provider = str(control.get("provider") or "").strip().lower()
-            if provider in provider_counts:
-                provider_counts[provider] += 1
             if live_probe and base_url and control.get("control_path"):
                 probe_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", str(control["control_path"]).lstrip("/"))
                 probe = _probe_url(
@@ -487,6 +485,8 @@ def build_property_tour_control_receipt(
                 if int(probe.get("http_status") or 0) != 200 or playback_failed:
                     control["status"] = "probe_failed"
                     failed_probes += 1
+            if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
+                provider_counts[provider] += 1
         missing_evidence = _provider_missing_evidence(bundle_dir, payload)
         for row in missing_evidence:
             provider = str(row.get("provider") or "").strip().lower()

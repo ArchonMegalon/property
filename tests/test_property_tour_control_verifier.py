@@ -244,6 +244,35 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     assert all("matterport.com/show" not in json.dumps(tour) for tour in receipt["tours"])
 
 
+def test_property_tour_control_verifier_does_not_count_failed_live_probe_as_ready(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _write_tour(
+        tmp_path,
+        "3dvista-tour",
+        {"three_d_vista_entry_relpath": "3dvista/index.html"},
+        {"3dvista/index.html": "<html><script src='tdvplayer.js'></script><div>tourviewer</div></html>"},
+    )
+
+    def _failed_probe(*_args, **_kwargs) -> dict[str, object]:
+        return {"http_status": 503, "error": "unavailable"}
+
+    monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _failed_probe)
+
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path,
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+    )
+
+    assert receipt["status"] == "fail"
+    assert receipt["provider_counts"]["3dvista"] == 0
+    assert "3dvista" not in receipt["ready_provider_modes"]
+    assert "3dvista" in receipt["missing_provider_modes"]
+    assert receipt["tours"][0]["controls"][0]["status"] == "probe_failed"
+
+
 def test_property_tour_control_verifier_rejects_magicfit_placeholder_video(tmp_path: Path) -> None:
     _write_tour(
         tmp_path,
