@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from app.api.routes.public_tours import _tour_control_external_iframe_html
 from scripts.verify_property_tour_controls import _receipt_summary, build_property_tour_control_receipt, main
 
 
@@ -54,6 +55,45 @@ def _write_playable_mp4(path: Path) -> None:
 def _write_equirectangular_image(path: Path) -> None:
     image = Image.new("RGB", (2048, 1024), color=(28, 42, 36))
     image.save(path, format="JPEG")
+
+
+def test_public_tour_control_labels_manual_video_as_video_evidence_not_walkthrough() -> None:
+    html_body = _tour_control_external_iframe_html(
+        title="Manual media loft",
+        iframe_src="https://my.matterport.com/show/?m=abc123",
+        badge="Matterport Control",
+        payload={
+            "slug": "manual-media-loft",
+            "video_provider": "manual_upload",
+            "video_relpath": "tour.mp4",
+            "scenes": [{"name": "Living room", "asset_relpath": "living.jpg", "role": "photo"}],
+        },
+    )
+
+    assert 'data-video-provider="manual_upload"' in html_body
+    assert 'data-provider-backed-walkthrough="false"' in html_body
+    assert "Video evidence" in html_body
+    assert "MagicFit walkthrough" not in html_body
+    assert '<div class="card-label">Walkthrough</div>' not in html_body
+
+
+def test_public_tour_control_labels_magicfit_video_as_magicfit_walkthrough() -> None:
+    html_body = _tour_control_external_iframe_html(
+        title="MagicFit loft",
+        iframe_src="https://propertyquarry.com/tours/files/magicfit-loft/matterport.html",
+        badge="Matterport Control",
+        payload={
+            "slug": "magicfit-loft",
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "scenes": [{"name": "Living room", "asset_relpath": "living.jpg", "role": "photo"}],
+        },
+    )
+
+    assert 'data-video-provider="magicfit"' in html_body
+    assert 'data-provider-backed-walkthrough="true"' in html_body
+    assert "MagicFit walkthrough" in html_body
+    assert "Video evidence" not in html_body
 
 
 def test_property_tour_control_verifier_accepts_private_receipt_matterport_without_url_leak(tmp_path: Path) -> None:

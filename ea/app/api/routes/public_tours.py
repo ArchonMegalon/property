@@ -4922,6 +4922,15 @@ def _tour_control_media_context(payload: dict[str, object]) -> tuple[list[dict[s
     return scene_data, video_url, video_mime_type
 
 
+def _tour_control_video_provider(payload: dict[str, object]) -> str:
+    return str(
+        payload.get("video_provider")
+        or payload.get("video_provider_key")
+        or payload.get("video_render_provider")
+        or ""
+    ).strip().lower()
+
+
 def _tour_control_external_iframe_html(
     *,
     title: str,
@@ -4929,14 +4938,20 @@ def _tour_control_external_iframe_html(
     badge: str,
     payload: dict[str, object] | None = None,
 ) -> str:
-    scene_data, video_url, video_mime_type = _tour_control_media_context(payload or {})
+    payload = payload or {}
+    scene_data, video_url, video_mime_type = _tour_control_media_context(payload)
     if scene_data or video_url:
         data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
         first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
         provider_badge = html.escape(badge)
+        video_provider = _tour_control_video_provider(payload)
+        video_is_magicfit = video_provider == "magicfit"
+        video_label = "MagicFit walkthrough" if video_is_magicfit else "Video evidence"
+        video_provider_attr = html.escape(video_provider or "attached_media")
+        video_walkthrough_attr = "true" if video_is_magicfit else "false"
         video_html = (
-            f"""<div class="video-card">
-              <div class="card-label">Walkthrough</div>
+            f"""<div class="video-card" data-video-provider="{video_provider_attr}" data-provider-backed-walkthrough="{video_walkthrough_attr}">
+              <div class="card-label">{html.escape(video_label)}</div>
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(first_scene.get("image_url", ""))}">
                 <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
               </video>
