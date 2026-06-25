@@ -3057,6 +3057,33 @@ def test_property_provider_options_expose_homepage_links() -> None:
     assert community_signals["availability_note"] == "Coming soon"
 
 
+def test_propertyquarry_search_surface_removes_cross_country_saved_providers() -> None:
+    client = build_property_client(principal_id="pq-search-provider-country-gate")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Provider Country Gate")
+
+    saved = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "listing_mode": "rent",
+            "location_query": "1010 Vienna",
+            "selected_platforms": ["realestate_au", "willhaben"],
+        },
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = client.get("/app/search", headers=headers)
+
+    assert response.status_code == 200
+    assert 'value="willhaben"' in response.text
+    assert 'value="realestate_au"' not in response.text
+    assert '"selected_platforms": ["realestate_au"' not in response.text
+    assert '"selected_platforms": ["willhaben"]' in response.text
+
+
 def test_property_surface_state_normalizes_search_run_snapshot() -> None:
     snapshot = property_surface_state.normalize_property_search_run_snapshot(
         {

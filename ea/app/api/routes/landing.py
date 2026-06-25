@@ -121,6 +121,7 @@ from app.services.property_market_catalog import (
     default_platforms_for_country_listing_mode,
     default_platforms_for_country,
     evidence_source_options as property_evidence_source_options,
+    filter_selectable_property_platforms as property_filter_selectable_property_platforms,
     investment_strategy_label as property_investment_strategy_label,
     investment_strategy_options as property_investment_strategy_options,
     language_label as property_language_label,
@@ -130,6 +131,7 @@ from app.services.property_market_catalog import (
     investment_research_mode_label as property_investment_research_mode_label,
     investment_research_mode_options as property_investment_research_mode_options,
     normalize_country_code,
+    normalize_listing_mode,
     normalize_property_search_preferences,
     property_type_label as property_type_label_for_value,
     property_type_options as property_type_options_catalog,
@@ -1731,6 +1733,14 @@ def _property_console_context(
         for value in (preferences.get("selected_platforms") or [])
         if str(value or "").strip()
     }
+    selected_platforms = set(
+        property_filter_selectable_property_platforms(
+            selected_platforms,
+            country_code=selected_country,
+            listing_mode=normalize_listing_mode(preferences.get("listing_mode")),
+            include_distressed_sale_signals=preferences.get("include_distressed_sale_signals"),
+        )[0]
+    )
     if not selected_platforms:
         selected_platforms = set(
             default_platforms_for_country_listing_mode(
@@ -1861,6 +1871,14 @@ def _property_console_context(
                 for value in (preferences.get("selected_platforms") or [])
                 if str(value or "").strip()
             }
+            selected_platforms = set(
+                property_filter_selectable_property_platforms(
+                    selected_platforms,
+                    country_code=selected_country,
+                    listing_mode=normalize_listing_mode(preferences.get("listing_mode")),
+                    include_distressed_sale_signals=preferences.get("include_distressed_sale_signals"),
+                )[0]
+            )
             if not selected_platforms:
                 selected_platforms = set(
                     default_platforms_for_country_listing_mode(
