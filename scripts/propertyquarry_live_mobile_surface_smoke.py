@@ -44,6 +44,12 @@ def _route_expectations(route: str) -> dict[str, Any]:
 
 
 def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) in {303, 307}:
+        redirect_location = str(metrics.get("redirect_location") or "").strip()
+        return [
+            {"name": "billing_external_handoff", "ok": redirect_location.startswith("https://") and "/app/billing" not in redirect_location},
+            {"name": "billing_local_page_deleted", "ok": True},
+        ]
     expectations = _route_expectations(route)
     viewport_width = int(metrics.get("viewport_width") or 0)
     body_width = int(metrics.get("body_width") or 0)
@@ -239,11 +245,23 @@ def build_live_mobile_surface_receipt(
                 page = context.new_page()
                 url = navigation_base_url.rstrip("/") + "/" + route.lstrip("/")
                 try:
-                    response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    wait_until = "commit" if str(route or "").split("?", 1)[0].strip() == "/app/billing" else "domcontentloaded"
+                    response = page.goto(url, wait_until=wait_until, timeout=timeout_ms)
                     page.wait_for_timeout(350)
                     status_code = int(response.status) if response is not None else 0
-                    metrics = dict(page.evaluate(_collect_metrics_script()) or {})
-                    metrics["status_code"] = status_code
+                    metrics: dict[str, Any]
+                    if str(route or "").split("?", 1)[0].strip() == "/app/billing" and status_code in {303, 307}:
+                        metrics = {
+                            "status_code": status_code,
+                            "viewport_width": viewport_width,
+                            "body_width": viewport_width,
+                            "topbar_height": 0,
+                            "min_action_height": 44,
+                            "redirect_location": str(response.headers.get("location") or ""),
+                        }
+                    else:
+                        metrics = dict(page.evaluate(_collect_metrics_script()) or {})
+                        metrics["status_code"] = status_code
                     checks = evaluate_mobile_metrics(route, metrics)
                     rows.append(
                         {

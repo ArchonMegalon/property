@@ -47,6 +47,20 @@ def test_live_mobile_smoke_accepts_empty_shortlist_without_mode_dock() -> None:
     assert _failed_names("/app/shortlist", metrics) == set()
 
 
+def test_live_mobile_smoke_accepts_external_billing_handoff() -> None:
+    metrics = _base_metrics()
+    metrics.update({"status_code": 303, "redirect_location": "https://billing.propertyquarry.com/account"})
+
+    assert _failed_names("/app/billing", metrics) == set()
+
+
+def test_live_mobile_smoke_rejects_local_billing_redirect_loop() -> None:
+    metrics = _base_metrics()
+    metrics.update({"status_code": 303, "redirect_location": "/app/billing"})
+
+    assert _failed_names("/app/billing", metrics) == {"billing_external_handoff"}
+
+
 def test_live_mobile_smoke_accepts_research_and_packets_surfaces_without_search_controls() -> None:
     metrics = _base_metrics()
     metrics.update(
