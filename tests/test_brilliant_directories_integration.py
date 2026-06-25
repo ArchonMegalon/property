@@ -1364,3 +1364,45 @@ def test_brilliant_directories_script_writes_disabled_receipt(monkeypatch: pytes
     assert payload["live_network_called"] is False
     assert payload["verified_capabilities"]["form_encoded_request_contract"] is True
     assert payload["verified_capabilities"]["private_provider_contact_fields_stripped"] is True
+    dns_handoff = out_path.with_name("BRILLIANT_DIRECTORIES_BILLING_DNS_HANDOFF.md")
+    assert dns_handoff.is_file()
+    dns_body = dns_handoff.read_text(encoding="utf-8")
+    assert "PropertyQuarry Billing DNS Handoff" in dns_body
+    assert "Gold remains blocked until the Brilliant Directories billing handoff host resolves." in dns_body
+
+
+def test_brilliant_directories_script_writes_billing_dns_handoff_for_unresolved_host(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR", str(tmp_path))
+
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "verify_brilliant_directories_provider.py")],
+        cwd=ROOT,
+        env={
+            **dict(os.environ),
+            "PYTHONPATH": str(ROOT / "ea"),
+            "PROPERTYQUARRY_SKIP_DOTENV": "1",
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS": "billing.propertyquarry.com",
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL": "https://billing.propertyquarry.com/account",
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET": "members.brilliantdirectories.com",
+        },
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    out_path = Path(completed.stdout.strip())
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    dns_body = out_path.with_name("BRILLIANT_DIRECTORIES_BILLING_DNS_HANDOFF.md").read_text(encoding="utf-8")
+    assert payload["status"] == "blocked"
+    assert "- Host: `billing.propertyquarry.com`" in dns_body
+    assert "- URL: `https://billing.propertyquarry.com/account`" in dns_body
+    assert "- Resolves now: `no`" in dns_body
+    assert "- Required DNS record type: `CNAME`" in dns_body
+    assert "- Required DNS target: `members.brilliantdirectories.com`" in dns_body
+    assert "Do not enable `/app/billing` as an external redirect until this host resolves over HTTPS." in dns_body

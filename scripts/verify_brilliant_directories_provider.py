@@ -16,6 +16,35 @@ for candidate in (ROOT, EA_ROOT):
 from app.services.brilliant_directories import build_brilliant_directories_verification_receipt  # noqa: E402
 
 
+def _billing_dns_handoff_markdown(payload: dict[str, object]) -> str:
+    handoff = payload.get("billing_handoff") if isinstance(payload.get("billing_handoff"), dict) else {}
+    record = handoff.get("required_dns_record") if isinstance(handoff.get("required_dns_record"), dict) else {}
+    host = str(handoff.get("host") or record.get("name") or "billing.propertyquarry.com").strip()
+    url = str(handoff.get("url") or "").strip()
+    record_type = str(record.get("type") or "CNAME or A/AAAA").strip()
+    target = str(record.get("target") or "the Brilliant Directories white-label billing host assigned to this account").strip()
+    next_action = str(handoff.get("next_action") or f"create DNS for {host} before enabling the Brilliant Directories billing handoff").strip()
+    host_resolves = "yes" if handoff.get("host_resolves") is True else "no"
+    return "\n".join(
+        [
+            "# PropertyQuarry Billing DNS Handoff",
+            "",
+            "Gold remains blocked until the Brilliant Directories billing handoff host resolves.",
+            "",
+            f"- Host: `{host}`",
+            f"- URL: `{url or 'not configured'}`",
+            f"- Resolves now: `{host_resolves}`",
+            f"- Required DNS record type: `{record_type}`",
+            f"- Required DNS target: `{target}`",
+            f"- Next action: {next_action}",
+            "",
+            "Do not enable `/app/billing` as an external redirect until this host resolves over HTTPS.",
+            "PropertyQuarry must remain the source of truth for entitlements; Brilliant Directories billing events stay advisory until reconciled.",
+            "",
+        ]
+    )
+
+
 def _load_dotenv_defaults(path: Path) -> None:
     if os.getenv("PROPERTYQUARRY_SKIP_DOTENV"):
         return
@@ -42,6 +71,10 @@ def main() -> int:
     out_path = out_dir / "BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json"
     payload = build_brilliant_directories_verification_receipt()
     out_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out_dir / "BRILLIANT_DIRECTORIES_BILLING_DNS_HANDOFF.md").write_text(
+        _billing_dns_handoff_markdown(payload),
+        encoding="utf-8",
+    )
     print(out_path)
     return 0 if payload.get("status") in {"disabled", "dry_verified_configured"} else 1
 
