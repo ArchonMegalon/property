@@ -684,6 +684,89 @@ def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path
     assert any(row["provider"] == "magicfit" and row["video"].endswith("magicfit-walkthrough.mp4") for row in manifest["imports"])
 
 
+def test_tour_export_discovery_emits_explicit_krpano_cube_faces(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "discover-krpano-cube")
+    drop_dir = tmp_path / "drop"
+    krpano_assets = drop_dir / "discover-krpano-cube" / "krpano"
+    krpano_assets.mkdir(parents=True)
+    for index in range(1, 7):
+        _write_square_image(krpano_assets / f"cube-face-{index}.jpg")
+    receipt_path = tmp_path / "discovery.json"
+    manifest_path = tmp_path / "imports.json"
+
+    discovered = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "discover_property_tour_exports.py"),
+            "--drop-dir",
+            str(drop_dir),
+            "--public-tour-dir",
+            str(public_root),
+            "--write",
+            str(receipt_path),
+            "--manifest-write",
+            str(manifest_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert discovered.returncode == 0, discovered.stderr
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    row = manifest["imports"][0]
+    assert row["provider"] == "krpano"
+    assert "panorama" not in row
+    assert {row[f"cube_face_{index}"].rsplit("/", 1)[-1] for index in range(1, 7)} == {
+        f"cube-face-{index}.jpg" for index in range(1, 7)
+    }
+
+
+def test_tour_export_discovery_rejects_magicfit_receipt_mismatch_before_import(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "discover-magicfit")
+    drop_dir = tmp_path / "drop"
+    magicfit_assets = drop_dir / "discover-magicfit" / "magicfit"
+    magicfit_assets.mkdir(parents=True)
+    magicfit_video = magicfit_assets / "magicfit-walkthrough.mp4"
+    _write_playable_mp4(magicfit_video)
+    (magicfit_assets / "magicfit-receipt.json").write_text(
+        json.dumps({"provider": "magicfit", "target_slug": "different-tour", "output_file": str(magicfit_video)}),
+        encoding="utf-8",
+    )
+    receipt_path = tmp_path / "discovery.json"
+
+    discovered = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "discover_property_tour_exports.py"),
+            "--drop-dir",
+            str(drop_dir),
+            "--public-tour-dir",
+            str(public_root),
+            "--write",
+            str(receipt_path),
+            "--fail-on-blocked",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert discovered.returncode == 2
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected"] == [
+        {"slug": "discover-magicfit", "provider": "magicfit", "reason": "magicfit_receipt_target_mismatch"}
+    ]
+
+
 def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(tmp_path: Path) -> None:
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "placeholder-tour")

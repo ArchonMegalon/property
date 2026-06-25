@@ -159,6 +159,41 @@ def _discover_receipt(asset_dir: Path) -> Path | None:
     return matches[0] if matches else None
 
 
+def _receipt_target_matches_slug(payload: dict[str, object], *, slug: str) -> bool:
+    expected = str(slug or "").strip()
+    if not expected:
+        return False
+    for key in ("target_slug", "tour_slug", "property_slug", "slug"):
+        if str(payload.get(key) or "").strip() == expected:
+            return True
+    for key in ("property_url", "tour_url", "hosted_url", "public_url"):
+        value = str(payload.get(key) or "").strip().rstrip("/")
+        if value and value.rsplit("/", 1)[-1] == expected:
+            return True
+    return False
+
+
+def _magicfit_receipt_rejection_reason(receipt: Path, *, video: Path, slug: str) -> str:
+    try:
+        payload = json.loads(receipt.read_text(encoding="utf-8"))
+    except Exception:
+        return "magicfit_receipt_invalid"
+    if not isinstance(payload, dict):
+        return "magicfit_receipt_invalid"
+    if str(payload.get("provider") or "").strip().lower() != "magicfit":
+        return "magicfit_receipt_provider_mismatch"
+    output_file = str(payload.get("output_file") or "").strip()
+    if output_file:
+        try:
+            if Path(output_file).expanduser().resolve() != video.resolve():
+                return "magicfit_receipt_output_mismatch"
+        except OSError:
+            return "magicfit_receipt_output_invalid"
+    if not _receipt_target_matches_slug(payload, slug=slug):
+        return "magicfit_receipt_target_mismatch"
+    return ""
+
+
 def _video_has_playable_stream(path: Path) -> bool:
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         return False
@@ -275,6 +310,9 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
             }
             if panorama is not None:
                 row["panorama"] = str(panorama)
+            elif len(cube_faces) == 6:
+                for index, face in enumerate(cube_faces, start=1):
+                    row[f"cube_face_{index}"] = str(face)
             imports.append(row)
             continue
         if provider == "magicfit":
@@ -288,6 +326,10 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
                 continue
             if receipt is None:
                 rejected.append({"slug": slug, "provider": provider, "reason": "magicfit_receipt_missing"})
+                continue
+            receipt_rejection_reason = _magicfit_receipt_rejection_reason(receipt, video=video, slug=slug)
+            if receipt_rejection_reason:
+                rejected.append({"slug": slug, "provider": provider, "reason": receipt_rejection_reason})
                 continue
             imports.append(
                 {
