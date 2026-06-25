@@ -158,7 +158,9 @@ def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     assert "scripts/propertyquarry_live_mobile_surface_smoke.py" in release_gate
     assert "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL" in release_gate
     assert "PROPERTYQUARRY_LIVE_SMOKE_BASE_URL" in release_gate
+    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE" in release_gate
     assert "EA_API_TOKEN" in release_gate
+    assert "--require-research-detail" in release_gate
     assert "_completion/smoke/property-live-mobile-release-gate.json" in release_gate
     assert "--live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate

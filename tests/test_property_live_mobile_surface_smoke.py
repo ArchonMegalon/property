@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from scripts.propertyquarry_live_mobile_surface_smoke import DEFAULT_ROUTES, evaluate_mobile_metrics
+from scripts.propertyquarry_live_mobile_surface_smoke import (
+    DEFAULT_ROUTES,
+    build_mobile_coverage_checks,
+    evaluate_mobile_metrics,
+    route_is_research_detail,
+)
 
 
 def _base_metrics() -> dict[str, object]:
@@ -107,6 +112,27 @@ def test_live_mobile_smoke_default_routes_cover_settings_surfaces() -> None:
         "/app/settings/trust",
         "/app/settings/invitations",
     }.issubset(set(DEFAULT_ROUTES))
+
+
+def test_live_mobile_smoke_can_require_current_research_detail_route() -> None:
+    assert route_is_research_detail("/app/research") is False
+    assert route_is_research_detail("/app/research/current-result?run_id=run-gold") is True
+
+    missing = build_mobile_coverage_checks(DEFAULT_ROUTES, require_research_detail=True)
+    assert missing == [
+        {
+            "name": "research_detail_route_configured",
+            "ok": False,
+            "required_route_prefix": "/app/research/",
+            "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+        }
+    ]
+
+    covered = build_mobile_coverage_checks(
+        (*DEFAULT_ROUTES, "/app/research/current-result?run_id=run-gold"),
+        require_research_detail=True,
+    )
+    assert covered[0]["ok"] is True
 
 
 def test_live_mobile_smoke_rejects_horizontal_overflow_and_noisy_chrome() -> None:

@@ -37,7 +37,7 @@ Runs the focused PropertyQuarry release bundle:
   - live provider smoke receipt contracts
   - hosted tour control readiness receipts for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
   - consolidated PropertyQuarry gold-status receipt for mobile/performance, provider matrix, tour controls, repair, and export discovery
-  - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack
+  - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
   - privacy-safe Rybbit analytics snippet contracts
@@ -98,9 +98,14 @@ if [[ -z "${EA_API_TOKEN:-}" ]]; then
   echo "error: set EA_API_TOKEN before running the live mobile gold release gate" >&2
   exit 2
 fi
+if [[ -z "${PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE:-}" ]]; then
+  echo "error: set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE to a current /app/research/{id}?run_id=... before running the gold release gate" >&2
+  exit 2
+fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${live_mobile_base_url}" \
   --api-token "${EA_API_TOKEN}" \
+  --require-research-detail \
   --write _completion/smoke/property-live-mobile-release-gate.json \
   > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \

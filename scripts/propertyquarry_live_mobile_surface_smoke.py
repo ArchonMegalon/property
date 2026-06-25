@@ -32,6 +32,35 @@ def _env(name: str, default: str = "") -> str:
     return str(os.environ.get(name) or default).strip()
 
 
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw = _env(name).lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+def route_is_research_detail(route: str) -> bool:
+    route_path = str(route or "").split("?", 1)[0].strip().rstrip("/")
+    return route_path.startswith("/app/research/") and route_path != "/app/research"
+
+
+def build_mobile_coverage_checks(
+    routes: tuple[str, ...],
+    *,
+    require_research_detail: bool = False,
+) -> list[dict[str, Any]]:
+    if not require_research_detail:
+        return []
+    return [
+        {
+            "name": "research_detail_route_configured",
+            "ok": any(route_is_research_detail(route) for route in routes),
+            "required_route_prefix": "/app/research/",
+            "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+        }
+    ]
+
+
 def _route_expectations(route: str) -> dict[str, Any]:
     route_path = str(route or "").split("?", 1)[0].strip()
     if route == "/app/search":
@@ -195,6 +224,7 @@ def build_live_mobile_surface_receipt(
     principal_id: str,
     host_header: str = "",
     routes: tuple[str, ...] = DEFAULT_ROUTES,
+    require_research_detail: bool = False,
     viewport_width: int = 390,
     viewport_height: int = 844,
     timeout_ms: int = 20_000,
@@ -333,8 +363,10 @@ def build_live_mobile_surface_receipt(
         finally:
             browser.close()
     failed = [row for row in rows if not row.get("ok")]
+    coverage_checks = build_mobile_coverage_checks(routes, require_research_detail=require_research_detail)
+    failed_coverage = [row for row in coverage_checks if not row.get("ok")]
     return {
-        "status": "pass" if not failed else "fail",
+        "status": "pass" if not failed and not failed_coverage else "fail",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
         "host_header": host_header,
@@ -342,7 +374,8 @@ def build_live_mobile_surface_receipt(
         "principal_id": principal_id,
         "viewport": {"width": viewport_width, "height": viewport_height},
         "route_count": len(rows),
-        "failed_count": len(failed),
+        "failed_count": len(failed) + len(failed_coverage),
+        "coverage_checks": coverage_checks,
         "routes": rows,
         "notes": [
             "Live mobile smoke checks deployed HTML geometry only; it does not call listing providers.",
@@ -360,6 +393,12 @@ def main() -> int:
     configured_research_detail = _env("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE")
     default_routes = (*DEFAULT_ROUTES, configured_research_detail) if configured_research_detail else DEFAULT_ROUTES
     parser.add_argument("--routes", default=",".join(default_routes))
+    parser.add_argument(
+        "--require-research-detail",
+        action="store_true",
+        default=_env_flag("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_REQUIRED"),
+        help="Fail unless routes include a current /app/research/{id} detail URL.",
+    )
     parser.add_argument("--viewport", default="390x844")
     parser.add_argument("--write", default="_completion/smoke/property-live-mobile-surface-latest.json")
     args = parser.parse_args()
@@ -374,6 +413,7 @@ def main() -> int:
         principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
         host_header=str(args.host_header or "").strip(),
         routes=routes or DEFAULT_ROUTES,
+        require_research_detail=bool(args.require_research_detail),
         viewport_width=width,
         viewport_height=height,
     )
