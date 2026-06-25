@@ -163,7 +163,7 @@ def test_property_account_and_billing_templates_keep_controls_minimal() -> None:
     assert "pqx-account-logout-strip" in account
     assert 'aria-label="Current session"' in account
     assert ".pqx-account-logout-strip-form .pqx-link-button" in workbench
-    assert "min-height: 56px;" in workbench
+    assert "min-height: 46px;" in workbench
 
     assert "<h2>Plan and payments</h2>" in billing
     assert ">Open</a>" not in billing
@@ -881,7 +881,7 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
     assert "Open flythrough" not in research_detail
     assert "const visualPendingStates = ['pending', 'queued', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing'];" in research_detail
     assert "const isWaiting = visualPendingStates.includes(nextState);" in research_detail
-    assert "button.disabled = isWaiting;" in research_detail
+    assert "button.disabled = isWaiting || isTerminal;" in research_detail
 
 
 def test_propertyquarry_register_surface_uses_property_search_language() -> None:
@@ -2038,6 +2038,12 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert 'name="school_preference__private_kindergarten"' in section_html
     assert 'name="school_preference__ganztags_volksschule"' in section_html
     assert 'name="school_preference__halbtags_volksschule"' in section_html
+    assert 'name="school_distance__kindergarten"' in section_html
+    assert 'name="school_distance__ganztags_volksschule"' in section_html
+    assert 'name="school_distance__halbtags_volksschule"' in section_html
+    assert 'data-distance-field="max_distance_to_kindergarten_m"' in section_html
+    assert 'data-distance-field="max_distance_to_ganztags_volksschule_m"' in section_html
+    assert 'data-distance-field="max_distance_to_halbtags_volksschule_m"' in section_html
     assert "General kindergarten coverage nearby" not in section_html
     assert "Primary school nearby" not in section_html
     assert "Full-day primary school nearby" not in section_html
@@ -2083,6 +2089,11 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in workbench_script_source
     assert "group.dataset.mobileDistanceControlActive = active ? 'true' : 'false';" in brief_script_source
     assert "scrollMobileDistanceRowIntoView(row)" in workbench_script_source
+    assert "syncMobileWhatMattersAccordion" in workbench_script_source
+    assert "initializeMobileWhatMattersAccordion" in workbench_script_source
+    assert "syncSchoolDistanceSelects" in workbench_script_source
+    assert "locationMapPointerDistance" in workbench_script_source
+    assert "locationMapPinching" in workbench_script_source
     assert 'type="checkbox"' not in section_html
     assert 'data-property-advanced-panel="children"' not in html
     assert 'data-property-advanced-panel="location_research"' not in html
@@ -2098,6 +2109,18 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     )
     assert re.search(
         r'data-property-field-name="school_stage_preferences"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
+    assert re.search(
+        r'data-property-field-name="max_distance_to_kindergarten_m"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
+    assert re.search(
+        r'data-property-field-name="max_distance_to_ganztags_volksschule_m"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
+        html,
+    )
+    assert re.search(
+        r'data-property-field-name="max_distance_to_halbtags_volksschule_m"[^>]*data-property-semantic-hidden="true"[^>]*hidden',
         html,
     )
     assert re.search(
@@ -6478,16 +6501,23 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Select Kindergarten to reveal public and private kindergarten options." in setup.text
     assert 'data-checkbox-group-select-all="selected_platforms"' in setup.text
     assert 'class="pqx-step-head-actions"' in setup.text
-    assert 'data-property-start-top' in setup.text
     assert 'data-property-launch-status' in setup.text
     assert 'aria-live="polite"' in setup.text
-    assert setup.text.index('data-property-start-top') < setup.text.index('data-property-step-nav')
+    assert str(setup.url).endswith("/app/search")
+    assert 'data-property-start-top' in setup.text
+    assert ">Launch search</button>" in setup.text
+    search_setup = client.get("/app/search", headers=headers)
+    assert search_setup.status_code == 200
+    assert 'data-property-start-top' in search_setup.text
+    assert ">Launch search</button>" in search_setup.text
+    assert search_setup.text.index('data-property-start-top') < search_setup.text.index('data-property-step-nav')
     assert 'data-property-step-nav' in setup.text
     template = _read_workbench_bundle()
     assert "padding: 4px 4px 10px;" in template
     assert "padding: 3px 3px 9px;" in template
-    assert "padding: 2px 2px 10px;" in template
     assert "scroll-snap-type: x proximity;" in template
+    assert '.pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel' in template
+    assert 'grid-template-rows: auto minmax(0, 1fr);' in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
     assert "Select providers" in setup.text
@@ -6505,6 +6535,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-field-step="what" data-property-field-name="investment_require_floorplan"' in setup.text
     assert 'name="max_distance_to_library_m"' in setup.text
     assert 'name="max_distance_to_library_importance"' in setup.text
+    assert 'name="max_distance_to_kindergarten_m"' in setup.text
+    assert 'name="max_distance_to_kindergarten_importance"' in setup.text
+    assert 'name="max_distance_to_ganztags_volksschule_m"' in setup.text
+    assert 'name="max_distance_to_ganztags_volksschule_importance"' in setup.text
+    assert 'name="max_distance_to_halbtags_volksschule_m"' in setup.text
+    assert 'name="max_distance_to_halbtags_volksschule_importance"' in setup.text
 
     assert 'name="max_distance_to_playground_importance"' in setup.text
     assert 'name="max_distance_to_supermarket_m"' in setup.text

@@ -418,7 +418,7 @@ def _property_result_title_display(title: object) -> str:
 def _merge_option_catalog(
     base: list[dict[str, str]],
     selected_values: list[str],
-) -> list[dict[str, str]]:
+) -> list[dict[str, object]]:
     values = {str(item.get("value") or "").strip().lower() for item in base if str(item.get("value") or "").strip()}
     merged = list(base)
     for value in selected_values:
@@ -2339,8 +2339,10 @@ def _property_school_preference_options(
     selected_school_stage_preferences: list[str],
     require_school_evidence: bool,
     school_evidence_priority: str,
+    property_preferences: dict[str, object] | None = None,
 ) -> list[dict[str, str]]:
     selected = {str(item or "").strip().lower() for item in selected_school_stage_preferences if str(item or "").strip()}
+    preferences = dict(property_preferences or {})
     evidence_priority = str(school_evidence_priority or "any").strip().lower()
     if require_school_evidence and evidence_priority == "very_important":
         selected_state = "must_have"
@@ -2350,13 +2352,61 @@ def _property_school_preference_options(
         selected_state = "important"
     else:
         selected_state = "nice_to_have"
+    distance_fields = {
+        "kindergarten": "max_distance_to_kindergarten_m",
+        "ganztags_volksschule": "max_distance_to_ganztags_volksschule_m",
+        "halbtags_volksschule": "max_distance_to_halbtags_volksschule_m",
+    }
+    importance_fields = {
+        "kindergarten": "max_distance_to_kindergarten_importance",
+        "ganztags_volksschule": "max_distance_to_ganztags_volksschule_importance",
+        "halbtags_volksschule": "max_distance_to_halbtags_volksschule_importance",
+    }
+    distance_options = [
+        {"value": "100", "label": "100 m"},
+        {"value": "250", "label": "250 m"},
+        {"value": "500", "label": "500 m"},
+        {"value": "1000", "label": "1 km"},
+        {"value": "2000", "label": "2 km"},
+        {"value": "5000", "label": "5 km"},
+    ]
+
+    def school_option(value: str, label: str, detail: str) -> dict[str, object]:
+        state = selected_state if value in selected else "any"
+        option: dict[str, object] = {
+            "value": value,
+            "label": label,
+            "detail": detail,
+            "state": state,
+        }
+        distance_field = distance_fields.get(value)
+        importance_field = importance_fields.get(value)
+        if distance_field and importance_field:
+            raw_distance = preferences.get(distance_field)
+            stored_distance_active = False
+            try:
+                parsed_distance = int(float(raw_distance)) if raw_distance not in (None, "") else 0
+                stored_distance_active = parsed_distance > 0
+                distance_state = str(parsed_distance) if stored_distance_active else "500"
+            except Exception:
+                distance_state = "500"
+            stored_importance = str(preferences.get(importance_field) or "").strip().lower()
+            if state == "any" and stored_importance in {"nice_to_have", "important", "must_have"}:
+                option["state"] = stored_importance
+            elif state == "any" and stored_distance_active:
+                option["state"] = "important"
+            option.update(
+                {
+                    "distance_options": distance_options,
+                    "distance_state": distance_state,
+                    "distance_field": distance_field,
+                    "importance_field": importance_field,
+                }
+            )
+        return option
+
     return [
-        {
-            "value": "kindergarten",
-            "label": "Kindergarten",
-            "detail": "General kindergarten coverage",
-            "state": selected_state if "kindergarten" in selected else "any",
-        },
+        school_option("kindergarten", "Kindergarten", "General kindergarten coverage"),
         {
             "value": "public_kindergarten",
             "label": "Public kindergarten",
@@ -2375,18 +2425,8 @@ def _property_school_preference_options(
             "detail": "Primary school coverage",
             "state": selected_state if "volksschule" in selected else "any",
         },
-        {
-            "value": "ganztags_volksschule",
-            "label": "Ganztagsvolksschule",
-            "detail": "Full-day primary school coverage",
-            "state": selected_state if "ganztags_volksschule" in selected else "any",
-        },
-        {
-            "value": "halbtags_volksschule",
-            "label": "Halbtagsvolksschule",
-            "detail": "Half-day primary school coverage",
-            "state": selected_state if "halbtags_volksschule" in selected else "any",
-        },
+        school_option("ganztags_volksschule", "Ganztagsvolksschule", "Full-day primary school coverage"),
+        school_option("halbtags_volksschule", "Halbtagsvolksschule", "Half-day primary school coverage"),
         {
             "value": "gymnasium",
             "label": "Gymnasium",
@@ -2980,6 +3020,7 @@ def app_section_payload(
         selected_school_stage_preferences=selected_school_stage_preferences,
         require_school_evidence=bool(property_preferences.get("require_school_evidence")),
         school_evidence_priority=str(property_preferences.get("school_evidence_priority") or "any"),
+        property_preferences=property_preferences,
     )
     selected_location_values, custom_location_values = _split_known_and_custom_values(location_options, selected_location_values)
     selected_keyword_values, custom_keyword_values = _split_known_and_custom_values(keyword_options, selected_keyword_values)
@@ -4030,6 +4071,99 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("require_school_evidence")),
                 "tooltip": "Keep school fit tied to official school-evidence rows instead of inferring too much from generic map proximity.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_kindergarten_m",
+                "label": "Kindergarten radius",
+                "value": str(property_preferences.get("max_distance_to_kindergarten_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Distance preference for kindergarten access. Ranking treats missing evidence as a visible gap instead of hiding it.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "select",
+                "name": "max_distance_to_kindergarten_importance",
+                "label": "Kindergarten importance",
+                "value": str(property_preferences.get("max_distance_to_kindergarten_importance") or "important"),
+                "options": [
+                    {"value": "must_have", "label": "Must have"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "nice_to_have", "label": "Nice to have"},
+                ],
+                "tooltip": "Controls how strongly kindergarten distance affects ranking and adaptive radius relaxation.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_ganztags_volksschule_m",
+                "label": "Ganztagsvolksschule radius",
+                "value": str(property_preferences.get("max_distance_to_ganztags_volksschule_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Distance preference for full-day primary school access.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "select",
+                "name": "max_distance_to_ganztags_volksschule_importance",
+                "label": "Ganztagsvolksschule importance",
+                "value": str(property_preferences.get("max_distance_to_ganztags_volksschule_importance") or "important"),
+                "options": [
+                    {"value": "must_have", "label": "Must have"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "nice_to_have", "label": "Nice to have"},
+                ],
+                "tooltip": "Controls how strongly full-day primary school distance affects ranking.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "range",
+                "name": "max_distance_to_halbtags_volksschule_m",
+                "label": "Halbtagsvolksschule radius",
+                "value": str(property_preferences.get("max_distance_to_halbtags_volksschule_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Distance preference for half-day primary school access.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "select",
+                "name": "max_distance_to_halbtags_volksschule_importance",
+                "label": "Halbtagsvolksschule importance",
+                "value": str(property_preferences.get("max_distance_to_halbtags_volksschule_importance") or "important"),
+                "options": [
+                    {"value": "must_have", "label": "Must have"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "nice_to_have", "label": "Nice to have"},
+                ],
+                "tooltip": "Controls how strongly half-day primary school distance affects ranking.",
                 "step": "children",
                 "hidden": True,
             },

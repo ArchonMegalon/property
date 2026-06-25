@@ -8094,28 +8094,31 @@ def _property_distance_preference_score_adjustment(
     payload = dict(preferences or {})
     facts = dict(property_facts or {})
     rows = (
-        ("max_distance_to_supermarket_m", "nearest_supermarket_m", "supermarket"),
-        ("max_distance_to_subway_m", "nearest_subway_m", "underground"),
-        ("max_distance_to_playground_m", "nearest_playground_m", "playground"),
-        ("max_distance_to_market_m", "nearest_market_m", "market"),
-        ("max_distance_to_hardware_store_m", "nearest_hardware_store_m", "Baumarkt"),
-        ("max_distance_to_shopping_center_m", "nearest_shopping_center_m", "shopping center"),
-        ("max_distance_to_shopping_street_m", "nearest_shopping_street_m", "shopping street"),
-        ("max_distance_to_theatre_m", "nearest_theatre_m", "theatre"),
-        ("max_distance_to_public_pool_m", "nearest_public_pool_m", "public pool"),
-        ("max_distance_to_medical_care_m", "nearest_medical_care_m", "medical care"),
-        ("max_distance_to_library_m", "nearest_library_m", "library"),
-        ("max_distance_to_zoo_m", "nearest_zoo_m", "zoo"),
-        ("max_distance_to_starbucks_m", "nearest_starbucks_m", "Starbucks"),
-        ("max_distance_to_fitness_center_m", "nearest_fitness_center_m", "fitness"),
-        ("max_distance_to_cinema_m", "nearest_cinema_m", "cinema"),
-        ("max_distance_to_bouldering_m", "nearest_bouldering_m", "bouldering"),
-        ("max_distance_to_dog_park_m", "nearest_dog_park_m", "dog park"),
-        ("max_distance_to_good_cafe_m", "nearest_good_cafe_m", "good cafe"),
+        ("max_distance_to_supermarket_m", ("nearest_supermarket_m",), "supermarket"),
+        ("max_distance_to_subway_m", ("nearest_subway_m",), "underground"),
+        ("max_distance_to_kindergarten_m", ("nearest_kindergarten_m", "nearest_school_m"), "kindergarten"),
+        ("max_distance_to_ganztags_volksschule_m", ("nearest_full_day_primary_school_m", "nearest_school_m"), "full-day primary school"),
+        ("max_distance_to_halbtags_volksschule_m", ("nearest_half_day_primary_school_m", "nearest_school_m"), "half-day primary school"),
+        ("max_distance_to_playground_m", ("nearest_playground_m",), "playground"),
+        ("max_distance_to_market_m", ("nearest_market_m",), "market"),
+        ("max_distance_to_hardware_store_m", ("nearest_hardware_store_m",), "Baumarkt"),
+        ("max_distance_to_shopping_center_m", ("nearest_shopping_center_m",), "shopping center"),
+        ("max_distance_to_shopping_street_m", ("nearest_shopping_street_m",), "shopping street"),
+        ("max_distance_to_theatre_m", ("nearest_theatre_m",), "theatre"),
+        ("max_distance_to_public_pool_m", ("nearest_public_pool_m",), "public pool"),
+        ("max_distance_to_medical_care_m", ("nearest_medical_care_m",), "medical care"),
+        ("max_distance_to_library_m", ("nearest_library_m",), "library"),
+        ("max_distance_to_zoo_m", ("nearest_zoo_m",), "zoo"),
+        ("max_distance_to_starbucks_m", ("nearest_starbucks_m",), "Starbucks"),
+        ("max_distance_to_fitness_center_m", ("nearest_fitness_center_m",), "fitness"),
+        ("max_distance_to_cinema_m", ("nearest_cinema_m",), "cinema"),
+        ("max_distance_to_bouldering_m", ("nearest_bouldering_m",), "bouldering"),
+        ("max_distance_to_dog_park_m", ("nearest_dog_park_m",), "dog park"),
+        ("max_distance_to_good_cafe_m", ("nearest_good_cafe_m",), "good cafe"),
     )
     adjustment = 0.0
     notes: list[str] = []
-    for preference_key, fact_key, label in rows:
+    for preference_key, fact_keys, label in rows:
         try:
             limit_m = int(payload.get(preference_key) or 0)
         except Exception:
@@ -8125,9 +8128,15 @@ def _property_distance_preference_score_adjustment(
         importance_mode = str(payload.get(preference_key.replace("_m", "_importance")) or "").strip().lower()
         if importance_mode in {"", "any", "neutral", "no_preference", "no-preference"}:
             continue
+        fact_value = None
+        for fact_key in fact_keys:
+            candidate_value = facts.get(fact_key)
+            if candidate_value not in (None, "", 0, 0.0):
+                fact_value = candidate_value
+                break
         if _property_distance_is_avoid_mode(importance_mode):
             try:
-                actual_m = float(facts.get(fact_key) or 0.0)
+                actual_m = float(fact_value or 0.0)
             except Exception:
                 actual_m = 0.0
             if actual_m <= 0.0:
@@ -8141,7 +8150,7 @@ def _property_distance_preference_score_adjustment(
                 notes.append(f"{label} avoided")
             continue
         distance_ok, distance_mode, _actual_m = _property_distance_within_relaxed_radius(
-            actual_m=facts.get(fact_key),
+            actual_m=fact_value,
             requested_limit_m=limit_m,
             relaxation_factor=_property_distance_relaxation_factor(importance_mode),
         )
@@ -8191,6 +8200,12 @@ _PROPERTY_SEARCH_FEEDBACK_PATCH_KEYS: frozenset[str] = frozenset(
         "require_floorplan",
         "require_barrier_free",
         "available_within_years",
+        "max_distance_to_kindergarten_m",
+        "max_distance_to_kindergarten_importance",
+        "max_distance_to_ganztags_volksschule_m",
+        "max_distance_to_ganztags_volksschule_importance",
+        "max_distance_to_halbtags_volksschule_m",
+        "max_distance_to_halbtags_volksschule_importance",
         "max_distance_to_library_m",
         "max_distance_to_library_importance",
         "max_distance_to_zoo_m",
@@ -8237,6 +8252,9 @@ def _property_search_filter_label(filter_key: str) -> str:
         "require_floorplan": "floor plan requirement",
         "require_barrier_free": "barrier-free requirement",
         "available_within_years": "move-in horizon",
+        "max_distance_to_kindergarten_m": "kindergarten radius",
+        "max_distance_to_ganztags_volksschule_m": "full-day primary school radius",
+        "max_distance_to_halbtags_volksschule_m": "half-day primary school radius",
         "max_distance_to_library_m": "library radius",
         "max_distance_to_zoo_m": "zoo radius",
         "max_distance_to_supermarket_m": "supermarket radius",
@@ -8265,6 +8283,9 @@ def _property_search_filter_feedback_alias(filter_key: str) -> str:
         "require_floorplan": "plan",
         "require_barrier_free": "access",
         "available_within_years": "movein",
+        "max_distance_to_kindergarten_m": "kiga",
+        "max_distance_to_ganztags_volksschule_m": "gtsvs",
+        "max_distance_to_halbtags_volksschule_m": "htsvs",
         "max_distance_to_library_m": "lib",
         "max_distance_to_zoo_m": "zoo",
         "max_distance_to_supermarket_m": "super",
@@ -33305,6 +33326,9 @@ class ProductService:
                 request_preferences.pop(numeric_key, None)
         if not enable_family_mode:
             request_preferences.pop("max_distance_to_library_m", None)
+            request_preferences.pop("max_distance_to_kindergarten_m", None)
+            request_preferences.pop("max_distance_to_ganztags_volksschule_m", None)
+            request_preferences.pop("max_distance_to_halbtags_volksschule_m", None)
 
         specs = [
             dict(spec)
@@ -33494,6 +33518,9 @@ class ProductService:
         pending_telegram_notifications: list[dict[str, object]] = []
         seen_listing_urls: set[str] = set()
         discovery_soft_distance_keys = {
+            "max_distance_to_kindergarten_m",
+            "max_distance_to_ganztags_volksschule_m",
+            "max_distance_to_halbtags_volksschule_m",
             "max_distance_to_library_m",
             "max_distance_to_playground_m",
             "max_distance_to_zoo_m",
@@ -34971,26 +34998,30 @@ class ProductService:
                         )
                         continue
                 distance_gate_failed = False
-                for preference_key, fact_key, label, report_step in (
-                    ("max_distance_to_supermarket_m", "nearest_supermarket_m", "supermarket", "source_location_filter"),
-                    ("max_distance_to_subway_m", "nearest_subway_m", "underground", "source_location_filter"),
-                    ("max_distance_to_playground_m", "nearest_playground_m", "playground", "source_family_filter"),
-                    ("max_distance_to_library_m", "nearest_library_m", "library", "source_family_filter"),
-                    ("max_distance_to_zoo_m", "nearest_zoo_m", "zoo", "source_family_filter"),
-                    ("max_distance_to_market_m", "nearest_market_m", "market", "source_location_filter"),
-                    ("max_distance_to_hardware_store_m", "nearest_hardware_store_m", "Baumarkt", "source_location_filter"),
-                    ("max_distance_to_shopping_center_m", "nearest_shopping_center_m", "shopping-center", "source_location_filter"),
-                    ("max_distance_to_shopping_street_m", "nearest_shopping_street_m", "shopping-street", "source_location_filter"),
-                    ("max_distance_to_theatre_m", "nearest_theatre_m", "theatre", "source_location_filter"),
-                    ("max_distance_to_public_pool_m", "nearest_public_pool_m", "public-pool", "source_location_filter"),
-                    ("max_distance_to_medical_care_m", "nearest_medical_care_m", "medical-care", "source_location_filter"),
-                    ("max_distance_to_starbucks_m", "nearest_starbucks_m", "starbucks", "source_lifestyle_filter"),
-                    ("max_distance_to_fitness_center_m", "nearest_fitness_center_m", "fitness", "source_lifestyle_filter"),
-                    ("max_distance_to_cinema_m", "nearest_cinema_m", "cinema", "source_lifestyle_filter"),
-                    ("max_distance_to_bouldering_m", "nearest_bouldering_m", "bouldering", "source_lifestyle_filter"),
-                    ("max_distance_to_dog_park_m", "nearest_dog_park_m", "dog-park", "source_lifestyle_filter"),
-                    ("max_distance_to_good_cafe_m", "nearest_good_cafe_m", "cafe", "source_lifestyle_filter"),
+                for preference_key, fact_keys, label, report_step in (
+                    ("max_distance_to_supermarket_m", ("nearest_supermarket_m",), "supermarket", "source_location_filter"),
+                    ("max_distance_to_subway_m", ("nearest_subway_m",), "underground", "source_location_filter"),
+                    ("max_distance_to_kindergarten_m", ("nearest_kindergarten_m", "nearest_school_m"), "kindergarten", "source_family_filter"),
+                    ("max_distance_to_ganztags_volksschule_m", ("nearest_full_day_primary_school_m", "nearest_school_m"), "full-day primary school", "source_family_filter"),
+                    ("max_distance_to_halbtags_volksschule_m", ("nearest_half_day_primary_school_m", "nearest_school_m"), "half-day primary school", "source_family_filter"),
+                    ("max_distance_to_playground_m", ("nearest_playground_m",), "playground", "source_family_filter"),
+                    ("max_distance_to_library_m", ("nearest_library_m",), "library", "source_family_filter"),
+                    ("max_distance_to_zoo_m", ("nearest_zoo_m",), "zoo", "source_family_filter"),
+                    ("max_distance_to_market_m", ("nearest_market_m",), "market", "source_location_filter"),
+                    ("max_distance_to_hardware_store_m", ("nearest_hardware_store_m",), "Baumarkt", "source_location_filter"),
+                    ("max_distance_to_shopping_center_m", ("nearest_shopping_center_m",), "shopping-center", "source_location_filter"),
+                    ("max_distance_to_shopping_street_m", ("nearest_shopping_street_m",), "shopping-street", "source_location_filter"),
+                    ("max_distance_to_theatre_m", ("nearest_theatre_m",), "theatre", "source_location_filter"),
+                    ("max_distance_to_public_pool_m", ("nearest_public_pool_m",), "public-pool", "source_location_filter"),
+                    ("max_distance_to_medical_care_m", ("nearest_medical_care_m",), "medical-care", "source_location_filter"),
+                    ("max_distance_to_starbucks_m", ("nearest_starbucks_m",), "starbucks", "source_lifestyle_filter"),
+                    ("max_distance_to_fitness_center_m", ("nearest_fitness_center_m",), "fitness", "source_lifestyle_filter"),
+                    ("max_distance_to_cinema_m", ("nearest_cinema_m",), "cinema", "source_lifestyle_filter"),
+                    ("max_distance_to_bouldering_m", ("nearest_bouldering_m",), "bouldering", "source_lifestyle_filter"),
+                    ("max_distance_to_dog_park_m", ("nearest_dog_park_m",), "dog-park", "source_lifestyle_filter"),
+                    ("max_distance_to_good_cafe_m", ("nearest_good_cafe_m",), "cafe", "source_lifestyle_filter"),
                 ):
+                    fact_key = next((key for key in fact_keys if detailed_facts.get(key) not in (None, "", 0, 0.0)), fact_keys[-1])
                     if not _property_apply_distance_gate(
                         detailed_facts,
                         request_preferences=request_preferences,

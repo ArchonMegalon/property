@@ -2662,6 +2662,10 @@
       let locationMapMoved = false;
       let locationMapStartX = 0;
       let locationMapStartY = 0;
+      const locationMapActivePointers = new Map();
+      let locationMapPinchDistance = 0;
+      let locationMapPinchScale = 1;
+      let locationMapPinching = false;
       let locationMapPreviousBodyOverflow = '';
       let locationMapSuppressNextClick = false;
       const setLocationMapDialogOpenState = (open) => {
@@ -2711,6 +2715,11 @@
           button.textContent = boundedScale <= 1.02 ? '1x' : 'Fit';
           button.setAttribute('aria-label', boundedScale <= 1.02 ? 'Zoom map' : 'Reset map zoom');
         });
+      };
+      const locationMapPointerDistance = () => {
+        const points = [...locationMapActivePointers.values()];
+        if (points.length < 2) return 0;
+        return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
       };
       const locationOptionMetaByValue = () => {
         const selectedCountry = String(countryField?.value || 'AT').trim();
@@ -2884,6 +2893,17 @@
       });
       locationMapViewport?.addEventListener('pointerdown', (event) => {
         if (!(event instanceof PointerEvent)) return;
+        if (event.cancelable) event.preventDefault();
+        locationMapActivePointers.set(event.pointerId, locationMapPoint(event));
+        if (locationMapActivePointers.size >= 2) {
+          locationMapPinching = true;
+          locationMapDragging = false;
+          locationMapMoved = true;
+          locationMapPinchDistance = locationMapPointerDistance();
+          locationMapPinchScale = locationMapScale;
+          locationMapViewport.setPointerCapture?.(event.pointerId);
+          return;
+        }
         locationMapDragging = true;
         locationMapMoved = false;
         const point = locationMapPoint(event);
@@ -2892,8 +2912,21 @@
         locationMapViewport.setPointerCapture?.(event.pointerId);
       });
       locationMapViewport?.addEventListener('pointermove', (event) => {
-        if (!locationMapDragging || !(event instanceof PointerEvent)) return;
+        if (!(event instanceof PointerEvent)) return;
         if (event.cancelable) event.preventDefault();
+        if (locationMapActivePointers.has(event.pointerId)) {
+          locationMapActivePointers.set(event.pointerId, locationMapPoint(event));
+        }
+        if (locationMapPinching && locationMapActivePointers.size >= 2) {
+          const nextDistance = locationMapPointerDistance();
+          if (locationMapPinchDistance > 0 && nextDistance > 0) {
+            locationMapScale = locationMapPinchScale * (nextDistance / locationMapPinchDistance);
+            locationMapMoved = true;
+            applyLocationMapTransform();
+          }
+          return;
+        }
+        if (!locationMapDragging) return;
         const point = locationMapPoint(event);
         const nextX = point.x - locationMapStartX;
         const nextY = point.y - locationMapStartY;
@@ -2909,6 +2942,12 @@
           if (toggleLocationMapDistrict(district)) locationMapSuppressNextClick = true;
         }
         locationMapDragging = false;
+        if (event instanceof PointerEvent) locationMapActivePointers.delete(event.pointerId);
+        if (locationMapActivePointers.size < 2) {
+          locationMapPinching = false;
+          locationMapPinchDistance = 0;
+          locationMapPinchScale = locationMapScale;
+        }
         if (event instanceof PointerEvent) locationMapViewport.releasePointerCapture?.(event.pointerId);
         window.setTimeout(() => {
           locationMapMoved = false;
@@ -2918,6 +2957,12 @@
       ['pointercancel', 'pointerleave'].forEach((eventName) => {
         locationMapViewport?.addEventListener(eventName, (event) => {
           locationMapDragging = false;
+          if (event instanceof PointerEvent) locationMapActivePointers.delete(event.pointerId);
+          if (locationMapActivePointers.size < 2) {
+            locationMapPinching = false;
+            locationMapPinchDistance = 0;
+            locationMapPinchScale = locationMapScale;
+          }
           if (event instanceof PointerEvent) locationMapViewport.releasePointerCapture?.(event.pointerId);
           window.setTimeout(() => {
             locationMapMoved = false;
@@ -2967,6 +3012,54 @@
         });
         if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form);
       };
+      const syncMobileWhatMattersAccordion = (openedPanel = null) => {
+        if (!window.matchMedia('(max-width: 760px)').matches) return;
+        const panel = openedPanel?.closest?.('[data-property-what-matters-panel]') || form.querySelector('[data-property-what-matters-panel]');
+        if (!panel) return;
+        panel.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
+          if (details !== openedPanel) details.open = false;
+        });
+      };
+      form.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
+        details.addEventListener('toggle', () => {
+          if (details.open) syncMobileWhatMattersAccordion(details);
+        });
+      });
+      const initializeMobileWhatMattersAccordion = () => {
+        if (!window.matchMedia('(max-width: 760px)').matches) return;
+        const firstOpen = form.querySelector('details[data-what-matters-group][open]') || form.querySelector('details[data-what-matters-group]');
+        if (firstOpen instanceof HTMLDetailsElement) {
+          firstOpen.open = true;
+          syncMobileWhatMattersAccordion(firstOpen);
+        }
+      };
+      initializeMobileWhatMattersAccordion();
+      window.addEventListener('resize', initializeMobileWhatMattersAccordion);
+      const syncSchoolDistanceSelects = () => {
+        form.querySelectorAll('[data-school-priority-row]').forEach((row) => {
+          const preferenceSelect = row.querySelector('[data-school-preference-select]');
+          const distanceSelect = row.querySelector('[data-school-distance-select]');
+          if (!(preferenceSelect instanceof HTMLSelectElement)) return;
+          const state = String(preferenceSelect.value || 'any').trim().toLowerCase() || 'any';
+          const enabled = state !== 'any' && distanceSelect instanceof HTMLSelectElement;
+          row.dataset.schoolDistanceEnabled = enabled ? 'true' : 'false';
+          row.dataset.distanceControlActive = enabled ? 'true' : 'false';
+          if (distanceSelect instanceof HTMLSelectElement) {
+            distanceSelect.disabled = !enabled;
+            const distanceFieldName = String(distanceSelect.getAttribute('data-distance-field') || '').trim();
+            const distanceField = distanceFieldName ? form.querySelector(`[name="${CSS.escape(distanceFieldName)}"]`) : null;
+            if (distanceField instanceof HTMLInputElement || distanceField instanceof HTMLSelectElement || distanceField instanceof HTMLTextAreaElement) {
+              distanceField.value = enabled ? String(distanceSelect.value || '500') : '0';
+              distanceField.dispatchEvent(new Event('input', { bubbles: true }));
+              distanceField.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+          const importanceField = form.querySelector(`[name="max_distance_to_${CSS.escape(String(preferenceSelect.getAttribute('data-school-value') || ''))}_importance"]`);
+          if (importanceField instanceof HTMLSelectElement) {
+            importanceField.value = enabled ? (state === 'must_have' ? 'must_have' : state === 'nice_to_have' ? 'nice_to_have' : 'important') : 'important';
+          }
+        });
+      };
       const scrollMobileDistanceRowIntoView = (row) => {
         if (!row || !window.matchMedia('(max-width: 760px)').matches) return;
         const group = row.closest('[data-what-matters-group]');
@@ -3006,6 +3099,7 @@
         if (schoolEvidenceField instanceof HTMLInputElement) schoolEvidenceField.checked = selectedStages.length > 0;
         const schoolPriorityField = form.querySelector('[name="school_evidence_priority"]');
         if (schoolPriorityField instanceof HTMLSelectElement) schoolPriorityField.value = strongest;
+        syncSchoolDistanceSelects();
       };
       const syncSchoolPreferenceDetailRows = () => {
         form.querySelectorAll('[data-school-priority-row]').forEach((row) => {
@@ -3475,6 +3569,7 @@
       form.querySelector('input[name="enable_lifestyle_research"]')?.addEventListener('change', syncSearchGoalControls);
       form.querySelectorAll('input[name="school_stage_preferences"]').forEach((node) => node.addEventListener('change', syncFamilyModeControls));
       form.querySelectorAll('[data-school-preference-select]').forEach((node) => node.addEventListener('change', syncSchoolPreferenceDetailRows));
+      form.querySelectorAll('[data-school-distance-select]').forEach((node) => node.addEventListener('change', syncSchoolDistanceSelects));
       form.querySelectorAll('[data-property-show-unavailable]').forEach((node) => node.addEventListener('change', () => syncMarketAwareFields(form, meta)));
       form.querySelectorAll('[data-checkbox-group-select-all]').forEach((button) => {
         button.addEventListener('click', (event) => {
@@ -3864,6 +3959,12 @@
         'max_commute_minutes_drive',
         'max_commute_minutes_bike',
         'max_commute_minutes_walk',
+        'max_distance_to_kindergarten_m',
+        'max_distance_to_kindergarten_importance',
+        'max_distance_to_ganztags_volksschule_m',
+        'max_distance_to_ganztags_volksschule_importance',
+        'max_distance_to_halbtags_volksschule_m',
+        'max_distance_to_halbtags_volksschule_importance',
         'max_distance_to_playground_m',
         'max_distance_to_playground_importance',
         'max_distance_to_library_m',

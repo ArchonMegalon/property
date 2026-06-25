@@ -2,6 +2,7 @@
 {% set commercial = property_meta.get('commercial') or {} %}
 {% set workbench = decision_workbench or {} %}
 {% set surface_mode = workbench.get('surface_mode') or current_nav or 'properties' %}
+{% set is_explicit_search_route = request is defined and request.url is defined and request.url.path == '/app/search' %}
 {% set results = workbench.get('results') or [] %}
 {% set selected = workbench.get('selected') or (results[0] if results else {}) %}
 {% set packet_recovery = workbench.get('packet_recovery') or {} %}
@@ -3298,6 +3299,24 @@
     .pqx-what-matters-panel .pqx-school-priority-row {
       grid-template-columns: minmax(110px, 1fr) max-content;
     }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] {
+      grid-template-columns: minmax(92px, 1fr) max-content max-content;
+      row-gap: 5px;
+      align-items: center;
+      z-index: 2;
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] > div {
+      grid-column: 1 / 2;
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-preference-select] {
+      grid-column: 2 / 3;
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-distance-select] {
+      grid-column: 3 / 4;
+    }
+    .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="false"] [data-school-distance-select] {
+      display: none;
+    }
     .pqx-what-matters-panel .pqx-school-priority-row[data-school-dependent-row] {
       margin-left: 12px;
       box-shadow: inset 3px 0 0 rgba(84, 112, 156, 0.26);
@@ -3351,6 +3370,26 @@
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 6px;
+      }
+      .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel {
+        position: fixed;
+        inset: calc(58px + env(safe-area-inset-top, 0px)) 8px calc(72px + env(safe-area-inset-bottom, 0px)) 8px;
+        z-index: 80;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        max-height: none;
+        overflow: hidden;
+        padding: 10px;
+        border-radius: 26px;
+        background: linear-gradient(180deg, rgba(255, 253, 248, 0.99), rgba(245, 241, 232, 0.98));
+        box-shadow: 0 30px 90px rgba(34, 31, 24, 0.34);
+      }
+      .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel .pqx-advanced-panel-grid {
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        -webkit-overflow-scrolling: touch;
       }
       .pqx-what-matters-head .pqx-button {
         min-height: 36px;
@@ -3459,6 +3498,23 @@
       .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] [data-keyword-distance-select] {
         scroll-margin-bottom: 18px;
       }
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] {
+        grid-column: auto;
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 0;
+        gap: 7px;
+      }
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] > div,
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-preference-select],
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-distance-select] {
+        grid-column: 1 / -1;
+        width: 100%;
+        max-width: 100%;
+      }
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-preference-select],
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] [data-school-distance-select] {
+        min-height: 44px;
+      }
       .pqx-what-matters-panel .pqx-pref-row > div {
         grid-column: auto;
       }
@@ -3479,7 +3535,8 @@
     @media (max-width: 380px) {
       .pqx-what-matters-head .pqx-actions,
       .pqx-what-matters-panel .pqx-pref-row,
-      .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] {
+      .pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"],
+      .pqx-what-matters-panel .pqx-school-priority-row[data-school-distance-enabled="true"] {
         grid-template-columns: minmax(0, 1fr);
       }
     }
@@ -3927,7 +3984,7 @@
       color: var(--pq-ink);
       font-size: 1rem;
       line-height: 1.18;
-      overflow-wrap: anywhere;
+      overflow-wrap: break-word;
     }
     .pqx-account-logout-strip small {
       display: block;
@@ -6408,11 +6465,11 @@
           "brand"
           "nav"
           "actions";
-        gap: 5px;
-        margin: 0 -10px 8px;
-        padding: calc(6px + env(safe-area-inset-top, 0px)) 10px 7px;
+        gap: 4px;
+        margin: 0 -10px 6px;
+        padding: calc(5px + env(safe-area-inset-top, 0px)) 10px 6px;
         border-color: color-mix(in srgb, var(--pq-line) 86%, transparent);
-        border-radius: 0 0 18px 18px;
+        border-radius: 0 0 14px 14px;
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(255, 253, 248, 0.9)),
           var(--pq-paper);
@@ -6438,10 +6495,10 @@
       .pqx-primary-nav :is(a, span) {
         flex: 0 0 auto;
         scroll-snap-align: start;
-        min-height: 40px;
-        padding: 0 13px;
+        min-height: 34px;
+        padding: 0 10px;
         border-radius: 999px;
-        font-size: 12px;
+        font-size: 11px;
       }
       .pqx-brand {
         gap: 8px;
@@ -6478,8 +6535,8 @@
       }
       .pqx-main {
         width: min(calc(100vw - 20px), 760px);
-        padding-top: 8px;
-        padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+        padding-top: 4px;
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
       }
       .pqx-workflow,
       .pqx-surface-search .pqx-workflow {
@@ -6522,8 +6579,8 @@
         width: 100%;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel {
-        padding: 10px;
-        border-radius: 18px;
+        padding: 8px;
+        border-radius: 16px;
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(249, 245, 237, 0.94)),
           var(--pq-paper);
@@ -6532,9 +6589,9 @@
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
+        gap: 6px;
         margin: -2px -2px 4px;
-        padding: 2px 2px 8px;
+        padding: 2px 2px 6px;
         border-bottom: 1px solid var(--pq-line);
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head h2 {
@@ -6562,8 +6619,8 @@
         position: sticky;
         top: 0;
         z-index: 26;
-        margin: -2px -2px 8px;
-        padding: 8px 2px 10px;
+        margin: -2px -2px 6px;
+        padding: 6px 2px 8px;
         border-bottom: 1px solid var(--pq-line);
         background: color-mix(in srgb, var(--pq-paper) 92%, transparent);
         backdrop-filter: blur(16px);
@@ -6585,16 +6642,16 @@
         font-size: 10.5px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-form {
-        gap: 9px;
+        gap: 7px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-form-body {
-        gap: 8px;
+        gap: 7px;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field:not([hidden]) {
         gap: 7px;
-        padding: 10px;
-        border: 1px solid rgba(185, 173, 154, 0.42);
-        border-radius: 14px;
+        padding: 8px;
+        border: 1px solid rgba(185, 173, 154, 0.36);
+        border-radius: 12px;
         background: rgba(255, 253, 248, 0.76);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
       }
@@ -6641,14 +6698,14 @@
       .pqx-card,
       .pqx-command,
       .pqx-run-hero {
-        gap: 10px;
+        gap: 8px;
       }
       .pqx-mobile-switch {
         display: flex;
         position: sticky;
-        top: calc(82px + env(safe-area-inset-top, 0px));
-        padding: 5px;
-        margin: 0 0 10px;
+        top: calc(72px + env(safe-area-inset-top, 0px));
+        padding: 4px;
+        margin: 0 0 8px;
         border-radius: 999px;
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 243, 238, 0.9)),
@@ -6656,10 +6713,10 @@
         box-shadow: 0 10px 24px rgba(41, 37, 30, 0.08);
       }
       .pqx-mobile-switch .pqx-mode-button {
-        min-height: 56px;
-        padding-block: 10px;
+        min-height: 46px;
+        padding-block: 7px;
         border-radius: 999px;
-        font-size: 13px;
+        font-size: 12px;
       }
       .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-switch,
@@ -6717,21 +6774,21 @@
         left: 10px;
         right: 10px;
         bottom: max(10px, env(safe-area-inset-bottom, 0px));
-        padding: 6px;
-        border-radius: 18px;
+        padding: 5px;
+        border-radius: 16px;
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 243, 238, 0.92)),
           var(--pq-paper);
         box-shadow: 0 18px 42px rgba(41, 37, 30, 0.16);
       }
       .pqx-bottom-nav .pqx-mode-button {
-        min-height: 56px;
-        border-radius: 14px;
-        font-size: 13px;
+        min-height: 46px;
+        border-radius: 12px;
+        font-size: 12px;
       }
       .pqx-run-hero {
-        gap: 14px;
-        padding: 14px;
+        gap: 10px;
+        padding: 10px;
       }
       .pqx-running {
         min-height: 0;
@@ -6773,8 +6830,8 @@
           "pulse"
           "sources"
           "source-list";
-        gap: 10px;
-        padding: 10px;
+        gap: 8px;
+        padding: 8px;
       }
       .pqx-route-preview-strip {
         grid-template-columns: minmax(0, 1fr);
@@ -6790,8 +6847,8 @@
       .pqx-route-chip,
       .pqx-dossier-step {
         max-width: 100%;
-        min-height: 26px;
-        padding: 5px 7px;
+        min-height: 24px;
+        padding: 4px 6px;
       }
       .pqx-run-head .pqx-title h1 {
         font-size: clamp(1.45rem, 8vw, 2rem);
@@ -7025,10 +7082,10 @@
         gap: 10px;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card {
-        gap: 7px;
-        min-height: 104px;
-        padding: 14px;
-        border-radius: 18px;
+        gap: 5px;
+        min-height: 0;
+        padding: 10px;
+        border-radius: 14px;
         box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card strong {
@@ -7036,7 +7093,7 @@
         line-height: 1.12;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card small {
-        display: block;
+        display: none;
         overflow: visible;
         font-size: 12px;
         line-height: 1.35;
@@ -7047,9 +7104,9 @@
         margin-top: 2px;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card {
-        gap: 9px;
-        padding: 12px;
-        border-radius: 18px;
+        gap: 7px;
+        padding: 10px;
+        border-radius: 14px;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card .pqx-section-head {
         margin-bottom: 0;
@@ -7078,9 +7135,9 @@
       }
       .pqx-account-logout-strip {
         grid-template-columns: minmax(0, 1fr);
-        gap: 12px;
-        padding: 14px;
-        border-radius: 20px;
+        gap: 8px;
+        padding: 10px;
+        border-radius: 14px;
       }
       .pqx-account-logout-strip-form {
         display: grid;
@@ -7089,8 +7146,8 @@
       }
       .pqx-account-logout-strip-form .pqx-link-button {
         width: 100%;
-        min-height: 56px;
-        border-radius: 18px;
+        min-height: 46px;
+        border-radius: 14px;
       }
       .pqx-account-board,
       .pqx-account-action-grid,
@@ -7098,8 +7155,8 @@
         gap: 10px;
       }
       .pqx-account-action-card {
-        padding: 12px;
-        border-radius: 18px;
+        padding: 10px;
+        border-radius: 14px;
         box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
       }
       .pqx-account-session-form {
@@ -7118,11 +7175,11 @@
         gap: 8px;
       }
       .pqx-account-channel-option {
-        min-height: 68px;
-        gap: 12px;
-        padding: 12px 14px;
-        border-radius: 18px;
-        font-size: 15px;
+        min-height: 54px;
+        gap: 9px;
+        padding: 9px 10px;
+        border-radius: 14px;
+        font-size: 14px;
         line-height: 1.18;
         background:
           linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(249, 246, 239, 0.92));
@@ -7134,12 +7191,12 @@
           0 10px 22px rgba(80, 55, 18, 0.1);
       }
       .pqx-account-channel-option input {
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         margin: 0;
       }
       .pqx-account-channel-option small {
-        display: block;
+        display: none;
         margin-top: 3px;
         font-size: 12px;
         line-height: 1.25;
@@ -7150,8 +7207,8 @@
         align-items: stretch;
         gap: 8px;
         min-height: 0;
-        padding: 12px;
-        border-radius: 18px;
+        padding: 10px;
+        border-radius: 14px;
         font-size: 12px;
       }
       .pqx-account-channel-detail[data-channel-detail] {
@@ -7173,9 +7230,9 @@
         display: none;
       }
       .pqx-shell[data-pqx-surface="alerts"] .pqx-card {
-        gap: 10px;
-        padding: 12px;
-        border-radius: 18px;
+        gap: 7px;
+        padding: 10px;
+        border-radius: 14px;
         box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
       }
       .pqx-shell[data-pqx-surface="alerts"] .pqx-card .pqx-section-head {
@@ -7193,14 +7250,14 @@
         line-height: 1.36;
       }
       .pqx-shell[data-pqx-surface="alerts"] .pqx-pref-list {
-        gap: 8px;
+        gap: 6px;
       }
       .pqx-shell[data-pqx-surface="alerts"] .pqx-pref-row {
         grid-template-columns: minmax(0, 1fr);
-        min-height: 72px;
-        gap: 10px;
-        padding: 12px 14px;
-        border-radius: 18px;
+        min-height: 0;
+        gap: 7px;
+        padding: 9px 10px;
+        border-radius: 14px;
         background:
           linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(249, 246, 239, 0.92));
         box-shadow: 0 8px 18px rgba(42, 36, 27, 0.055);
@@ -7210,9 +7267,7 @@
         line-height: 1.18;
       }
       .pqx-shell[data-pqx-surface="alerts"] .pqx-pref-row small {
-        margin-top: 3px;
-        font-size: 12px;
-        line-height: 1.3;
+        display: none;
       }
       .pqx-shell[data-pqx-surface="alerts"] .pqx-pref-row .pqx-actions {
         display: grid;
@@ -7223,14 +7278,14 @@
       .pqx-result {
         grid-template-columns: minmax(0, 1fr);
         align-items: start;
-        gap: 12px;
-        padding: 13px;
-        border-radius: 16px;
+        gap: 7px;
+        padding: 9px;
+        border-radius: 14px;
         box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
       }
       .pqx-result-media {
         grid-template-columns: minmax(0, 1fr);
-        gap: 10px;
+        gap: 7px;
       }
       .pqx-result-media.no-thumb {
         gap: 4px;
@@ -7247,26 +7302,36 @@
         justify-content: flex-start;
       }
       .pqx-result-title {
-        font-size: 1.02rem;
+        font-size: 0.94rem;
         line-height: 1.13;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
       .pqx-result-facts {
-        gap: 6px;
+        gap: 4px;
       }
       .pqx-result-fact,
       .pqx-result-open,
       .pqx-progress-button {
-        min-height: 44px;
-        padding-inline: 12px;
-        border-radius: 14px;
-        font-size: 12px;
+        min-height: 34px;
+        padding-inline: 9px;
+        border-radius: 12px;
+        font-size: 11px;
       }
       .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-open,
       .pqx-shell[data-pqx-surface="shortlist"] .pqx-progress-button {
-        min-height: 44px;
-        padding-inline: 12px;
-        border-radius: 14px;
-        font-size: 12px;
+        min-height: 34px;
+        padding-inline: 9px;
+        border-radius: 12px;
+        font-size: 11px;
+      }
+      .pqx-result-reason,
+      .pqx-result-blocker,
+      .pqx-result-secondary,
+      .pqx-result-trust {
+        display: none;
       }
       .pqx-score-bts-head,
       .pqx-score-bts-grid {
@@ -7554,6 +7619,9 @@
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
         {% endif %}
         <span class="pqx-context-actions" data-pw-top-actions></span>
+        {% if is_explicit_search_route and setup_mode and console_form and show_form_controls %}
+        <button class="pqx-button primary" type="button" data-property-start-top aria-label="{{ console_form.get('submit_label') or 'Launch search' }}">{{ console_form.get('submit_label') or 'Launch search' }}</button>
+        {% endif %}
         {% if run_active and run.get('run_id') %}
         <button class="pqx-link-button subtle" type="button" data-pqx-delete-run="{{ run.get('run_id') }}" data-pqx-delete-run-label="Stop this live search?">Stop</button>
         {% elif run_terminal_no_results %}
@@ -7918,7 +7986,6 @@
               {% if surface_mode == 'search' %}
               <button class="pqx-button subtle" type="button" data-property-save-top>Save search</button>
               {% endif %}
-              <button class="pqx-button primary" type="button" data-property-start-top aria-label="{{ console_form.get('submit_label') or 'Launch search' }}">{{ console_form.get('submit_label') or 'Launch search' }}</button>
               {% endif %}
             </div>
           </div>
@@ -8010,6 +8077,12 @@
                 'school_stage_preferences',
                 'school_evidence_priority',
                 'require_school_evidence',
+                'max_distance_to_kindergarten_m',
+                'max_distance_to_kindergarten_importance',
+                'max_distance_to_ganztags_volksschule_m',
+                'max_distance_to_ganztags_volksschule_importance',
+                'max_distance_to_halbtags_volksschule_m',
+                'max_distance_to_halbtags_volksschule_importance',
                 'max_distance_to_playground_m',
                 'max_distance_to_playground_importance',
                 'max_distance_to_library_m',
@@ -8174,6 +8247,13 @@
                             <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
                             <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
                           </select>
+                          {% if option.get('distance_options') %}
+                          <select name="school_distance__{{ option.get('value') }}" data-school-distance-select data-school-value="{{ option.get('value') }}" data-distance-field="{{ option.get('distance_field') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
+                            {% for distance in option.get('distance_options') or [] %}
+                            <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
+                            {% endfor %}
+                          </select>
+                          {% endif %}
                         </label>
                         {% endfor %}
                         {% endif %}
@@ -8223,7 +8303,7 @@
                       {% for option in group.get('options') or [] %}
                       {% set option_value = option.get('value') or '' %}
                       <label class="pqx-check">
-                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}{% if not option.get('search_ready', true) %} disabled{% endif %}>
+                        <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}"{% if not option.get('search_ready', true) %} disabled{% endif %} {% if option.get('country_code') %}data-country-code="{{ option.get('country_code') }}"{% endif %} {% if option_value in (field.get('values') or []) %}checked{% endif %}>
                         <span>
                           <span>{{ option.get('label') }}</span>
                           {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
