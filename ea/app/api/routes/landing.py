@@ -4625,13 +4625,7 @@ def app_shell(
         billing_handoff = dict((property_context or {}).get("billing_handoff") or {}) if property_context else {}
         billing_iframe_src = str(billing_handoff.get("hosted_href") or "").strip()
         if current_nav == "billing" and billing_handoff.get("available") and billing_iframe_src:
-            return _render_property_billing_handoff_page(
-                request,
-                context=context,
-                status=status,
-                access_identity=access_identity,
-                iframe_src=billing_iframe_src,
-            )
+            return RedirectResponse(billing_iframe_src, status_code=303)
         property_template = "app/property_decision_workbench.html"
         return _render_public_template(
             request,
