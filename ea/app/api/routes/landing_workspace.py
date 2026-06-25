@@ -422,7 +422,7 @@ def _property_search_usage_state(product: object, *, principal_id: str, limit: i
     try:
         raw_runs = [
             normalize_property_search_run_snapshot(dict(row))
-            for row in list(product.list_property_search_runs(principal_id=principal_id, limit=limit) or [])  # type: ignore[attr-defined]
+            for row in list(product.list_property_search_runs(principal_id=principal_id, limit=limit, hydrate=False) or [])  # type: ignore[attr-defined]
             if isinstance(row, dict)
         ]
     except Exception:

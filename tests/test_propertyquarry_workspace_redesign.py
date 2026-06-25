@@ -1262,6 +1262,37 @@ def test_propertyquarry_usage_page_uses_property_usage_language() -> None:
         assert marker not in page.text
 
 
+def test_propertyquarry_usage_page_uses_compact_search_runs(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def _fake_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
+        calls.append({"principal_id": principal_id, "limit": limit, "hydrate": hydrate})
+        assert hydrate is False
+        return [
+            {
+                "run_id": "compact-usage-run",
+                "principal_id": principal_id,
+                "status": "completed",
+                "summary": {
+                    "ranked_total": 4,
+                    "sources_total": 3,
+                    "listing_total": 22,
+                },
+            }
+        ]
+
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_runs)
+
+    client = build_property_client(principal_id="exec-property-usage-compact")
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
+
+    page = client.get("/app/settings/usage")
+
+    assert page.status_code == 200
+    assert calls == [{"principal_id": "exec-property-usage-compact", "limit": 12, "hydrate": False}]
+    assert "compact-usage-run" in page.text
+
+
 def test_propertyquarry_account_surfaces_use_persisted_property_plan() -> None:
     client = build_property_client(principal_id="exec-property-agent-plan")
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")
