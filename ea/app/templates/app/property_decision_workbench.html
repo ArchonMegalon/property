@@ -5708,7 +5708,6 @@
     html[data-pq-theme="dark"] .pqx-suppression-item,
     html[data-pq-theme="dark"] .pqx-empty,
     html[data-pq-theme="dark"] .pqx-results-empty-state,
-    html[data-pq-theme="dark"] .pqx-bottom-nav,
     html[data-pq-theme="dark"] .pqx-table td,
     html[data-pq-theme="dark"] .pqx-table th {
       background: var(--pq-paper);
@@ -6307,29 +6306,12 @@
     .pqx-results-empty-state .pqx-actions {
       margin-top: 2px;
     }
-    .pqx-bottom-nav {
-      display: none;
-      position: fixed;
-      left: 12px;
-      right: 12px;
-      bottom: 12px;
-      z-index: 40;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
-      padding: 8px;
-      border: 1px solid var(--pq-line);
-      border-radius: 12px;
-      background: rgba(255, 253, 248, 0.94);
-      box-shadow: var(--pq-shadow);
-      backdrop-filter: blur(14px);
-    }
     html[data-pq-theme="dark"] .pqx-result-fact,
     html[data-pq-theme="dark"] .pqx-result-open,
     html[data-pq-theme="dark"] .pqx-progress-button,
     html[data-pq-theme="dark"] .pqx-pill,
     html[data-pq-theme="dark"] .pqx-empty,
-    html[data-pq-theme="dark"] .pqx-results-empty-state,
-    html[data-pq-theme="dark"] .pqx-bottom-nav {
+    html[data-pq-theme="dark"] .pqx-results-empty-state {
       background: var(--pq-paper);
       border-color: var(--pq-line);
       color: var(--pq-muted);
@@ -6570,7 +6552,7 @@
       .pqx-main {
         width: min(calc(100vw - 10px), 760px);
         padding-top: 2px;
-        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
       }
       .pqx-title h1 {
         max-width: 22ch;
@@ -6852,13 +6834,13 @@
       .pqx-shell[data-pqx-surface="account"] .pqx-brief-drawer-panel > .pqx-section-head {
         display: none;
       }
-      .pqx-panel[data-pqx-mobile-panel]:not(.active),
-      .pqx-review[data-pqx-mobile-panel]:not(.active),
-      .pqx-result-panel[data-pqx-mobile-panel]:not(.active),
-      .pqx-command[data-pqx-mobile-panel]:not(.active),
-      .pqx-setup-intro[data-pqx-mobile-panel]:not(.active),
-      .pqx-run-hero[data-pqx-mobile-panel]:not(.active) {
-        display: none;
+      .pqx-panel[data-pqx-mobile-panel],
+      .pqx-review[data-pqx-mobile-panel],
+      .pqx-result-panel[data-pqx-mobile-panel],
+      .pqx-command[data-pqx-mobile-panel],
+      .pqx-setup-intro[data-pqx-mobile-panel],
+      .pqx-run-hero[data-pqx-mobile-panel] {
+        display: grid;
       }
       .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-panel[data-pqx-mobile-panel],
       .pqx-shell[data-pqx-surface="properties"] .pqx-result-panel[data-pqx-mobile-panel] {
@@ -6877,31 +6859,6 @@
       }
       .pqx-review.pqx-mobile-property-panel {
         display: grid;
-      }
-      .pqx-mobile-property-panel[data-pqx-mobile-panel]:not(.active) {
-        display: none;
-      }
-      .pqx-bottom-nav {
-        display: grid;
-        left: 8px;
-        right: 8px;
-        bottom: max(8px, env(safe-area-inset-bottom, 0px));
-        padding: 4px;
-        border-radius: 16px;
-        background:
-          linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 243, 238, 0.92)),
-          var(--pq-paper);
-        box-shadow: 0 12px 30px rgba(41, 37, 30, 0.13);
-      }
-      .pqx-bottom-nav .pqx-mode-button {
-        min-height: 46px;
-        border-radius: 12px;
-        font-size: 12px;
-      }
-      .pqx-shell[data-pqx-surface="shortlist"] .pqx-bottom-nav,
-      .pqx-shell[data-pqx-surface="properties"] .pqx-bottom-nav,
-      .pqx-shell[data-pqx-surface="research"] .pqx-bottom-nav {
-        display: none;
       }
       .pqx-run-hero {
         gap: 10px;
@@ -7688,14 +7645,18 @@
       }
       .pqx-topbar {
         min-height: 0;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "nav actions";
+        gap: 6px;
+        align-items: center;
         margin: 0 -8px 2px;
-        padding: calc(2px + env(safe-area-inset-top, 0px)) 8px 3px;
+        padding: calc(3px + env(safe-area-inset-top, 0px)) 8px 4px;
         border-bottom-color: color-mix(in srgb, var(--pq-line) 72%, transparent);
         background: color-mix(in srgb, var(--pq-paper) 96%, transparent);
         box-shadow: none;
       }
       .pqx-brand {
-        min-height: 34px;
+        display: none;
       }
       .pqx-brand .pqx-mark {
         width: 26px;
@@ -7706,14 +7667,32 @@
         font-size: 0.82rem;
       }
       .pqx-primary-nav {
+        grid-area: nav;
+        min-width: 0;
         gap: 2px;
-        padding: 0 0 1px;
+        padding: 0;
       }
       .pqx-primary-nav :is(a, span) {
-        min-height: 32px;
-        padding: 0 9px;
+        min-height: 40px;
+        padding: 0 12px;
         border-radius: 999px;
         font-size: 11px;
+      }
+      .pqx-top-actions {
+        grid-area: actions;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+        min-width: 0;
+      }
+      .pqx-top-actions > :not([data-property-start-top]):not(.pqx-account-menu) {
+        display: none !important;
+      }
+      .pqx-top-actions [data-property-start-top] {
+        min-height: 44px;
+        padding: 0 12px;
+        white-space: nowrap;
       }
       .pqx-main {
         width: min(calc(100vw - 12px), 760px);
@@ -7721,7 +7700,7 @@
         padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
       }
       .pqx-mobile-switch {
-        top: calc(64px + env(safe-area-inset-top, 0px));
+        top: calc(52px + env(safe-area-inset-top, 0px));
         margin-bottom: 4px;
         padding: 2px;
         border: 1px solid color-mix(in srgb, var(--pq-line) 76%, transparent);
@@ -8066,14 +8045,6 @@
         </div>
       </aside>
       {% endif %}
-      {% if mobile_panel_count > 1 %}
-      <div class="pqx-mobile-switch" aria-label="PropertyQuarry view mode" data-property-mobile-dock>
-        {% if has_mobile_results_panel %}<button class="pqx-mode-button{% if mobile_primary == 'results' %} active{% endif %}" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">{% if setup_mode and surface_mode in ['agents', 'alerts', 'account', 'billing'] %}Overview{% else %}Results{% endif %}</button>{% endif %}
-        {% if has_mobile_property_panel %}<button class="pqx-mode-button{% if mobile_primary == 'property' %} active{% endif %}" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">{% if run_visible %}Run{% elif run_terminal_no_results %}Details{% else %}Property{% endif %}</button>{% endif %}
-        {% if has_mobile_brief_panel %}<button class="pqx-mode-button{% if mobile_primary == 'brief' %} active{% endif %}" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">{% if surface_mode == 'agents' %}Saved searches{% elif surface_mode == 'alerts' %}Alerts{% elif surface_mode == 'account' %}Account{% elif surface_mode == 'billing' %}Billing{% else %}Search{% endif %}</button>{% endif %}
-      </div>
-      {% endif %}
-
       {% if setup_mode %}
       <section class="pqx-stage pqx-setup{% if surface_mode == 'search' %} pqx-surface-search{% else %} pqx-surface-home{% endif %}">
         <aside class="pqx-setup-intro{% if setup_mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results">

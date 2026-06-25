@@ -24,6 +24,7 @@ from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services import google_oauth as google_oauth_service
 from app.services import id_austria_oidc as id_austria_service
 from app.services.facebook_oauth import build_facebook_oauth_start
+from app.services.property_billing import property_commercial_snapshot
 from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
@@ -516,6 +517,15 @@ def _property_search_usage_state(product: object, *, principal_id: str, limit: i
     }
 
 
+def _property_settings_commercial(status: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+    raw_preferences = dict(status.get("property_search_preferences") or {})
+    raw_seed = dict(raw_preferences.get("raw_preferences") or {}) if isinstance(raw_preferences.get("raw_preferences"), dict) else {}
+    snapshot = property_commercial_snapshot({**raw_seed, **raw_preferences})
+    billing = dict(snapshot.get("billing") or {})
+    commercial = dict(snapshot.get("property_commercial") or snapshot.get("commercial") or {})
+    return billing, commercial
+
+
 def _google_account_sync_detail(sync_row: dict[str, object] | None) -> str:
     payload = dict(sync_row or {})
     gmail_total = int(payload.get("gmail_total") or 0)
@@ -952,6 +962,74 @@ def settings_support_detail(
         surface="settings_support",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    if is_property_brand:
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        billing, commercial = _property_settings_commercial(status)
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+            page_title="PropertyQuarry support",
+            current_nav="settings",
+            console_title="Support",
+            console_summary="See what failed, what still works, and the next useful action.",
+            object_kind="Support",
+            object_title=str(property_usage["repair_status"]),
+            object_summary=(
+                f"{property_usage['failed_source_total']} source failures · "
+                f"{property_usage['ranked_total']} ranked homes · "
+                f"{str(billing.get('support_tier') or 'standard').title()} support"
+            ),
+            object_meta=[
+                {"label": "Source failures", "value": str(property_usage["failed_source_total"])},
+                {"label": "Sources retrying", "value": str(property_usage["repairing_source_total"])},
+                {"label": "Partial runs", "value": str(property_usage["partial_total"])},
+                {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
+            ],
+            object_sidebar_title="What support answers",
+            object_sidebar_copy="This view answers what failed, what is already usable, and what to do next.",
+            object_sidebar_rows=[
+                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
+                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
+                _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
+                _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
+                _object_detail_row("Support center", "Open the public support page for contact options.", "Support", action_href="/support", action_label="Open support", action_method="get"),
+            ],
+            object_sections=[
+                {
+                    "eyebrow": "Repair",
+                    "title": "Repair and run health",
+                    "items": [
+                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
+                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
+                        _object_detail_row("Failed runs", str(property_usage["failed_run_total"]), "Search"),
+                        _object_detail_row("Partial runs", str(property_usage["partial_total"]), "Coverage"),
+                    ],
+                },
+                {
+                    "eyebrow": "Usable results",
+                    "title": "What is ready while support works",
+                    "items": [
+                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
+                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
+                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
+                    ],
+                },
+                {
+                    "eyebrow": "Account",
+                    "title": "Billing and plan support",
+                    "items": [
+                        _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
+                        _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
+                        _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
+                        _object_detail_row("Upgrade path", str(commercial.get("upgrade_path_label") or "Stay on current plan"), "Upgrade"),
+                        _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), "Support"),
+                    ],
+                },
+            ],
+        )
     bundle = product.workspace_support_bundle(principal_id=context.principal_id)
     analytics = dict(bundle.get("analytics") or {})
     memo_loop = dict(analytics.get("memo_loop") or {})
@@ -1860,6 +1938,81 @@ def settings_trust_detail(
         surface="settings_trust",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    if is_property_brand:
+        property_usage = _property_search_usage_state(product, principal_id=context.principal_id)
+        billing, commercial = _property_settings_commercial(status)
+        readiness_status_label = "Ready"
+        readiness_detail_label = "Core account, search, support, and access surfaces are available."
+        workspace_summary = "Review the latest search, saved results, and repair status before the next decision."
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+            page_title="PropertyQuarry trust",
+            current_nav="settings",
+            console_title="Trust",
+            console_summary="Evidence, rules, source status, and recent activity explain why a result is trustworthy.",
+            object_kind="Trust",
+            object_title=workspace_summary,
+            object_summary=(
+                f"{property_usage['ranked_total']} ranked homes · "
+                f"{property_usage['packet_ready_total']} property pages · "
+                f"{property_usage['repair_status']}"
+            ),
+            object_meta=[
+                {"label": "Ranked homes", "value": str(property_usage["ranked_total"])},
+                {"label": "Property pages", "value": str(property_usage["packet_ready_total"])},
+                {"label": "360 tours", "value": str(property_usage["tour_ready_total"])},
+                {"label": "Plan", "value": str(billing.get("current_plan_label") or billing.get("current_plan_key") or "Free").replace("_", " ").title()},
+            ],
+            object_sidebar_title="Why this can be trusted",
+            object_sidebar_copy="Trust comes from visible ranking evidence, provider health, source repair state, and account controls.",
+            object_sidebar_rows=[
+                _object_detail_row("Summary", workspace_summary, "Summary"),
+                _object_detail_row("Account", readiness_detail_label, "Account"),
+                _object_detail_row("Repair", str(property_usage["repair_status"]), "Sources"),
+                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
+                _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
+                _object_detail_row("Blocked actions", ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:4]) or "No blocked actions", "Rules"),
+            ],
+            object_sections=[
+                {
+                    "eyebrow": "Status",
+                    "title": "Account and source status",
+                    "items": [
+                        _object_detail_row("Account", readiness_status_label, "Account"),
+                        _object_detail_row("Details", readiness_detail_label, "Account"),
+                        _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
+                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Sources"),
+                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
+                    ],
+                },
+                {
+                    "eyebrow": "Trust controls",
+                    "title": "Evidence, rules, and retention",
+                    "items": [
+                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Evidence"),
+                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
+                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
+                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
+                        _object_detail_row("Export data", "Download your account, searches, saved results, and preference records.", "Data", href="/app/api/property/account/export?download=1", action_href="/app/api/property/account/export?download=1", action_label="Export data", action_method="get"),
+                    ],
+                },
+                {
+                    "eyebrow": "Recent search evidence",
+                    "title": "Recent run outcomes",
+                    "items": [
+                        _object_detail_row(
+                            f"Run {row['run_id'][:8] or 'latest'}",
+                            f"{row['status']} · {row['ranked']} ranked · {row['filtered']} filtered",
+                            "Search",
+                            href=row["href"],
+                        )
+                        for row in list(property_usage["latest_rows"])
+                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first evidence record.", "Search", href="/app/search")],
+                },
+            ],
+        )
     trust = product.workspace_trust_summary(principal_id=context.principal_id)
     readiness = dict(trust.get("readiness") or {})
     provider_posture = dict(trust.get("provider_posture") or {})

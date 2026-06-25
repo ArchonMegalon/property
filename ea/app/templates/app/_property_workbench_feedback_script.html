@@ -436,8 +436,8 @@
                 title: investmentSearch ? 'Return' : 'Cost check',
                 detail: String(
                   investmentSearch
-                    ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.headline || 'Underwriting is still building from the current listing evidence.')
-                    : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.')
+                    ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.headline || 'Not verified yet.')
+                    : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not verified yet.')
                 ),
                 tag: investmentSearch ? 'return' : 'cost',
               },
@@ -896,7 +896,7 @@
         const hasTour = Boolean(tour.url || tour.embed_url);
         oodaSummary.textContent = candidate.ooda?.summary || (hasTour
           ? 'Start with the tour, then check the facts below before deciding.'
-          : 'No 360 is available here. Use the review details and the facts below before deciding.');
+          : 'No verified 360 is attached yet.');
       }
       const match = root.querySelector('[data-pw-match]');
       renderReasonCards(match, candidate.match_reasons, { emptyTitle: 'No explicit match reason captured yet.', defaultTitle: 'For' });
@@ -969,8 +969,8 @@
       if (investment) {
         const investmentSearch = String(briefPreferences.search_goal || '').trim().toLowerCase() === 'investment';
         investment.textContent = investmentSearch
-          ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Underwriting is still building from the current listing evidence.')
-          : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the review details for cost checks when buy mode is active.');
+          ? (candidate.investment?.net_yield_display || candidate.investment?.cap_rate_display || candidate.investment?.gross_yield_display || candidate.investment?.market_delta_display || candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not verified yet.')
+          : (candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Not verified yet.');
       }
       const underwritingSummary = root.querySelector('[data-pw-underwriting-summary]');
       if (underwritingSummary) {

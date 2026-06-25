@@ -33,7 +33,7 @@ def _env(name: str, default: str = "") -> str:
 
 def _route_expectations(route: str) -> dict[str, Any]:
     if route == "/app/search":
-        return {"needs_mobile_dock": True, "needs_district_picker": True}
+        return {"needs_district_picker": True}
     if route == "/app/account":
         return {"needs_single_logout": True}
     return {}
@@ -48,14 +48,12 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
     checks = [
         {"name": "status_200", "ok": int(metrics.get("status_code") or 0) == 200},
         {"name": "no_horizontal_overflow", "ok": bool(viewport_width) and body_width <= viewport_width + 1},
-        {"name": "compact_topbar", "ok": 0 < topbar_height <= 112},
+        {"name": "compact_topbar", "ok": 0 < topbar_height <= 76},
         {"name": "shared_top_navigation", "ok": bool(metrics.get("topnav_visible"))},
         {"name": "primary_touch_targets", "ok": min_action_height >= 44},
         {"name": "card_density", "ok": int(metrics.get("visible_card_count") or 0) <= 26},
         {"name": "low_shadow_noise", "ok": int(metrics.get("heavy_shadow_count") or 0) <= 2},
     ]
-    if expectations.get("needs_mobile_dock"):
-        checks.append({"name": "mobile_dock_visible", "ok": bool(metrics.get("mobile_dock_visible"))})
     if expectations.get("needs_district_picker"):
         checks.extend(
             (
@@ -86,7 +84,6 @@ def _collect_metrics_script() -> str:
       const visibleNodes = (selector) => Array.from(document.querySelectorAll(selector)).filter(visible);
       const topbar = document.querySelector('[data-property-research-topnav], .pqx-topbar, .prd-topbar');
       const topnav = document.querySelector('nav[aria-label="PropertyQuarry sections"]');
-      const mobileDock = document.querySelector('[data-property-mobile-dock]');
       const actionNodes = visibleNodes('main button, main a.pqx-button, main a.pqx-link-button, main a.pq-pack-button, main .console-action, .pqx-account-logout-strip button, .pqx-account-logout-strip a');
       const actionHeights = actionNodes.map((node) => node.getBoundingClientRect().height).filter((height) => height > 0);
       const cardNodes = visibleNodes('.pqx-card, .pqx-panel, .pqx-result, .pqx-account-action-card, .pqx-billing-card, .pqx-billing-summary-card, .pqx-automation-card, .prd-panel, .prd-band');
@@ -102,7 +99,6 @@ def _collect_metrics_script() -> str:
         viewport_width: window.innerWidth,
         topbar_height: topbar ? Math.round(topbar.getBoundingClientRect().height) : 0,
         topnav_visible: visible(topnav),
-        mobile_dock_visible: visible(mobileDock),
         min_action_height: actionHeights.length ? Math.min(...actionHeights) : 44,
         visible_card_count: cardNodes.length,
         heavy_shadow_count: heavyShadowNodes.length,
@@ -154,24 +150,48 @@ def build_live_mobile_surface_receipt(
                 has_touch=True,
                 extra_http_headers=headers,
             )
-            page = context.new_page()
             for route in routes:
+                page = context.new_page()
                 url = base_url.rstrip("/") + "/" + route.lstrip("/")
-                response = page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                status_code = int(response.status) if response is not None else 0
-                metrics = dict(page.evaluate(_collect_metrics_script()) or {})
-                metrics["status_code"] = status_code
-                checks = evaluate_mobile_metrics(route, metrics)
-                rows.append(
-                    {
-                        "route": route,
-                        "url": url,
-                        "status_code": status_code,
-                        "ok": all(bool(check.get("ok")) for check in checks),
-                        "checks": checks,
-                        "metrics": metrics,
+                try:
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    page.wait_for_timeout(350)
+                    status_code = int(response.status) if response is not None else 0
+                    metrics = dict(page.evaluate(_collect_metrics_script()) or {})
+                    metrics["status_code"] = status_code
+                    checks = evaluate_mobile_metrics(route, metrics)
+                    rows.append(
+                        {
+                            "route": route,
+                            "url": url,
+                            "status_code": status_code,
+                            "ok": all(bool(check.get("ok")) for check in checks),
+                            "checks": checks,
+                            "metrics": metrics,
+                        }
+                    )
+                except Exception as exc:
+                    metrics = {
+                        "status_code": 0,
+                        "viewport_width": viewport_width,
+                        "body_width": 0,
+                        "topbar_height": 0,
+                        "min_action_height": 0,
+                        "error": f"{type(exc).__name__}: {exc}",
                     }
-                )
+                    checks = evaluate_mobile_metrics(route, metrics)
+                    rows.append(
+                        {
+                            "route": route,
+                            "url": url,
+                            "status_code": 0,
+                            "ok": False,
+                            "checks": checks,
+                            "metrics": metrics,
+                        }
+                    )
+                finally:
+                    page.close()
             context.close()
         finally:
             browser.close()

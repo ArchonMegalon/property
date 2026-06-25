@@ -1158,17 +1158,22 @@
         padding-right: 10px;
       }
       .pq-appbar {
-        top: 6px;
-        gap: 4px;
-        padding: 5px 8px;
-        border-radius: 12px;
+        top: 4px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 6px;
+        border-radius: 14px;
         box-shadow: none;
       }
-      .pq-appbar-row,
+      .pq-appbar-row {
+        display: contents;
+      }
       .pq-topbar {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 8px;
+        align-items: center;
+        flex-direction: row;
+        gap: 6px;
       }
       .pq-appbar-overview-row {
         display: none;
@@ -1177,19 +1182,20 @@
         display: none;
       }
       .pq-appbar-mobile-nav {
-        margin-top: 0;
-        padding-bottom: 2px;
+        grid-column: 1;
+        grid-row: 1;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
       }
       .pq-appbar-mobile-nav a,
       .pq-appbar-mobile-nav span {
-        min-height: 34px;
-        padding: 0 10px;
+        min-height: 40px;
+        padding: 0 12px;
         font-size: 11px;
       }
       .pq-topbar-copy {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 2px;
+        display: none;
       }
       .pq-topbar-copy .context,
       .pq-topbar-copy p {
@@ -1203,12 +1209,22 @@
         max-width: min(100%, 320px);
       }
       .pq-topbar-actions {
+        grid-column: 2;
+        grid-row: 1;
         width: auto;
-        justify-content: flex-start;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 4px;
+      }
+      .pq-topbar-actions .account-menu {
+        width: auto;
+      }
+      .pq-topbar-actions > .btn {
+        display: none;
       }
       .pq-topbar-actions .account-menu summary,
       .pq-topbar-actions .btn {
-        min-height: 40px;
+        min-height: 44px;
         padding-left: 12px;
         padding-right: 12px;
       }

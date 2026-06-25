@@ -33878,7 +33878,12 @@ class ProductService:
                 )
                 _report(
                     step="source_discovery_penalty",
-                    message=f"Kept shortlist candidate {ordinal} of {analysis_limit} beyond the preferred {label.lower()} radius for {source_label}.",
+                    message=(
+                        f"Kept shortlist candidate {ordinal} of {analysis_limit} beyond the preferred {label.lower()} radius "
+                        f"for {source_label}: {int(actual_m)} m vs {int(requested_limit_m)} m."
+                        if isinstance(actual_m, (int, float)) and actual_m > 0
+                        else f"Kept shortlist candidate {ordinal} of {analysis_limit} while {label.lower()} distance is not verified for {source_label}."
+                    ),
                     status="in_progress",
                     steps_delta=0,
                 )
@@ -35042,6 +35047,7 @@ class ProductService:
                                 analysis_limit=analysis_limit,
                             )
                         else:
+                            actual_distance_m = _float_or_none(detailed_facts.get(fact_key))
                             _remember_filter_near_miss(
                                 row=row,
                                 property_url=property_url,
@@ -35051,7 +35057,12 @@ class ProductService:
                             )
                             _report(
                                 step=report_step,
-                                message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed {label} radius for {source_label}.",
+                                message=(
+                                    f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the relaxed {label} radius "
+                                    f"for {source_label}: {int(actual_distance_m)} m vs {requested_limit} m."
+                                    if isinstance(actual_distance_m, (int, float)) and actual_distance_m > 0
+                                    else f"Skipped shortlist candidate {ordinal} of {analysis_limit} because {label} distance is not verified for {source_label}."
+                                ),
                                 status="in_progress",
                                 steps_delta=0,
                             )

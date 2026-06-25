@@ -341,44 +341,31 @@
     @media (max-width: 760px) {
       .pq-pack-shell { padding: 10px 10px calc(74px + env(safe-area-inset-bottom, 0px)); }
       .pq-pack-topbar {
-        grid-template-columns: minmax(0, 1fr) 40px;
-        gap: 8px;
-        margin-bottom: 10px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
       }
       .pq-pack-brand {
+        display: none;
+      }
+      .pq-pack-nav {
         grid-column: 1;
         grid-row: 1;
-        min-width: 0;
-        gap: 8px;
-      }
-      .pq-pack-mark {
-        width: 32px;
-        height: 32px;
-        border-radius: 7px;
-        font-size: 13px;
-      }
-      .pq-pack-brand strong {
-        font-size: 14px;
-        line-height: 1.1;
-      }
-      .pq-pack-brand span span { display: none; }
-      .pq-pack-nav {
-        grid-column: 1 / -1;
-        grid-row: 2;
         flex-wrap: nowrap;
         gap: 6px;
         justify-content: flex-start;
         max-width: 100%;
         overflow-x: auto;
-        padding-bottom: 2px;
+        padding-bottom: 0;
         scrollbar-width: none;
         -webkit-overflow-scrolling: touch;
       }
       .pq-pack-nav::-webkit-scrollbar { display: none; }
       .pq-pack-nav :is(a, span) {
-        min-height: 34px;
-        padding: 7px 10px;
-        font-size: 12px;
+        min-height: 40px;
+        padding: 0 12px;
+        font-size: 11px;
       }
       .pq-pack-actions {
         grid-column: 2;
@@ -389,13 +376,13 @@
       }
       .pq-pack-actions > .pq-pack-button { display: none; }
       .pq-pack-account-menu summary {
-        min-width: 36px;
-        min-height: 36px;
+        min-width: 44px;
+        min-height: 44px;
         padding: 0 10px;
       }
       .pq-pack-account-panel {
         position: fixed;
-        top: 56px;
+        top: 52px;
         right: 10px;
         width: min(300px, calc(100vw - 20px));
         border-radius: 14px;

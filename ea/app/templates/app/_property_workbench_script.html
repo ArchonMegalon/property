@@ -1073,6 +1073,7 @@
       if (!candidate) return '';
       const ordinal = `${candidate[1]}/${candidate[2]}`;
       const normalized = text.toLowerCase();
+      const measuredDistanceMatch = text.match(/\b\d+(?:[.,]\d+)?\s*(?:m|meter|metre|km|kilometer|kilometre)\b/i);
       if (
         ['balcony', 'terrace', 'outdoor'].some((token) => normalized.includes(token))
         && ['missing', 'none', 'without', 'absent', 'no '].some((token) => normalized.includes(token))
@@ -1224,6 +1225,7 @@
         (normalized.includes('school') || normalized.includes('kindergarten'))
         && ['too far', 'farther', 'further', 'beyond', 'outside'].some((token) => normalized.includes(token))
       ) {
+        if (!measuredDistanceMatch) return '';
         const fitLabel = normalized.includes('kindergarten') ? 'Kindergarten distance' : 'School distance';
         return `${fitLabel} was wider than preferred for candidate ${ordinal} (score impact only)`;
       }
@@ -1237,10 +1239,12 @@
         ['supermarket', 'pharmacy', 'bakery', 'market', 'errand'].some((token) => normalized.includes(token))
         && ['far', 'farther', 'beyond', 'outside'].some((token) => normalized.includes(token))
       ) {
+        if (!measuredDistanceMatch) return '';
         return `Daily errands were farther than preferred for candidate ${ordinal} (score impact only)`;
       }
       const distanceMatch = text.match(/(?:outside the relaxed|beyond the preferred)\s+(.+?)\s+radius/i);
       if (distanceMatch) {
+        if (!measuredDistanceMatch) return '';
         const rawLabel = String(distanceMatch[1] || '').trim().replaceAll('-', ' ');
         const label = rawLabel ? `${rawLabel.charAt(0).toUpperCase()}${rawLabel.slice(1)}` : 'Distance';
         return `${label} was too far away for candidate ${ordinal} (score impact only)`;

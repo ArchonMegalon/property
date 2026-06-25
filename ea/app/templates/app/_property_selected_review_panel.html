@@ -108,7 +108,7 @@
         </article>
         <article class="pqx-reading-card">
           <span class="pqx-small">{% if brief.get('search_goal') == 'investment' %}Return{% else %}Money{% endif %}</span>
-          <strong data-pw-investment>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('net_yield_display') or selected.get('investment', {}).get('cap_rate_display') or selected.get('investment', {}).get('gross_yield_display') or selected.get('investment', {}).get('market_delta_display') or selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Underwriting is still building from the current listing evidence.' }}{% else %}{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the review details for cost checks when buy mode is active.' }}{% endif %}</strong>
+          <strong data-pw-investment>{% if brief.get('search_goal') == 'investment' %}{{ selected.get('investment', {}).get('net_yield_display') or selected.get('investment', {}).get('cap_rate_display') or selected.get('investment', {}).get('gross_yield_display') or selected.get('investment', {}).get('market_delta_display') or selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Not verified yet.' }}{% else %}{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Not verified yet.' }}{% endif %}</strong>
         </article>
         <article class="pqx-reading-card">
           <span class="pqx-small">Next answer</span>
@@ -227,11 +227,11 @@
         <div class="pqx-event-list">
           <div class="pqx-event-card">
             <strong>{{ score_methodology.get('positive_label') or 'Signals lifting the score' }}</strong>
-            <span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['Verified facts and matching preferences move this upward.'])[:2]|join(' · ') }}</span>
+            <span class="pqx-note">{{ (score_application.get('positive_signals') or selected.get('match_reasons') or ['No concrete positive signal attached yet.'])[:2]|join(' · ') }}</span>
           </div>
           <div class="pqx-event-card">
             <strong>{{ score_methodology.get('negative_label') or 'Signals reducing confidence or score' }}</strong>
-            <span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['Missing facts stay visible and lower confidence until checked.'])[:2]|join(' · ') }}</span>
+            <span class="pqx-note">{{ (score_application.get('negative_signals') or selected.get('mismatch_reasons') or ['No concrete negative signal attached yet.'])[:2]|join(' · ') }}</span>
           </div>
         </div>
       </section>
