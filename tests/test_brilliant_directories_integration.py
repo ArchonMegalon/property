@@ -170,6 +170,17 @@ def test_brilliant_directories_billing_handoff_requires_white_label_host(monkeyp
     assert brilliant_directories_billing_handoff_url(config) == ""
 
 
+def test_brilliant_directories_billing_handoff_allows_url_only_white_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+
+    config = load_brilliant_directories_config()
+
+    assert not config.configured
+    assert brilliant_directories_billing_handoff_url(config) == "https://billing.propertyquarry.com/account"
+
+
 def test_property_billing_route_redirects_to_allowlisted_brilliant_directories_account(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")

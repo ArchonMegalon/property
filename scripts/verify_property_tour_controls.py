@@ -633,7 +633,7 @@ def build_property_tour_control_receipt(
             for control in controls
             if str(control.get("status") or "").strip().lower() == "ready"
         ]
-        missing_public_evidence = [] if ready_controls else missing_evidence
+        missing_public_evidence = missing_evidence if require_all_provider_modes else ([] if ready_controls else missing_evidence)
         tour_missing_provider_modes = sorted(
             {
                 str(row.get("provider") or "").strip().lower()

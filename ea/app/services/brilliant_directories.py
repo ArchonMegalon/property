@@ -281,11 +281,12 @@ def brilliant_directories_billing_handoff_url(config: BrilliantDirectoriesConfig
     resolved_config = config
     if resolved_config is None:
         resolved_config = load_brilliant_directories_config()
-    if not resolved_config.configured:
+    allowed_hosts = tuple(resolved_config.allowed_hosts)
+    if not allowed_hosts:
         return ""
     return _safe_white_label_handoff_url(
         str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL") or "").strip(),
-        allowed_hosts=resolved_config.allowed_hosts,
+        allowed_hosts=allowed_hosts,
     )
 
 

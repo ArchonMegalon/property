@@ -238,9 +238,14 @@ def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_
     receipt = build_property_tour_control_receipt(tour_root=tmp_path, require_all_provider_modes=True)
 
     actions = {row["provider"]: row for row in receipt["next_required_actions"]}
+    missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
     assert receipt["status"] == "blocked_missing_provider_modes"
     assert receipt["tours"][0]["status"] == "ready"
-    assert receipt["tours"][0]["missing_evidence"] == []
+    assert set(missing) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert missing["3dvista"]["reason"] == "missing_3dvista_export"
+    assert missing["pano2vr"]["reason"] == "missing_pano2vr_export"
+    assert missing["krpano"]["reason"] in {"missing_walkable_scene", "missing_krpano_license_environment"}
+    assert missing["magicfit"]["reason"] == "missing_magicfit_walkthrough"
     assert set(receipt["tours"][0]["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
     assert actions["3dvista"]["blocked_tour_count"] == 1
     assert actions["pano2vr"]["blocked_tour_count"] == 1

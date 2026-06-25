@@ -2406,7 +2406,8 @@ def property_billing_commercial_lane() -> HTMLResponse:
     handoff = _property_brilliant_directories_billing_handoff()
     if not handoff.get("available"):
         return RedirectResponse("/app/billing", status_code=307)
-    return RedirectResponse("/app/billing", status_code=307)
+    hosted_url = str(handoff.get("hosted_href") or "").strip()
+    return RedirectResponse(hosted_url or "/app/billing", status_code=307)
 
 
 def _render_property_billing_handoff_page(
@@ -4642,8 +4643,24 @@ def app_shell(
     if property_brand and resolved_section in property_sections:
         billing_handoff = dict((property_context or {}).get("billing_handoff") or {}) if property_context else {}
         billing_iframe_src = str(billing_handoff.get("hosted_href") or "").strip()
-        if current_nav == "billing" and billing_handoff.get("available") and billing_iframe_src:
-            return RedirectResponse(billing_iframe_src, status_code=303)
+        if current_nav == "billing":
+            if billing_handoff.get("available") and billing_iframe_src:
+                return RedirectResponse(billing_iframe_src, status_code=303)
+            return HTMLResponse(
+                (
+                    "<!doctype html><html><head><meta charset=\"utf-8\">"
+                    "<meta name=\"robots\" content=\"noindex, nofollow\">"
+                    "<title>Billing handoff unavailable</title></head>"
+                    "<body><main>"
+                    "<h1>Billing handoff unavailable</h1>"
+                    "<p>PropertyQuarry billing is handled in the external account lane. "
+                    "Configure the white-label billing URL before exposing this route.</p>"
+                    "<p><a href=\"/app/account\">Back to account</a></p>"
+                    "</main></body></html>"
+                ),
+                status_code=503,
+                headers={"Cache-Control": "no-store"},
+            )
         property_template = "app/property_decision_workbench.html"
         return _render_public_template(
             request,

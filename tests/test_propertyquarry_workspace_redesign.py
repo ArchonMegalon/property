@@ -12789,10 +12789,10 @@ def test_propertyquarry_billing_surface_redirects_to_white_label_commercial_lane
     )
 
     assert commercial_lane.status_code == 307
-    assert commercial_lane.headers["location"] == "/app/billing"
+    assert commercial_lane.headers["location"] == "https://billing.propertyquarry.com/account"
 
 
-def test_propertyquarry_billing_surface_keeps_local_board_when_white_label_commercial_lane_is_unavailable(
+def test_propertyquarry_billing_surface_fails_closed_when_white_label_commercial_lane_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
@@ -12807,10 +12807,11 @@ def test_propertyquarry_billing_surface_keeps_local_board_when_white_label_comme
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
 
-    assert billing.status_code == 200
+    assert billing.status_code == 503
     assert 'class="pq-billing-lane-frame"' not in billing.text
     assert 'src="https://billing.brilliantdirectories.com/account"' not in billing.text
-    assert "Plan and payments" in billing.text
+    assert "Billing handoff unavailable" in billing.text
+    assert "Plan and payments" not in billing.text
     assert "White-label account lane" not in billing.text
     assert "Local billing is active" not in billing.text
     assert "external account lane is not enabled for this workspace" not in billing.text

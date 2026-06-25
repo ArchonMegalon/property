@@ -429,9 +429,10 @@ def test_paid_property_plan_survives_console_context_projection() -> None:
     assert ">Agent<" in account.text
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
-    assert billing.status_code == 200
-    assert "Your plan" in billing.text
-    assert ">Agent<" in billing.text
+    assert billing.status_code == 503
+    assert "Billing handoff unavailable" in billing.text
+    assert "Your plan" not in billing.text
+    assert ">Agent<" not in billing.text
 
 
 def test_automation_history_placeholder_is_not_a_self_link() -> None:
@@ -524,7 +525,7 @@ def test_account_billing_and_automation_surfaces_do_not_render_same_page_links()
 
     for path in ("/app/agents", "/app/account", "/app/billing"):
         response = client.get(path, headers={"host": "propertyquarry.com"})
-        assert response.status_code == 200
+        assert response.status_code == (503 if path == "/app/billing" else 200)
         assert f'href="{path}"' not in response.text
 
 
@@ -23623,7 +23624,7 @@ def test_property_payfunnels_refund_webhook_records_lifecycle_without_pending_ch
     ]
 
 
-def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
+def test_property_billing_surface_is_not_local_payment_state() -> None:
     principal_id = "exec-property-billing-surface-payment-state"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
@@ -23668,12 +23669,13 @@ def test_property_billing_surface_shows_compact_latest_payment_state() -> None:
 
     billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
 
-    assert billing.status_code == 200
-    assert "Your plan" in billing.text
+    assert billing.status_code == 503
+    assert "Billing handoff unavailable" in billing.text
+    assert "Your plan" not in billing.text
     assert "Current search access" not in billing.text
-    assert "Latest payment" in billing.text
-    assert "Failed | EUR 3.00 | payment.failed" in billing.text
-    assert "VAT EUR 0.48" in billing.text
+    assert "Latest payment" not in billing.text
+    assert "Failed | EUR 3.00 | payment.failed" not in billing.text
+    assert "VAT EUR 0.48" not in billing.text
     assert "Billing truth" not in billing.text
     assert "Plan and limits" not in billing.text
     assert "Current commercial state" not in billing.text
