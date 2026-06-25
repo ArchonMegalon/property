@@ -18,6 +18,8 @@ _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36
 _PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
 _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS, ".pdf")
 _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST = "tour.private.json"
+_3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
+_PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
 
 
 def _now_iso() -> str:
@@ -389,6 +391,26 @@ def _hosted_property_tour_has_matterport_export(tour_url: object) -> bool:
     return False
 
 
+def _hosted_property_tour_entry_has_marker(bundle_dir: Path, relpath: object, *, markers: tuple[str, ...]) -> bool:
+    raw_relpath = str(relpath or "").strip().replace("\\", "/")
+    if not raw_relpath or raw_relpath.startswith("/") or "://" in raw_relpath or "\x00" in raw_relpath:
+        return False
+    path = PurePosixPath(raw_relpath)
+    if any(part in {"", ".", ".."} for part in path.parts):
+        return False
+    if path.suffix.lower() not in {".htm", ".html"}:
+        return False
+    candidate = (bundle_dir / "/".join(path.parts)).resolve()
+    resolved_bundle = bundle_dir.resolve()
+    if candidate == resolved_bundle or resolved_bundle not in candidate.parents or not candidate.is_file():
+        return False
+    try:
+        body = candidate.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
+    except OSError:
+        return False
+    return any(marker in body for marker in markers)
+
+
 def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
     payload = _hosted_property_tour_payload_for_url(tour_url)
     for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
@@ -403,8 +425,7 @@ def _hosted_property_tour_has_3dvista_export(tour_url: object) -> bool:
         entry_relpath = str(payload.get(key) or "").strip().lstrip("/")
         if not entry_relpath:
             continue
-        entry_path = (bundle_dir / entry_relpath).resolve()
-        if bundle_dir in entry_path.parents and entry_path.exists() and entry_path.is_file():
+        if _hosted_property_tour_entry_has_marker(bundle_dir, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
             return True
     return False
 
@@ -416,16 +437,7 @@ def _hosted_property_tour_has_pano2vr_export(tour_url: object) -> bool:
         return False
     bundle_dir = (_public_tour_dir() / slug).resolve()
     for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
-        raw_relpath = str(payload.get(key) or "").strip().replace("\\", "/")
-        if not raw_relpath or raw_relpath.startswith("/") or "://" in raw_relpath or "\x00" in raw_relpath:
-            continue
-        relpath = PurePosixPath(raw_relpath)
-        if any(part in {"", ".", ".."} for part in relpath.parts):
-            continue
-        if relpath.suffix.lower() not in {".htm", ".html"}:
-            continue
-        entry_path = (bundle_dir / "/".join(relpath.parts)).resolve()
-        if bundle_dir in entry_path.parents and entry_path.exists() and entry_path.is_file():
+        if _hosted_property_tour_entry_has_marker(bundle_dir, payload.get(key), markers=_PANO2VR_EXPORT_MARKERS):
             return True
     return False
 

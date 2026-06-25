@@ -93,6 +93,8 @@ _PANO2VR_EXPORT_ALLOWED_EXTENSIONS = frozenset(
         ".xml",
     }
 )
+_3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
+_PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
 log = logging.getLogger(__name__)
 
 
@@ -439,6 +441,8 @@ def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     bundle_dir = _tour_bundle_dir(slug)
     if not entry_relpath or not safe_relpath or bundle_dir is None:
+        raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
+    if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_PANO2VR_EXPORT_MARKERS):
         raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
     suffix = PurePosixPath(safe_relpath).suffix.lower()
     if suffix not in _PANO2VR_EXPORT_ALLOWED_EXTENSIONS:
@@ -1420,7 +1424,33 @@ def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
 
 
 def _pano2vr_control_url(slug: str, payload: dict[str, object]) -> str:
-    return f"/tours/{html.escape(slug)}/control/pano2vr" if slug and _pano2vr_entry_relpath(payload) else ""
+    entry_relpath = _pano2vr_entry_relpath(payload)
+    if not slug or not entry_relpath:
+        return ""
+    if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_PANO2VR_EXPORT_MARKERS):
+        return ""
+    return f"/tours/{html.escape(slug)}/control/pano2vr"
+
+
+def _local_tour_html_asset_has_marker(slug: object, relpath: object, *, markers: tuple[str, ...]) -> bool:
+    safe_slug = str(slug or "").strip()
+    safe_relpath = _public_tour_safe_asset_relpath(str(relpath or "").strip())
+    if not safe_slug or not safe_relpath:
+        return False
+    if PurePosixPath(safe_relpath).suffix.lower() not in {".html", ".htm"}:
+        return False
+    bundle_dir = _tour_bundle_dir(safe_slug)
+    if bundle_dir is None:
+        return False
+    candidate = (bundle_dir / safe_relpath).resolve()
+    resolved_bundle = bundle_dir.resolve()
+    if candidate == resolved_bundle or resolved_bundle not in candidate.parents or not candidate.is_file():
+        return False
+    try:
+        body = candidate.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
+    except OSError:
+        return False
+    return any(marker in body for marker in markers)
 
 
 def _tour_spatial_review_experience(
@@ -1518,13 +1548,18 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             if _safe_3dvista_external_url(payload.get(key)):
                 three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
                 break
-        if not three_d_vista_url and _public_tour_safe_asset_relpath(
+        local_3dvista_entry = _public_tour_safe_asset_relpath(
             str(
                 payload.get("three_d_vista_entry_relpath")
                 or payload.get("threedvista_entry_relpath")
                 or payload.get("3dvista_entry_relpath")
                 or ""
             ).strip()
+        )
+        if (
+            not three_d_vista_url
+            and local_3dvista_entry
+            and _local_tour_html_asset_has_marker(slug, local_3dvista_entry, markers=_3DVISTA_EXPORT_MARKERS)
         ):
             three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
     pano2vr_url = _pano2vr_control_url(slug, payload)
@@ -5162,7 +5197,8 @@ def _tour_control_matterport_html(payload: dict[str, object]) -> str:
 
 def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3DVista tour control").strip())
-    slug = html.escape(str(payload.get("slug") or "").strip())
+    raw_slug = str(payload.get("slug") or "").strip()
+    slug = html.escape(raw_slug)
     external_url = ""
     for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
         external_url = _safe_3dvista_external_url(payload.get(key))
@@ -5178,6 +5214,8 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
     )
     iframe_src = external_url
     if not iframe_src and entry_relpath and slug:
+        if not _local_tour_html_asset_has_marker(raw_slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
+            raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
         iframe_src = f"/tours/files/{slug}/{entry_relpath}"
     if iframe_src:
         return _tour_control_external_iframe_html(
@@ -5194,6 +5232,8 @@ def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
     slug = str(payload.get("slug") or "").strip()
     entry_relpath = _pano2vr_entry_relpath(payload)
     if not slug or not entry_relpath:
+        raise HTTPException(status_code=404, detail="tour_control_pano2vr_export_missing")
+    if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_PANO2VR_EXPORT_MARKERS):
         raise HTTPException(status_code=404, detail="tour_control_pano2vr_export_missing")
     iframe_src = f"/tours/pano2vr/{urllib.parse.quote(slug, safe='')}/{urllib.parse.quote(entry_relpath, safe='/')}"
     return _tour_control_external_iframe_html(

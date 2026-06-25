@@ -7,7 +7,7 @@ import os
 import shutil
 from pathlib import Path
 
-_PANO2VR_EXPORT_MARKERS = ("pano2vr", "ggpkg", "ggskin", "pano.xml", "tour.js")
+_PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
 
 
 def _public_tour_dir() -> Path:

@@ -7,7 +7,7 @@ import os
 import shutil
 from pathlib import Path
 
-_3DVISTA_EXPORT_MARKERS = ("3dvista", "tdvplayer", "tdvplayerapi", "tourviewer", "panorama")
+_3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
 
 
 def _public_tour_dir() -> Path:

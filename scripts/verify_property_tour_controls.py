@@ -247,7 +247,7 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
     three_d_vista_entry_ready = _local_html_asset_has_marker(
         bundle_dir,
         three_d_vista_entry,
-        markers=("3dvista", "tdvplayer", "tdvplayerapi", "tourviewer", "panorama"),
+        markers=("tdvplayer", "tdvplayerapi", "tourviewer"),
     )
     if not (three_d_vista_url_ready or three_d_vista_entry_ready):
         if three_d_vista_entry:
@@ -262,7 +262,7 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
     pano2vr_entry_ready = _local_html_asset_has_marker(
         bundle_dir,
         pano2vr_entry,
-        markers=("pano2vr", "ggpkg", "ggskin", "pano.xml", "tour.js"),
+        markers=("ggpkg", "ggskin", "pano.xml", "tour.js"),
     )
     if not pano2vr_entry_ready:
         if pano2vr_entry:
@@ -331,7 +331,7 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
     three_d_vista_entry_ready = _local_html_asset_has_marker(
         bundle_dir,
         three_d_vista_entry,
-        markers=("3dvista", "tdvplayer", "tdvplayerapi", "tourviewer", "panorama"),
+        markers=("tdvplayer", "tdvplayerapi", "tourviewer"),
     )
     if three_d_vista_url or three_d_vista_entry_ready:
         rows.append(
@@ -347,7 +347,7 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
     pano2vr_entry_ready = _local_html_asset_has_marker(
         bundle_dir,
         pano2vr_entry,
-        markers=("pano2vr", "ggpkg", "ggskin", "pano.xml", "tour.js"),
+        markers=("ggpkg", "ggskin", "pano.xml", "tour.js"),
     )
     if pano2vr_entry_ready:
         rows.append(

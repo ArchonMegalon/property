@@ -25005,12 +25005,20 @@ def test_public_tour_control_pano2vr_requires_declared_entry() -> None:
     assert exc_info.value.detail == "tour_control_pano2vr_export_missing"
 
 
-def test_public_tour_control_pano2vr_embeds_export_entry() -> None:
+def test_public_tour_control_pano2vr_embeds_export_entry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from app.api.routes import public_tours
 
+    slug = "pano2vr-control-tour"
+    export_dir = tmp_path / slug / "pano2vr"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.html").write_text(
+        "<!doctype html><title>Pano2VR</title><script src='tour.js'></script>",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     html = public_tours._tour_control_html(
         {
-            "slug": "pano2vr-control-tour",
+            "slug": slug,
             "display_title": "Pano2VR Control Tour",
             "pano2vr_entry_relpath": "pano2vr/index.html",
         },
@@ -25027,10 +25035,10 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     export_dir = bundle_dir / "pano2vr"
     export_dir.mkdir(parents=True)
     (export_dir / "index.html").write_text(
-        "<!doctype html><title>Pano2VR</title><script src='pano2vr_player.js'></script>",
+        "<!doctype html><title>Pano2VR</title><script src='tour.js'></script>",
         encoding="utf-8",
     )
-    (export_dir / "pano2vr_player.js").write_text("window.PANO2VR = true;", encoding="utf-8")
+    (export_dir / "tour.js").write_text("window.GGSKIN = true;", encoding="utf-8")
     (bundle_dir / "other").mkdir()
     (bundle_dir / "other" / "index.html").write_text("<!doctype html><title>Other</title>", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
@@ -25050,7 +25058,7 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     default_control_response = client.get(f"/tours/{slug}/control")
     control_response = client.get(f"/tours/{slug}/control/pano2vr")
     entry_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/index.html")
-    script_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/pano2vr_player.js")
+    script_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/tour.js")
     other_response = client.get(f"/tours/pano2vr/{slug}/other/index.html")
     private_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/private.json")
 
@@ -25062,9 +25070,57 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     assert entry_response.status_code == 200
     assert "Pano2VR" in entry_response.text
     assert script_response.status_code == 200
-    assert "PANO2VR" in script_response.text
+    assert "GGSKIN" in script_response.text
     assert other_response.status_code == 404
     assert private_response.status_code == 404
+
+
+def test_public_tour_control_pano2vr_route_rejects_placeholder_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "pano2vr-placeholder-route"
+    bundle_dir = tmp_path / slug
+    export_dir = bundle_dir / "pano2vr"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "display_title": "Placeholder Pano2VR", "pano2vr_entry_relpath": "pano2vr/index.html"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-pano2vr-placeholder")
+    control_response = client.get(f"/tours/{slug}/control/pano2vr")
+    entry_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/index.html")
+
+    assert control_response.status_code == 404
+    assert control_response.json()["error"]["code"] == "tour_control_pano2vr_export_missing"
+    assert entry_response.status_code == 404
+
+
+def test_public_tour_control_3dvista_route_rejects_placeholder_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "3dvista-placeholder-route"
+    bundle_dir = tmp_path / slug
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.htm").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "display_title": "Placeholder 3DVista", "three_d_vista_entry_relpath": "3dvista/index.htm"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-3dvista-placeholder")
+    response = client.get(f"/tours/{slug}/control/3dvista")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "tour_control_3dvista_export_missing"
 
 
 def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
@@ -25169,12 +25225,23 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
     assert 'iframe src="https://example.3dvista.com/tours/private-receipt/index.html"' in control_response.text
 
 
-def test_public_tour_landing_links_pano2vr_spatial_review_for_cube_payload() -> None:
+def test_public_tour_landing_links_pano2vr_spatial_review_for_cube_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     from app.api.routes import public_tours
 
+    slug = "pano2vr-spatial-review"
+    export_dir = tmp_path / slug / "pano2vr"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.html").write_text(
+        "<!doctype html><title>Pano2VR</title><script src='tour.js'></script>",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     html = public_tours._tour_html(
         {
-            "slug": "pano2vr-spatial-review",
+            "slug": slug,
             "display_title": "Pano2VR Spatial Review",
             "scene_strategy": "pure_360_cube",
             "pano2vr_entry_relpath": "pano2vr/index.html",
@@ -25192,7 +25259,10 @@ def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatc
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "3dvista").mkdir()
-    (bundle_dir / "3dvista" / "index.htm").write_text("<!doctype html><title>3DVista</title>", encoding="utf-8")
+    (bundle_dir / "3dvista" / "index.htm").write_text(
+        "<!doctype html><title>3DVista</title><script src='tdvplayer.js'></script>",
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -25218,7 +25288,10 @@ def test_property_tour_compare_links_offer_pano2vr_only_when_entry_exists(monkey
     bundle_dir = tmp_path / slug
     export_dir = bundle_dir / "pano2vr"
     export_dir.mkdir(parents=True)
-    (export_dir / "index.html").write_text("<!doctype html><title>Pano2VR</title>", encoding="utf-8")
+    (export_dir / "index.html").write_text(
+        "<!doctype html><title>Pano2VR</title><script src='tour.js'></script>",
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps({"slug": slug, "pano2vr_entry_relpath": "pano2vr/index.html"}),
         encoding="utf-8",
@@ -25234,6 +25307,25 @@ def test_property_tour_compare_links_offer_pano2vr_only_when_entry_exists(monkey
     assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == (
         f"https://propertyquarry.com/tours/{slug}/control/pano2vr"
     )
+
+
+def test_property_tour_compare_links_omit_placeholder_pano2vr_entry(monkeypatch, tmp_path: Path) -> None:
+    slug = "placeholder-pano2vr-demo-tour"
+    bundle_dir = tmp_path / slug
+    export_dir = bundle_dir / "pano2vr"
+    export_dir.mkdir(parents=True)
+    (export_dir / "index.html").write_text("<!doctype html><title>Pano2VR Placeholder</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "pano2vr_entry_relpath": "pano2vr/index.html"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    tour_url = f"https://propertyquarry.com/tours/{slug}"
+
+    assert product_service._property_tour_compare_links(tour_url) == {}
+    assert product_service._hosted_property_tour_provider_export_keys(tour_url) == ()
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == ""
 
 
 def test_property_tour_compare_links_offer_krpano_only_for_licensed_walkable_scene(monkeypatch, tmp_path: Path) -> None:
@@ -25487,6 +25579,12 @@ def test_property_3d_provider_rule_exit_gate_requires_selected_provider_links(mo
     slug = "provider-rule-tour"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir()
+    (export_dir / "index.htm").write_text(
+        "<!doctype html><title>3DVista</title><script src='tdvplayer.js'></script>",
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {

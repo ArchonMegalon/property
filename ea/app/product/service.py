@@ -15445,14 +15445,6 @@ def _property_3d_provider_rule_exit_gate(
                 expected.append(provider)
     links = _property_tour_compare_links(normalized)
     manifest = _hosted_property_tour_manifest(normalized)
-    declared_3dvista_export = any(
-        str(manifest.get(key) or "").strip()
-        for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath")
-    )
-    declared_pano2vr_export = any(
-        str(manifest.get(key) or "").strip()
-        for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath")
-    )
     metrics["expected_providers"] = list(expected)
     metrics["available_links"] = dict(links)
     metrics["selected_links"] = {provider: links[provider] for provider in expected if links.get(provider)}
@@ -15462,9 +15454,9 @@ def _property_3d_provider_rule_exit_gate(
     for provider in expected:
         if provider == "matterport" and not _hosted_property_tour_has_matterport_export(normalized):
             return False, "matterport_export_missing_for_rule", metrics
-        if provider == "3dvista" and not (_hosted_property_tour_has_3dvista_export(normalized) or declared_3dvista_export):
+        if provider == "3dvista" and not _hosted_property_tour_has_3dvista_export(normalized):
             return False, "3dvista_export_missing_for_rule", metrics
-        if provider == "pano2vr" and not (_hosted_property_tour_has_pano2vr_export(normalized) or declared_pano2vr_export):
+        if provider == "pano2vr" and not _hosted_property_tour_has_pano2vr_export(normalized):
             return False, "pano2vr_export_missing_for_rule", metrics
         if provider == "krpano" and not _hosted_property_tour_has_krpano_control(normalized):
             return False, "krpano_control_missing_for_rule", metrics

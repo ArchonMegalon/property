@@ -15,8 +15,8 @@ from verify_property_tour_controls import build_property_tour_control_receipt
 
 IMPORTABLE_PROVIDERS = ("3dvista", "pano2vr")
 PROVIDER_ENTRY_MARKERS = {
-    "3dvista": "index.html/index.htm containing 3DVista, tdvplayer, tdvplayerapi, tourviewer, or panorama markers",
-    "pano2vr": "index.html/index.htm containing Pano2VR, ggpkg, ggskin, pano.xml, or tour.js markers",
+    "3dvista": "index.html/index.htm containing tdvplayer, tdvplayerapi, or tourviewer runtime markers",
+    "pano2vr": "index.html/index.htm containing ggpkg, ggskin, pano.xml, or tour.js runtime markers",
 }
 
 
