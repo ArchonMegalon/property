@@ -63,13 +63,68 @@ def _performance_payload(*, include_research_checks: bool = True) -> dict[str, o
     }
 
 
-def _import_manifest_payload() -> dict[str, object]:
+def _write_hardened_drop_readmes(tmp_path: Path) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    provider_bodies = {
+        "3dvista": """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example: python /app/scripts/import_3dvista_export.py --slug demo --export-dir drop/3dvista
+Gold only passes when verify_property_tour_controls reports ready provider modes.
+Copy the complete 3DVista export folder into this directory.
+The entry must contain tdvplayer.
+""",
+        "pano2vr": """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example: python /app/scripts/import_pano2vr_export.py --slug demo --export-dir drop/pano2vr
+Gold only passes when verify_property_tour_controls reports ready provider modes.
+Copy the complete Pano2VR output folder into this directory.
+The entry must contain tour.js.
+""",
+        "krpano": """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example: python /app/scripts/import_krpano_walkable_scene.py --slug demo --panorama drop/krpano/panorama.jpg
+Gold only passes when verify_property_tour_controls reports ready provider modes.
+Copy cube-face-1 through cube-face-6 or a real panorama.
+Set KRPANO_LICENSE_DOMAIN=propertyquarry.com before importing.
+""",
+        "magicfit": """
+PropertyQuarry provider export drop folder
+Do not copy placeholder HTML.
+Single-provider dry import example: python /app/scripts/import_magicfit_walkthrough.py --slug demo --video-path drop/magicfit/magicfit-walkthrough.mp4 --source-receipt drop/magicfit/magicfit-receipt.json
+Gold only passes when verify_property_tour_controls reports ready provider modes.
+Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
+""",
+    }
+    for provider, body in provider_bodies.items():
+        export_dir = tmp_path / "drop" / provider
+        export_dir.mkdir(parents=True, exist_ok=True)
+        readme = export_dir / "README.propertyquarry-export.txt"
+        readme.write_text(body, encoding="utf-8")
+        rows.append({"provider": provider, "export_dir": str(export_dir), "readme": str(readme)})
+    return rows
+
+
+def _import_manifest_payload(tmp_path: Path, *, hardened_readmes: bool = True) -> dict[str, object]:
     providers = ["3dvista", "pano2vr", "krpano", "magicfit"]
+    prepared_drop_dirs: list[dict[str, str]]
+    if hardened_readmes:
+        prepared_drop_dirs = _write_hardened_drop_readmes(tmp_path)
+    else:
+        prepared_drop_dirs = []
+        for provider in providers:
+            export_dir = tmp_path / "drop" / provider
+            export_dir.mkdir(parents=True, exist_ok=True)
+            readme = export_dir / "README.propertyquarry-export.txt"
+            readme.write_text("Old placeholder instructions", encoding="utf-8")
+            prepared_drop_dirs.append({"provider": provider, "export_dir": str(export_dir), "readme": str(readme)})
     return {
         "status": "ready_for_exports",
         "import_count": len(providers),
         "providers": providers,
-        "prepared_drop_dirs": [{"provider": provider, "export_dir": f"/drop/{provider}"} for provider in providers],
+        "prepared_drop_dirs": prepared_drop_dirs,
         "next_command": "python /app/scripts/import_property_tour_exports.py --manifest manifest.json",
     }
 
@@ -93,7 +148,7 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
         tmp_path / "discovery.json",
         {"status": "blocked_no_verified_exports", "import_count": 0, "rejected_count": 0},
     )
-    import_manifest = _write_json(tmp_path / "import-manifest.json", _import_manifest_payload())
+    import_manifest = _write_json(tmp_path / "import-manifest.json", _import_manifest_payload(tmp_path))
     repair_canary = _write_json(
         tmp_path / "repair.json",
         {
@@ -121,6 +176,8 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano", "magicfit"]
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
     assert receipt["operator_import_manifest"]["missing_prepared_providers"] == []
+    assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is True
+    assert receipt["operator_import_manifest"]["hardened_readme_provider_count"] == 4
     assert "gold still requires real imported assets" in receipt["operator_import_manifest"]["note"]
     assert any(row["area"] == "verified_tour_provider_modes" for row in receipt["blockers"])
     assert any(row["area"] == "tour_export_drop" for row in receipt["blockers"])
@@ -343,3 +400,51 @@ def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_check
     assert "research_confirmed_listing_facts" in receipt["performance"]["missing_research_detail_checks"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "mobile_and_authenticated_surfaces")
     assert "research_mobile_open_property_compact_layout" in blocker["missing_research_detail_checks"]
+
+
+def test_gold_status_blocks_when_operator_drop_readmes_are_stale(tmp_path: Path) -> None:
+    performance = _write_json(
+        tmp_path / "performance.json",
+        _performance_payload(),
+    )
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 0, "pano2vr": 0, "krpano": 0, "magicfit": 0},
+            "ready_provider_modes": ["matterport"],
+            "missing_provider_modes": ["3dvista", "pano2vr", "krpano", "magicfit"],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"status": "blocked_no_verified_exports", "import_count": 0, "rejected_count": 0},
+    )
+    import_manifest = _write_json(tmp_path / "import-manifest.json", _import_manifest_payload(tmp_path, hardened_readmes=False))
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        import_manifest_receipt_path=import_manifest,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["operator_import_manifest"]["ready_for_exports"] is False
+    assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is False
+    assert sorted(receipt["operator_import_manifest"]["missing_hardened_readme_providers"]) == ["3dvista", "krpano", "magicfit", "pano2vr"]
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "tour_operator_drop_readmes")
+    assert blocker["status"] == "stale_or_missing"
+    assert blocker["failures"][0]["status"] == "stale_readme"

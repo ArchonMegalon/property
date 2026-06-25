@@ -19,6 +19,34 @@ REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_mobile_open_property_compact_layout",
     "research_mobile_visual_frame_compact",
 )
+COMMON_OPERATOR_DROP_README_TOKENS = (
+    ("title", "PropertyQuarry provider export drop folder"),
+    ("no_placeholders", "Do not copy placeholder HTML"),
+    ("dry_import", "Single-provider dry import example:"),
+    ("gold_gate", "Gold only passes when verify_property_tour_controls reports ready provider modes"),
+)
+PROVIDER_OPERATOR_DROP_README_TOKENS = {
+    "3dvista": (
+        ("complete_export", "Copy the complete 3DVista export folder"),
+        ("runtime_marker", "tdvplayer"),
+        ("importer", "import_3dvista_export.py"),
+    ),
+    "pano2vr": (
+        ("complete_output", "Copy the complete Pano2VR output folder"),
+        ("runtime_marker", "tour.js"),
+        ("importer", "import_pano2vr_export.py"),
+    ),
+    "krpano": (
+        ("cube_faces", "cube-face-1"),
+        ("license_domain", "KRPANO_LICENSE_DOMAIN=propertyquarry.com"),
+        ("importer", "import_krpano_walkable_scene.py"),
+    ),
+    "magicfit": (
+        ("walkthrough_video", "magicfit-walkthrough.mp4"),
+        ("render_receipt", "magicfit-receipt.json"),
+        ("importer", "import_magicfit_walkthrough.py"),
+    ),
+}
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -70,6 +98,43 @@ def _performance_research_detail_checks(performance: dict[str, Any]) -> tuple[bo
         missing = [name for name in REQUIRED_RESEARCH_PERFORMANCE_CHECKS if name not in passed_checks]
         return (not missing, missing, path)
     return (False, list(REQUIRED_RESEARCH_PERFORMANCE_CHECKS), "")
+
+
+def _operator_drop_readme_status(import_manifest: dict[str, Any]) -> tuple[bool, int, list[str], list[dict[str, Any]]]:
+    expected_providers = set(PROVIDER_OPERATOR_DROP_README_TOKENS)
+    provider_rows = {
+        str(row.get("provider") or "").strip().lower(): row
+        for row in list(import_manifest.get("prepared_drop_dirs") or [])
+        if isinstance(row, dict) and str(row.get("provider") or "").strip().lower()
+    }
+    failures: list[dict[str, Any]] = []
+    verified_providers: set[str] = set()
+    for provider in sorted(expected_providers):
+        row = provider_rows.get(provider)
+        if not row:
+            failures.append({"provider": provider, "status": "missing_manifest_row", "missing_tokens": ["readme_path"]})
+            continue
+        readme_path_text = str(row.get("readme") or "").strip()
+        if not readme_path_text:
+            failures.append({"provider": provider, "status": "missing_readme_path", "missing_tokens": ["readme_path"]})
+            continue
+        readme_path = Path(readme_path_text)
+        try:
+            body = readme_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            failures.append({"provider": provider, "status": "missing_readme_file", "missing_tokens": ["readme_file"]})
+            continue
+        except Exception as exc:
+            failures.append({"provider": provider, "status": "invalid_readme_file", "error": f"{type(exc).__name__}: {exc}", "missing_tokens": ["readme_file"]})
+            continue
+        required_tokens = (*COMMON_OPERATOR_DROP_README_TOKENS, *PROVIDER_OPERATOR_DROP_README_TOKENS[provider])
+        missing_labels = [label for label, token in required_tokens if token not in body]
+        if missing_labels:
+            failures.append({"provider": provider, "status": "stale_readme", "missing_tokens": missing_labels})
+            continue
+        verified_providers.add(provider)
+    missing_providers = sorted(expected_providers - verified_providers)
+    return (not failures and not missing_providers, len(verified_providers), missing_providers, failures[:8])
 
 
 def build_gold_status_receipt(
@@ -140,11 +205,13 @@ def build_gold_status_receipt(
         for row in list(import_manifest.get("prepared_drop_dirs") or [])
         if isinstance(row, dict)
     }
+    hardened_readmes_ok, hardened_readme_provider_count, missing_hardened_readme_providers, hardened_readme_failures = _operator_drop_readme_status(import_manifest)
     operator_import_manifest_ready = (
         import_manifest.get("status") == "ready_for_exports"
         and int(import_manifest.get("import_count") or 0) >= len(expected_import_providers)
         and expected_import_providers.issubset(manifest_providers)
         and expected_import_providers.issubset(prepared_drop_providers)
+        and hardened_readmes_ok
     )
     repair_canary_ok = (
         repair_canary.get("status") == "pass"
@@ -202,6 +269,16 @@ def build_gold_status_receipt(
                 "area": "tour_export_drop",
                 "status": export_discovery.get("status") or "unknown",
                 "action": "place verified 3DVista/Pano2VR exports in the configured drop directory and rerun discovery/import",
+            }
+        )
+    if import_manifest_receipt_path is not None and import_manifest.get("status") == "ready_for_exports" and not hardened_readmes_ok:
+        blockers.append(
+            {
+                "area": "tour_operator_drop_readmes",
+                "status": "stale_or_missing",
+                "missing_hardened_readme_providers": missing_hardened_readme_providers,
+                "failures": hardened_readme_failures,
+                "action": "rerun materialize_property_tour_export_manifest.py --prepare-dirs so each provider drop folder has current import and verification instructions",
             }
         )
     if not repair_canary_ok:
@@ -272,6 +349,10 @@ def build_gold_status_receipt(
             "providers": sorted(manifest_providers),
             "prepared_drop_provider_count": len(prepared_drop_providers),
             "missing_prepared_providers": sorted(expected_import_providers - prepared_drop_providers),
+            "hardened_readmes_ok": hardened_readmes_ok,
+            "hardened_readme_provider_count": hardened_readme_provider_count,
+            "missing_hardened_readme_providers": missing_hardened_readme_providers,
+            "hardened_readme_failures": hardened_readme_failures,
             "next_command": import_manifest.get("next_command"),
             "receipt_path": str(import_manifest_receipt_path) if import_manifest_receipt_path is not None else "",
             "note": "Prepared operator drop lanes are progress only; gold still requires real imported assets and verified playable controls.",
