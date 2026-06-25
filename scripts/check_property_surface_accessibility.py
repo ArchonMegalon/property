@@ -244,22 +244,23 @@ def _check_accessibility_primitives(path: Path, text: str, failures: list[str]) 
         if "min-height: var(--touch-target)" not in text:
             failures.append(f"{path} must use --touch-target for primary buttons")
     if relative == "ea/app/templates/base_console.html":
-        for token in ("--mobile-dock-target:", "--mobile-dock-target-coarse:"):
-            if token not in text:
-                failures.append(f"{path} must define {token.rstrip(':')}")
-        if ".pq-mobile-nav a" not in text or "min-height: var(--mobile-dock-target)" not in text:
-            failures.append(f"{path} must give mobile dock links a minimum touch target")
-        if "var(--mobile-dock-target-coarse)" not in text:
-            failures.append(f"{path} must enlarge mobile dock links for coarse pointers")
+        if ".pq-mobile-nav" in text or "data-property-mobile-dock" in text:
+            failures.append(f"{path} must not render legacy mobile bottom dock navigation")
+        if ".pq-appbar-mobile-nav a" not in text or ".pq-appbar-mobile-nav span" not in text:
+            failures.append(f"{path} must style the top mobile app navigation")
+        if "min-height: var(--touch-target)" not in text:
+            failures.append(f"{path} must give top mobile nav links a minimum touch target")
+        if "var(--touch-target-coarse)" not in text:
+            failures.append(f"{path} must enlarge top mobile nav links for coarse pointers")
     if relative == "ea/app/templates/app/property_decision_workbench.html":
         for token in ("--pq-touch-target:", "--pq-touch-target-coarse:", "--pq-focus-ring:"):
             if token not in text:
                 failures.append(f"{path} must define {token.rstrip(':')}")
         if "@media (pointer: coarse)" not in text or "var(--pq-touch-target-coarse)" not in text:
             failures.append(f"{path} must increase workbench controls for coarse pointers")
-        bottom_nav_index = text.find(".pqx-bottom-nav {")
-        late_result_guard_index = text.find('html[data-pq-theme="dark"] .pqx-result-fact,', bottom_nav_index)
-        if bottom_nav_index < 0 or late_result_guard_index < 0:
+        result_fact_index = text.find(".pqx-result-fact {")
+        late_result_guard_index = text.find('html[data-pq-theme="dark"] .pqx-result-fact,', result_fact_index)
+        if result_fact_index < 0 or late_result_guard_index < 0:
             failures.append(f"{path} must keep a late dark-mode result-control guard after result card styles")
     if relative == "ea/app/templates/app/property_research_detail.html":
         if "@media (pointer: coarse)" not in text or "var(--touch-target-coarse)" not in text:

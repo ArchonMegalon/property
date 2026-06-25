@@ -59,6 +59,30 @@ def test_property_surface_accessibility_gate_requires_touch_target_primitives() 
     assert any("coarse pointers" in failure for failure in failures)
 
 
+def test_property_surface_accessibility_gate_rejects_legacy_mobile_dock() -> None:
+    failures: list[str] = []
+
+    gate._check_accessibility_primitives(
+        gate.ROOT / "ea/app/templates/base_console.html",
+        """
+        :root { --touch-target: 40px; --touch-target-coarse: 44px; --focus-ring: 3px solid red; }
+        a:focus-visible { outline: 2px solid red; }
+        .btn { min-height: var(--touch-target); }
+        .pq-appbar-mobile-nav a,
+        .pq-appbar-mobile-nav span { min-height: var(--touch-target); }
+        @media (prefers-reduced-motion: reduce) { * { transition: none; } }
+        @media (pointer: coarse) {
+          .pq-appbar-mobile-nav a,
+          .pq-appbar-mobile-nav span { min-height: var(--touch-target-coarse); }
+        }
+        .pq-mobile-nav a { min-height: 48px; }
+        """,
+        failures,
+    )
+
+    assert any("legacy mobile bottom dock" in failure for failure in failures)
+
+
 def test_property_surface_accessibility_gate_checks_contrast_tokens() -> None:
     failures: list[str] = []
 

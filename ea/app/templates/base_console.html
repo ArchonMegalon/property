@@ -47,8 +47,6 @@
       --max: 1180px;
       --touch-target: 40px;
       --touch-target-coarse: 44px;
-      --mobile-dock-target: 48px;
-      --mobile-dock-target-coarse: 56px;
       --focus-ring: 3px solid rgba(214, 166, 63, 0.46);
       color-scheme: light;
     }
@@ -1059,7 +1057,7 @@
         flex: 0 0 auto;
         display: inline-grid;
         place-items: center;
-        min-height: 32px;
+        min-height: var(--touch-target);
         padding: 0 10px;
         border: 1px solid var(--line);
         border-radius: 999px;
@@ -1145,7 +1143,7 @@
       }
       .pq-appbar-mobile-nav a,
       .pq-appbar-mobile-nav span {
-        min-height: 40px;
+        min-height: var(--touch-target);
         padding: 0 12px;
         font-size: 11px;
       }
@@ -1200,7 +1198,9 @@
       .account-menu summary,
       .account-menu-links a,
       .account-menu-links button,
-      .mobile-nav a {
+      .mobile-nav a,
+      .pq-appbar-mobile-nav a,
+      .pq-appbar-mobile-nav span {
         min-height: var(--touch-target-coarse);
       }
     }
