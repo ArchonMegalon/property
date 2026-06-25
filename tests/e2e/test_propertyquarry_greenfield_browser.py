@@ -2127,7 +2127,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     desktop = _new_context(browser, mobile=False, width=1120, height=1200)
-    mobile = _new_context(browser, mobile=True, width=430, height=1200)
+    mobile = _new_context(browser, mobile=True, width=390, height=844)
     desktop_shot = tmp_path / "propertyquarry-what-matters-distance-desktop.png"
     mobile_shot = tmp_path / "propertyquarry-what-matters-distance-mobile.png"
 
@@ -2253,6 +2253,53 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
         assert playground_clip["selectBottom"] <= playground_clip["rowBottom"] + 1, playground_clip
         assert playground_clip["selectTop"] >= playground_clip["listTop"] - 1, playground_clip
         assert playground_clip["selectBottom"] <= playground_clip["listBottom"] + 1, playground_clip
+        if int(page.evaluate("window.innerWidth")) <= 760:
+            playground_viewport = page.evaluate(
+                """
+                () => {
+                  const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+                  const preference = row?.querySelector('[data-keyword-preference-select]');
+                  const distance = row?.querySelector('[data-keyword-distance-select]');
+                  const group = row?.closest('[data-what-matters-group]');
+                  row?.scrollIntoView({ block: 'center', inline: 'nearest' });
+                  const rowRect = row?.getBoundingClientRect();
+                  const distanceRect = distance?.getBoundingClientRect();
+                  const bottomDockRect = Array.from(
+                    document.querySelectorAll('[data-property-mobile-action-dock], [data-property-mobile-dock]')
+                  )
+                    .map((node) => node.getBoundingClientRect())
+                    .filter((rect) => rect.top > window.innerHeight * 0.5)
+                    .sort((a, b) => a.top - b.top)[0] || null;
+                  return {
+                    preferenceValue: preference?.value || '',
+                    distanceDisabled: Boolean(distance?.disabled),
+                    distanceHeight: distanceRect ? distanceRect.height : 0,
+                    distanceLeft: distanceRect ? distanceRect.left : -999,
+                    distanceRight: distanceRect ? distanceRect.right : 999,
+                    distanceTop: distanceRect ? distanceRect.top : -999,
+                    distanceBottom: distanceRect ? distanceRect.bottom : 999,
+                    rowTop: rowRect ? rowRect.top : -999,
+                    rowBottom: rowRect ? rowRect.bottom : 999,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight,
+                    bottomSafeTop: bottomDockRect ? bottomDockRect.top : window.innerHeight,
+                    groupOpen: Boolean(group?.open),
+                    groupActive: group?.getAttribute('data-active-distance-rows') || '',
+                    groupMobileActive: group?.getAttribute('data-mobile-distance-control-active') || '',
+                  };
+                }
+                """
+            )
+            assert playground_viewport["preferenceValue"] == "nice_to_have", playground_viewport
+            assert playground_viewport["distanceDisabled"] is False, playground_viewport
+            assert float(playground_viewport["distanceHeight"]) >= 44.0, playground_viewport
+            assert float(playground_viewport["distanceLeft"]) >= -1.0, playground_viewport
+            assert float(playground_viewport["distanceRight"]) <= float(playground_viewport["viewportWidth"]) + 1.0, playground_viewport
+            assert float(playground_viewport["distanceTop"]) >= 0.0, playground_viewport
+            assert float(playground_viewport["distanceBottom"]) <= float(playground_viewport["bottomSafeTop"]) - 4.0, playground_viewport
+            assert playground_viewport["groupOpen"] is True, playground_viewport
+            assert playground_viewport["groupActive"] == "true", playground_viewport
+            assert playground_viewport["groupMobileActive"] == "true", playground_viewport
 
     try:
         _assert_distance_rows_fit(desktop.new_page(), desktop_shot)

@@ -9136,7 +9136,7 @@ def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> N
     )
     assert distance_select is not None
     assert "grid-column: 1 / -1;" in distance_select.group("body")
-    assert "min-height: 42px;" in distance_select.group("body")
+    assert "min-height: 44px;" in distance_select.group("body")
 
 
 def test_property_delivery_rows_are_customer_outcomes_not_provider_receipts() -> None:
