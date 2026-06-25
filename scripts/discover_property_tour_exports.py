@@ -571,6 +571,75 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
     }
 
 
+def _handoff_markdown_path(write_path: Path) -> Path:
+    name = write_path.name
+    if name.endswith(".json"):
+        return write_path.with_name(f"{name[:-5]}.handoff.md")
+    return write_path.with_suffix(f"{write_path.suffix}.handoff.md" if write_path.suffix else ".handoff.md")
+
+
+def _tour_export_handoff_markdown(receipt: dict[str, Any]) -> str:
+    lines = [
+        "# PropertyQuarry Tour Export Handoff",
+        "",
+        "Gold remains blocked until real provider assets are copied into the drop folders and pass the hardened importers.",
+        "",
+        f"- Discovery status: `{receipt.get('status')}`",
+        f"- Drop root: `{receipt.get('drop_dir')}`",
+        f"- Public tour root: `{receipt.get('public_tour_dir')}`",
+        f"- Importable rows now: `{receipt.get('import_count')}`",
+        f"- Rejected rows now: `{receipt.get('rejected_count')}`",
+        "",
+        "Do not copy placeholder HTML, flat photos, or fake videos. The importer must see real provider runtime markers or playable media.",
+        "",
+    ]
+    rejected = [row for row in list(receipt.get("rejected") or []) if isinstance(row, dict)]
+    if rejected:
+        lines.extend(["## Rejected Drops", ""])
+    for row in rejected:
+        provider = str(row.get("provider") or "").strip()
+        slug = str(row.get("slug") or "").strip()
+        drop_path = str(row.get("drop_path") or "").strip()
+        file_count = row.get("file_count")
+        present_sample = ", ".join(str(item) for item in list(row.get("present_sample") or [])) or "none"
+        entry_candidates = ", ".join(str(item) for item in list(row.get("entry_candidates") or [])) or "none"
+        missing = ", ".join(str(item) for item in list(row.get("missing") or [])) or str(row.get("reason") or "")
+        markers = ", ".join(str(item) for item in list(row.get("missing_markers") or [])) or "provider-specific runtime/media evidence"
+        lines.extend(
+            [
+                f"### {provider} · {slug}",
+                "",
+                f"- Drop path: `{drop_path}`",
+                f"- Reason: `{row.get('reason')}`",
+                f"- Files found: `{file_count if file_count is not None else 'n/a'}`",
+                f"- Present sample: `{present_sample}`",
+                f"- Entry candidates: `{entry_candidates}`",
+                f"- Missing: `{missing}`",
+                f"- Required markers/evidence: `{markers}`",
+                f"- Required action: {row.get('action')}",
+                f"- Expected layout: `{row.get('drop_layout')}`",
+                "",
+            ]
+        )
+    repair_rows = [row for row in list(receipt.get("repair_manifest") or []) if isinstance(row, dict)]
+    if repair_rows:
+        lines.extend(["## Commands After Assets Arrive", ""])
+        for row in repair_rows:
+            command = str(row.get("import_command_after_assets_arrive") or "").strip()
+            if command:
+                lines.append(f"- `{command}`")
+        lines.append("")
+    lines.extend(
+        [
+            "After importing, rerun:",
+            "",
+            "`python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only`",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Discover verified 3DVista/Pano2VR export folders and emit an import manifest.")
     parser.add_argument("--drop-dir", default=str(_default_drop_dir()))
@@ -586,6 +655,7 @@ def main() -> int:
     write_path = Path(args.write).expanduser() if str(args.write or "").strip() else _artifact_dir() / "property-tour-export-discovery.json"
     write_path.parent.mkdir(parents=True, exist_ok=True)
     write_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _handoff_markdown_path(write_path).write_text(_tour_export_handoff_markdown(receipt), encoding="utf-8")
     if str(args.manifest_write or "").strip():
         manifest_path = Path(args.manifest_write).expanduser()
         manifest_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1009,6 +1009,11 @@ def test_tour_export_discovery_rejects_16_9_krpano_panorama_candidates(tmp_path:
 
     assert discovered.returncode == 2
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    handoff_path = receipt_path.with_name("discovery.handoff.md")
+    assert handoff_path.is_file()
+    handoff = handoff_path.read_text(encoding="utf-8")
+    assert "PropertyQuarry Tour Export Handoff" in handoff
+    assert "Gold remains blocked until real provider assets are copied into the drop folders" in handoff
     assert receipt["status"] == "blocked_no_verified_exports"
     assert receipt["rejected"][0]["reason"] == "krpano_assets_missing"
     assert receipt["repair_manifest"][0]["reason"] == "krpano_assets_missing"
@@ -1142,3 +1147,11 @@ def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(t
     assert any("import_magicfit_walkthrough.py" in row["import_command_after_assets_arrive"] for row in receipt["repair_manifest"])
     assert any("ggpkg" in row["action"] for row in receipt["rejected"] if row["provider"] == "pano2vr")
     assert any("panorama" in row["action"] for row in receipt["rejected"] if row["provider"] == "krpano")
+    handoff_path = receipt_path.with_name("discovery.handoff.md")
+    assert handoff_path.is_file()
+    handoff = handoff_path.read_text(encoding="utf-8")
+    assert "pano2vr · placeholder-tour" in handoff
+    assert "Files found: `1`" in handoff
+    assert "Present sample: `index.html`" in handoff
+    assert "Required markers/evidence: `ggpkg, ggskin, pano.xml, tour.js`" in handoff
+    assert "import_pano2vr_export.py" in handoff
