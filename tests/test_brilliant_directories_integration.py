@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -25,6 +28,11 @@ from app.services.brilliant_directories import (
     load_brilliant_directories_config,
 )
 from app.services import brilliant_directories as brilliant_directories_service
+from app.services.property_billing import (
+    brilliant_directories_billing_webhook_receipt,
+    normalize_property_commercial,
+    verify_brilliant_directories_billing_webhook_signature,
+)
 from tests.product_test_helpers import build_property_client, start_workspace
 
 
@@ -69,9 +77,19 @@ def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
         "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET",
         "BRILLIANT_DIRECTORIES_API_KEY",
+        "BRILLIANT_DIRECTORIES_WEBHOOK_SECRET",
     ):
         monkeypatch.delenv(name, raising=False)
+
+
+def _bd_signature(secret: str, timestamp: int, body: bytes) -> str:
+    return hmac.new(
+        secret.encode("utf-8"),
+        f"{timestamp}.".encode("utf-8") + body,
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def test_brilliant_directories_is_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,6 +181,139 @@ def test_brilliant_directories_receipt_records_billing_as_advisory_white_label_h
     assert capabilities["billing_source_of_truth_stays_propertyquarry"] is True
     assert capabilities["brilliant_directories_billing_events_advisory_only"] is True
     assert capabilities["billing_webhooks_must_be_signed_and_reconciled"] is True
+    assert capabilities["billing_webhook_timestamped_hmac_contract"] is True
+    assert capabilities["billing_webhook_replay_guard_contract"] is True
+    assert capabilities["billing_webhook_entitlement_mutation_disabled"] is True
+
+
+def test_brilliant_directories_billing_webhook_requires_timestamped_hmac(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET", "bd-webhook-secret")
+    body = b'{"event_id":"bd_evt_1","event_type":"invoice.paid","plan_key":"agent"}'
+    now = datetime(2026, 6, 25, 12, 0, 0, tzinfo=timezone.utc)
+    timestamp = int(now.timestamp())
+    signature = _bd_signature("bd-webhook-secret", timestamp, body)
+
+    assert verify_brilliant_directories_billing_webhook_signature(
+        body_bytes=body,
+        signature=signature,
+        timestamp=timestamp,
+        now=now,
+    )
+    assert verify_brilliant_directories_billing_webhook_signature(
+        body_bytes=body,
+        signature=f"sha256={signature}",
+        timestamp=timestamp,
+        now=now,
+    )
+    assert not verify_brilliant_directories_billing_webhook_signature(
+        body_bytes=body,
+        signature="bad-signature",
+        timestamp=timestamp,
+        now=now,
+    )
+    assert not verify_brilliant_directories_billing_webhook_signature(
+        body_bytes=body,
+        signature=signature,
+        timestamp=timestamp - 301,
+        now=now,
+    )
+
+
+def test_brilliant_directories_billing_webhook_receipt_is_advisory_and_needs_local_reconciliation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET", "bd-webhook-secret")
+    payload = {
+        "event_id": "bd_evt_invoice_1",
+        "event_type": "invoice.paid",
+        "plan_key": "agent",
+        "order_id": "bd_order_1",
+        "invoice_id": "bd_invoice_1",
+        "invoice_url": "https://billing.propertyquarry.com/invoices/bd_invoice_1",
+        "payment_status": "paid",
+        "amount_eur": "99.00",
+        "currency": "EUR",
+    }
+    body = json.dumps(payload, sort_keys=True).encode("utf-8")
+    now = datetime(2026, 6, 25, 12, 0, 0, tzinfo=timezone.utc)
+    timestamp = int(now.timestamp())
+    signature = _bd_signature("bd-webhook-secret", timestamp, body)
+
+    receipt = brilliant_directories_billing_webhook_receipt(
+        {},
+        payload=payload,
+        body_bytes=body,
+        signature=signature,
+        timestamp=timestamp,
+        now=now,
+    )
+
+    assert receipt["status"] == "accepted_advisory_receipt"
+    assert receipt["signature_verified"] is True
+    assert receipt["advisory_only"] is True
+    assert receipt["entitlement_mutation_allowed"] is False
+    assert receipt["local_reconciliation_required"] is True
+    assert receipt["body_sha256"] == hashlib.sha256(body).hexdigest()
+    updates = receipt["billing_event_updates"]
+    assert updates["last_billing_event_id"] == "bd_evt_invoice_1"
+    assert updates["billing_events_json"][-1]["provider"] == "brilliant_directories"
+    assert updates["billing_events_json"][-1]["accounting_status"] == "external_advisory"
+    assert "invoice_url" in receipt["payload_keys"]
+    public_receipt = {key: value for key, value in receipt.items() if key != "billing_event_updates"}
+    assert "bd_invoice_1" not in json.dumps(public_receipt)
+
+    commercial_after = normalize_property_commercial(updates)
+    assert commercial_after["active_plan_key"] == "free"
+    assert commercial_after["status"] == "free"
+
+
+def test_brilliant_directories_billing_webhook_replay_does_not_append_or_mutate_entitlements(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET", "bd-webhook-secret")
+    payload = {
+        "event_id": "bd_evt_replayed",
+        "event_type": "invoice.paid",
+        "plan_key": "plus",
+        "payment_status": "paid",
+        "amount": "3.00",
+    }
+    body = json.dumps(payload, sort_keys=True).encode("utf-8")
+    now = datetime(2026, 6, 25, 12, 0, 0, tzinfo=timezone.utc)
+    timestamp = int(now.timestamp())
+    signature = _bd_signature("bd-webhook-secret", timestamp, body)
+    existing = {
+        "billing_events_json": [
+            {
+                "event_id": "bd_evt_replayed",
+                "event_type": "invoice.paid",
+                "provider": "brilliant_directories",
+                "recorded_at": "2026-06-25T11:59:00+00:00",
+            }
+        ],
+    }
+
+    receipt = brilliant_directories_billing_webhook_receipt(
+        existing,
+        payload=payload,
+        body_bytes=body,
+        signature=signature,
+        timestamp=timestamp,
+        now=now,
+    )
+
+    assert receipt["status"] == "replayed"
+    assert receipt["signature_verified"] is True
+    assert receipt["replayed"] is True
+    assert receipt["billing_event_updates"] == {}
+    commercial = normalize_property_commercial(existing)
+    assert commercial["active_plan_key"] == "free"
+    assert len(commercial["billing_events_json"]) == 1
 
 
 def test_brilliant_directories_request_builder_supports_explicit_json_without_making_it_default(

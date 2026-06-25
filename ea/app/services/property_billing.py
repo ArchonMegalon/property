@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import base64
 import hashlib
 import hmac
+import json
 import os
 import urllib.parse
 from typing import Any
@@ -333,6 +334,131 @@ def property_billing_invoice_handoffs(property_commercial: dict[str, object] | N
             }
         )
     return rows[-10:]
+
+
+def brilliant_directories_billing_webhook_secret() -> str:
+    return str(
+        os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_WEBHOOK_SECRET")
+        or os.getenv("BRILLIANT_DIRECTORIES_WEBHOOK_SECRET")
+        or ""
+    ).strip()
+
+
+def _brilliant_directories_timestamp_seconds(value: object) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        parsed = _parse_iso(text)
+        if parsed is None:
+            return None
+        return int(parsed.timestamp())
+
+
+def verify_brilliant_directories_billing_webhook_signature(
+    *,
+    body_bytes: bytes,
+    signature: str,
+    timestamp: object,
+    now: datetime | None = None,
+    tolerance_seconds: int = 300,
+) -> bool:
+    secret = brilliant_directories_billing_webhook_secret()
+    provided = str(signature or "").strip()
+    if provided.lower().startswith("sha256="):
+        provided = provided.split("=", 1)[1].strip()
+    signed_at = _brilliant_directories_timestamp_seconds(timestamp)
+    if not secret or not provided or signed_at is None:
+        return False
+    current = int((now or _now()).timestamp())
+    if abs(current - signed_at) > max(int(tolerance_seconds), 0):
+        return False
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        f"{signed_at}.".encode("utf-8") + body_bytes,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(provided, expected)
+
+
+def _brilliant_directories_payload_value(payload: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
+def brilliant_directories_billing_webhook_receipt(
+    existing_commercial: dict[str, object] | None,
+    *,
+    payload: dict[str, object],
+    body_bytes: bytes,
+    signature: str,
+    timestamp: object,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    normalized = normalize_property_commercial(existing_commercial)
+    event_id = _brilliant_directories_payload_value(payload, "event_id", "id", "uuid", "webhook_id")
+    event_type = _brilliant_directories_payload_value(payload, "event_type", "type", "action") or "billing.event"
+    plan_key = _brilliant_directories_payload_value(payload, "plan_key", "plan", "membership_level")
+    order_id = _brilliant_directories_payload_value(payload, "order_id", "transaction_id", "subscription_id")
+    invoice_id = _brilliant_directories_payload_value(payload, "invoice_id", "receipt_id")
+    invoice_url = _brilliant_directories_payload_value(payload, "invoice_url", "receipt_url")
+    invoice_status = _brilliant_directories_payload_value(payload, "invoice_status", "receipt_status")
+    payment_status = _brilliant_directories_payload_value(payload, "payment_status", "status")
+    amount_eur = _brilliant_directories_payload_value(payload, "amount_eur", "amount")
+    currency = _brilliant_directories_payload_value(payload, "currency") or "EUR"
+    signature_ok = verify_brilliant_directories_billing_webhook_signature(
+        body_bytes=body_bytes,
+        signature=signature,
+        timestamp=timestamp,
+        now=now,
+    )
+    event_updates = property_billing_event_updates(
+        normalized,
+        provider="brilliant_directories",
+        event_type=event_type,
+        event_id=event_id,
+        plan_key=plan_key,
+        order_id=order_id,
+        invoice_id=invoice_id,
+        invoice_url=invoice_url,
+        invoice_status=invoice_status,
+        accounting_status="external_advisory",
+        payment_status=payment_status,
+        currency=currency,
+        amount_eur=amount_eur,
+    )
+    compact_event_id = str(event_updates.get("last_billing_event_id") or "").strip()
+    replayed = any(
+        str(item.get("event_id") or "") == compact_event_id
+        for item in list(normalized.get("billing_events_json") or [])
+        if isinstance(item, dict)
+    )
+    receipt_payload = {
+        "provider": "brilliant_directories",
+        "event_id": compact_event_id,
+        "event_type": str(event_updates.get("last_billing_event_type") or "").strip(),
+        "signature_verified": signature_ok,
+        "replayed": replayed,
+        "advisory_only": True,
+        "entitlement_mutation_allowed": False,
+        "local_reconciliation_required": True,
+        "body_sha256": hashlib.sha256(body_bytes).hexdigest(),
+        "payload_keys": sorted(str(key) for key in payload.keys())[:40],
+        "billing_event_updates": event_updates if signature_ok and not replayed else {},
+        "status": (
+            "accepted_advisory_receipt"
+            if signature_ok and not replayed
+            else ("replayed" if replayed else "signature_invalid")
+        ),
+        "recorded_at": (now or _now()).isoformat(),
+    }
+    # Keep private customer/payment data out of receipts while making replay and reconciliation auditable.
+    return json.loads(json.dumps(receipt_payload))
 
 
 def property_commercial_snapshot(property_preferences: dict[str, object] | None) -> dict[str, object]:

@@ -769,6 +769,9 @@ def build_brilliant_directories_verification_receipt() -> dict[str, object]:
             "billing_source_of_truth_stays_propertyquarry": True,
             "brilliant_directories_billing_events_advisory_only": True,
             "billing_webhooks_must_be_signed_and_reconciled": True,
+            "billing_webhook_timestamped_hmac_contract": True,
+            "billing_webhook_replay_guard_contract": True,
+            "billing_webhook_entitlement_mutation_disabled": True,
         },
         "sources": [
             "https://bootstrap.brilliantdirectories.com/support/solutions/articles/12000101842-brilliant-directories-api-endpoints-technical-reference",
