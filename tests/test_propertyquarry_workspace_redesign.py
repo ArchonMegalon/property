@@ -7182,7 +7182,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert billing.status_code == 503
     assert "Billing handoff unavailable" in billing.text
     assert "external account lane" in billing.text
-    assert "white-label billing URL" in billing.text
+    assert "Your PropertyQuarry access remains active from the account page." in billing.text
+    assert "white-label billing URL" not in billing.text
+    assert "Configure" not in billing.text
     assert "Your plan" not in billing.text
     assert "Billing history" not in billing.text
     assert "Cancellation and refunds" not in billing.text
@@ -12962,7 +12964,9 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     rendered_text = re.sub(r"\s+", " ", billing.text)
     assert "Billing handoff unavailable" in rendered_text
     assert "external account lane" in rendered_text
-    assert "white-label billing URL" in rendered_text
+    assert "Your PropertyQuarry access remains active from the account page." in rendered_text
+    assert "white-label billing URL" not in rendered_text
+    assert "Configure" not in rendered_text
     assert "Plan and payments" not in rendered_text
     assert "Plan and access" not in rendered_text
     assert "Current tier, ranked-result access, and billing account status" not in rendered_text
@@ -13023,6 +13027,9 @@ def test_propertyquarry_billing_surface_fails_closed_when_white_label_commercial
     assert 'class="pq-billing-lane-frame"' not in billing.text
     assert 'src="https://billing.brilliantdirectories.com/account"' not in billing.text
     assert "Billing handoff unavailable" in billing.text
+    assert "Your PropertyQuarry access remains active from the account page." in billing.text
+    assert "white-label billing URL" not in billing.text
+    assert "Configure" not in billing.text
     assert "Plan and payments" not in billing.text
     assert "White-label account lane" not in billing.text
     assert "Local billing is active" not in billing.text

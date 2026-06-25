@@ -3937,7 +3937,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             elif route == "/app/billing":
                 expect(page.locator("body", has_text="Billing handoff unavailable")).to_be_visible()
                 expect(page.locator("body", has_text="external account lane")).to_be_visible()
-                expect(page.locator("body", has_text="white-label billing URL")).to_be_visible()
+                expect(page.locator("body", has_text="PropertyQuarry access remains active")).to_be_visible()
                 body_text = page.evaluate("() => document.body.innerText")
                 assert "Billing history" not in body_text
                 assert "Cancellation and refunds" not in body_text

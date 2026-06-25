@@ -161,7 +161,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
     if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) == 503:
         billing_text = str(metrics.get("billing_visible_text") or "").strip().lower()
         return [
-            {"name": "billing_fail_closed_recovery", "ok": all(marker in billing_text for marker in ("billing handoff unavailable", "external account lane", "white-label billing url"))},
+            {"name": "billing_fail_closed_recovery", "ok": all(marker in billing_text for marker in ("billing handoff unavailable", "external account lane", "propertyquarry access remains active"))},
             {"name": "billing_local_page_deleted", "ok": not any(marker in billing_text for marker in ("open pricing", "compare plans", "plus checkout", "billing history"))},
         ]
     expectations = _route_expectations(route)

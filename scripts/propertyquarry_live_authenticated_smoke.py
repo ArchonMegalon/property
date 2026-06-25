@@ -34,7 +34,7 @@ FORBIDDEN_CUSTOMER_NOISE = (
 BILLING_FAIL_CLOSED_MARKERS = (
     "billing handoff unavailable",
     "external account lane",
-    "white-label billing url",
+    "propertyquarry access remains active",
 )
 BILLING_LOCAL_BOARD_MARKERS = (
     "open pricing",

@@ -4665,8 +4665,8 @@ def app_shell(
                     "<title>Billing handoff unavailable</title></head>"
                     "<body><main>"
                     "<h1>Billing handoff unavailable</h1>"
-                    "<p>PropertyQuarry billing is handled in the external account lane. "
-                    "Configure the white-label billing URL before exposing this route.</p>"
+                    "<p>Billing opens in the external account lane once the account handoff is connected. "
+                    "Your PropertyQuarry access remains active from the account page.</p>"
                     "<p><a href=\"/app/account\">Back to account</a></p>"
                     "</main></body></html>"
                 ),

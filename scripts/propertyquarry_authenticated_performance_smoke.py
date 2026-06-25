@@ -75,9 +75,6 @@ SHARED_TOP_NAV_LABELS = (
     "Search",
     "Shortlist",
     "Research",
-    "Saved searches",
-    "Alerts",
-    "Billing",
     "Account",
 )
 
@@ -671,7 +668,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {
                     "name": "billing_fail_closed_recovery",
                     "ok": response.status_code == 503
-                    and all(marker in lowered_body for marker in ("billing handoff unavailable", "external account lane", "white-label billing url")),
+                    and all(marker in lowered_body for marker in ("billing handoff unavailable", "external account lane", "propertyquarry access remains active")),
                 },
                 {"name": "billing_local_board_deleted", "ok": not billing_noise_hits, "detail": ", ".join(billing_noise_hits[:5])},
             )

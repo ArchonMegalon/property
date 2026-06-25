@@ -64,7 +64,7 @@ def test_live_mobile_smoke_accepts_fail_closed_billing_recovery() -> None:
     metrics.update(
         {
             "status_code": 503,
-            "billing_visible_text": "PropertyQuarry Billing handoff unavailable. Billing is handled in the external account lane. Configure the white-label billing URL.",
+            "billing_visible_text": "PropertyQuarry Billing handoff unavailable. Billing opens in the external account lane once the account handoff is connected. Your PropertyQuarry access remains active from the account page.",
         }
     )
 
