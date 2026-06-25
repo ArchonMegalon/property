@@ -280,6 +280,55 @@ def test_krpano_importer_accepts_six_real_cube_faces(tmp_path: Path, monkeypatch
     assert verifier["provider_counts"]["krpano"] == 1
 
 
+def test_krpano_importer_can_materialize_existing_cube_face_scene(tmp_path: Path, monkeypatch) -> None:
+    slug = "verified-krpano-existing-scene-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    manifest_path = bundle_dir / "tour.json"
+    face_relpaths: dict[str, str] = {}
+    for face_key in ("f", "b", "l", "r", "u", "d"):
+        relpath = f"panorama/source/tablet_{face_key}.jpg"
+        face_path = bundle_dir / relpath
+        face_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_square_image(face_path)
+        face_relpaths[face_key] = relpath
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Existing cube scene",
+                "scenes": [{"name": "Living room", "cube_faces": face_relpaths}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+
+    imported = _run_importer(
+        "import_krpano_walkable_scene.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--from-existing-scene",
+        "0",
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    body = json.loads(imported.stdout)
+    assert body["scene_strategy"] == "walkable_cube"
+    assert body["asset_count"] == 6
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["control_mode"] == "krpano"
+    assert manifest["viewer_provider"] == "krpano"
+    assert manifest["walkable_scene"]["projection"] == "cubemap"
+    assert set(manifest["walkable_scene"]["cube_faces"]) == {"f", "b", "l", "r", "u", "d"}
+    assert all((bundle_dir / relpath).is_file() for relpath in manifest["walkable_scene"]["cube_faces"].values())
+    verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+    assert verifier["provider_counts"]["krpano"] == 1
+    assert verifier["ready_provider_modes"] == ["krpano"]
+
+
 def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_exports(tmp_path: Path) -> None:
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "batch-3dvista")
