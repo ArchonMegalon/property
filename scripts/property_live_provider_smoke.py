@@ -465,6 +465,7 @@ def _targeted_search_matrix_summary(
     status_counts: dict[str, int] = {}
     providers_by_country: dict[str, set[str]] = {country: set() for country in normalized_countries}
     modes_by_provider: dict[tuple[str, str], set[str]] = {}
+    passed_modes_by_provider: dict[tuple[str, str], set[str]] = {}
     for row in rows:
         status = str(row.get("status") or "").strip().lower() or "unknown"
         status_counts[status] = status_counts.get(status, 0) + 1
@@ -474,6 +475,8 @@ def _targeted_search_matrix_summary(
         if country and provider:
             providers_by_country.setdefault(country, set()).add(provider)
             modes_by_provider.setdefault((country, provider), set()).add(mode)
+            if status == "pass":
+                passed_modes_by_provider.setdefault((country, provider), set()).add(mode)
     expected_modes = {"targeted_no_soft_filters", "targeted_soft_filters"}
     missing_mode_pairs = [
         {
@@ -484,9 +487,19 @@ def _targeted_search_matrix_summary(
         for (country, provider), modes in sorted(modes_by_provider.items())
         if modes != expected_modes
     ]
+    missing_passed_mode_pairs = [
+        {
+            "country_code": country,
+            "provider": provider,
+            "missing_passed_modes": sorted(expected_modes - passed_modes_by_provider.get((country, provider), set())),
+        }
+        for (country, provider), modes in sorted(modes_by_provider.items())
+        if modes == expected_modes and passed_modes_by_provider.get((country, provider), set()) != expected_modes
+    ]
     strict_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_no_soft_filters"]
     soft_rows = [row for row in rows if str(row.get("mode") or "") == "targeted_soft_filters"]
     executed = bool(execute_requested and enabled and not dry_run)
+    reported_missing_passed_mode_pairs = missing_passed_mode_pairs if executed else []
     executed_rows = [
         row
         for row in rows
@@ -549,6 +562,10 @@ def _targeted_search_matrix_summary(
         "status_readback_complete": (not executed) or len(status_readback_ok_rows) == len(rows),
         "all_search_ready_providers_covered": not missing_mode_pairs,
         "missing_mode_pairs": missing_mode_pairs,
+        "all_search_ready_provider_modes_passed": (not executed) or not reported_missing_passed_mode_pairs,
+        "missing_passed_mode_pairs": reported_missing_passed_mode_pairs[:25],
+        "missing_passed_mode_pair_count": len(reported_missing_passed_mode_pairs),
+        "missing_passed_mode_pair_sample_limit": 25,
         "payload_contracts_ok": all(bool(row.get("payload_contract_ok")) for row in rows) if rows else True,
         "provider_country_scope_ok": all(
             str(row.get("provider_country_code") or "").strip().upper() == str(row.get("country_code") or "").strip().upper()

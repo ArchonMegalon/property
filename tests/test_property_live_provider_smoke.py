@@ -40,6 +40,9 @@ def test_live_provider_smoke_is_skipped_by_default(monkeypatch) -> None:
     assert summary["executed"] is False
     assert summary["skipped_case_count"] == receipt["targeted_search_matrix_count"]
     assert summary["all_search_ready_providers_covered"] is True
+    assert summary["all_search_ready_provider_modes_passed"] is True
+    assert summary["missing_passed_mode_pairs"] == []
+    assert summary["missing_passed_mode_pair_count"] == 0
     assert summary["agent_unlimited_results_ok"] is True
     assert receipt["country_scope"] == "explicit"
 
@@ -313,6 +316,9 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert summary["status_readback_ok_count"] == 2 * _search_ready_provider_count("AT")
     assert summary["status_readback_complete"] is True
     assert summary["all_search_ready_providers_covered"] is True
+    assert summary["all_search_ready_provider_modes_passed"] is True
+    assert summary["missing_passed_mode_pair_count"] == 0
+    assert summary["missing_passed_mode_pairs"] == []
     assert summary["agent_unlimited_results_ok"] is True
     assert summary["provider_country_scope_ok"] is True
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
@@ -457,6 +463,9 @@ def test_live_provider_smoke_execution_fails_when_status_probe_is_unreadable(mon
     assert summary["status_readback_required"] is True
     assert summary["status_readback_ok_count"] == 0
     assert summary["status_readback_complete"] is False
+    assert summary["all_search_ready_providers_covered"] is True
+    assert summary["all_search_ready_provider_modes_passed"] is False
+    assert summary["missing_passed_mode_pair_count"] == _search_ready_provider_count("AT")
     assert len(summary["failed_cases"]) == 25
     assert summary["failed_case_sample_count"] == 25
     assert summary["failed_case_sample_limit"] == 25
