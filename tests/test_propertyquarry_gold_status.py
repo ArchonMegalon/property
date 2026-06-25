@@ -56,8 +56,13 @@ def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> 
     }
 
 
-def _performance_payload(*, include_research_checks: bool = True, include_analytics_checks: bool = True) -> dict[str, object]:
-    checks = [
+def _performance_payload(
+    *,
+    include_research_checks: bool = True,
+    include_search_checks: bool = True,
+    include_analytics_checks: bool = True,
+) -> dict[str, object]:
+    research_checks = [
         {"name": "research_candidate", "ok": True},
         {"name": "research_visual_cards_present", "ok": True},
         {"name": "research_visual_requests_honest", "ok": True},
@@ -68,6 +73,10 @@ def _performance_payload(*, include_research_checks: bool = True, include_analyt
         {"name": "research_mobile_open_property_compact_layout", "ok": True},
         {"name": "research_mobile_visual_frame_compact", "ok": True},
     ]
+    search_checks = [
+        {"name": "what_matters_distance_controls_compact", "ok": True},
+        {"name": "what_matters_school_distance_controls", "ok": True},
+    ]
     analytics_checks = [
         {"name": "rybbit_no_identify", "ok": True},
         {"name": "rybbit_taxonomy_events_only", "ok": True},
@@ -75,16 +84,22 @@ def _performance_payload(*, include_research_checks: bool = True, include_analyt
         {"name": "rybbit_no_private_payload", "ok": True},
     ]
     if include_analytics_checks:
-        checks.extend(analytics_checks)
+        research_checks.extend(analytics_checks)
+        search_checks.extend(analytics_checks)
     return {
         "status": "pass",
         "failed_count": 0,
         "route_count": 15,
         "routes": [
             {
+                "path": "/app/search",
+                "ok": True,
+                "checks": search_checks if include_search_checks else [],
+            },
+            {
                 "path": "/app/research/perf-candidate-1020?run_id=run-gold",
                 "ok": True,
-                "checks": checks if include_research_checks else checks[:4],
+                "checks": research_checks if include_research_checks else research_checks[:4],
             }
         ],
     }
@@ -506,8 +521,10 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["status"] == "pass"
     assert receipt["performance"]["research_detail_checks_ok"] is True
     assert receipt["performance"]["missing_research_detail_checks"] == []
+    assert receipt["performance"]["search_checks_ok"] is True
+    assert receipt["performance"]["missing_search_checks"] == []
     assert receipt["analytics"]["status"] == "pass"
-    assert receipt["analytics"]["route_count"] == 1
+    assert receipt["analytics"]["route_count"] == 2
     assert receipt["blockers"] == []
 
 
@@ -1324,6 +1341,53 @@ def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_check
     assert "research_confirmed_listing_facts" in receipt["performance"]["missing_research_detail_checks"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "mobile_and_authenticated_surfaces")
     assert "research_mobile_open_property_compact_layout" in blocker["missing_research_detail_checks"]
+
+
+def test_gold_status_blocks_when_performance_receipt_lacks_search_checks(tmp_path: Path) -> None:
+    performance = _write_json(
+        tmp_path / "performance.json",
+        _performance_payload(include_search_checks=False),
+    )
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"status": "ready", "import_count": 2, "rejected_count": 0},
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["performance"]["search_checks_ok"] is False
+    assert receipt["performance"]["missing_search_checks"] == [
+        "what_matters_distance_controls_compact",
+        "what_matters_school_distance_controls",
+    ]
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "mobile_and_authenticated_surfaces")
+    assert "what_matters_distance_controls_compact" in blocker["missing_search_checks"]
 
 
 def test_gold_status_blocks_when_performance_receipt_lacks_analytics_privacy_checks(tmp_path: Path) -> None:

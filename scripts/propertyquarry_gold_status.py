@@ -21,6 +21,10 @@ REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_mobile_open_property_compact_layout",
     "research_mobile_visual_frame_compact",
 )
+REQUIRED_SEARCH_PERFORMANCE_CHECKS = (
+    "what_matters_distance_controls_compact",
+    "what_matters_school_distance_controls",
+)
 REQUIRED_RYBBIT_PERFORMANCE_CHECKS = (
     "rybbit_no_identify",
     "rybbit_taxonomy_events_only",
@@ -240,6 +244,23 @@ def _performance_research_detail_checks(performance: dict[str, Any]) -> tuple[bo
         missing = [name for name in REQUIRED_RESEARCH_PERFORMANCE_CHECKS if name not in passed_checks]
         return (not missing, missing, path)
     return (False, list(REQUIRED_RESEARCH_PERFORMANCE_CHECKS), "")
+
+
+def _performance_search_checks(performance: dict[str, Any]) -> tuple[bool, list[str], str]:
+    for row in list(performance.get("routes") or []):
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("path") or "").split("?", 1)[0]
+        if path != "/app/search":
+            continue
+        passed_checks = {
+            str(check.get("name") or "")
+            for check in list(row.get("checks") or [])
+            if isinstance(check, dict) and check.get("ok") is True
+        }
+        missing = [name for name in REQUIRED_SEARCH_PERFORMANCE_CHECKS if name not in passed_checks]
+        return (not missing, missing, path)
+    return (False, list(REQUIRED_SEARCH_PERFORMANCE_CHECKS), "")
 
 
 def _performance_analytics_checks(performance: dict[str, Any]) -> tuple[bool, list[dict[str, Any]], list[dict[str, Any]], int]:
@@ -587,11 +608,13 @@ def build_gold_status_receipt(
         and int(dict(cross_country_sanitization_summary.get("status_counts") or {}).get("fail") or 0) == 0
     )
     research_performance_ok, missing_research_performance_checks, research_performance_path = _performance_research_detail_checks(performance)
+    search_performance_ok, missing_search_performance_checks, search_performance_path = _performance_search_checks(performance)
     analytics_ok, missing_analytics_checks, failed_analytics_checks, analytics_route_count = _performance_analytics_checks(performance)
     performance_ok = (
         performance.get("status") == "pass"
         and int(performance.get("failed_count") or 0) == 0
         and research_performance_ok
+        and search_performance_ok
     )
     live_mobile_covered_routes = _covered_live_mobile_routes(live_mobile)
     missing_live_mobile_routes = [
@@ -692,6 +715,7 @@ def build_gold_status_receipt(
                 "area": "mobile_and_authenticated_surfaces",
                 "status": performance.get("status") or "unknown",
                 "missing_research_detail_checks": missing_research_performance_checks,
+                "missing_search_checks": missing_search_performance_checks,
                 "action": "rerun and fix propertyquarry_authenticated_performance_smoke until every measured route passes",
             }
         )
@@ -899,6 +923,9 @@ def build_gold_status_receipt(
             "research_detail_path": research_performance_path,
             "research_detail_checks_ok": research_performance_ok,
             "missing_research_detail_checks": missing_research_performance_checks,
+            "search_path": search_performance_path,
+            "search_checks_ok": search_performance_ok,
+            "missing_search_checks": missing_search_performance_checks,
             "receipt_path": str(performance_receipt_path),
         },
         "analytics": {
