@@ -4840,6 +4840,77 @@ def test_property_search_status_does_not_restart_replacement_at_sources_resolved
     assert reason == ""
 
 
+def test_property_search_status_resumes_interrupted_pickup_at_sources_resolved(monkeypatch) -> None:
+    principal_id = "exec-property-search-status-recovery-sources-resolved-pickup"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Search Status Sources Resolved Pickup Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "3600")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_REPLACEMENT_RUN_STALE_SECONDS", "60")
+    service = product_service.build_product_service(client.app.state.container)
+    parent_run_id = "status-parent-sources-resolved-pickup"
+    replacement_run_id = "status-replacement-sources-resolved-pickup"
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+    replacement_state = product_service._new_property_search_run_record(
+        run_id=replacement_run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "1010 Vienna", "max_results_per_source": 1},
+        force_refresh=True,
+    )
+    replacement_state["status"] = "in_progress"
+    replacement_state["current_step"] = "sources_resolved"
+    replacement_state["message"] = "Selected 21 provider(s) with expanded coverage."
+    replacement_state["updated_at"] = stale_timestamp
+    replacement_state["summary"] = {
+        **dict(replacement_state.get("summary") or {}),
+        "repair_parent_run_id": parent_run_id,
+        "sources_total": 117,
+        "sources_completed": 9,
+        "execution_pickup_status": "started",
+        "execution_pickup_attempt": 1,
+    }
+    replacement_state["events"] = [
+        {
+            "at": stale_timestamp,
+            "step": "recovery_pickup_started",
+            "status": "in_progress",
+            "message": "Scheduler picked up the stale active search run for live execution.",
+        },
+        {
+            "at": stale_timestamp,
+            "step": "sources_resolved",
+            "status": "in_progress",
+            "message": "Selected 21 provider(s) with expanded coverage.",
+        },
+    ]
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[replacement_run_id] = dict(replacement_state)
+    product_service._store_property_search_run_record(dict(replacement_state))
+
+    pickup_calls: list[dict[str, object]] = []
+
+    def _fake_pickup(self, **kwargs):
+        pickup_calls.append(dict(kwargs))
+        return {"status": "started"}
+
+    monkeypatch.setattr(ProductService, "_pick_up_property_search_run_execution", _fake_pickup)
+
+    status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=replacement_run_id,
+        lightweight=True,
+    )
+
+    assert status is not None
+    assert pickup_calls
+    assert pickup_calls[0]["reason"] == "replacement_run_stale"
+    assert pickup_calls[0]["parent_run_ids"] == (parent_run_id,)
+    should_pick_up, parent_refs, reason = service._property_search_run_should_pick_up_execution(dict(replacement_state))
+    assert should_pick_up is True
+    assert parent_refs == (parent_run_id,)
+    assert reason == "replacement_run_stale"
+
+
 def test_property_search_status_picks_up_stale_active_checkpoint_from_lightweight_poll(monkeypatch) -> None:
     principal_id = "exec-property-search-status-recovery-active"
     client = build_property_client(principal_id=principal_id)

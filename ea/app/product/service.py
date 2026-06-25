@@ -1088,6 +1088,20 @@ def _property_search_replacement_run_is_stale(state: dict[str, object]) -> bool:
     )
 
 
+def _property_search_sources_resolved_pickup_can_resume(state: dict[str, object]) -> bool:
+    payload = dict(state or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    current_step = str(payload.get("current_step") or summary.get("current_step") or "").strip().lower()
+    if current_step != "sources_resolved":
+        return False
+    pickup_status = str(summary.get("execution_pickup_status") or payload.get("execution_pickup_status") or "").strip().lower()
+    try:
+        pickup_attempt = max(0, int(float(str(summary.get("execution_pickup_attempt") or payload.get("execution_pickup_attempt") or 0).strip())))
+    except Exception:
+        pickup_attempt = 0
+    return pickup_status == "started" or pickup_attempt > 0
+
+
 def _property_search_active_run_is_stale(state: dict[str, object]) -> bool:
     liveness_state = dict(state)
     event_times: list[datetime] = []
@@ -32467,6 +32481,7 @@ class ProductService:
                 "queued",
                 "starting",
                 "source_started",
+                "sources_resolved",
                 "source_fetching",
                 "source_extracting",
                 "source_rank_prep",
@@ -32476,6 +32491,8 @@ class ProductService:
                 "source_shortlist",
                 "source_review_packet",
             }:
+                return False
+            if current_step == "sources_resolved" and not _property_search_sources_resolved_pickup_can_resume(payload):
                 return False
             return _property_search_replacement_run_is_stale(dict(payload))
 
@@ -33064,6 +33081,7 @@ class ProductService:
             return True, parent_refs, "replacement_run_stale" if parent_refs else "startup_checkpoint_stale"
         if current_step in {
             "source_started",
+            "sources_resolved",
             "source_fetching",
             "source_extracting",
             "source_rank_prep",
@@ -33073,6 +33091,8 @@ class ProductService:
             "source_shortlist",
             "source_review_packet",
         }:
+            if current_step == "sources_resolved" and not _property_search_sources_resolved_pickup_can_resume(state):
+                return False, (), ""
             return True, parent_refs, "replacement_run_stale" if parent_refs else "active_run_checkpoint_stale"
         return False, (), ""
 
