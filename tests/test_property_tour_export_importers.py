@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 from PIL import Image
@@ -396,6 +397,98 @@ def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_ex
     verifier = build_property_tour_control_receipt(tour_root=public_root)
     assert verifier["provider_counts"]["3dvista"] == 1
     assert verifier["provider_counts"]["pano2vr"] == 1
+
+
+def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "zip-3dvista")
+    _write_base_tour(tmp_path, "zip-pano2vr")
+    vista_export = tmp_path / "vista_zip_src" / "vista-export"
+    vista_export.mkdir(parents=True)
+    (vista_export / "index.html").write_text(
+        "<!doctype html><script src='runtime/app.js'></script><div>3DVista export shell</div>",
+        encoding="utf-8",
+    )
+    (vista_export / "runtime").mkdir()
+    (vista_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    pano_export = tmp_path / "pano_zip_src" / "pano-export"
+    pano_export.mkdir(parents=True)
+    (pano_export / "index.html").write_text(
+        "<!doctype html><script src='assets/viewer.js'></script><div>Pano2VR export shell</div>",
+        encoding="utf-8",
+    )
+    (pano_export / "assets").mkdir()
+    (pano_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    vista_zip = tmp_path / "vista-export.zip"
+    pano_zip = tmp_path / "pano-export.zip"
+    for source_dir, target_zip in ((vista_export, vista_zip), (pano_export, pano_zip)):
+        with zipfile.ZipFile(target_zip, "w") as archive:
+            for path in sorted(source_dir.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(source_dir.parent).as_posix())
+    manifest_path = tmp_path / "tour-imports.json"
+    receipt_path = tmp_path / "tour-import-receipt.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "imports": [
+                    {"slug": "zip-3dvista", "provider": "3dvista", "export_zip": str(vista_zip)},
+                    {"slug": "zip-pano2vr", "provider": "pano2vr", "export_zip": str(pano_zip)},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["EA_PUBLIC_TOUR_DIR"] = str(public_root)
+    imported = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "import_property_tour_exports.py"),
+            "--manifest",
+            str(manifest_path),
+            "--write",
+            str(receipt_path),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "pass"
+    assert receipt["imported_count"] == 2
+    verifier = build_property_tour_control_receipt(tour_root=public_root)
+    assert verifier["provider_counts"]["3dvista"] == 1
+    assert verifier["provider_counts"]["pano2vr"] == 1
+
+
+def test_3dvista_zip_importer_rejects_placeholder_zip(tmp_path: Path) -> None:
+    slug = "zip-placeholder-3dvista"
+    _write_base_tour(tmp_path, slug)
+    placeholder = tmp_path / "placeholder-vista"
+    placeholder.mkdir()
+    (placeholder / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+    placeholder_zip = tmp_path / "placeholder-vista.zip"
+    with zipfile.ZipFile(placeholder_zip, "w") as archive:
+        archive.write(placeholder / "index.html", "index.html")
+
+    rejected = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--export-zip",
+        str(placeholder_zip),
+    )
+
+    assert rejected.returncode != 0
+    assert "3dvista_export_entry_unverified" in rejected.stderr
 
 
 def test_batch_tour_export_importer_materializes_krpano_and_magicfit_assets(tmp_path: Path, monkeypatch) -> None:
@@ -828,6 +921,62 @@ def test_tour_export_discovery_emits_explicit_krpano_cube_faces(tmp_path: Path) 
     assert {row[f"cube_face_{index}"].rsplit("/", 1)[-1] for index in range(1, 7)} == {
         f"cube-face-{index}.jpg" for index in range(1, 7)
     }
+
+
+def test_tour_export_discovery_accepts_verified_provider_zips(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "discover-zip-3dvista")
+    _write_base_tour(tmp_path, "discover-zip-pano2vr")
+    drop_dir = tmp_path / "drop"
+    vista_src = tmp_path / "vista-src" / "export"
+    vista_src.mkdir(parents=True)
+    (vista_src / "index.html").write_text("<script src='runtime/app.js'></script>", encoding="utf-8")
+    (vista_src / "runtime").mkdir()
+    (vista_src / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    pano_src = tmp_path / "pano-src" / "export"
+    pano_src.mkdir(parents=True)
+    (pano_src / "index.html").write_text("<script src='assets/viewer.js'></script>", encoding="utf-8")
+    (pano_src / "assets").mkdir()
+    (pano_src / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    vista_drop = drop_dir / "discover-zip-3dvista" / "3dvista"
+    pano_drop = drop_dir / "discover-zip-pano2vr" / "pano2vr"
+    vista_drop.mkdir(parents=True)
+    pano_drop.mkdir(parents=True)
+    for source_dir, target_zip in ((vista_src, vista_drop / "export.zip"), (pano_src, pano_drop / "export.zip")):
+        with zipfile.ZipFile(target_zip, "w") as archive:
+            for path in sorted(source_dir.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(source_dir.parent).as_posix())
+    receipt_path = tmp_path / "discovery.json"
+    manifest_path = tmp_path / "imports.json"
+
+    discovered = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "discover_property_tour_exports.py"),
+            "--drop-dir",
+            str(drop_dir),
+            "--public-tour-dir",
+            str(public_root),
+            "--write",
+            str(receipt_path),
+            "--manifest-write",
+            str(manifest_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert discovered.returncode == 0, discovered.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "ready"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    rows = {(row["slug"], row["provider"]): row for row in manifest["imports"]}
+    assert rows[("discover-zip-3dvista", "3dvista")]["export_zip"].endswith("export.zip")
+    assert rows[("discover-zip-pano2vr", "pano2vr")]["export_zip"].endswith("export.zip")
 
 
 def test_tour_export_discovery_rejects_16_9_krpano_panorama_candidates(tmp_path: Path) -> None:

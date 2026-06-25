@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
@@ -86,10 +89,33 @@ def _copy_export(export_dir: Path, target_dir: Path) -> None:
             shutil.copy2(item, target)
 
 
+def _safe_extract_zip(zip_path: Path, target_dir: Path) -> Path:
+    if not zip_path.is_file():
+        raise SystemExit("3dvista_export_zip_missing")
+    if zip_path.suffix.lower() != ".zip":
+        raise SystemExit("3dvista_export_zip_invalid")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as archive:
+        for member in archive.infolist():
+            name = str(member.filename or "").replace("\\", "/").lstrip("/")
+            parts = [part for part in name.split("/") if part and part not in {".", ".."}]
+            if not parts or len(parts) != len([part for part in name.split("/") if part]):
+                raise SystemExit("3dvista_export_zip_unsafe_path")
+            destination = (target_dir / "/".join(parts)).resolve()
+            if target_dir.resolve() not in destination.parents and destination != target_dir.resolve():
+                raise SystemExit("3dvista_export_zip_unsafe_path")
+        archive.extractall(target_dir)
+    children = [path for path in target_dir.iterdir() if path.name != "__MACOSX"]
+    if len(children) == 1 and children[0].is_dir():
+        return children[0].resolve()
+    return target_dir.resolve()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import a 3DVista VT Pro export into a PropertyQuarry public tour bundle.")
     parser.add_argument("--slug", required=True, help="Existing PropertyQuarry public tour slug.")
-    parser.add_argument("--export-dir", required=True, help="Directory exported by 3DVista VT Pro.")
+    parser.add_argument("--export-dir", default="", help="Directory exported by 3DVista VT Pro.")
+    parser.add_argument("--export-zip", default="", help="Zip file exported by 3DVista VT Pro.")
     parser.add_argument("--entry", default="", help="Optional entry HTML path relative to export-dir.")
     parser.add_argument("--target-subdir", default="3dvista", help="Subdirectory inside the tour bundle.")
     args = parser.parse_args()
@@ -97,12 +123,8 @@ def main() -> int:
     slug = _safe_relpath(args.slug)
     if "/" in slug or not slug:
         raise SystemExit("invalid_tour_slug")
-    export_dir = Path(args.export_dir).expanduser().resolve()
-    if not export_dir.is_dir():
-        raise SystemExit("3dvista_export_dir_missing")
-    entry = _find_entry(export_dir, args.entry)
-    if not _entry_has_3dvista_markers(export_dir, entry):
-        raise SystemExit("3dvista_export_entry_unverified")
+    if bool(str(args.export_dir or "").strip()) == bool(str(args.export_zip or "").strip()):
+        raise SystemExit("3dvista_requires_export_dir_or_zip")
 
     bundle_dir = _public_tour_dir() / slug
     manifest_path = bundle_dir / "tour.json"
@@ -113,8 +135,20 @@ def main() -> int:
     if bundle_dir.resolve() not in target_dir.parents:
         raise SystemExit("invalid_3dvista_target")
 
-    _copy_export(export_dir, target_dir)
-    entry_rel_to_export = entry.relative_to(export_dir).as_posix()
+    with contextlib.ExitStack() as stack:
+        if str(args.export_zip or "").strip():
+            temp_dir = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="propertyquarry-3dvista-")))
+            export_dir = _safe_extract_zip(Path(args.export_zip).expanduser().resolve(), temp_dir)
+        else:
+            export_dir = Path(args.export_dir).expanduser().resolve()
+        if not export_dir.is_dir():
+            raise SystemExit("3dvista_export_dir_missing")
+        entry = _find_entry(export_dir, args.entry)
+        if not _entry_has_3dvista_markers(export_dir, entry):
+            raise SystemExit("3dvista_export_entry_unverified")
+        _copy_export(export_dir, target_dir)
+        entry_rel_to_export = entry.relative_to(export_dir).as_posix()
+
     entry_relpath = f"{target_subdir}/{entry_rel_to_export}"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload["control_mode"] = "3dvista"

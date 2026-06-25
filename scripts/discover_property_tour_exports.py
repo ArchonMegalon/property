@@ -7,6 +7,8 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -40,6 +42,7 @@ MARKERS_BY_PROVIDER = {
 }
 ENTRY_NAMES = ("index.html", "index.htm", "tour.html", "virtualtour.html", "output/index.html")
 TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
+EXPORT_ARCHIVE_SUFFIXES = {".zip"}
 PANORAMA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 MAX_MARKER_SCAN_BYTES = 1_000_000
@@ -130,6 +133,55 @@ def _verified_entry(export_dir: Path, provider: str) -> tuple[Path | None, str]:
             continue
         if _export_has_provider_markers(export_dir, resolved, markers):
             return resolved, resolved.relative_to(export_dir.resolve()).as_posix()
+    return None, ""
+
+
+def _safe_extract_zip(zip_path: Path, target_dir: Path) -> Path:
+    if not zip_path.is_file() or zip_path.suffix.lower() not in EXPORT_ARCHIVE_SUFFIXES:
+        return target_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as archive:
+        for member in archive.infolist():
+            name = str(member.filename or "").replace("\\", "/").lstrip("/")
+            raw_parts = [part for part in name.split("/") if part]
+            parts = [part for part in raw_parts if part not in {".", ".."}]
+            if not parts or len(parts) != len(raw_parts):
+                raise ValueError("unsafe_zip_path")
+            destination = (target_dir / "/".join(parts)).resolve()
+            if target_dir.resolve() not in destination.parents and destination != target_dir.resolve():
+                raise ValueError("unsafe_zip_path")
+        archive.extractall(target_dir)
+    children = [path for path in target_dir.iterdir() if path.name != "__MACOSX"]
+    if len(children) == 1 and children[0].is_dir():
+        return children[0].resolve()
+    return target_dir.resolve()
+
+
+def _verified_zip_entry(zip_path: Path, provider: str) -> tuple[str, str]:
+    try:
+        with tempfile.TemporaryDirectory(prefix=f"propertyquarry-{provider}-zip-") as tmp:
+            export_dir = _safe_extract_zip(zip_path, Path(tmp))
+            entry, entry_relpath = _verified_entry(export_dir, provider)
+            if entry is None:
+                return "", ""
+            return str(zip_path), entry_relpath
+    except Exception:
+        return "", ""
+
+
+def _discover_export_zip(export_dir: Path, provider: str) -> tuple[Path | None, str]:
+    preferred = [
+        export_dir / f"{provider}.zip",
+        export_dir / "export.zip",
+        export_dir / "tour.zip",
+    ]
+    candidates = [path for path in preferred if path.is_file()] + [
+        path for path in sorted(export_dir.glob("*.zip")) if path not in preferred
+    ]
+    for candidate in candidates:
+        _, entry_relpath = _verified_zip_entry(candidate, provider)
+        if entry_relpath:
+            return candidate, entry_relpath
     return None, ""
 
 
@@ -375,17 +427,21 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
             continue
         if provider in {"3dvista", "pano2vr"}:
             entry, entry_relpath = _verified_entry(export_dir, provider)
+            export_zip: Path | None = None
             if entry is None:
+                export_zip, entry_relpath = _discover_export_zip(export_dir, provider)
+            if entry is None and export_zip is None:
                 rejected.append(_rejection_row(slug=slug, provider=provider, reason=f"{provider}_export_entry_unverified", export_dir=export_dir))
                 continue
-            imports.append(
-                {
-                    "slug": slug,
-                    "provider": provider,
-                    "export_dir": str(export_dir),
-                    "entry": entry_relpath,
-                }
-            )
+            row = {
+                "slug": slug,
+                "provider": provider,
+                "export_dir": str(export_dir),
+                "entry": entry_relpath,
+            }
+            if export_zip is not None:
+                row["export_zip"] = str(export_zip)
+            imports.append(row)
             continue
         if provider == "krpano":
             panorama = _discover_panorama(export_dir)

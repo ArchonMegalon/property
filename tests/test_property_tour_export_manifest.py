@@ -103,12 +103,14 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
         assert "Gold only passes when verify_property_tour_controls reports ready provider modes" in body
         if row["provider"] == "3dvista":
             assert "tdvplayer" in body
-            assert "Copy the complete 3DVista export folder" in body
+            assert "3DVista .zip export" in body
             assert "import_3dvista_export.py" in body
+            assert "--export-zip" in body
         if row["provider"] == "pano2vr":
             assert "tour.js" in body
-            assert "Copy the complete Pano2VR output folder" in body
+            assert "Pano2VR .zip export" in body
             assert "import_pano2vr_export.py" in body
+            assert "--export-zip" in body
         if row["provider"] == "krpano":
             assert "equirectangular" in body
             assert "cube-face-1" in body

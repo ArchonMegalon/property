@@ -115,6 +115,7 @@ def _run_import(row: dict[str, Any], *, env: dict[str, str]) -> dict[str, Any]:
     provider = _safe_provider(row.get("provider"))
     slug = _safe_slug(row.get("slug"))
     export_dir = Path(str(row.get("asset_dir") or row.get("export_dir") or "")).expanduser()
+    export_zip = Path(str(row.get("export_zip") or row.get("zip") or "")).expanduser()
     result: dict[str, Any] = {
         "provider": provider or str(row.get("provider") or "").strip(),
         "slug": slug or str(row.get("slug") or "").strip(),
@@ -126,13 +127,18 @@ def _run_import(row: dict[str, Any], *, env: dict[str, str]) -> dict[str, Any]:
     if not slug:
         result["error"] = "invalid_tour_slug"
         return result
-    if not export_dir.is_dir():
+    if provider in {"3dvista", "pano2vr"} and export_zip.is_file():
+        pass
+    elif not export_dir.is_dir():
         result["error"] = "asset_dir_missing"
         return result
     script = ROOT / "scripts" / SCRIPT_BY_PROVIDER[provider]
     cmd = [sys.executable, str(script), "--slug", slug]
     if provider in {"3dvista", "pano2vr"}:
-        cmd.extend(["--export-dir", str(export_dir.resolve())])
+        if export_zip.is_file():
+            cmd.extend(["--export-zip", str(export_zip.resolve())])
+        else:
+            cmd.extend(["--export-dir", str(export_dir.resolve())])
         entry = str(row.get("entry") or "").strip()
         if entry:
             cmd.extend(["--entry", entry])
