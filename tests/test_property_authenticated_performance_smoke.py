@@ -38,6 +38,10 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         assert check_names["shared_top_navigation"]
         assert check_names["property_app_shell"]
         assert check_names["mobile_dock_target"]
+        assert check_names["rybbit_no_identify"]
+        assert check_names["rybbit_taxonomy_events_only"]
+        assert check_names["rybbit_allowed_attributes_only"]
+        assert check_names["rybbit_no_private_payload"]
     assert any(check["name"] == "map_only_thumbnails" and check["ok"] for check in routes["/app/agents"]["checks"])
     assert any(check["name"] == "media_requests_explicit" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_confirmed_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
@@ -74,6 +78,8 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"/app/settings/invitations"' in result.stdout
     assert '"shared_top_navigation"' in result.stdout
     assert '"mobile_dock_target"' in result.stdout
+    assert '"rybbit_taxonomy_events_only"' in result.stdout
+    assert '"rybbit_no_private_payload"' in result.stdout
 
 
 def test_property_authenticated_performance_smoke_budget_override_applies_to_default_routes() -> None:

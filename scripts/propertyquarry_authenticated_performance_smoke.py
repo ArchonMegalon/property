@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -79,6 +80,49 @@ SHARED_TOP_NAV_LABELS = (
     "Account",
 )
 
+ALLOWED_RYBBIT_APP_EVENTS = {
+    "pq.search.started",
+    "pq.search.results_viewed",
+    "pq.search.agent_created",
+    "pq.search.agent_updated",
+    "pq.search.agent_notification_sent",
+    "pq.search.suppressed_viewed",
+    "pq.property.opened",
+    "pq.property.map_opened",
+    "pq.dossier.opened",
+    "pq.tour.opened",
+    "pq.flythrough.opened",
+    "pq.decision.saved",
+    "pq.reason.selected",
+    "pq.agent_question.created",
+    "pq.document.requested",
+    "pq.packet.shared",
+    "pq.email.clicked",
+}
+
+ALLOWED_RYBBIT_ATTRIBUTE_NAMES = {
+    "data-rybbit-event",
+    "data-rybbit-prop-cta-key",
+    "data-rybbit-prop-surface",
+}
+
+FORBIDDEN_RYBBIT_PAYLOAD_TOKENS = (
+    "candidate_ref",
+    "data-rybbit-prop-candidate",
+    "email",
+    "exact_address",
+    "listing_id",
+    "listing_url",
+    "phone",
+    "principal",
+    "property_url",
+    "run_id",
+    "saved_search_id",
+    "selected_platform_count",
+    "signed",
+    "telegram",
+)
+
 
 def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
     normalized_path = str(path or "").split("?", 1)[0]
@@ -102,6 +146,44 @@ def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, obje
         {
             "name": "mobile_dock_target",
             "ok": "data-property-mobile-dock" in body,
+        },
+    ]
+
+
+def _rybbit_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
+    normalized_path = str(path or "").split("?", 1)[0]
+    if not normalized_path.startswith("/app/"):
+        return []
+    attr_matches = re.findall(r"(data-rybbit-[^=\s>]+)=([\"'])(.*?)\2", body, flags=re.IGNORECASE | re.DOTALL)
+    attrs = [
+        (str(name or "").strip().lower(), " ".join(str(value or "").split()).strip())
+        for name, _quote, value in attr_matches
+    ]
+    attr_names = {name for name, _value in attrs}
+    event_values = [value for name, value in attrs if name == "data-rybbit-event"]
+    serialized_attrs = " ".join(f"{name}={value}" for name, value in attrs).lower()
+    forbidden_hits = [token for token in FORBIDDEN_RYBBIT_PAYLOAD_TOKENS if token in serialized_attrs]
+    unknown_events = [value for value in event_values if value not in ALLOWED_RYBBIT_APP_EVENTS]
+    unknown_attrs = [name for name in sorted(attr_names) if name not in ALLOWED_RYBBIT_ATTRIBUTE_NAMES]
+    return [
+        {
+            "name": "rybbit_no_identify",
+            "ok": "rybbit.identify" not in body and "analytics_principal_id" not in body,
+        },
+        {
+            "name": "rybbit_taxonomy_events_only",
+            "ok": not unknown_events and 'data-rybbit-event="property_' not in body,
+            "detail": ", ".join(unknown_events[:5]),
+        },
+        {
+            "name": "rybbit_allowed_attributes_only",
+            "ok": not unknown_attrs,
+            "detail": ", ".join(unknown_attrs[:5]),
+        },
+        {
+            "name": "rybbit_no_private_payload",
+            "ok": not forbidden_hits,
+            "detail": ", ".join(forbidden_hits[:5]),
         },
     ]
 
@@ -351,6 +433,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
         {"name": "no_customer_jargon", "ok": not noise_hits, "detail": ", ".join(noise_hits[:5])},
     ]
     checks.extend(_mobile_surface_contract_checks(path, body))
+    checks.extend(_rybbit_surface_contract_checks(path, body))
     if path == "/app/agents":
         checks.extend(
             (
