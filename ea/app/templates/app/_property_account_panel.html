@@ -65,20 +65,6 @@
   {% endif %}
 
   <div class="pqx-account-action-grid">
-    {% if account_nav %}
-    <section class="pqx-account-action-card pqx-account-session-card" id="session">
-      <div>
-        <span class="pqx-small">Session</span>
-        <h2>Signed in</h2>
-        <p>{{ account_nav.label or account_nav.menu_label or 'PropertyQuarry account' }}</p>
-        <div class="pqx-note">End this session on this device.</div>
-      </div>
-      <form class="pqx-account-session-form" method="post" action="{{ account_nav.sign_out_action }}" data-account-page-sign-out>
-        <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
-        <button class="pqx-link-button danger" type="submit">Log out</button>
-      </form>
-    </section>
-    {% endif %}
     <span id="profile" hidden aria-hidden="true"></span>
     <section class="pqx-account-action-card primary" id="search-defaults">
       <div>

@@ -125,11 +125,14 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
     lowered_visible = visible_text.lower()
     checks: list[tuple[str, bool]] = []
     if path == "/app/account":
+        account_logout_count = len(re.findall(r">Log out<", text))
         checks.extend(
             (
                 ("account_heading", "<h2>Account</h2>" in text or ">Account<" in text),
                 ("account_notifications", "<h2>Notifications</h2>" in text),
                 ("account_paid_plan", f"<h2>{expected_plan_label}</h2>" in text if expected_plan_label else True),
+                ("account_logout_strip", "pqx-account-logout-strip" in text and "Current session" in text),
+                ("account_single_logout", account_logout_count == 1),
                 ("account_no_customer_noise", not any(noise in lowered_visible for noise in FORBIDDEN_CUSTOMER_NOISE)),
             )
         )

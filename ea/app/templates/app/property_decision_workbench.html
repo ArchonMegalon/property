@@ -7559,7 +7559,7 @@
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% endif %}
-        {% if account_nav %}
+        {% if account_nav and not account_surface %}
         <details class="pqx-account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
           <div class="pqx-account-menu-panel">

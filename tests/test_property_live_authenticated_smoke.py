@@ -29,7 +29,7 @@ def _fake_response(
 
 def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network() -> None:
     bodies = {
-        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
     }
@@ -48,7 +48,7 @@ def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network(
 
 def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network() -> None:
     bodies = {
-        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Compare plans",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button>",
     }
@@ -67,7 +67,7 @@ def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network(
 
 def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_expected() -> None:
     bodies = {
-        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
     }
@@ -86,7 +86,7 @@ def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_exp
 
 def test_live_authenticated_smoke_fails_when_account_loses_paid_plan_projection() -> None:
     bodies = {
-        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Free</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
     }
@@ -104,9 +104,49 @@ def test_live_authenticated_smoke_fails_when_account_loses_paid_plan_projection(
     assert any(check["name"] == "account_paid_plan" and check["ok"] is False for check in account_row["checks"])
 
 
+def test_live_authenticated_smoke_fails_when_account_loses_logout_strip() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": "PropertyQuarry <button>Log out</button> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+    }
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=lambda url, _timeout: _fake_response(bodies[url], final_url=url),
+    )
+
+    assert receipt["status"] == "fail"
+    account_row = next(row for row in receipt["checks"] if row["path"] == "/app/account")
+    assert any(check["name"] == "account_logout_strip" and check["ok"] is False for check in account_row["checks"])
+
+
+def test_live_authenticated_smoke_fails_when_account_duplicates_logout_actions() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section><button>Log out</button> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
+        "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
+    }
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=lambda url, _timeout: _fake_response(bodies[url], final_url=url),
+    )
+
+    assert receipt["status"] == "fail"
+    account_row = next(row for row in receipt["checks"] if row["path"] == "/app/account")
+    assert any(check["name"] == "account_single_logout" and check["ok"] is False for check in account_row["checks"])
+
+
 def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout() -> None:
     bodies = {
-        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button><button>Log out</button> Open current session",
     }
@@ -126,7 +166,7 @@ def test_live_authenticated_smoke_fails_when_sign_in_surface_duplicates_logout()
 
 def test_live_authenticated_smoke_retries_transient_transport_failures_without_network() -> None:
     bodies = {
-        "https://propertyquarry.com/app/account": "PropertyQuarry <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
+        "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
         "https://propertyquarry.com/app/billing": "PropertyQuarry Open pricing",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button> Open current session",
     }
