@@ -8118,7 +8118,7 @@
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% endif %}
-        {% if account_nav %}
+        {% if account_nav and surface_mode != 'account' %}
         <details class="pqx-account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
           <div class="pqx-account-menu-panel">
@@ -8136,7 +8136,7 @@
               {% if not account_surface %}
               <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Connections</a>
               {% endif %}
-              {% if not account_surface %}
+              {% if surface_mode != 'account' %}
               <form class="is-secondary pqx-account-menu-form" method="post" action="{{ account_nav.sign_out_action }}">
                 <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
                 <button class="pqx-button subtle" type="submit">Log out</button>

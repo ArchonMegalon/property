@@ -13102,6 +13102,8 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert 'data-account-page-sign-out' in account.text
     assert 'action="/app/actions/sign-out"' in account.text
     assert ">Log out<" in account.text
+    assert account.text.count(">Log out<") == 1
+    assert 'class="pqx-account-menu"' not in account.text
     assert "Clear search history" in account.text
     assert 'action="/app/api/property/search-runs/clear"' in account.text
     assert "Access and shared pages" in account.text
