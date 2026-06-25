@@ -89,6 +89,26 @@ def _file_exists(bundle_dir: Path, relpath: str) -> bool:
     return bundle_dir.resolve() in candidate.parents and candidate.is_file()
 
 
+def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
+    if not relpath:
+        return False
+    candidate = (bundle_dir / relpath).resolve()
+    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+        return False
+    suffix = PurePosixPath(relpath).suffix.lower()
+    try:
+        header = candidate.read_bytes()[:64]
+    except OSError:
+        return False
+    if len(header) < 12:
+        return False
+    if suffix in {".mp4", ".m4v", ".mov"}:
+        return b"ftyp" in header[:32]
+    if suffix == ".webm":
+        return header.startswith(b"\x1aE\xdf\xa3")
+    return False
+
+
 def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     matterport_url = ""
@@ -145,13 +165,13 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
 
     magicfit_relpath = _magicfit_video_relpath(payload)
     magicfit_url = _magicfit_video_url(payload)
-    if magicfit_url or _file_exists(bundle_dir, magicfit_relpath):
+    if magicfit_url or _local_video_asset_is_playable(bundle_dir, magicfit_relpath):
         rows.append(
             {
                 "provider": "magicfit",
                 "status": "ready",
                 "control_path": f"/tours/files/{slug}/{magicfit_relpath}" if magicfit_relpath else "",
-                "evidence": "local_magicfit_video" if magicfit_relpath else "allowlisted_magicfit_video_url",
+                "evidence": "local_magicfit_playable_video" if magicfit_relpath else "allowlisted_magicfit_video_url",
             }
         )
     return rows
@@ -169,10 +189,30 @@ def _blocked_control_reason(payload: dict[str, object]) -> str:
     return "missing_verified_provider_control"
 
 
-def _probe_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
-    request = urllib.request.Request(url, method="GET", headers={"User-Agent": "PropertyQuarry-tour-control-verifier/1.0"})
+def _probe_url(url: str, *, timeout_seconds: float, provider: str = "") -> dict[str, object]:
+    normalized_provider = str(provider or "").strip().lower()
+    request_headers = {"User-Agent": "PropertyQuarry-tour-control-verifier/1.0"}
+    if normalized_provider == "magicfit":
+        request_headers["Accept"] = "video/mp4,video/webm,video/*;q=0.9,*/*;q=0.1"
+    request = urllib.request.Request(url, method="GET", headers=request_headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            if normalized_provider == "magicfit":
+                content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                sample = response.read(64)
+                suffix = PurePosixPath(urllib.parse.urlparse(url).path).suffix.lower()
+                signature_ok = (
+                    (suffix in {".mp4", ".m4v", ".mov"} and b"ftyp" in sample[:32])
+                    or (suffix == ".webm" and sample.startswith(b"\x1aE\xdf\xa3"))
+                )
+                return {
+                    "http_status": int(getattr(response, "status", 0) or 0),
+                    "content_type": content_type,
+                    "playback_markers": {
+                        "video_content_type": content_type.startswith("video/"),
+                        "video_signature": signature_ok,
+                    },
+                }
             body = response.read(80_000).decode("utf-8", errors="replace")
             return {
                 "http_status": int(getattr(response, "status", 0) or 0),
@@ -221,9 +261,15 @@ def build_property_tour_control_receipt(
                 provider_counts[provider] += 1
             if live_probe and base_url and control.get("control_path"):
                 probe_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", str(control["control_path"]).lstrip("/"))
-                probe = _probe_url(probe_url, timeout_seconds=timeout_seconds)
+                probe = _probe_url(
+                    probe_url,
+                    timeout_seconds=timeout_seconds,
+                    provider=str(control.get("provider") or ""),
+                )
                 control["probe"] = probe
-                if int(probe.get("http_status") or 0) != 200:
+                playback_markers = dict(probe.get("playback_markers") or {})
+                playback_failed = bool(playback_markers) and not all(bool(value) for value in playback_markers.values())
+                if int(probe.get("http_status") or 0) != 200 or playback_failed:
                     control["status"] = "probe_failed"
                     failed_probes += 1
         tours.append(

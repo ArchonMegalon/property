@@ -6,7 +6,7 @@ from pathlib import Path
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 
 
-def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[str, str] | None = None) -> None:
+def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[str, str | bytes] | None = None) -> None:
     bundle = root / slug
     bundle.mkdir(parents=True)
     body = {"slug": slug, "title": slug, **payload}
@@ -14,7 +14,10 @@ def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[s
     for relpath, content in (files or {}).items():
         target = bundle / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        if isinstance(content, bytes):
+            target.write_bytes(content)
+        else:
+            target.write_text(content, encoding="utf-8")
 
 
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
@@ -41,7 +44,7 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
         tmp_path,
         "magicfit-tour",
         {"video_provider": "magicfit", "video_relpath": "walkthrough.mp4"},
-        {"walkthrough.mp4": "video"},
+        {"walkthrough.mp4": b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"},
     )
 
     receipt = build_property_tour_control_receipt(tour_root=tmp_path)
@@ -56,6 +59,21 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     }
     assert receipt["missing_provider_modes"] == []
     assert all("matterport.com/show" not in json.dumps(tour) for tour in receipt["tours"])
+
+
+def test_property_tour_control_verifier_rejects_magicfit_placeholder_video(tmp_path: Path) -> None:
+    _write_tour(
+        tmp_path,
+        "magicfit-placeholder",
+        {"video_provider": "magicfit", "video_relpath": "walkthrough.mp4"},
+        {"walkthrough.mp4": "video"},
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "blocked_missing_verified_controls"
+    assert receipt["provider_counts"]["magicfit"] == 0
+    assert receipt["tours"][0]["blocked_reason"] == "missing_verified_provider_control"
 
 
 def test_property_tour_control_verifier_blocks_when_no_verified_controls(tmp_path: Path) -> None:
