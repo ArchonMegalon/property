@@ -1355,7 +1355,7 @@
       const shortlistReady = Number(summary.high_fit_total || 0);
       const liveInfo = latestFractionInfo(runPayload);
       if (liveInfo.sourceLabel && liveInfo.fraction) {
-        return `${scanLabel} · ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction}`;
+        return `Now: ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction} · ${scanLabel}`;
       }
       if (currentStep === 'source_review_packet' && packetPrepared > 0) {
         return `${scanLabel} · ${packetPrepared} property pages prepared`;

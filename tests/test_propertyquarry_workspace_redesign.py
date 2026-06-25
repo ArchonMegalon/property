@@ -11072,6 +11072,7 @@ def test_propertyquarry_run_script_compacts_candidate_progress_to_fraction() -> 
     bundle = _read_workbench_bundle()
     assert "const compactRunMessage = (value) => {" in bundle
     assert "return `${candidateMatch[1]} / ${candidateMatch[2]}`;" in bundle
+    assert "return `Now: ${compactProviderLabel(liveInfo.sourceLabel)} · ${liveInfo.fraction} · ${scanLabel}`;" in bundle
 
 
 def test_propertyquarry_run_script_preserves_non_empty_trail_from_omitted_or_empty_compact_payload() -> None:
