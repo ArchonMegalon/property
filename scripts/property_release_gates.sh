@@ -36,6 +36,7 @@ Runs the focused PropertyQuarry release bundle:
   - ID Austria OIDC readiness receipt and Austrian-IP sign-in gating
   - live provider smoke receipt contracts
   - hosted tour control readiness receipts for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
+  - consolidated PropertyQuarry gold-status receipt for mobile/performance, tour controls, and export discovery
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
   - privacy-safe Rybbit analytics snippet contracts
@@ -60,10 +61,23 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_teable_portability.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py --require-all-provider-modes --fail-on-blocked
+mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/smoke _completion/property_gold_status
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
+  --require-all-provider-modes \
+  --write _completion/property_tour_controls/release-gate.json \
+  --summary-only
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
+  --write _completion/property_tour_exports/release-gate-discovery.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
+  > _completion/smoke/property-auth-performance-release-gate.json
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
+  --performance-receipt _completion/smoke/property-auth-performance-release-gate.json \
+  --tour-control-receipt _completion/property_tour_controls/release-gate.json \
+  --export-discovery-receipt _completion/property_tour_exports/release-gate-discovery.json \
+  --write _completion/property_gold_status/release-gate.json \
+  --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
