@@ -3511,6 +3511,26 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             elif route == "/app/alerts":
                 expect(page.locator("body", has_text="Alerts")).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"Delivery rules|Notifications", re.I))).to_be_visible()
+                alerts_mobile_metrics = page.evaluate(
+                    """() => {
+                        const rows = Array.from(document.querySelectorAll('.pqx-shell[data-pqx-surface="alerts"] .pqx-pref-row'));
+                        const rowRects = rows.map((row) => row.getBoundingClientRect());
+                        return {
+                            viewportWidth: window.innerWidth,
+                            rowCount: rows.length,
+                            minRowHeight: Math.min(...rowRects.map((rect) => rect.height)),
+                            maxRowRight: Math.max(0, ...rowRects.map((rect) => rect.right)),
+                            multiColumnRows: rows.filter((row) => window.getComputedStyle(row).gridTemplateColumns.split(' ').filter(Boolean).length > 1).length,
+                            actionColumns: Array.from(document.querySelectorAll('.pqx-shell[data-pqx-surface="alerts"] .pqx-pref-row .pqx-actions'))
+                                .map((node) => window.getComputedStyle(node).gridTemplateColumns.split(' ').filter(Boolean).length),
+                        };
+                    }"""
+                )
+                assert alerts_mobile_metrics["rowCount"] >= 2
+                assert alerts_mobile_metrics["minRowHeight"] >= 68
+                assert alerts_mobile_metrics["multiColumnRows"] == 0
+                assert alerts_mobile_metrics["maxRowRight"] <= alerts_mobile_metrics["viewportWidth"] + 1
+                assert all(columns <= 1 for columns in alerts_mobile_metrics["actionColumns"])
             elif route == "/app/account":
                 expect(page.locator("body", has_text="Notifications")).to_be_visible()
                 expect(page.locator("body", has_text="Export account data")).to_be_visible()
