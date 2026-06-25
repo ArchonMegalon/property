@@ -32316,6 +32316,22 @@ class ProductService:
             payload["summary"] = summary
             return summary, sources
 
+        def _has_pending_worker_exception_repair(summary: dict[str, object]) -> bool:
+            if str(summary.get("repair_replacement_run_id") or "").strip():
+                return False
+            repair_status = str(summary.get("repair_status") or "").strip().lower()
+            if repair_status and repair_status not in {"repairing", "queued", "pending", "assigned"}:
+                return False
+            for task in list(summary.get("provider_repair_tasks") or []):
+                if not isinstance(task, dict):
+                    continue
+                if str(task.get("filter_key") or "").strip().lower() != "run_worker_exception":
+                    continue
+                task_status = str(task.get("status") or "").strip().lower()
+                if task_status in {"opened", "pending", "assigned", "queued", "repairing", "existing", ""}:
+                    return True
+            return False
+
         if lightweight:
             compact_snapshot = _load_property_search_run_compact_record(run_id=run_id, principal_id=principal_id)
             if isinstance(compact_snapshot, dict) and compact_snapshot:
@@ -32325,6 +32341,14 @@ class ProductService:
                     summary=summary,
                     selected_platforms=list(compact_snapshot.get("selected_platforms") or []),
                 )
+                if _has_pending_worker_exception_repair(summary):
+                    full_snapshot = self.get_property_search_run_status(
+                        principal_id=principal_id,
+                        run_id=run_id,
+                        lightweight=False,
+                    )
+                    if isinstance(full_snapshot, dict) and full_snapshot:
+                        return full_snapshot
                 return compact_snapshot
         snapshot = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
         if not isinstance(snapshot, dict):
@@ -32355,6 +32379,36 @@ class ProductService:
             selected_platforms=snapshot.get("selected_platforms") or [],
         )
         status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
+        if _has_pending_worker_exception_repair(summary):
+            try:
+                repair_summary = self.process_property_provider_repair_tasks(
+                    principal_id=principal_id,
+                    actor="property_search_status_repair",
+                    limit=10,
+                )
+            except Exception as exc:
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_search_status_repair_failed",
+                    payload={
+                        "run_id": str(run_id or "").strip(),
+                        "error": compact_text(str(exc or "status repair failed"), fallback="status repair failed", limit=280),
+                    },
+                    source_id=str(run_id or "").strip(),
+                    dedupe_key=f"{principal_id}|{run_id}|property-search-status-repair-failed",
+                )
+                repair_summary = {}
+            if int(dict(repair_summary or {}).get("resolved_total") or 0) > 0:
+                refreshed = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+                if isinstance(refreshed, dict) and refreshed:
+                    snapshot = refreshed
+                    summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
+                    summary, sources = _normalize_run_summary_counts(
+                        payload=snapshot,
+                        summary=summary,
+                        selected_platforms=snapshot.get("selected_platforms") or [],
+                    )
+                    status_value = str(snapshot.get("status") or summary.get("status") or "").strip().lower()
         if sources and status_value not in {"processed", "completed", "completed_partial"}:
             repair_tasks = self._list_property_search_status_repair_tasks(
                 principal_id=principal_id,

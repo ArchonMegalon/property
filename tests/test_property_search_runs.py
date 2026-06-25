@@ -8923,6 +8923,12 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
         raise RuntimeError("provider merge crashed before source rows existed")
 
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _raise_worker_failure)
+    replacement_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_start_property_search_repair_replacement_run",
+        lambda self, **kwargs: replacement_calls.append(dict(kwargs)) or {"run_id": "worker-exception-repair-run"},
+    )
     run = service.start_property_search_run(
         principal_id=principal_id,
         actor="test",
@@ -8940,8 +8946,11 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
 
     assert status["status"] == "failed"
     assert status["summary"]["repair_status"] == "repairing"
-    assert status["summary"]["repair_step_label"] == "Repairing interrupted run."
+    assert status["summary"]["repair_step_label"] == "Started a replacement search run from the saved brief."
+    assert status["summary"]["repair_replacement_run_id"] == "worker-exception-repair-run"
+    assert status["summary"]["repair_replacement_status_url"] == "/app/api/signals/property/search/run/worker-exception-repair-run"
     assert status["summary"]["provider_repair_task_opened_total"] == 1
+    assert status["summary"]["repair_receipts"][0]["resolution"] == "worker_exception_restart_required"
     assert any(event["step"] == "run_repair_queued" for event in status["events"])
     tasks = [
         task
@@ -8955,34 +8964,27 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
     assert len(tasks) == 1
     assert tasks[0].priority == "urgent"
     assert tasks[0].assigned_operator_id == "ea_one_manager"
+    assert tasks[0].status == "returned"
     repair_input = dict(tasks[0].input_json or {})
     assert repair_input["filter_key"] == "run_worker_exception"
     assert repair_input["run_id"] == run["run_id"]
     assert repair_input["diagnostics"]["failure_class"] == "run_worker_exception"
     assert repair_input["diagnostics"]["error"] == "provider merge crashed before source rows existed"
-    replacement_calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        ProductService,
-        "_start_property_search_repair_replacement_run",
-        lambda self, **kwargs: replacement_calls.append(dict(kwargs)) or {"run_id": f"{run['run_id']}-repair"},
-    )
-    repair_summary = service.process_property_provider_repair_tasks(
-        principal_id=principal_id,
-        actor="test",
-        limit=5,
-    )
-    assert repair_summary["resolved_total"] == 1
-    assert repair_summary["deferred_total"] == 0
-    assert repair_summary["resolved"][0]["resolution"] == "worker_exception_restart_required"
-    assert repair_summary["resolved"][0]["replacement_run_id"] == f"{run['run_id']}-repair"
     assert replacement_calls
     assert replacement_calls[0]["selected_platforms"] == ("willhaben",)
     assert replacement_calls[0]["property_search_preferences"]["location_query"] == "1010 Vienna"
 
     repaired_status = service.get_property_search_run_status(principal_id=principal_id, run_id=str(run["run_id"]))
-    assert repaired_status["summary"]["repair_replacement_run_id"] == f"{run['run_id']}-repair"
-    assert repaired_status["summary"]["repair_replacement_status_url"] == f"/app/api/signals/property/search/run/{run['run_id']}-repair"
+    assert repaired_status["summary"]["repair_replacement_run_id"] == "worker-exception-repair-run"
+    assert repaired_status["summary"]["repair_replacement_status_url"] == "/app/api/signals/property/search/run/worker-exception-repair-run"
     assert repaired_status["summary"]["repair_receipts"][0]["resolution"] == "worker_exception_restart_required"
+
+    lightweight_status = service.get_property_search_run_status(
+        principal_id=principal_id,
+        run_id=str(run["run_id"]),
+        lightweight=True,
+    )
+    assert lightweight_status["summary"]["repair_replacement_run_id"] == "worker-exception-repair-run"
 
 
 def test_property_provider_repair_quarantines_stale_deferred_source_fetch(monkeypatch) -> None:
