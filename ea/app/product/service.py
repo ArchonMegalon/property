@@ -32462,6 +32462,21 @@ class ProductService:
                 return False
             if not _replacement_parent_refs_from_payload(payload):
                 return False
+            current_step = str(payload.get("current_step") or dict(payload.get("summary") or {}).get("current_step") or "").strip().lower()
+            if current_step not in {
+                "queued",
+                "starting",
+                "source_started",
+                "source_fetching",
+                "source_extracting",
+                "source_rank_prep",
+                "source_previewing",
+                "source_assessing",
+                "source_ranking",
+                "source_shortlist",
+                "source_review_packet",
+            }:
+                return False
             return _property_search_replacement_run_is_stale(dict(payload))
 
         def _has_stale_active_execution(payload: dict[str, object]) -> bool:
@@ -32470,6 +32485,7 @@ class ProductService:
                 return False
             current_step = str(payload.get("current_step") or dict(payload.get("summary") or {}).get("current_step") or "").strip().lower()
             active_checkpoint_steps = {
+                "source_started",
                 "source_fetching",
                 "source_extracting",
                 "source_rank_prep",
@@ -33040,15 +33056,14 @@ class ProductService:
             for event in list(state.get("events") or [])
             if isinstance(event, dict)
         ]
-        if parent_refs:
-            return True, parent_refs, "replacement_run_stale"
         if current_step in {"queued", "starting"} and not any(
             step
             for step in event_steps
             if step not in {"queued", "starting", "recovery_pickup_started"}
         ):
-            return True, (), "startup_checkpoint_stale"
+            return True, parent_refs, "replacement_run_stale" if parent_refs else "startup_checkpoint_stale"
         if current_step in {
+            "source_started",
             "source_fetching",
             "source_extracting",
             "source_rank_prep",
