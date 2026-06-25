@@ -33,10 +33,13 @@ _PROPERTY_SEARCH_RUN_COMPACT_TOP_LEVEL_KEYS = (
     "progress",
     "stage",
     "stage_label",
+    "current_step",
     "message",
     "created_at",
     "updated_at",
     "generated_at",
+    "repair_parent_run_id",
+    "repair_parent_run_ids",
     "active_search_agent_id",
     "selected_platforms",
     "property_search_preferences",
@@ -106,6 +109,8 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "provider_repair_task_existing_total",
     "provider_repair_tasks",
     "can_auto_repair",
+    "repair_parent_run_id",
+    "repair_parent_run_ids",
 )
 
 

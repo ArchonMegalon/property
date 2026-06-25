@@ -33206,6 +33206,7 @@ class ProductService:
             statuses=active_statuses,
             principal_id=normalized_principal,
             admin=not bool(normalized_principal),
+            lightweight=True,
         )
         scanned = 0
         stale_total = 0

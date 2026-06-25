@@ -4707,7 +4707,7 @@ def test_property_search_recovery_picks_up_stale_replacement_run(monkeypatch) ->
     assert status["summary"]["repair_parent_run_ids"] == [parent_run_id]
     assert any(event["step"] == "recovery_pickup_started" for event in status["events"])
     assert scout_calls
-    assert scout_calls[0]["max_results_per_source"] is None
+    assert scout_calls[0]["max_results_per_source"] == 1
     assert scout_calls[0]["property_search_preferences"]["__property_search_run_id__"] == replacement_run_id
     assert replacement_calls == []
 
