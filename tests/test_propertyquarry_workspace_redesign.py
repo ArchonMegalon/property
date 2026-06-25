@@ -5221,6 +5221,24 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert "operator notes" not in body
 
 
+def test_property_research_detail_mobile_open_property_layout_is_compact() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
+    body = template_path.read_text(encoding="utf-8")
+    mobile_start = body.find("@media (max-width: 760px)")
+
+    assert mobile_start > 0
+    mobile_block = body[mobile_start:body.find("</style>", mobile_start)]
+    assert ".prd-hero {\n      grid-template-columns: minmax(0, 1fr);\n      gap: 6px;" in mobile_block
+    assert ".prd-media-stack {\n      order: 1;" in mobile_block
+    assert ".prd-hero-side {\n      order: 2;" in mobile_block
+    assert ".prd-current-read {\n      display: none;" in mobile_block
+    assert ".prd-media-frame {\n      height: min(46vw, 176px);" in mobile_block
+    assert ".prd-media-frame.prd-media-frame-live {\n      height: min(58vw, 224px);" in mobile_block
+    assert ".prd-media-gradient,\n    .prd-media-caption {\n      display: none;" in mobile_block
+    assert ".prd-headline-panel h1" in mobile_block
+    assert "-webkit-line-clamp: 2;" in mobile_block
+
+
 def test_property_research_packet_keeps_shared_mobile_navigation_dock(monkeypatch) -> None:
     principal_id = "pq-research-mobile-dock"
     client = build_property_client(principal_id=principal_id)
