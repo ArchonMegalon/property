@@ -1000,6 +1000,10 @@ def _scheduler_property_search_recovery_interval_seconds() -> float:
         return 60.0
 
 
+def _scheduler_property_search_recovery_timeout_seconds() -> float:
+    return max(30.0, _env_float("EA_SCHEDULER_PROPERTY_SEARCH_RECOVERY_TIMEOUT_SECONDS", 240.0))
+
+
 def _scheduler_property_scout_principal_ids(container) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
     raw = str(os.environ.get("EA_PROPERTY_SCOUT_PRINCIPAL_IDS") or "").strip()
     if raw:
@@ -1616,20 +1620,36 @@ def _run_execution_worker(role: str) -> None:
             _write_scheduler_heartbeat(role=role, status="loop")
             if now - last_property_search_recovery_at >= _scheduler_property_search_recovery_interval_seconds():
                 try:
-                    recovery_summary = _run_scheduler_property_search_recovery(container, log)
+                    recovery_summary = _run_scheduler_step_with_heartbeat(
+                        role=role,
+                        step_name="property_search_recovery",
+                        timeout_seconds=_scheduler_property_search_recovery_timeout_seconds(),
+                        timeout_result={
+                            "ran": True,
+                            "scanned": 0,
+                            "stale_total": 0,
+                            "repaired": 0,
+                            "replacement_started": 0,
+                            "errors": 1,
+                        },
+                        log=log,
+                        fn=lambda: _run_scheduler_property_search_recovery(container, log),
+                    )
                     last_property_search_recovery_at = now
                     if (
                         int(recovery_summary.get("stale_total") or 0) > 0
                         or int(recovery_summary.get("errors") or 0) > 0
+                        or bool(recovery_summary.get("timeout"))
                     ):
                         log.info(
-                            "role=%s scheduler property search recovery scanned=%s stale=%s repaired=%s replacements=%s errors=%s",
+                            "role=%s scheduler property search recovery scanned=%s stale=%s repaired=%s replacements=%s errors=%s timeout=%s",
                             role,
                             recovery_summary.get("scanned"),
                             recovery_summary.get("stale_total"),
                             recovery_summary.get("repaired"),
                             recovery_summary.get("replacement_started"),
                             recovery_summary.get("errors"),
+                            recovery_summary.get("timeout"),
                         )
                 except Exception:
                     log.exception("role=%s scheduler property search recovery failed", role)

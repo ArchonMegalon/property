@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import importlib
+import inspect
 import json
 import logging
 import sys
@@ -98,6 +99,28 @@ def test_scheduler_step_watchdog_keeps_heartbeat_and_avoids_duplicate_launches(
     assert completed == {"ran": True, "attempted": 1, "errors": 0}
     assert calls["count"] == 1
     runner._SCHEDULER_STEP_THREADS.clear()
+
+
+def test_scheduler_property_search_recovery_is_heartbeat_wrapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    monkeypatch.delenv("EA_SCHEDULER_PROPERTY_SEARCH_RECOVERY_TIMEOUT_SECONDS", raising=False)
+    assert runner._scheduler_property_search_recovery_timeout_seconds() == 240.0
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SEARCH_RECOVERY_TIMEOUT_SECONDS", "10")
+    assert runner._scheduler_property_search_recovery_timeout_seconds() == 30.0
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_SEARCH_RECOVERY_TIMEOUT_SECONDS", "45")
+    assert runner._scheduler_property_search_recovery_timeout_seconds() == 45.0
+
+    source = inspect.getsource(runner._run_execution_worker)
+    recovery_block = source[
+        source.rindex("_run_scheduler_step_with_heartbeat", 0, source.index('step_name="property_search_recovery"')) :
+        source.index('if not property_only_scheduler and now - last_horizon_scan_at')
+    ]
+    assert "_run_scheduler_step_with_heartbeat" in recovery_block
+    assert "_scheduler_property_search_recovery_timeout_seconds()" in recovery_block
+    assert "timeout=%s" in recovery_block
 
 
 def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep(
