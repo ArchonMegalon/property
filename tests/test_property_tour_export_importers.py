@@ -161,6 +161,114 @@ def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(
     assert (bundle_dir / "pano2vr" / "tour.js").exists()
 
 
+def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_exports(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "batch-3dvista")
+    _write_base_tour(tmp_path, "batch-pano2vr")
+    vista_export = tmp_path / "batch_vista_export"
+    vista_export.mkdir()
+    (vista_export / "index.html").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script><div>3DVista tourviewer</div>",
+        encoding="utf-8",
+    )
+    (vista_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    pano_export = tmp_path / "batch_pano_export"
+    pano_export.mkdir()
+    (pano_export / "index.html").write_text(
+        "<!doctype html><script src='tour.js'></script><div>Pano2VR</div>",
+        encoding="utf-8",
+    )
+    (pano_export / "tour.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    manifest_path = tmp_path / "tour-imports.json"
+    receipt_path = tmp_path / "tour-import-receipt.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "imports": [
+                    {"slug": "batch-3dvista", "provider": "3dvista", "export_dir": str(vista_export)},
+                    {"slug": "batch-pano2vr", "provider": "pano2vr", "export_dir": str(pano_export)},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["EA_PUBLIC_TOUR_DIR"] = str(public_root)
+    imported = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "import_property_tour_exports.py"),
+            "--manifest",
+            str(manifest_path),
+            "--write",
+            str(receipt_path),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "pass"
+    assert receipt["imported_count"] == 2
+    assert {row["provider"] for row in receipt["imports"]} == {"3dvista", "pano2vr"}
+    assert all(row["status"] == "imported" for row in receipt["imports"])
+    assert "batch_vista_export" not in json.dumps(receipt)
+    vista_manifest = json.loads((public_root / "batch-3dvista" / "tour.json").read_text(encoding="utf-8"))
+    pano_manifest = json.loads((public_root / "batch-pano2vr" / "tour.json").read_text(encoding="utf-8"))
+    assert vista_manifest["control_mode"] == "3dvista"
+    assert pano_manifest["control_mode"] == "pano2vr"
+    verifier = build_property_tour_control_receipt(tour_root=public_root)
+    assert verifier["provider_counts"]["3dvista"] == 1
+    assert verifier["provider_counts"]["pano2vr"] == 1
+
+
+def test_batch_tour_export_importer_fails_placeholder_rows_without_false_ready(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "batch-placeholder")
+    placeholder_export = tmp_path / "placeholder_export"
+    placeholder_export.mkdir()
+    (placeholder_export / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+    manifest_path = tmp_path / "tour-imports.json"
+    receipt_path = tmp_path / "tour-import-receipt.json"
+    manifest_path.write_text(
+        json.dumps({"imports": [{"slug": "batch-placeholder", "provider": "pano2vr", "export_dir": str(placeholder_export)}]}),
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["EA_PUBLIC_TOUR_DIR"] = str(public_root)
+    rejected = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "import_property_tour_exports.py"),
+            "--manifest",
+            str(manifest_path),
+            "--write",
+            str(receipt_path),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert rejected.returncode == 1
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "fail"
+    assert receipt["failed_count"] == 1
+    assert receipt["imports"][0]["error"] == "pano2vr_export_entry_unverified"
+    verifier = build_property_tour_control_receipt(tour_root=public_root)
+    assert verifier["provider_counts"]["pano2vr"] == 0
+
+
 def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeholders(tmp_path: Path) -> None:
     slug = "verified-magicfit-import"
     bundle_dir = _write_base_tour(tmp_path, slug)
