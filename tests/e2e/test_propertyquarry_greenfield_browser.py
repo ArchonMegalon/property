@@ -3020,7 +3020,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const fineTune = Array.from(document.querySelectorAll('.prd-feedback-details'))
                 .find((node) => (node.textContent || '').includes('Fine-tune my preferences'));
               const optionalNote = Array.from(document.querySelectorAll('.prd-feedback-details'))
-                .find((node) => (node.textContent || '').includes('Add an optional note'));
+                .find((node) => (node.querySelector('summary')?.textContent || '').trim() === 'Add an optional note');
+              const nextStepDrawer = Array.from(document.querySelectorAll('.prd-feedback-details'))
+                .find((node) => (node.querySelector('summary')?.textContent || '').trim() === 'Next step');
               const savebar = document.querySelector('.prd-decision-savebar');
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
@@ -3059,7 +3061,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
                 feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
                 fineTuneOpen: fineTune ? Boolean(fineTune.open) : true,
-                optionalNoteOpen: optionalNote ? Boolean(optionalNote.open) : true,
+                optionalNoteExists: Boolean(optionalNote),
+                nextStepDrawerExists: Boolean(nextStepDrawer),
                 savebarBottom: savebarRect ? Math.round(savebarRect.bottom) : 0,
               };
             }
@@ -3083,10 +3086,11 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert layout["summaryMaxRight"] <= layout["viewportWidth"] + 1
         assert 180 <= layout["feedbackHeight"] <= min(420, layout["viewportHeight"] - 54)
         assert 0 < layout["savebarBottom"] <= layout["feedbackBottom"] + 1
-        assert layout["feedbackOverflowY"] in {"auto", "scroll"}
+        assert layout["feedbackOverflowY"] == "visible"
         assert layout["feedbackScrolls"] is False
         assert layout["fineTuneOpen"] is False
-        assert layout["optionalNoteOpen"] is False
+        assert layout["optionalNoteExists"] is False
+        assert layout["nextStepDrawerExists"] is False
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 

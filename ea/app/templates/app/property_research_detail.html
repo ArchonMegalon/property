@@ -233,10 +233,10 @@
   }
   .prd-decision-workspace {
     position: relative;
-    overflow-y: auto;
-    max-height: min(620px, calc(100svh - 88px));
+    overflow-y: visible;
+    max-height: none;
     overscroll-behavior: contain;
-    padding: clamp(12px, 1.7vw, 18px);
+    padding: clamp(10px, 1.35vw, 14px);
     border-radius: 12px;
     border-color: color-mix(in srgb, var(--prd-gold) 30%, var(--line));
     background: color-mix(in srgb, var(--panel) 96%, var(--prd-gold) 4%);
@@ -276,8 +276,8 @@
   }
   .prd-decision-card {
     display: grid;
-    gap: 8px;
-    padding: 10px;
+    gap: 7px;
+    padding: 9px;
     border: 1px solid color-mix(in srgb, var(--line) 78%, var(--prd-gold) 22%);
     border-radius: 10px;
     background: color-mix(in srgb, var(--panel) 88%, transparent);
@@ -368,7 +368,7 @@
   .prd-decision-workspace .object-feedback-button,
   .prd-decision-workspace .object-feedback-chip,
   .prd-decision-workspace .console-action {
-    min-height: 38px;
+    min-height: 36px;
     border-radius: 999px;
     padding-inline: 12px;
   }
@@ -1405,7 +1405,7 @@
       grid-template-columns: 1fr;
     }
     .prd-decision-workspace {
-      max-height: min(620px, calc(100svh - 88px));
+      max-height: none;
     }
     .prd-decision-form {
       grid-template-columns: minmax(0, 1fr);
@@ -1565,7 +1565,7 @@
     .prd-decision-workspace {
       padding: 10px;
       border-radius: 14px;
-      max-height: min(430px, calc(100svh - 72px));
+      max-height: none;
     }
     .prd-decision-intro .object-copy {
       display: none;
@@ -1967,7 +1967,6 @@
       box-shadow: none;
     }
     .prd-decision-workspace {
-      max-height: min(420px, calc(100svh - 48px));
       padding: 8px;
       border-radius: 12px;
     }
@@ -2706,8 +2705,10 @@
         <p class="object-copy" data-object-feedback-status></p>
       </div>
       <details class="prd-feedback-details">
-      <summary>Next step</summary>
+      <summary>Fine-tune my preferences</summary>
       <div class="prd-feedback-body">
+      <section class="prd-decision-card">
+      <h3>Next step</h3>
       <div class="object-actions">
         <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
         <button class="console-action" type="button" data-object-decision-state="documents_requested">Request documents</button>
@@ -2715,19 +2716,11 @@
         <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
       </div>
       <p class="object-copy" data-object-decision-state-status></p>
-      </div>
-      </details>
-      <section class="prd-decision-card prd-decision-note">
-      <details class="prd-feedback-details">
-      <summary>Add an optional note</summary>
-      <div class="prd-feedback-body">
-      <textarea data-object-feedback-note placeholder="Only add what changes the next step."></textarea>
-      </div>
-      </details>
       </section>
-      <details class="prd-feedback-details">
-      <summary>Fine-tune my preferences</summary>
-      <div class="prd-feedback-body">
+      <section class="prd-decision-card prd-decision-note">
+      <h3>Optional note</h3>
+      <textarea data-object-feedback-note placeholder="Only add what changes the next step."></textarea>
+      </section>
       <section class="prd-decision-card">
       <h3>Reasons and follow-up</h3>
       <div class="object-feedback-reasons" data-object-feedback-reasons>

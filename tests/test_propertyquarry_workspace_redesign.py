@@ -10541,9 +10541,13 @@ def test_property_research_detail_decision_fits_one_screen_by_default() -> None:
 
     assert "Save the state now. Tune the reasoning only when it helps the next search." not in body
     assert "<h3>Shortlist decision</h3>" in body
-    assert "<summary>Next step</summary>" in body
-    assert body.index("<h3>Shortlist decision</h3>") < body.index("<summary>Next step</summary>")
-    assert "max-height: min(420px, calc(100svh - 48px));" in body
+    assert "<summary>Next step</summary>" not in body
+    assert "<summary>Add an optional note</summary>" not in body
+    assert body.index("<h3>Shortlist decision</h3>") < body.index("<summary>Fine-tune my preferences</summary>")
+    assert body.index("<summary>Fine-tune my preferences</summary>") < body.index("<h3>Next step</h3>")
+    assert body.index("<summary>Fine-tune my preferences</summary>") < body.index("<h3>Optional note</h3>")
+    assert "overflow-y: visible;" in body
+    assert "max-height: min(420px, calc(100svh - 48px));" not in body
     assert "grid-template-columns: minmax(0, 1fr);" in body
 
 
