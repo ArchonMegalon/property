@@ -13,13 +13,24 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `9f1c76a23baa09b60563b8e1bd270482f1e4ba00` |
+| Runtime commit SHA | `2cad5c6e3bfdf9b3eee096716251fa001ef99949` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `2cad5c6` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_tour_control_verifier.py -k 'summary_omits_tour_rows or require_all_provider_modes or counts_provider_gaps or actionable_missing_evidence'`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_gold_status.py -k 'missing_tour_action_excludes_already_verified_modes or magicfit_ready_lacks_playback_proof'`
+- `python3 -m py_compile scripts/verify_property_tour_controls.py scripts/propertyquarry_gold_status.py`
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
+- `make deploy`
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
+- Live-container tour verification now includes compact `provider_blockers` reason counts without raw provider URLs: 3DVista has 153 missing exports and 23 placeholder fields, Pano2VR has 176 missing exports, and krpano has 175 missing walkable scenes plus 1 non-360/missing asset case.
+- Current gold status remains `blocked`; verified 3DVista, Pano2VR, and krpano tour evidence/export drops are still missing, and `billing.propertyquarry.com` still must resolve before the Brilliant Directories account lane can be proven live.
 
 The candidate at `9f1c76a` passed:
 
