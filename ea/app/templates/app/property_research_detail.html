@@ -168,12 +168,12 @@
     width: min(1180px, calc(100vw - 32px));
     margin: 0 auto;
     padding: 18px 0 32px;
-    gap: 18px;
+    gap: 12px;
   }
   .prd-hero {
     grid-template-columns: minmax(0, 0.95fr) minmax(300px, 0.55fr);
     align-items: start;
-    gap: 18px;
+    gap: 14px;
   }
   .prd-hero-side {
     grid-column: 2;
@@ -1339,9 +1339,9 @@
       justify-content: center;
     }
     .prd-shell {
-      width: calc(100vw - 12px);
-      padding: 4px 0 16px;
-      gap: 7px;
+      width: calc(100vw - 10px);
+      padding: 3px 0 12px;
+      gap: 6px;
     }
     .prd-hero,
     .prd-summary-stack,
@@ -1358,19 +1358,19 @@
     .prd-map-card,
     .prd-meta-card,
     .prd-lightbox-card {
-      padding: 9px;
-      border-radius: 14px;
+      padding: 8px;
+      border-radius: 12px;
       box-shadow: none;
     }
     .prd-media-stack {
       gap: 7px;
     }
     .prd-headline-panel .prd-actions {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      margin-top: 8px !important;
+      grid-template-columns: 1fr;
+      margin-top: 7px !important;
     }
     .prd-headline-panel h1 {
-      font-size: 1.18rem;
+      font-size: 1.08rem;
       line-height: 1.08;
       -webkit-line-clamp: 2;
     }
@@ -1401,8 +1401,8 @@
       gap: 6px;
     }
     .prd-summary-box {
-      padding: 11px 12px;
-      border-radius: 16px;
+      padding: 9px 10px;
+      border-radius: 12px;
     }
     .prd-summary-box span {
       margin-bottom: 5px;
@@ -1410,7 +1410,7 @@
       letter-spacing: 0.04em;
     }
     .prd-summary-box strong {
-      font-size: 1rem;
+      font-size: 0.92rem;
       line-height: 1.18;
     }
     .prd-summary-grid {
@@ -1431,7 +1431,9 @@
     .prd-media-caption span,
     .prd-map-meta,
     .prd-band > .prd-copy,
-    .prd-panel > .prd-copy {
+    .prd-panel > .prd-copy,
+    .prd-status-line,
+    .prd-gallery-label {
       display: none;
     }
     .prd-summary-box p,
@@ -1475,7 +1477,7 @@
     .prd-media-actions,
     .object-actions {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 1fr;
       gap: 6px;
     }
     .prd-headline-panel > .prd-copy:first-of-type {
@@ -1518,8 +1520,8 @@
     }
     .prd-visual-console {
       gap: 7px;
-      padding: 9px;
-      border-radius: 14px;
+      padding: 8px;
+      border-radius: 12px;
       order: 2;
       box-shadow: none;
     }
@@ -1528,9 +1530,9 @@
       gap: 8px;
     }
     .prd-visual-card {
-      padding: 9px;
+      padding: 8px;
       gap: 7px;
-      border-radius: 14px;
+      border-radius: 12px;
     }
     .prd-visual-toolbar {
       align-items: center;
@@ -1543,13 +1545,13 @@
       letter-spacing: 0.03em;
     }
     .prd-media-frame {
-      min-height: min(28svh, 176px);
+      min-height: min(24svh, 158px);
       max-height: none;
-      border-radius: 16px;
+      border-radius: 12px;
       box-shadow: none;
     }
     .prd-media-frame.prd-media-frame-live {
-      min-height: min(34svh, 214px);
+      min-height: min(30svh, 190px);
       max-height: none;
     }
     .prd-media-caption {
@@ -1584,7 +1586,11 @@
       padding: 8px;
     }
     .prd-gallery {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 5px;
+    }
+    .prd-gallery-thumb {
+      border-radius: 10px;
     }
     .prd-lightbox {
       width: calc(100vw - 16px);

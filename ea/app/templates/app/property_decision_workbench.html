@@ -6676,6 +6676,9 @@
       .pqx-shell[data-pqx-surface="search"] .pqx-form-body {
         gap: 7px;
       }
+      .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field:not([hidden]) + .pqx-field:not([hidden]) {
+        margin-top: 1px;
+      }
       .pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field:not([hidden]) {
         gap: 7px;
         padding: 8px;
@@ -6760,9 +6763,16 @@
       .pqx-section-head .pqx-note,
       .pqx-title .pqx-note {
         display: -webkit-box;
-        -webkit-line-clamp: 2;
+        -webkit-line-clamp: 1;
         -webkit-box-orient: vertical;
         overflow: hidden;
+      }
+      .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head .pqx-note,
+      .pqx-shell[data-pqx-surface="account"] .pqx-note,
+      .pqx-shell[data-pqx-surface="billing"] .pqx-note,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-note,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-note {
+        display: none;
       }
       .pqx-pill,
       .pqx-result-fact,
@@ -6786,15 +6796,15 @@
         position: sticky;
         top: calc(72px + env(safe-area-inset-top, 0px));
         padding: 4px;
-        margin: 0 0 8px;
+        margin: 0 0 6px;
         border-radius: 999px;
         background:
           linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 243, 238, 0.9)),
           var(--pq-paper);
-        box-shadow: 0 8px 18px rgba(41, 37, 30, 0.07);
+        box-shadow: none;
       }
       .pqx-mobile-switch .pqx-mode-button {
-        min-height: 46px;
+        min-height: 42px;
         padding-block: 7px;
         border-radius: 999px;
         font-size: 12px;
@@ -6866,6 +6876,11 @@
         min-height: 46px;
         border-radius: 12px;
         font-size: 12px;
+      }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-bottom-nav,
+      .pqx-shell[data-pqx-surface="properties"] .pqx-bottom-nav,
+      .pqx-shell[data-pqx-surface="research"] .pqx-bottom-nav {
+        display: none;
       }
       .pqx-run-hero {
         gap: 10px;
@@ -6973,11 +6988,11 @@
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] {
         box-sizing: border-box;
         grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
+        gap: 4px;
         max-height: min(44svh, 380px);
         overflow-y: auto;
         overscroll-behavior: contain;
-        padding: 4px 4px calc(92px + env(safe-area-inset-bottom, 0px));
+        padding: 2px 2px calc(76px + env(safe-area-inset-bottom, 0px));
         scroll-padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
         -webkit-overflow-scrolling: touch;
       }
@@ -6989,29 +7004,33 @@
       }
       .pqx-surface-search .pqx-location-mode-toggle {
         display: grid;
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         width: 100%;
-        border-radius: 22px;
+        border-radius: 18px;
       }
       .pqx-surface-search .pqx-location-mode-toggle .pqx-field-action {
         width: 100%;
-        min-height: 52px;
+        min-height: 48px;
         justify-content: center;
-        border-radius: 18px;
+        border-radius: 14px;
       }
       .pqx-surface-search .pqx-location-map-open {
-        min-height: 108px;
-        padding: 20px;
+        min-height: 88px;
+        padding: 16px;
+        border-radius: 18px;
+        box-shadow: none;
       }
       .pqx-surface-search .pqx-location-map-dialog {
-        width: calc(100vw - 18px);
-        max-width: calc(100vw - 18px);
-        max-height: calc(100svh - 18px);
+        width: 100vw;
+        max-width: 100vw;
+        max-height: 100svh;
+        border-radius: 0;
       }
       .pqx-surface-search .pqx-location-map-dialog-card {
-        max-height: calc(100svh - 18px);
-        padding: 12px;
-        border-radius: 26px;
+        min-height: 100svh;
+        max-height: 100svh;
+        padding: calc(10px + env(safe-area-inset-top, 0px)) 10px calc(10px + env(safe-area-inset-bottom, 0px));
+        border-radius: 0;
       }
       .pqx-surface-search .pqx-location-map-dialog-head {
         align-items: center;
@@ -7020,12 +7039,12 @@
         max-width: 24ch;
       }
       .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-viewport {
-        min-height: min(58svh, 450px);
-        margin: 0 2px 8px;
+        min-height: min(62svh, 520px);
+        margin: 0 0 8px;
       }
       .pqx-surface-search .pqx-location-map-dialog .pqx-location-map-svg {
-        height: min(58svh, 450px);
-        min-height: 330px;
+        height: min(62svh, 520px);
+        min-height: 340px;
       }
       .pqx-surface-search .pqx-location-map-dialog-foot {
         display: grid;
@@ -7050,15 +7069,14 @@
         width: 0;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check {
-        min-height: 64px;
-        grid-template-columns: 42px minmax(0, 1fr);
+        min-height: 52px;
+        grid-template-columns: 34px minmax(0, 1fr);
         align-items: center;
-        padding: 10px 13px;
+        padding: 8px 10px;
         border: 1px solid rgba(166, 149, 119, 0.46);
-        border-radius: 18px;
-        background:
-          linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(249, 246, 239, 0.92));
-        box-shadow: 0 8px 18px rgba(42, 36, 27, 0.055);
+        border-radius: 14px;
+        background: rgba(255, 254, 250, 0.96);
+        box-shadow: none;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check:has(input:checked) {
         border-color: rgba(137, 93, 28, 0.62);
@@ -7069,18 +7087,21 @@
           0 10px 22px rgba(80, 55, 18, 0.1);
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check input {
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         margin: 0;
         justify-self: center;
       }
       .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check span span {
-        font-size: 16px;
+        font-size: 14px;
         line-height: 1.18;
         letter-spacing: -0.01em;
       }
+      .pqx-surface-search .pqx-check-grid[data-pqx-check-grid="location_query"] .pqx-check small {
+        display: none;
+      }
       .pqx-mobile-helper {
-        display: block;
+        display: none;
         flex: 1 1 100%;
         margin: 0;
         color: var(--pq-muted);
@@ -7104,11 +7125,10 @@
         font-weight: 760;
       }
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox {
-        gap: 10px;
-        padding: 10px;
-        border-radius: 20px;
-        background:
-          linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(246, 242, 234, 0.94));
+        gap: 8px;
+        padding: 8px;
+        border-radius: 16px;
+        background: rgba(255, 253, 248, 0.96);
       }
       .pqx-surface-search [data-property-field-name="location_query"] .pqx-choice-groupbox-head {
         position: static;
@@ -7124,7 +7144,7 @@
         width: 100%;
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        gap: 6px;
         align-items: stretch;
         justify-content: stretch;
       }
@@ -7150,8 +7170,8 @@
       }
       .pqx-field-tools .pqx-field-action {
         flex: 1 1 0;
-        min-height: 48px;
-        padding: 0 14px;
+        min-height: 44px;
+        padding: 0 12px;
         font-size: 13px;
       }
       .pqx-billing-note-rail {
@@ -7265,14 +7285,13 @@
         gap: 8px;
       }
       .pqx-account-channel-option {
-        min-height: 54px;
+        min-height: 64px;
         gap: 9px;
-        padding: 9px 10px;
+        padding: 10px 12px;
         border-radius: 14px;
         font-size: 14px;
         line-height: 1.18;
-        background:
-          linear-gradient(180deg, rgba(255, 254, 250, 0.98), rgba(249, 246, 239, 0.92));
+        background: rgba(255, 254, 250, 0.96);
         box-shadow: none;
       }
       .pqx-account-channel-option:has(input:checked) {
@@ -7290,7 +7309,7 @@
         line-height: 1.25;
       }
       .pqx-account-channel-detail {
-        display: grid;
+        display: none;
         grid-template-columns: minmax(0, 1fr);
         align-items: stretch;
         gap: 8px;
@@ -7366,7 +7385,7 @@
       .pqx-result {
         grid-template-columns: minmax(0, 1fr);
         align-items: start;
-        gap: 7px;
+        gap: 6px;
         padding: 8px;
         border-radius: 14px;
         box-shadow: none;
@@ -7399,7 +7418,7 @@
       }
       .pqx-result-facts {
         gap: 4px;
-        max-height: 72px;
+        max-height: 34px;
         overflow: hidden;
       }
       .pqx-result-fact,
@@ -7426,6 +7445,12 @@
       }
       .pqx-results-summary-row {
         gap: 5px;
+      }
+      .pqx-result-panel-head {
+        margin-bottom: 6px;
+      }
+      .pqx-result-panel-head .pqx-note:not(.pqx-results-summary-row) {
+        display: none;
       }
       .pqx-results-summary-link {
         min-height: 32px;
@@ -7547,6 +7572,21 @@
       .pqx-shell[data-pqx-surface="search"] [data-property-mobile-action-dock] .pqx-button.subtle {
         flex: 0 0 auto;
         min-width: 112px;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-board,
+      .pqx-shell[data-pqx-surface="billing"] .pqx-card,
+      .pqx-shell[data-pqx-surface="alerts"] .pqx-card,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-card {
+        padding: 8px;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-board > .pqx-section-head {
+        display: none;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-pref-list,
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-action-card p,
+      .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card p,
+      .pqx-shell[data-pqx-surface="agents"] .pqx-automation-card p {
+        display: none;
       }
     }
     @media (max-width: 520px) {
@@ -7736,7 +7776,7 @@
         {% elif run_terminal_no_results %}
         <a class="pqx-link-button primary" href="/app/search">New search</a>
         {% endif %}
-        {% if account_nav and not account_surface %}
+        {% if account_nav %}
         <details class="pqx-account-menu">
           <summary aria-label="Account navigation" title="Account" data-account-label="{{ account_nav.label }}">{{ ((account_nav.label or 'Me')[:1])|upper }}</summary>
           <div class="pqx-account-menu-panel">

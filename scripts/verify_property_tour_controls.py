@@ -17,6 +17,9 @@ from typing import Iterable
 
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
 PUBLIC_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
+PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
+KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 
 
 def _tour_root() -> Path:
@@ -89,10 +92,83 @@ def _magicfit_provider_declared(payload: dict[str, object]) -> bool:
 
 
 def _file_exists(bundle_dir: Path, relpath: str) -> bool:
+    return _local_asset_path(bundle_dir, relpath) is not None
+
+
+def _local_asset_path(bundle_dir: Path, relpath: str) -> Path | None:
     if not relpath:
-        return False
+        return None
     candidate = (bundle_dir / relpath).resolve()
-    return bundle_dir.resolve() in candidate.parents and candidate.is_file()
+    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _local_image_dimensions(path: Path) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return int(image.width), int(image.height)
+    except Exception:
+        return (0, 0)
+
+
+def _local_equirectangular_image_ready(bundle_dir: Path, relpath: str) -> bool:
+    if not relpath or PurePosixPath(relpath).suffix.lower() not in PANORAMA_IMAGE_EXTENSIONS:
+        return False
+    candidate = _local_asset_path(bundle_dir, relpath)
+    if candidate is None:
+        return False
+    width, height = _local_image_dimensions(candidate)
+    if width < 1024 or height < 512:
+        return False
+    ratio = width / height if height else 0
+    return 1.75 <= ratio <= 2.25
+
+
+def _local_cube_face_ready(bundle_dir: Path, relpath: str) -> bool:
+    if not relpath or PurePosixPath(relpath).suffix.lower() not in PANORAMA_IMAGE_EXTENSIONS:
+        return False
+    candidate = _local_asset_path(bundle_dir, relpath)
+    if candidate is None:
+        return False
+    width, height = _local_image_dimensions(candidate)
+    if width < 512 or height < 512:
+        return False
+    ratio = width / height if height else 0
+    return 0.9 <= ratio <= 1.1
+
+
+def _walkable_scene_has_real_360_asset(bundle_dir: Path, payload: dict[str, object]) -> bool:
+    scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+    if scene_strategy in KRPANO_FORBIDDEN_SCENE_STRATEGIES or creation_mode in KRPANO_FORBIDDEN_CREATION_MODES:
+        return False
+    walkable_scene = payload.get("walkable_scene")
+    if not isinstance(walkable_scene, dict) or not walkable_scene:
+        return False
+    projection = str(walkable_scene.get("projection") or walkable_scene.get("type") or "").strip().lower()
+    if projection and projection not in {"equirectangular", "panorama", "cubemap", "cube"}:
+        return False
+    for key in ("panorama_relpath", "equirect_relpath", "image_relpath", "asset_relpath"):
+        relpath = _safe_asset_relpath(walkable_scene.get(key))
+        if _local_equirectangular_image_ready(bundle_dir, relpath):
+            return True
+    cube_faces = walkable_scene.get("cube_faces")
+    if isinstance(cube_faces, dict):
+        values = list(cube_faces.values())
+    elif isinstance(cube_faces, list):
+        values = cube_faces
+    else:
+        values = []
+    face_relpaths = [_safe_asset_relpath(value) for value in values]
+    valid_faces = [
+        relpath
+        for relpath in face_relpaths
+        if _local_cube_face_ready(bundle_dir, relpath)
+    ]
+    return len(valid_faces) >= 6
 
 
 def _ffprobe_video_markers(target: str | Path) -> dict[str, object]:
@@ -273,10 +349,13 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
             action = "run import_pano2vr_export.py with a verified Pano2VR export"
         rows.append({"provider": "pano2vr", "reason": reason, "action": action})
 
-    if not (os.getenv("KRPANO_LICENSE_DOMAIN") and os.getenv("KRPANO_LICENSE_KEY") and isinstance(payload.get("walkable_scene"), dict)):
+    if not (os.getenv("KRPANO_LICENSE_DOMAIN") and os.getenv("KRPANO_LICENSE_KEY") and _walkable_scene_has_real_360_asset(bundle_dir, payload)):
         if not isinstance(payload.get("walkable_scene"), dict):
             reason = "missing_walkable_scene"
             action = "generate or import a real walkable_scene before enabling the licensed krpano control"
+        elif not _walkable_scene_has_real_360_asset(bundle_dir, payload):
+            reason = "walkable_scene_asset_missing_or_not_360"
+            action = "attach a real local equirectangular panorama or six cube-face assets before enabling krpano"
         else:
             reason = "missing_krpano_license_environment"
             action = "set KRPANO_LICENSE_DOMAIN and KRPANO_LICENSE_KEY for the property runtime"
@@ -359,7 +438,7 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
             }
         )
 
-    if os.getenv("KRPANO_LICENSE_DOMAIN") and os.getenv("KRPANO_LICENSE_KEY") and isinstance(payload.get("walkable_scene"), dict):
+    if os.getenv("KRPANO_LICENSE_DOMAIN") and os.getenv("KRPANO_LICENSE_KEY") and _walkable_scene_has_real_360_asset(bundle_dir, payload):
         rows.append(
             {
                 "provider": "krpano",

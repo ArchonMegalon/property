@@ -20,6 +20,9 @@ _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS,
 _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST = "tour.private.json"
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
 _PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
+_KRPANO_PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+_KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
+_KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 
 
 def _now_iso() -> str:
@@ -442,6 +445,86 @@ def _hosted_property_tour_has_pano2vr_export(tour_url: object) -> bool:
     return False
 
 
+def _hosted_property_tour_file_exists(bundle_dir: Path, relpath: object) -> bool:
+    return _hosted_property_tour_asset_path(bundle_dir, relpath) is not None
+
+
+def _hosted_property_tour_asset_path(bundle_dir: Path, relpath: object) -> Path | None:
+    normalized = str(relpath or "").strip().replace("\\", "/").lstrip("/")
+    if not normalized:
+        return None
+    parts = [part for part in normalized.split("/") if part and part not in {".", ".."}]
+    if not parts:
+        return None
+    safe_relpath = "/".join(parts)
+    candidate = (bundle_dir / safe_relpath).resolve()
+    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _hosted_property_tour_image_dimensions(path: Path) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return int(image.width), int(image.height)
+    except Exception:
+        return (0, 0)
+
+
+def _hosted_property_tour_is_equirectangular_image(bundle_dir: Path, relpath: object) -> bool:
+    candidate = _hosted_property_tour_asset_path(bundle_dir, relpath)
+    if candidate is None or PurePosixPath(str(relpath or "")).suffix.lower() not in _KRPANO_PANORAMA_IMAGE_EXTENSIONS:
+        return False
+    width, height = _hosted_property_tour_image_dimensions(candidate)
+    if width < 1024 or height < 512:
+        return False
+    ratio = width / height if height else 0
+    return 1.75 <= ratio <= 2.25
+
+
+def _hosted_property_tour_is_cube_face_image(bundle_dir: Path, relpath: object) -> bool:
+    candidate = _hosted_property_tour_asset_path(bundle_dir, relpath)
+    if candidate is None or PurePosixPath(str(relpath or "")).suffix.lower() not in _KRPANO_PANORAMA_IMAGE_EXTENSIONS:
+        return False
+    width, height = _hosted_property_tour_image_dimensions(candidate)
+    if width < 512 or height < 512:
+        return False
+    ratio = width / height if height else 0
+    return 0.9 <= ratio <= 1.1
+
+
+def _hosted_property_tour_has_walkable_360_asset(*, bundle_dir: Path, payload: dict[str, object]) -> bool:
+    scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+    if scene_strategy in _KRPANO_FORBIDDEN_SCENE_STRATEGIES or creation_mode in _KRPANO_FORBIDDEN_CREATION_MODES:
+        return False
+    walkable_scene = payload.get("walkable_scene")
+    if not isinstance(walkable_scene, dict) or not walkable_scene:
+        return False
+    projection = str(walkable_scene.get("projection") or walkable_scene.get("type") or "").strip().lower()
+    if projection and projection not in {"equirectangular", "panorama", "cubemap", "cube"}:
+        return False
+    for key in ("panorama_relpath", "equirect_relpath", "image_relpath", "asset_relpath"):
+        relpath = str(walkable_scene.get(key) or "").strip()
+        if relpath and _hosted_property_tour_is_equirectangular_image(bundle_dir, relpath):
+            return True
+    cube_faces = walkable_scene.get("cube_faces")
+    if isinstance(cube_faces, dict):
+        values = list(cube_faces.values())
+    elif isinstance(cube_faces, list):
+        values = cube_faces
+    else:
+        values = []
+    valid_faces = [
+        value
+        for value in values
+        if _hosted_property_tour_is_cube_face_image(bundle_dir, value)
+    ]
+    return len(valid_faces) >= 6
+
+
 def _krpano_license_runtime_config() -> dict[str, str]:
     domain = str(os.getenv("KRPANO_LICENSE_DOMAIN") or "").strip()
     key = str(os.getenv("KRPANO_LICENSE_KEY") or "").strip()
@@ -455,17 +538,11 @@ def _hosted_property_tour_has_krpano_control(tour_url: object) -> bool:
     slug = _hosted_property_tour_slug_from_url(tour_url)
     if not payload or not slug or not _krpano_license_runtime_config():
         return False
-    scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
-    creation_mode = str(payload.get("creation_mode") or "").strip().lower()
-    if scene_strategy in {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}:
-        return False
-    if creation_mode == "hosted_listing_fallback":
-        return False
     scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
     if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
         return False
-    walkable_scene = payload.get("walkable_scene")
-    return isinstance(walkable_scene, dict) and bool(walkable_scene)
+    bundle_dir = (_public_tour_dir() / slug).resolve()
+    return _hosted_property_tour_has_walkable_360_asset(bundle_dir=bundle_dir, payload=payload)
 
 
 def _hosted_property_tour_verified_provider(tour_url: object) -> str:

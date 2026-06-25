@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from PIL import Image
+
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 
 
@@ -61,6 +63,11 @@ def _write_playable_mp4(path: Path) -> None:
         timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _write_equirectangular_image(path: Path) -> None:
+    image = Image.new("RGB", (2048, 1024), color=(28, 42, 36))
+    image.save(path, format="JPEG")
 
 
 def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> None:
@@ -397,6 +404,45 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert receipt["provider_counts"]["magicfit"] == 1
     assert receipt["ready_provider_modes"] == ["magicfit"]
     assert receipt["tours"][0]["controls"][0]["evidence"] == "local_magicfit_playable_video"
+
+
+def test_krpano_control_requires_real_walkable_360_asset(tmp_path: Path, monkeypatch) -> None:
+    slug = "verified-krpano-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "scene_strategy": "photo_gallery_hosted",
+            "creation_mode": "hosted_photo_gallery_tour",
+            "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "flat-photo.jpg"},
+        }
+    )
+    (bundle_dir / "flat-photo.jpg").write_bytes(b"not actually inspected as panorama, but forbidden strategy blocks it")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    rejected = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+    assert rejected["provider_counts"]["krpano"] == 0
+    missing = rejected["tours"][0]["missing_evidence"]
+    assert any(row["provider"] == "krpano" and row["reason"] == "walkable_scene_asset_missing_or_not_360" for row in missing)
+
+    manifest.update(
+        {
+            "scene_strategy": "walkable_panorama",
+            "creation_mode": "hosted_walkable_360",
+            "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "panorama.jpg"},
+        }
+    )
+    _write_equirectangular_image(bundle_dir / "panorama.jpg")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    accepted = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+    assert accepted["provider_counts"]["krpano"] == 1
+    assert accepted["ready_provider_modes"] == ["krpano"]
+    assert accepted["tours"][0]["controls"][0]["evidence"] == "licensed_krpano_walkable_scene"
 
 
 def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path: Path) -> None:
