@@ -70,6 +70,11 @@ def _write_equirectangular_image(path: Path) -> None:
     image.save(path, format="JPEG")
 
 
+def _write_sixteen_by_nine_image(path: Path) -> None:
+    image = Image.new("RGB", (1280, 720), color=(28, 36, 42))
+    image.save(path, format="JPEG")
+
+
 def _write_square_image(path: Path) -> None:
     image = Image.new("RGB", (1024, 1024), color=(42, 36, 28))
     image.save(path, format="JPEG")
@@ -225,6 +230,29 @@ def test_krpano_importer_requires_real_equirectangular_panorama(tmp_path: Path, 
     verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
     assert verifier["provider_counts"]["krpano"] == 1
     assert verifier["ready_provider_modes"] == ["krpano"]
+
+
+def test_krpano_importer_rejects_16_9_still_named_panorama(tmp_path: Path, monkeypatch) -> None:
+    slug = "reject-flat-panorama-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+    still = tmp_path / "panorama.jpg"
+    _write_sixteen_by_nine_image(still)
+
+    rejected = _run_importer(
+        "import_krpano_walkable_scene.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--panorama",
+        str(still),
+    )
+
+    assert rejected.returncode != 0
+    assert "krpano_panorama_not_equirectangular" in rejected.stderr
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert "walkable_scene" not in manifest
 
 
 def test_krpano_importer_accepts_six_real_cube_faces(tmp_path: Path, monkeypatch) -> None:
@@ -606,6 +634,30 @@ def test_krpano_control_requires_real_walkable_360_asset(tmp_path: Path, monkeyp
     assert accepted["tours"][0]["controls"][0]["evidence"] == "licensed_krpano_walkable_scene"
 
 
+def test_krpano_control_rejects_16_9_stills_as_fake_panorama(tmp_path: Path, monkeypatch) -> None:
+    slug = "reject-16-9-krpano"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "scene_strategy": "walkable_panorama",
+            "creation_mode": "hosted_walkable_360",
+            "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "still-16-9.jpg"},
+        }
+    )
+    _write_sixteen_by_nine_image(bundle_dir / "still-16-9.jpg")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+
+    assert receipt["provider_counts"]["krpano"] == 0
+    missing = receipt["tours"][0]["missing_evidence"]
+    assert any(row["provider"] == "krpano" and row["reason"] == "walkable_scene_asset_missing_or_not_360" for row in missing)
+
+
 def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path: Path) -> None:
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "discover-3dvista")
@@ -724,6 +776,41 @@ def test_tour_export_discovery_emits_explicit_krpano_cube_faces(tmp_path: Path) 
     assert {row[f"cube_face_{index}"].rsplit("/", 1)[-1] for index in range(1, 7)} == {
         f"cube-face-{index}.jpg" for index in range(1, 7)
     }
+
+
+def test_tour_export_discovery_rejects_16_9_krpano_panorama_candidates(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "discover-flat-krpano")
+    drop_dir = tmp_path / "drop"
+    krpano_assets = drop_dir / "discover-flat-krpano" / "krpano"
+    krpano_assets.mkdir(parents=True)
+    _write_sixteen_by_nine_image(krpano_assets / "panorama.jpg")
+    receipt_path = tmp_path / "discovery.json"
+
+    discovered = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "discover_property_tour_exports.py"),
+            "--drop-dir",
+            str(drop_dir),
+            "--public-tour-dir",
+            str(public_root),
+            "--write",
+            str(receipt_path),
+            "--fail-on-blocked",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert discovered.returncode == 2
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["rejected"][0]["reason"] == "krpano_assets_missing"
+    assert receipt["repair_manifest"][0]["reason"] == "krpano_assets_missing"
 
 
 def test_tour_export_discovery_rejects_magicfit_receipt_mismatch_before_import(tmp_path: Path) -> None:

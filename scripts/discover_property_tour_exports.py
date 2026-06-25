@@ -44,6 +44,8 @@ PANORAMA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 MAX_MARKER_SCAN_BYTES = 1_000_000
 MAX_MARKER_SCAN_FILES = 240
+EQUIRECTANGULAR_MIN_RATIO = 1.9
+EQUIRECTANGULAR_MAX_RATIO = 2.1
 
 
 def _default_drop_dir() -> Path:
@@ -132,14 +134,29 @@ def _verified_entry(export_dir: Path, provider: str) -> tuple[Path | None, str]:
 
 
 def _discover_panorama(asset_dir: Path) -> Path | None:
+    def is_real_equirectangular(candidate: Path) -> bool:
+        if not candidate.is_file() or candidate.suffix.lower() not in PANORAMA_EXTENSIONS:
+            return False
+        try:
+            from PIL import Image
+
+            with Image.open(candidate) as image:
+                width, height = int(image.width), int(image.height)
+        except Exception:
+            return False
+        if width < 1024 or height < 512:
+            return False
+        ratio = width / height if height else 0
+        return EQUIRECTANGULAR_MIN_RATIO <= ratio <= EQUIRECTANGULAR_MAX_RATIO
+
     for name in ("panorama.jpg", "panorama.jpeg", "panorama.png", "panorama.webp", "equirect.jpg", "equirect.jpeg", "equirect.png", "equirect.webp"):
         candidate = asset_dir / name
-        if candidate.is_file():
+        if is_real_equirectangular(candidate):
             return candidate
     matches = [
         path
         for path in sorted(asset_dir.iterdir())
-        if path.is_file() and path.suffix.lower() in PANORAMA_EXTENSIONS and "panorama" in path.stem.lower()
+        if is_real_equirectangular(path) and "panorama" in path.stem.lower()
     ]
     return matches[0] if matches else None
 

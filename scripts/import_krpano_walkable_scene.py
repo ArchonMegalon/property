@@ -13,6 +13,8 @@ from PIL import Image
 
 
 PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+EQUIRECTANGULAR_MIN_RATIO = 1.9
+EQUIRECTANGULAR_MAX_RATIO = 2.1
 
 
 def _public_tour_dir() -> Path:
@@ -48,7 +50,7 @@ def _validate_equirectangular(path: Path) -> tuple[int, int]:
     if width < 1024 or height < 512:
         raise SystemExit("krpano_panorama_too_small")
     ratio = width / height if height else 0
-    if not 1.75 <= ratio <= 2.25:
+    if not EQUIRECTANGULAR_MIN_RATIO <= ratio <= EQUIRECTANGULAR_MAX_RATIO:
         raise SystemExit("krpano_panorama_not_equirectangular")
     return width, height
 

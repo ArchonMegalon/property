@@ -23,6 +23,8 @@ MAX_MARKER_SCAN_BYTES = 1_000_000
 MAX_MARKER_SCAN_FILES = 240
 KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
+EQUIRECTANGULAR_MIN_RATIO = 1.9
+EQUIRECTANGULAR_MAX_RATIO = 2.1
 
 
 def _tour_root() -> Path:
@@ -127,7 +129,7 @@ def _local_equirectangular_image_ready(bundle_dir: Path, relpath: str) -> bool:
     if width < 1024 or height < 512:
         return False
     ratio = width / height if height else 0
-    return 1.75 <= ratio <= 2.25
+    return EQUIRECTANGULAR_MIN_RATIO <= ratio <= EQUIRECTANGULAR_MAX_RATIO
 
 
 def _local_cube_face_ready(bundle_dir: Path, relpath: str) -> bool:
