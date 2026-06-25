@@ -36,7 +36,7 @@ Runs the focused PropertyQuarry release bundle:
   - ID Austria OIDC readiness receipt and Austrian-IP sign-in gating
   - live provider smoke receipt contracts
   - hosted tour control readiness receipts for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
-  - consolidated PropertyQuarry gold-status receipt for mobile/performance, tour controls, and export discovery
+  - consolidated PropertyQuarry gold-status receipt for mobile/performance, provider matrix, tour controls, repair, and export discovery
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
   - privacy-safe Rybbit analytics snippet contracts
@@ -61,7 +61,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_teable_portability.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
-mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/smoke _completion/property_gold_status _completion/repair
+mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/smoke _completion/property_gold_status _completion/repair _completion/provider_smoke
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --require-all-provider-modes \
   --write _completion/property_tour_controls/release-gate.json \
@@ -74,11 +74,23 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_s
   > _completion/smoke/property-auth-performance-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \
   > _completion/repair/propertyquarry-repair-canary-release-gate.json
+if [[ -f _completion/provider_smoke/all-search-ready-live.json ]]; then
+  cp _completion/provider_smoke/all-search-ready-live.json _completion/provider_smoke/release-gate-provider-matrix.json
+else
+  PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=1 \
+    PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_live_provider_smoke.py \
+    --all-search-ready-countries \
+    --no-execute-search-matrix \
+    --write _completion/provider_smoke/release-gate-provider-matrix.json \
+    > /dev/null
+fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --performance-receipt _completion/smoke/property-auth-performance-release-gate.json \
   --tour-control-receipt _completion/property_tour_controls/release-gate.json \
   --export-discovery-receipt _completion/property_tour_exports/release-gate-discovery.json \
   --repair-canary-receipt _completion/repair/propertyquarry-repair-canary-release-gate.json \
+  --provider-matrix-receipt _completion/provider_smoke/release-gate-provider-matrix.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \

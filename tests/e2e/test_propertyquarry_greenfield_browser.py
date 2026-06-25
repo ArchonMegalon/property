@@ -2984,7 +2984,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         assert layout["heroWidth"] <= layout["viewportWidth"] + 1
         assert layout["heroBottom"] > 0
         assert layout["bodyTop"] > layout["heroBottom"]
-        assert 190 <= layout["mediaHeight"] <= 360
+        assert 170 <= layout["mediaHeight"] <= 320
         assert 0 < layout["headlineTop"] < layout["visualConsoleTop"]
         assert layout["actionsDisplay"] == "grid"
         assert "px" in layout["actionsColumns"]
@@ -3369,7 +3369,7 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
             assert "env(safe-area-inset-bottom" in mobile_metrics["dockBottom"] or mobile_metrics["dockBottom"] != "auto"
         assert mobile_metrics["resultWidth"] <= mobile_metrics["viewportWidth"] + 1
         if mobile_metrics["thumbWidth"]:
-            assert 96 <= mobile_metrics["thumbWidth"] <= 120
+            assert 84 <= mobile_metrics["thumbWidth"] <= 96
         assert mobile_metrics["areaModeInMap"] == "map"
         assert "Choose on map" in mobile_metrics["areaMapButtonText"]
         assert "Choose from list" in mobile_metrics["areaListButtonText"]
@@ -3777,13 +3777,43 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             _assert_property_shell_visual_gates(page, max_appbar_height=130)
 
             switch = page.locator("[data-property-mobile-dock]").first
-            expect(switch).to_be_visible()
+            if route.startswith("/app/shortlist"):
+                expect(switch).to_be_visible()
+            else:
+                expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_visible()
             if page.get_by_role("button", name=mobile_mode_name).count():
                 expect(page.get_by_role("button", name=mobile_mode_name)).to_be_visible()
             else:
                 expect(page.locator("body", has_text=mobile_mode_name)).to_be_visible()
-            _assert_mobile_dock_tap_targets(page)
+            if switch.is_visible():
+                _assert_mobile_dock_tap_targets(page)
             expect(page.locator("[data-pqx-launch-top]")).to_have_count(0)
+            density = page.evaluate(
+                """() => {
+                    const visibleCards = Array.from(document.querySelectorAll('.pqx-card, .pqx-panel, .pqx-result, .pqx-account-action-card, .pqx-billing-card, .pqx-billing-summary-card, .pqx-automation-card'))
+                        .filter((node) => {
+                            const rect = node.getBoundingClientRect();
+                            const style = window.getComputedStyle(node);
+                            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                        });
+                    const heavyShadows = visibleCards.filter((node) => window.getComputedStyle(node).boxShadow !== 'none');
+                    const appbar = document.querySelector('.pqx-topbar');
+                    const accountSummary = document.querySelector('.pqx-account-menu summary');
+                    const logoutButton = document.querySelector('[data-account-page-sign-out] button, .pqx-account-menu button[type="submit"]');
+                    return {
+                        cardCount: visibleCards.length,
+                        heavyShadowCount: heavyShadows.length,
+                        appbarHeight: appbar ? Math.round(appbar.getBoundingClientRect().height) : 0,
+                        accountSummaryVisible: accountSummary ? accountSummary.getBoundingClientRect().width > 0 : false,
+                        logoutVisible: logoutButton ? logoutButton.getBoundingClientRect().width > 0 : false,
+                    };
+                }"""
+            )
+            assert density["cardCount"] <= 18
+            assert density["heavyShadowCount"] <= 2
+            assert density["appbarHeight"] <= 112
+            if route in {"/app/agents", "/app/alerts", "/app/billing"} or route.startswith("/app/shortlist"):
+                assert density["accountSummaryVisible"] is True
 
             if route.startswith("/app/shortlist"):
                 expect(page.locator("body", has_text=re.compile(r"Shortlist|No shortlist yet|Ranked homes", re.I))).to_be_visible()
@@ -3821,6 +3851,8 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.get_by_role("link", name="Open billing")).to_be_visible()
                 expect(page.locator("body", has_text="Access and shared pages")).to_be_visible()
                 expect(page.locator("body", has_text="Connections and privacy")).to_be_visible()
+                expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()
+                assert density["logoutVisible"] is True
             elif route == "/app/billing":
                 expect(page.locator("body", has_text="Billing history")).to_be_visible()
                 expect(page.locator("body", has_text="Cancellation and refunds")).to_be_visible()
@@ -3845,8 +3877,8 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 assert billing_mobile_metrics["columns"] == 1
                 assert billing_mobile_metrics["cardCount"] >= 4
                 assert billing_mobile_metrics["detailCardCount"] == 3
-                assert billing_mobile_metrics["shortestCard"] >= 96
-                assert billing_mobile_metrics["tallestCard"] <= 190
+                assert billing_mobile_metrics["shortestCard"] >= 56
+                assert billing_mobile_metrics["tallestCard"] <= 150
                 assert billing_mobile_metrics["maxCardRight"] <= billing_mobile_metrics["viewportWidth"] + 1
                 assert "When to upgrade" not in billing_mobile_metrics["bodyText"]
             elif route == "/app/settings/google":

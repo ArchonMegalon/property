@@ -1293,13 +1293,50 @@
       font-size: 0.76rem;
     }
     .prd-top-context {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-start;
-      grid-column: auto;
+      display: none;
     }
-    .prd-top-context .prd-run-chip {
-      max-width: none;
+    .prd-top-actions {
+      display: flex;
+      width: 100%;
+      justify-content: flex-end;
+    }
+    .prd-top-actions > .prd-run-chip {
+      display: none;
+    }
+    .prd-top-actions .account-menu {
+      margin-left: auto;
+    }
+    .prd-top-actions .account-menu summary {
+      min-width: 46px;
+      min-height: 42px;
+      padding: 0 13px;
+    }
+    .prd-top-actions .account-menu summary span {
+      max-width: 9ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .prd-top-actions .account-menu-panel {
+      position: fixed;
+      left: 8px;
+      right: 8px;
+      top: calc(96px + env(safe-area-inset-top, 0px));
+      width: auto;
+      min-width: 0;
+      max-height: min(68svh, 520px);
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 16px;
+    }
+    .prd-top-actions .account-menu-links {
+      gap: 8px;
+    }
+    .prd-top-actions .account-menu-links .btn,
+    .prd-top-actions .account-menu-links button {
+      min-height: 48px;
+      border-radius: 14px;
+      justify-content: center;
     }
     .prd-shell {
       width: calc(100vw - 12px);
@@ -1323,7 +1360,7 @@
     .prd-lightbox-card {
       padding: 9px;
       border-radius: 14px;
-      box-shadow: 0 8px 22px color-mix(in srgb, var(--prd-gold) 5%, transparent);
+      box-shadow: none;
     }
     .prd-media-stack {
       gap: 7px;
@@ -1484,6 +1521,7 @@
       padding: 9px;
       border-radius: 14px;
       order: 2;
+      box-shadow: none;
     }
     .prd-visual-grid {
       grid-template-columns: 1fr;
@@ -1505,12 +1543,13 @@
       letter-spacing: 0.03em;
     }
     .prd-media-frame {
-      min-height: min(32svh, 200px);
+      min-height: min(28svh, 176px);
       max-height: none;
       border-radius: 16px;
+      box-shadow: none;
     }
     .prd-media-frame.prd-media-frame-live {
-      min-height: min(38svh, 238px);
+      min-height: min(34svh, 214px);
       max-height: none;
     }
     .prd-media-caption {
@@ -1520,7 +1559,7 @@
       gap: 3px;
     }
     .prd-media-caption strong {
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       line-height: 1.12;
     }
     .prd-media-caption span {
@@ -1536,6 +1575,9 @@
       min-width: 60px;
     }
     .prd-hero-gallery {
+      display: none;
+    }
+    .prd-map-card:not(.prd-map-inline) {
       display: none;
     }
     .prd-map-card {
