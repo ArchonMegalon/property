@@ -13,15 +13,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `a33bd8c79118d3931318f9b11728acdfdb43fb4e` |
+| Runtime commit SHA | `4e778d91f1fbf63e7df834bd75a5f58183614028` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer packaged into the runtime image, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, and all-search-ready provider matrix candidate with live status-probe enforcement |
+| Deployment ID | local compose redeploy on 2026-06-25 after `EA_HOST_PORT=8097 make deploy` for compact authenticated first paint, deploy-smoke retry hardening, visual-state self-healing, deploy-probe, mobile What Matters non-clipped distance controls, research ranking-only detail pages with no compare cards, MagicFit playable-video verifier hardening and receipt-backed verified walkthrough importer packaged into the runtime image, expanded mobile/settings smoke coverage, Brilliant Directories timestamped-HMAC billing receipt/replay hardening with public advisory webhook route, stricter 3DVista/Pano2VR local-export verifier gates and verified importers, mobile navigation, notification routing, billing handoff recovery, Rybbit analytics privacy, hosted tour-control verifier, all-search-ready provider matrix candidate with live status-probe enforcement, and hardened mobile phone browser gates for app secondary/settings surfaces |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `a33bd8c` passed:
+The candidate at `4e778d9` passed:
 
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
 - `PYTHONPATH=ea python3 scripts/check_property_security_posture.py`
@@ -131,6 +131,13 @@ The candidate at `a33bd8c` passed:
 - Public Cloudflare smoke after the `a33bd8c` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
 - All-search-ready provider matrix dry-run after the `a33bd8c` deploy returned `status=dry_run`, `country_scope=all_search_ready`, 17 countries, 121 search-ready providers, 242 cases, 121 strict no-soft-filter payloads, 121 soft-filter payloads, `payload_contracts_ok=True`, `agent_unlimited_results_ok=True`, `strict_without_soft_filters_ok=True`, `soft_filters_present_ok=True`, and a status-probe enforcement note for live executions.
 - Hosted tour-control verifier after the `a33bd8c` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
+- Mobile app surface hardening after `4e778d9` raised the phone mode-switch target from 34px to 44px, applied static-surface non-sticky/unclipped mobile panel behavior to `/app/alerts`, and extended the Playwright phone gate to `/app/agents`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access` with viewport, overflow, visual-shell, dock-size, and route-specific assertions.
+- Focused browser mobile receipts after `4e778d9` returned `1 passed` for `test_propertyquarry_secondary_surfaces_have_phone_specific_layout` and `8 passed` for the broader mobile subset covering workspace mobile usability, running progress, research-detail mobile optimization, secondary surfaces, dark secondary surfaces, settings top navigation, numeric sliders, and provider-family controls.
+- Release hygiene after `4e778d9` returned `ok: property release hygiene`. Local authenticated multi-surface performance smoke returned `status=pass`, `failed_count=0`, and 10 routes under the 1200 ms first-paint budget: `/app/search`, `/app/agents`, `/app/properties`, `/app/shortlist`, `/app/research/<fixture>`, `/app/alerts`, `/app/account`, `/app/billing`, `/app/settings/google`, and `/app/settings/access`.
+- After redeploying from `4e778d9`, local readiness returned `{"status":"ready","reason":"postgres_ready"}`.
+- Live public smoke against `http://127.0.0.1:8097` after the `4e778d9` deploy returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
+- Live authenticated smoke against `http://127.0.0.1:8097` after the `4e778d9` deploy returned `status=pass`, `failed_count=0`, and one-attempt `200` responses for `/app/account`, `/app/billing`, and `/sign-in` with security headers and paid-plan/sign-in checks intact.
+- Hosted tour-control verifier after the `4e778d9` deploy still returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The only public bundle remains classified as `gallery_only_not_3d`.
 
 Observed route timings after the latest deploy:
 
