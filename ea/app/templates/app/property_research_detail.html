@@ -269,9 +269,9 @@
   }
   .prd-decision-form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(260px, 0.9fr) minmax(300px, 1fr);
     gap: 8px;
-    align-items: stretch;
+    align-items: center;
     min-width: 0;
   }
   .prd-decision-card {
@@ -288,6 +288,18 @@
     font-size: 0.82rem;
     letter-spacing: -0.01em;
   }
+  .prd-decision-primary {
+    position: relative;
+    align-self: center;
+  }
+  .prd-decision-primary h3 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
   .prd-feedback-details {
     grid-column: 1 / -1;
   }
@@ -295,9 +307,8 @@
     grid-column: 1 / -1;
   }
   .prd-decision-savebar {
-    grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: minmax(140px, auto) minmax(140px, auto) minmax(0, 1fr);
+    grid-template-columns: minmax(126px, auto) minmax(136px, auto) minmax(0, 1fr);
     gap: 8px;
     align-items: center;
     min-width: 0;
@@ -368,9 +379,9 @@
   .prd-decision-workspace .object-feedback-button,
   .prd-decision-workspace .object-feedback-chip,
   .prd-decision-workspace .console-action {
-    min-height: 36px;
+    min-height: 34px;
     border-radius: 999px;
-    padding-inline: 12px;
+    padding-inline: 11px;
   }
   .prd-decision-workspace textarea {
     width: 100%;
@@ -1563,8 +1574,8 @@
       box-shadow: none;
     }
     .prd-decision-workspace {
-      padding: 10px;
-      border-radius: 14px;
+      padding: 8px;
+      border-radius: 12px;
       max-height: none;
     }
     .prd-decision-intro .object-copy {
@@ -1582,13 +1593,13 @@
     .prd-decision-workspace .object-feedback-reasons {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
+      gap: 6px;
     }
     .prd-decision-workspace .object-feedback-button,
     .prd-decision-workspace .object-feedback-chip,
     .prd-decision-workspace .console-action {
       width: 100%;
-      min-height: 48px;
+      min-height: 44px;
       justify-content: center;
       text-align: center;
       white-space: normal;
@@ -1598,10 +1609,12 @@
     }
     .prd-decision-savebar {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
     }
     .prd-decision-savebar .object-copy {
       grid-column: 1 / -1;
       min-height: 18px;
+      font-size: 0.78rem;
       white-space: normal;
     }
     .prd-media-stack {
@@ -1982,7 +1995,7 @@
     }
     .prd-decision-card {
       gap: 6px;
-      padding: 6px;
+      padding: 5px;
       border-radius: 10px;
     }
     .prd-decision-card h3 {
@@ -1998,7 +2011,7 @@
     .prd-decision-workspace .object-feedback-button,
     .prd-decision-workspace .object-feedback-chip,
     .prd-decision-workspace .console-action {
-      min-height: 42px !important;
+      min-height: 40px !important;
       padding: 6px 8px;
       border-radius: 11px;
       font-size: 12px;
@@ -2690,7 +2703,7 @@
           {% endif %}
         </div>
         <div class="prd-decision-form">
-      <section class="prd-decision-card">
+      <section class="prd-decision-card prd-decision-primary">
       <h3>Shortlist decision</h3>
       <div class="object-feedback-row" aria-label="Property feedback reaction">
         <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Yes</button>
