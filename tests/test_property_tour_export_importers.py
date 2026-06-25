@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts.verify_property_tour_controls import build_property_tour_control_receipt
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -130,3 +132,58 @@ def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(
     assert manifest["viewer_provider"] == "pano2vr"
     assert manifest["pano2vr_entry_relpath"] == "pano2vr/index.html"
     assert (bundle_dir / "pano2vr" / "tour.js").exists()
+
+
+def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeholders(tmp_path: Path) -> None:
+    slug = "verified-magicfit-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    placeholder_video = tmp_path / "placeholder.mp4"
+    placeholder_video.write_bytes(b"not a playable video")
+
+    rejected = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(placeholder_video),
+    )
+
+    assert rejected.returncode != 0
+    assert "magicfit_video_unverified" in rejected.stderr
+    assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert "video_relpath" not in manifest
+    assert "magicfit_import" not in manifest
+
+    playable_video = tmp_path / "walkthrough.mp4"
+    playable_video.write_bytes(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
+
+    imported = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(playable_video),
+        "--target-relpath",
+        "walkthrough/final.mp4",
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    body = json.loads(imported.stdout)
+    assert body["video_url"] == f"/tours/files/{slug}/walkthrough/final.mp4"
+    assert body["provider"] == "magicfit"
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["video_provider"] == "magicfit"
+    assert manifest["video_relpath"] == "walkthrough/final.mp4"
+    assert manifest["video_coverage_proof"] == "boundary_verified_frame_continuation"
+    assert manifest["magicfit_import"]["source"] == "magicfit_rendered_walkthrough"
+    assert manifest["magicfit_import"]["size_bytes"] == playable_video.stat().st_size
+    assert len(manifest["magicfit_import"]["sha256"]) == 64
+    assert (bundle_dir / "walkthrough" / "final.mp4").read_bytes() == playable_video.read_bytes()
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+    assert receipt["provider_counts"]["magicfit"] == 1
+    assert receipt["ready_provider_modes"] == ["magicfit"]
+    assert receipt["tours"][0]["controls"][0]["evidence"] == "local_magicfit_playable_video"
