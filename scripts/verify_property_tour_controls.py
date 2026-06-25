@@ -487,11 +487,12 @@ def build_property_tour_control_receipt(
                 if int(probe.get("http_status") or 0) != 200 or playback_failed:
                     control["status"] = "probe_failed"
                     failed_probes += 1
-        missing_evidence = [] if controls else _provider_missing_evidence(bundle_dir, payload)
+        missing_evidence = _provider_missing_evidence(bundle_dir, payload)
         for row in missing_evidence:
             provider = str(row.get("provider") or "").strip().lower()
             if provider in action_counts:
                 action_counts[provider] += 1
+        missing_public_evidence = [] if controls else missing_evidence
         tours.append(
             {
                 "slug": slug,
@@ -499,7 +500,7 @@ def build_property_tour_control_receipt(
                 "status": "ready" if controls else "blocked_missing_verified_controls",
                 "blocked_reason": "" if controls else _blocked_control_reason(payload),
                 "controls": controls,
-                "missing_evidence": missing_evidence,
+                "missing_evidence": missing_public_evidence,
             }
         )
     ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)

@@ -157,6 +157,21 @@ def test_property_tour_control_verifier_can_require_all_provider_modes_for_gold_
     }
 
 
+def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_path: Path) -> None:
+    _write_tour(tmp_path, "matterport-only", {"matterport_url": "https://my.matterport.com/show/?m=READY123"})
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path, require_all_provider_modes=True)
+
+    actions = {row["provider"]: row for row in receipt["next_required_actions"]}
+    assert receipt["status"] == "blocked_missing_provider_modes"
+    assert receipt["tours"][0]["status"] == "ready"
+    assert receipt["tours"][0]["missing_evidence"] == []
+    assert actions["3dvista"]["blocked_tour_count"] == 1
+    assert actions["pano2vr"]["blocked_tour_count"] == 1
+    assert actions["krpano"]["blocked_tour_count"] == 1
+    assert actions["magicfit"]["blocked_tour_count"] == 1
+
+
 def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     tmp_path: Path,
     monkeypatch,
