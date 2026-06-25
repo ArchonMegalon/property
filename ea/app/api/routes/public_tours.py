@@ -77,6 +77,8 @@ _PANO2VR_EXPORT_ALLOWED_EXTENSIONS = frozenset(
     {
         ".css",
         ".gif",
+        ".ggpkg",
+        ".ggskin",
         ".htm",
         ".html",
         ".jpeg",

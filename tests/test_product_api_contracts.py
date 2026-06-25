@@ -25179,6 +25179,8 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
         encoding="utf-8",
     )
     (export_dir / "tour.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    (export_dir / "tour.ggpkg").write_bytes(b"PANO2VR-GGPKG")
+    (export_dir / "skin.ggskin").write_text("<skin>Pano2VR</skin>", encoding="utf-8")
     (bundle_dir / "other").mkdir()
     (bundle_dir / "other" / "index.html").write_text("<!doctype html><title>Other</title>", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
@@ -25199,6 +25201,8 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     control_response = client.get(f"/tours/{slug}/control/pano2vr")
     entry_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/index.html")
     script_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/tour.js")
+    package_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/tour.ggpkg")
+    skin_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/skin.ggskin")
     other_response = client.get(f"/tours/pano2vr/{slug}/other/index.html")
     private_response = client.get(f"/tours/pano2vr/{slug}/pano2vr/private.json")
 
@@ -25211,6 +25215,10 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     assert "Pano2VR" in entry_response.text
     assert script_response.status_code == 200
     assert "GGSKIN" in script_response.text
+    assert package_response.status_code == 200
+    assert package_response.content == b"PANO2VR-GGPKG"
+    assert skin_response.status_code == 200
+    assert "Pano2VR" in skin_response.text
     assert other_response.status_code == 404
     assert private_response.status_code == 404
 
