@@ -2709,9 +2709,16 @@ def test_property_filter_near_miss_feedback_buttons_fit_telegram_callback_limit(
         failed_filter_key="max_distance_to_supermarket_m",
         failed_filter_label="supermarket radius",
         prefilter_score=86.0,
+        requested_distance_m=500,
+        observed_distance_m=951,
+        observed_place_name="BILLA Praterstern",
     )
 
     assert result["status"] == "sent"
+    assert result["requested_distance_m"] == 500.0
+    assert result["observed_distance_m"] == 951.0
+    assert result["observed_place_name"] == "BILLA Praterstern"
+    assert "Nearest supermarket: BILLA Praterstern is 951 m away; your limit was 500 m." in str(sent["text"])
     inline_buttons = list(sent["inline_buttons"])
     callback_values = [
         str(callback_data)
@@ -2722,6 +2729,36 @@ def test_property_filter_near_miss_feedback_buttons_fit_telegram_callback_limit(
     assert all(len(value.encode("utf-8")) <= 64 for value in callback_values)
     assert any("|df_super|" in value for value in callback_values)
     assert any("|kf_super|" in value for value in callback_values)
+
+
+def test_property_filter_near_miss_message_names_observed_distance() -> None:
+    message = product_service._property_near_miss_filter_message(
+        title="Near miss apartment",
+        source_label="Willhaben",
+        filter_label="supermarket radius",
+        score=86.0,
+        requested_distance_m=500,
+        observed_distance_m=951,
+        observed_place_name="BILLA Praterstern",
+    )
+
+    assert "Nearest supermarket: BILLA Praterstern is 951 m away; your limit was 500 m." in message
+
+
+def test_property_filter_near_miss_message_omits_unverified_distance_value() -> None:
+    message = product_service._property_near_miss_filter_message(
+        title="Near miss apartment",
+        source_label="Willhaben",
+        filter_label="supermarket radius",
+        score=86.0,
+        requested_distance_m=500,
+        observed_distance_m=None,
+        observed_place_name="BILLA without confirmed distance",
+    )
+
+    assert "BILLA without confirmed distance" not in message
+    assert "is 0 m away" not in message
+    assert "your limit was 500 m" not in message
 
 
 def test_property_filter_near_miss_sender_suppresses_location_conflicts(monkeypatch) -> None:

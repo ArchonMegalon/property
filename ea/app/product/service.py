@@ -8483,11 +8483,48 @@ def _property_search_filter_disable_patch(filter_key: str) -> dict[str, object]:
     return {normalized: None}
 
 
-def _property_near_miss_filter_message(*, title: str, source_label: str, filter_label: str, score: float) -> str:
+def _property_near_miss_distance_detail(
+    *,
+    filter_label: str,
+    observed_distance_m: object = None,
+    requested_distance_m: object = None,
+    observed_place_name: object = "",
+) -> str:
+    observed = _float_or_none(observed_distance_m)
+    requested = _float_or_none(requested_distance_m)
+    if not isinstance(observed, float) or observed <= 0:
+        return ""
+    label = str(filter_label or "distance").strip().removesuffix(" radius").removesuffix(" distance") or "distance"
+    place_name = compact_text(str(observed_place_name or "").strip(), fallback="", limit=80)
+    subject = f"Nearest {label}"
+    if place_name:
+        subject = f"{subject}: {place_name}"
+    if isinstance(requested, float) and requested > 0:
+        return f"{subject} is {int(observed)} m away; your limit was {int(requested)} m."
+    return f"{subject} is {int(observed)} m away."
+
+
+def _property_near_miss_filter_message(
+    *,
+    title: str,
+    source_label: str,
+    filter_label: str,
+    score: float,
+    observed_distance_m: object = None,
+    requested_distance_m: object = None,
+    observed_place_name: object = "",
+) -> str:
+    distance_detail = _property_near_miss_distance_detail(
+        filter_label=filter_label,
+        observed_distance_m=observed_distance_m,
+        requested_distance_m=requested_distance_m,
+        observed_place_name=observed_place_name,
+    )
     return compact_text(
         (
             f"Near miss: {title} looked like a strong match from {source_label}, "
             f"but was filtered out only by the {filter_label} filter. "
+            f"{distance_detail + ' ' if distance_detail else ''}"
             f"Pre-filter score: {score:.0f}/100."
         ),
         fallback="Near miss: a strong property was filtered by one search filter.",
@@ -24018,6 +24055,9 @@ class ProductService:
         failed_filter_key: str,
         failed_filter_label: str,
         prefilter_score: float,
+        requested_distance_m: object = None,
+        observed_distance_m: object = None,
+        observed_place_name: object = "",
         requested_location_hints: tuple[str, ...] = (),
         requested_country_code: str = "",
         requested_region_code: str = "",
@@ -24068,6 +24108,9 @@ class ProductService:
                 "failed_filter_key": str(failed_filter_key or "").strip(),
                 "failed_filter_label": str(failed_filter_label or "").strip(),
                 "prefilter_score": float(prefilter_score or 0.0),
+                "requested_distance_m": _float_or_none(requested_distance_m),
+                "observed_distance_m": _float_or_none(observed_distance_m),
+                "observed_place_name": compact_text(str(observed_place_name or "").strip(), fallback="", limit=120),
             },
             interpreted_signal_json={},
             suggestion_options=[
@@ -24110,6 +24153,9 @@ class ProductService:
                         source_label=counterparty,
                         filter_label=failed_filter_label,
                         score=float(prefilter_score or 0.0),
+                        requested_distance_m=requested_distance_m,
+                        observed_distance_m=observed_distance_m,
+                        observed_place_name=observed_place_name,
                     )
                     + "\n\nShould I disable only this filter and search again?"
                 ),
@@ -24133,6 +24179,9 @@ class ProductService:
                 "failed_filter_key": str(failed_filter_key or "").strip(),
                 "failed_filter_label": str(failed_filter_label or "").strip(),
                 "prefilter_score": float(prefilter_score or 0.0),
+                "requested_distance_m": _float_or_none(requested_distance_m),
+                "observed_distance_m": _float_or_none(observed_distance_m),
+                "observed_place_name": compact_text(str(observed_place_name or "").strip(), fallback="", limit=120),
                 "telegram_message_ids": list(receipt.message_ids),
             }
             self._record_product_event(
@@ -34106,6 +34155,9 @@ class ProductService:
                 title: str,
                 summary: str,
                 filter_key: str,
+                requested_distance_m: object = None,
+                observed_distance_m: object = None,
+                observed_place_name: object = "",
             ) -> None:
                 if len(filter_near_misses_for_source) >= 2:
                     return
@@ -34130,17 +34182,25 @@ class ProductService:
                 source_ref = f"property-scout:{listing_ref}"
                 if any(str(item.get("source_ref") or "") == source_ref for item in filter_near_misses_for_source):
                     return
-                filter_near_misses_for_source.append(
-                    {
-                        "property_url": str(property_url or "").strip(),
-                        "source_ref": source_ref,
-                        "title": compact_text(str(title or property_url), fallback=property_url, limit=160),
-                        "summary": compact_text(str(summary or ""), fallback="", limit=240),
-                        "failed_filter_key": normalized_filter_key,
-                        "failed_filter_label": _property_search_filter_label(normalized_filter_key),
-                        "prefilter_score": prefilter_score,
-                    }
-                )
+                near_miss_row = {
+                    "property_url": str(property_url or "").strip(),
+                    "source_ref": source_ref,
+                    "title": compact_text(str(title or property_url), fallback=property_url, limit=160),
+                    "summary": compact_text(str(summary or ""), fallback="", limit=240),
+                    "failed_filter_key": normalized_filter_key,
+                    "failed_filter_label": _property_search_filter_label(normalized_filter_key),
+                    "prefilter_score": prefilter_score,
+                }
+                observed = _float_or_none(observed_distance_m)
+                requested = _float_or_none(requested_distance_m)
+                if isinstance(observed, float) and observed > 0:
+                    near_miss_row["observed_distance_m"] = int(observed)
+                    if isinstance(requested, float) and requested > 0:
+                        near_miss_row["requested_distance_m"] = int(requested)
+                    place_name = compact_text(str(observed_place_name or "").strip(), fallback="", limit=120)
+                    if place_name:
+                        near_miss_row["observed_place_name"] = place_name
+                filter_near_misses_for_source.append(near_miss_row)
 
             def _suppress_generic_listing_candidate(
                 *,
@@ -35565,12 +35625,20 @@ class ProductService:
                             )
                         else:
                             actual_distance_m = _float_or_none(detailed_facts.get(fact_key))
+                            nearest_place_name = compact_text(
+                                str(detailed_facts.get(f"{str(fact_key).removesuffix('_m')}_name") or "").strip(),
+                                fallback="",
+                                limit=120,
+                            )
                             _remember_filter_near_miss(
                                 row=row,
                                 property_url=property_url,
                                 title=detailed_title,
                                 summary=detailed_summary,
                                 filter_key=preference_key,
+                                requested_distance_m=requested_limit,
+                                observed_distance_m=actual_distance_m,
+                                observed_place_name=nearest_place_name,
                             )
                             _report(
                                 step=report_step,
@@ -36491,6 +36559,9 @@ class ProductService:
                                 "failed_filter_key": str(near_miss.get("failed_filter_key") or "").strip(),
                                 "failed_filter_label": str(near_miss.get("failed_filter_label") or "").strip(),
                                 "prefilter_score": float(near_miss.get("prefilter_score") or 0.0),
+                                "requested_distance_m": near_miss.get("requested_distance_m"),
+                                "observed_distance_m": near_miss.get("observed_distance_m"),
+                                "observed_place_name": str(near_miss.get("observed_place_name") or "").strip(),
                                 "requested_location_hints": tuple(source_location_hints),
                                 "requested_country_code": str(request_preferences.get("country_code") or source_spec.get("country_code") or "").strip(),
                                 "requested_region_code": str(request_preferences.get("region_code") or "").strip(),
