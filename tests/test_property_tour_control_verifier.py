@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
-from scripts.verify_property_tour_controls import _receipt_summary, build_property_tour_control_receipt
+from scripts.verify_property_tour_controls import _receipt_summary, build_property_tour_control_receipt, main
 
 
 def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[str, str | bytes] | None = None) -> None:
@@ -155,6 +156,33 @@ def test_property_tour_control_verifier_can_require_all_provider_modes_for_gold_
         "krpano",
         "magicfit",
     }
+
+
+def test_property_tour_control_verifier_cli_fails_closed_for_blocked_gold_gate(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _write_tour(tmp_path, "matterport-tour", {"matterport_url": "https://my.matterport.com/show/?m=READY123"})
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify_property_tour_controls.py",
+            "--tour-root",
+            str(tmp_path),
+            "--require-all-provider-modes",
+            "--fail-on-blocked",
+            "--summary-only",
+        ],
+    )
+
+    exit_code = main()
+
+    assert exit_code == 2
+    output = capsys.readouterr().out
+    assert '"status": "blocked_missing_provider_modes"' in output
+    assert '"missing_provider_modes"' in output
 
 
 def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_path: Path) -> None:

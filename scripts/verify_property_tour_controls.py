@@ -588,6 +588,11 @@ def main() -> int:
     parser.add_argument("--write", default="", help="Optional JSON receipt path.")
     parser.add_argument("--summary-only", action="store_true", help="Print only top-level counts/actions; --write still stores the full receipt.")
     parser.add_argument("--require-all-provider-modes", action="store_true", help="Return blocked status until every required provider mode has at least one verified live-ready control.")
+    parser.add_argument(
+        "--fail-on-blocked",
+        action="store_true",
+        help="Return a non-zero exit code for blocked_* receipts. Use this for gold/release gates.",
+    )
     args = parser.parse_args()
     receipt = build_property_tour_control_receipt(
         tour_root=Path(args.tour_root) if str(args.tour_root or "").strip() else None,
@@ -602,7 +607,12 @@ def main() -> int:
         Path(args.write).write_text(output + "\n", encoding="utf-8")
     printed_receipt = _receipt_summary(receipt) if args.summary_only else receipt
     print(json.dumps(printed_receipt, indent=2, sort_keys=True))
-    return 0 if str(receipt.get("status") or "").startswith(("pass", "blocked")) else 1
+    status = str(receipt.get("status") or "")
+    if status == "pass":
+        return 0
+    if status.startswith("blocked"):
+        return 2 if args.fail_on_blocked else 0
+    return 1
 
 
 if __name__ == "__main__":
