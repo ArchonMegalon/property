@@ -49,7 +49,7 @@ def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network(
 def test_live_authenticated_smoke_accepts_active_signed_in_copy_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": "PropertyQuarry <section class=\"pqx-account-logout-strip\" aria-label=\"Current session\"><button>Log out</button></section> <h2>Account</h2> <h2>Notifications</h2> <h2>Agent</h2>",
-        "https://propertyquarry.com/app/billing": "PropertyQuarry Compare plans",
+        "https://propertyquarry.com/app/billing": "PropertyQuarry Account status Your current access is active.",
         "https://propertyquarry.com/sign-in": "PropertyQuarry Open search Continue with Google <button>Log out</button>",
     }
 

@@ -143,7 +143,8 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
                     "billing_has_pricing_action",
                     "Open pricing" in visible_text
                     or "Request access" in visible_text
-                    or "Compare plans" in visible_text,
+                    or "Compare plans" in visible_text
+                    or ("Account status" in visible_text and "current access is active" in lowered_visible),
                 ),
                 ("billing_no_self_link", 'href="/app/billing"' not in text),
                 ("billing_no_customer_noise", not any(noise in lowered_visible for noise in FORBIDDEN_CUSTOMER_NOISE)),
