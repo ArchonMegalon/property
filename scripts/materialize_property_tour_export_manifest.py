@@ -14,6 +14,10 @@ from verify_property_tour_controls import build_property_tour_control_receipt
 
 
 IMPORTABLE_PROVIDERS = ("3dvista", "pano2vr")
+PROVIDER_ENTRY_MARKERS = {
+    "3dvista": "index.html/index.htm containing 3DVista, tdvplayer, tdvplayerapi, tourviewer, or panorama markers",
+    "pano2vr": "index.html/index.htm containing Pano2VR, ggpkg, ggskin, pano.xml, or tour.js markers",
+}
 
 
 def _tour_root() -> Path:
@@ -146,6 +150,50 @@ def build_export_manifest(
     }
 
 
+def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, str]]:
+    prepared: list[dict[str, str]] = []
+    for row in list(manifest.get("imports") or []):
+        if not isinstance(row, dict):
+            continue
+        export_dir = Path(str(row.get("export_dir") or "")).expanduser().resolve()
+        provider = str(row.get("provider") or "").strip().lower()
+        slug = str(row.get("slug") or "").strip()
+        if provider not in IMPORTABLE_PROVIDERS or not slug:
+            continue
+        export_dir.mkdir(parents=True, exist_ok=True)
+        readme_path = export_dir / "README.propertyquarry-export.txt"
+        readme_path.write_text(
+            "\n".join(
+                [
+                    "PropertyQuarry provider export drop folder",
+                    "",
+                    f"Slug: {slug}",
+                    f"Title: {str(row.get('title') or slug).strip()}",
+                    f"Provider: {provider}",
+                    f"Current verified controls: {str(row.get('current_control_providers') or 'none').strip()}",
+                    f"Expected entry: {PROVIDER_ENTRY_MARKERS[provider]}",
+                    "",
+                    "Copy the real provider export contents into this directory.",
+                    "Do not copy placeholder HTML; the importer rejects unverified entries.",
+                    "",
+                    f"After exports are copied, run: {manifest.get('next_command')}",
+                    "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        prepared.append(
+            {
+                "slug": slug,
+                "provider": provider,
+                "export_dir": str(export_dir),
+                "readme": str(readme_path),
+            }
+        )
+    return prepared
+
+
 def _parse_provider_filter(raw: str) -> set[str]:
     values = {part.strip().lower() for part in str(raw or "").split(",") if part.strip()}
     return {value for value in values if value in IMPORTABLE_PROVIDERS} or set(IMPORTABLE_PROVIDERS)
@@ -157,6 +205,7 @@ def main() -> int:
     parser.add_argument("--incoming-root", default="", help="Where operators should drop exports. Defaults to PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR or /data/incoming_property_tours.")
     parser.add_argument("--providers", default="3dvista,pano2vr", help="Comma-separated provider filter.")
     parser.add_argument("--limit-per-provider", type=int, default=1)
+    parser.add_argument("--prepare-dirs", action="store_true", help="Create incoming export directories with per-provider README instructions.")
     parser.add_argument("--write", default="", help="Output manifest path. Defaults to EA_ARTIFACT_DIR/property-tour-export-import-manifest.json.")
     args = parser.parse_args()
     manifest = build_export_manifest(
@@ -165,6 +214,8 @@ def main() -> int:
         providers=_parse_provider_filter(args.providers),
         limit_per_provider=max(1, int(args.limit_per_provider or 1)),
     )
+    if args.prepare_dirs:
+        manifest["prepared_drop_dirs"] = prepare_export_drop_dirs(manifest)
     write_path = Path(args.write).expanduser().resolve() if str(args.write or "").strip() else _artifact_dir() / "property-tour-export-import-manifest.json"
     write_path.parent.mkdir(parents=True, exist_ok=True)
     write_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
