@@ -47,6 +47,9 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     assert any(check["name"] == "research_confirmed_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "research_confirmed_price_signal" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
+    assert any(check["name"] == "billing_heading" and check["ok"] for check in routes["/app/billing"]["checks"])
+    assert any(check["name"] == "billing_history_visible" and check["ok"] for check in routes["/app/billing"]["checks"])
+    assert any(check["name"] == "billing_white_label_copy" and check["ok"] for check in routes["/app/billing"]["checks"])
     assert any(check["name"] == "implicit_account_creation_copy" and check["ok"] for check in routes["/app/settings/google"]["checks"])
     assert any(check["name"] == "account_access_controls" and check["ok"] for check in routes["/app/settings/access"]["checks"])
     assert any(check["name"] == "usage_metrics_visible" and check["ok"] for check in routes["/app/settings/usage"]["checks"])
@@ -78,6 +81,7 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"/app/settings/invitations"' in result.stdout
     assert '"shared_top_navigation"' in result.stdout
     assert '"mobile_dock_target"' in result.stdout
+    assert '"billing_white_label_copy"' in result.stdout
     assert '"rybbit_taxonomy_events_only"' in result.stdout
     assert '"rybbit_no_private_payload"' in result.stdout
 

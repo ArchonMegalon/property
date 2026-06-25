@@ -226,6 +226,7 @@ The candidate at `5d0284f` passed:
 - Rybbit app analytics privacy is now part of the authenticated runtime smoke across 14 app routes. The gate requires no Rybbit identify calls, only approved app taxonomy events, only approved Rybbit data attributes, and no candidate/run/listing/saved-search/principal/email/phone tokens in serialized Rybbit attributes.
 - Mobile What Matters hardening now proves the reported Playground `Nice to have` interaction in a 390px phone viewport: the distance combobox becomes enabled, remains a full-width 44px tap target, stays inside the viewport, and is not hidden behind a bottom mobile overlay. Focused static and Playwright checks returned `2 passed`.
 - Visual self-healing now clears stale `tour_*_repair_*` / `flythrough_*_repair_*` markers when a terminal visual-status resolution is persisted, so blocked/skipped media no longer carries old repair-running metadata. Focused visual-status repair tests returned `5 passed`.
+- Billing white-label quality is now part of the authenticated runtime smoke: `/app/billing` must show plan/payment/history/invoice surfaces while hiding PayFunnels, Brilliant Directories, provider endpoint strings, billing-truth jargon, invoice-handoff wording, and internal plan-limit labels.
 
 Observed route timings after the latest deploy:
 

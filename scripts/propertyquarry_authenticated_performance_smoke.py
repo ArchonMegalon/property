@@ -123,6 +123,19 @@ FORBIDDEN_RYBBIT_PAYLOAD_TOKENS = (
     "telegram",
 )
 
+FORBIDDEN_BILLING_SURFACE_TOKENS = (
+    "accounting lane",
+    "billing truth",
+    "brilliant directories",
+    "brilliantdirectories",
+    "commercial truth",
+    "invoice handoff",
+    "payfunnels",
+    "payfunnels/order",
+    "plan and limits",
+    "plan unit",
+)
+
 
 def _mobile_surface_contract_checks(path: str, body: str) -> list[dict[str, object]]:
     normalized_path = str(path or "").split("?", 1)[0]
@@ -455,6 +468,15 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             (
                 {"name": "alerts_heading", "ok": "Alerts" in body},
                 {"name": "delivery_controls", "ok": "Delivery rules" in body or "Notifications" in body},
+            )
+        )
+    if path == "/app/billing":
+        billing_noise_hits = [token for token in FORBIDDEN_BILLING_SURFACE_TOKENS if token in lowered_body]
+        checks.extend(
+            (
+                {"name": "billing_heading", "ok": "Plan and payments" in body and "Your plan" in body},
+                {"name": "billing_history_visible", "ok": "Billing history" in body and "Invoices" in body},
+                {"name": "billing_white_label_copy", "ok": not billing_noise_hits, "detail": ", ".join(billing_noise_hits[:5])},
             )
         )
     if path == "/app/settings/google":
