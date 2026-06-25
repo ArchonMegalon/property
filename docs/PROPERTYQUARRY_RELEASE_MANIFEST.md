@@ -13,16 +13,23 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `1d1b33a1327a42243247a5f722dc066aeba69390` |
+| Runtime commit SHA | `e19fc14098ee2c237843eb6f215dcd587e9699c8` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for top-only mobile navigation gate hardening, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
-The candidate at `1d1b33a` passed:
+The candidate at `e19fc14` passed:
 
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_live_mobile_surface_smoke.py tests/test_property_authenticated_performance_smoke.py tests/test_propertyquarry_workspace_redesign.py -k 'live_mobile_smoke or authenticated_performance_smoke or settings_subpages_keep_property_shell_and_top_mobile_nav'`
+- `PYTHONPATH=ea python3 scripts/propertyquarry_authenticated_performance_smoke.py` returned `status=pass`, `failed_count=0`, `route_count=15`, and verified `/app/billing` as a `303` external handoff redirect to the allowlisted local smoke host.
+- `python3 -m py_compile scripts/propertyquarry_authenticated_performance_smoke.py scripts/propertyquarry_live_mobile_surface_smoke.py`
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
+- `make deploy`
+- `docker inspect --format='{{.State.Health.Status}}' propertyquarry-api` returned `healthy`
+- `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`
 - `PYTHONPATH=ea python3 -m pytest -q tests/test_property_surface_accessibility_gate.py tests/test_propertyquarry_workspace_redesign.py -k 'surface_accessibility_gate or shell_uses_the_new_surface_navigation or settings_subpages_keep_property_shell_and_top_mobile_nav'`
 - `PYTHONPATH=ea python3 scripts/check_property_surface_accessibility.py`
 - `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
