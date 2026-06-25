@@ -24846,17 +24846,28 @@ def test_public_tour_control_krpano_requires_license(monkeypatch: pytest.MonkeyP
     assert exc_info.value.detail == "tour_control_krpano_license_missing"
 
 
-def test_public_tour_control_krpano_embeds_license_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+def _write_test_equirectangular_panorama(path: Path) -> None:
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (2048, 1024), color=(28, 42, 36)).save(path, format="JPEG")
+
+
+def test_public_tour_control_krpano_embeds_license_marker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from app.api.routes import public_tours
 
+    slug = "krpano-licensed-tour"
+    bundle_dir = tmp_path / slug
+    _write_test_equirectangular_panorama(bundle_dir / "krpano" / "panorama.jpg")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
     monkeypatch.setenv("KRPANO_LICENSE_KEY", "demo-license")
 
     html = public_tours._tour_control_html(
         {
-            "slug": "krpano-licensed-tour",
+            "slug": slug,
             "display_title": "krpano Licensed Tour",
-            "walkable_scene": {"rooms": [], "route": []},
+            "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "krpano/panorama.jpg"},
         },
         viewer_mode="krpano",
     )
@@ -24866,6 +24877,28 @@ def test_public_tour_control_krpano_embeds_license_marker(monkeypatch: pytest.Mo
     assert "Registered for propertyquarry.com" in html
     assert 'id="krpano-license"' in html
     assert 'window.__PROPERTYQUARRY_KRPANO_LICENSE__' in html
+
+
+def test_public_tour_control_krpano_rejects_placeholder_walkable_scene(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from app.api.routes import public_tours
+
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "demo-license")
+
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "krpano-placeholder-tour",
+                "display_title": "krpano Placeholder Tour",
+                "creation_mode": "hosted_photo_gallery_tour",
+                "walkable_scene": {"rooms": [], "route": []},
+            },
+            viewer_mode="krpano",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_krpano_asset_missing"
 
 
 def test_public_tour_landing_hides_magicfit_without_route_coverage_proof() -> None:
@@ -25044,12 +25077,13 @@ def test_public_tour_control_krpano_route_renders_licensed_viewer(monkeypatch: p
     slug = "krpano-route-licensed"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    _write_test_equirectangular_panorama(bundle_dir / "krpano" / "panorama.jpg")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": slug,
                 "display_title": "Licensed Walkable Tour",
-                "walkable_scene": {"rooms": [], "route": []},
+                "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "krpano/panorama.jpg"},
             }
         ),
         encoding="utf-8",
@@ -25066,6 +25100,33 @@ def test_public_tour_control_krpano_route_renders_licensed_viewer(monkeypatch: p
     assert 'data-viewer="krpano"' in response.text
     assert "krpano Licensed Viewer" in response.text
     assert "Registered for propertyquarry.com" in response.text
+
+
+def test_public_tour_control_krpano_route_rejects_placeholder_scene(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    slug = "krpano-route-placeholder"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Placeholder Walkable Tour",
+                "creation_mode": "hosted_photo_gallery_tour",
+                "walkable_scene": {"rooms": [], "route": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "demo-license")
+
+    client = build_product_client(principal_id="public-tour-krpano-placeholder")
+    response = client.get(f"/tours/{slug}/control/krpano")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "tour_control_krpano_asset_missing"
 
 
 def test_public_tour_control_pano2vr_requires_declared_entry() -> None:
@@ -25411,14 +25472,15 @@ def test_property_tour_compare_links_offer_krpano_only_for_licensed_walkable_sce
     ready_slug = "krpano-ready-tour"
     ready_dir = tmp_path / ready_slug
     ready_dir.mkdir(parents=True)
+    _write_test_equirectangular_panorama(ready_dir / "krpano" / "panorama.jpg")
     (ready_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": ready_slug,
                 "control_mode": "walkable_3d",
                 "walkable_scene": {
-                    "rooms": [{"id": "living", "name": "Living"}],
-                    "route": ["living"],
+                    "projection": "equirectangular",
+                    "panorama_relpath": "krpano/panorama.jpg",
                 },
             }
         ),
@@ -25695,14 +25757,15 @@ def test_property_3d_provider_rule_exit_gate_accepts_licensed_krpano_control(mon
     slug = "provider-rule-krpano-tour"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    _write_test_equirectangular_panorama(bundle_dir / "krpano" / "panorama.jpg")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": slug,
                 "control_mode": "walkable_3d",
                 "walkable_scene": {
-                    "rooms": [{"id": "entry", "name": "Entry"}],
-                    "route": ["entry"],
+                    "projection": "equirectangular",
+                    "panorama_relpath": "krpano/panorama.jpg",
                 },
             }
         ),

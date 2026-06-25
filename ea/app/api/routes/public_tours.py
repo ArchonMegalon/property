@@ -95,6 +95,9 @@ _PANO2VR_EXPORT_ALLOWED_EXTENSIONS = frozenset(
 )
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
 _PANO2VR_EXPORT_MARKERS = ("ggpkg", "ggskin", "pano.xml", "tour.js")
+_KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
+_KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
+_PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 log = logging.getLogger(__name__)
 
 
@@ -1453,6 +1456,82 @@ def _local_tour_html_asset_has_marker(slug: object, relpath: object, *, markers:
     return any(marker in body for marker in markers)
 
 
+def _local_tour_asset_path(slug: object, relpath: object) -> Path | None:
+    safe_slug = str(slug or "").strip()
+    safe_relpath = _public_tour_safe_asset_relpath(str(relpath or "").strip())
+    if not safe_slug or not safe_relpath:
+        return None
+    bundle_dir = _tour_bundle_dir(safe_slug)
+    if bundle_dir is None:
+        return None
+    candidate = (bundle_dir / safe_relpath).resolve()
+    resolved_bundle = bundle_dir.resolve()
+    if candidate == resolved_bundle or resolved_bundle not in candidate.parents or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _local_tour_image_dimensions(path: Path) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return int(image.width), int(image.height)
+    except Exception:
+        return (0, 0)
+
+
+def _local_tour_equirectangular_image_ready(slug: object, relpath: object) -> bool:
+    safe_relpath = _public_tour_safe_asset_relpath(str(relpath or "").strip())
+    if not safe_relpath or PurePosixPath(safe_relpath).suffix.lower() not in _PANORAMA_IMAGE_EXTENSIONS:
+        return False
+    candidate = _local_tour_asset_path(slug, safe_relpath)
+    if candidate is None:
+        return False
+    width, height = _local_tour_image_dimensions(candidate)
+    if width < 1024 or height < 512:
+        return False
+    ratio = width / height if height else 0
+    return 1.75 <= ratio <= 2.25
+
+
+def _local_tour_cube_face_ready(slug: object, relpath: object) -> bool:
+    safe_relpath = _public_tour_safe_asset_relpath(str(relpath or "").strip())
+    if not safe_relpath or PurePosixPath(safe_relpath).suffix.lower() not in _PANORAMA_IMAGE_EXTENSIONS:
+        return False
+    candidate = _local_tour_asset_path(slug, safe_relpath)
+    if candidate is None:
+        return False
+    width, height = _local_tour_image_dimensions(candidate)
+    if width < 512 or height < 512:
+        return False
+    ratio = width / height if height else 0
+    return 0.9 <= ratio <= 1.1
+
+
+def _walkable_scene_has_real_360_asset(payload: dict[str, object]) -> bool:
+    slug = str(payload.get("slug") or "").strip()
+    if not slug:
+        return False
+    scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+    if scene_strategy in _KRPANO_FORBIDDEN_SCENE_STRATEGIES or creation_mode in _KRPANO_FORBIDDEN_CREATION_MODES:
+        return False
+    walkable_scene = payload.get("walkable_scene")
+    if not isinstance(walkable_scene, dict) or not walkable_scene:
+        return False
+    projection = str(walkable_scene.get("projection") or walkable_scene.get("type") or "").strip().lower()
+    if projection and projection not in {"equirectangular", "panorama", "cubemap", "cube"}:
+        return False
+    for key in ("panorama_relpath", "equirect_relpath", "image_relpath", "asset_relpath"):
+        if _local_tour_equirectangular_image_ready(slug, walkable_scene.get(key)):
+            return True
+    cube_faces = walkable_scene.get("cube_faces")
+    values = list(cube_faces.values()) if isinstance(cube_faces, dict) else list(cube_faces or []) if isinstance(cube_faces, list) else []
+    valid_faces = [value for value in values if _local_tour_cube_face_ready(slug, value)]
+    return len(valid_faces) >= 6
+
+
 def _tour_spatial_review_experience(
     payload: dict[str, object],
     *,
@@ -1495,7 +1574,7 @@ def _tour_spatial_review_experience(
             "primary_label": "Open Pano2VR",
             "primary_href": pano2vr_url,
         }
-    if _krpano_license_runtime_config() and isinstance(payload.get("walkable_scene"), dict) and slug:
+    if _krpano_license_runtime_config() and _walkable_scene_has_real_360_asset(payload):
         return {
             "mode": "panorama",
             "provider": "krpano",
@@ -4833,6 +4912,8 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "") -> 
         license_config = _krpano_license_runtime_config()
         if not license_config:
             raise HTTPException(status_code=404, detail="tour_control_krpano_license_missing")
+        if not _walkable_scene_has_real_360_asset(payload):
+            raise HTTPException(status_code=404, detail="tour_control_krpano_asset_missing")
         return _tour_control_walkable_html(payload, provider_label="krpano Licensed Viewer", license_config=license_config)
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "marzipano":
@@ -5270,9 +5351,11 @@ def _tour_control_walkable_html(
     walkable_scene = payload.get("walkable_scene") if isinstance(payload.get("walkable_scene"), dict) else {}
     if not walkable_scene:
         raise HTTPException(status_code=404, detail="tour_control_walkable_scene_missing")
-    data_json = html.escape(json.dumps(walkable_scene, ensure_ascii=False), quote=False)
     normalized_license = license_config or {}
     license_enabled = bool(str(normalized_license.get("domain") or "").strip() and str(normalized_license.get("key") or "").strip())
+    if license_enabled and "krpano" in safe_provider_label.lower() and not _walkable_scene_has_real_360_asset(payload):
+        raise HTTPException(status_code=404, detail="tour_control_krpano_asset_missing")
+    data_json = html.escape(json.dumps(walkable_scene, ensure_ascii=False), quote=False)
     license_domain = html.escape(str(normalized_license.get("domain") or "").strip())
     license_json = html.escape(json.dumps({"domain": str(normalized_license.get("domain") or "").strip()}, ensure_ascii=False), quote=False) if license_enabled else ""
     license_badge = f'<div class="panel license"><strong>krpano license</strong><span>Registered for {license_domain}</span></div>' if license_enabled else ""
