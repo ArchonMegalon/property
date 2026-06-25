@@ -267,7 +267,7 @@
   }
   .prd-decision-form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 0.72fr) minmax(210px, 0.88fr);
+    grid-template-columns: minmax(220px, 0.9fr) minmax(180px, 0.62fr);
     gap: 8px;
     align-items: stretch;
     min-width: 0;
@@ -290,7 +290,22 @@
     grid-column: 1 / -1;
   }
   .prd-decision-card.prd-decision-note {
-    grid-column: auto;
+    grid-column: 1 / -1;
+  }
+  .prd-decision-savebar {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(160px, auto) minmax(160px, auto) minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+  }
+  .prd-decision-savebar .object-copy {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .prd-feedback-details {
     border: 1px solid color-mix(in srgb, var(--line) 82%, var(--prd-gold) 18%);
@@ -310,6 +325,20 @@
     font-size: 0.86rem;
     font-weight: 800;
     list-style: none;
+  }
+  .prd-decision-note .prd-feedback-details {
+    border: 0;
+    background: transparent;
+  }
+  .prd-decision-note .prd-feedback-details > summary {
+    min-height: 34px;
+    padding: 0;
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    font-weight: 760;
+  }
+  .prd-decision-note .prd-feedback-body {
+    padding: 4px 0 0;
   }
   .prd-feedback-details > summary::-webkit-details-marker {
     display: none;
@@ -1377,10 +1406,7 @@
       max-height: min(620px, calc(100svh - 88px));
     }
     .prd-decision-form {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .prd-decision-card.prd-decision-note {
-      grid-column: 1 / -1;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
     }
     .prd-side-stack {
       position: static;
@@ -1537,6 +1563,7 @@
     .prd-decision-workspace {
       padding: 12px;
       border-radius: 14px;
+      max-height: min(480px, calc(100svh - 78px));
     }
     .prd-decision-intro .object-copy {
       display: none;
@@ -1566,6 +1593,14 @@
     }
     .prd-decision-workspace textarea {
       min-height: 62px;
+    }
+    .prd-decision-savebar {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .prd-decision-savebar .object-copy {
+      grid-column: 1 / -1;
+      min-height: 18px;
+      white-space: normal;
     }
     .prd-media-stack {
       gap: 7px;
@@ -1930,7 +1965,7 @@
       box-shadow: none;
     }
     .prd-decision-workspace {
-      max-height: calc(100svh - 54px);
+      max-height: min(390px, calc(100svh - 54px));
       padding: 8px;
       border-radius: 12px;
     }
@@ -1949,7 +1984,7 @@
     }
     .prd-decision-card {
       gap: 6px;
-      padding: 7px;
+      padding: 6px;
       border-radius: 10px;
     }
     .prd-decision-card h3 {
@@ -1976,6 +2011,14 @@
       max-height: 70px;
       padding: 8px 10px;
       font-size: 13px;
+    }
+    .prd-decision-savebar {
+      gap: 5px;
+    }
+    .prd-decision-savebar .object-copy {
+      min-height: 0;
+      font-size: 11px;
+      line-height: 1.22;
     }
     .prd-feedback-details > summary {
       min-height: 40px !important;
@@ -2670,14 +2713,18 @@
       </div>
       </section>
       <section class="prd-decision-card prd-decision-note">
-      <h3>Note</h3>
-      <textarea data-object-feedback-note placeholder="Optional note for the decision trail."></textarea>
-      <div class="object-actions">
+      <details class="prd-feedback-details">
+      <summary>Add an optional note</summary>
+      <div class="prd-feedback-body">
+      <textarea data-object-feedback-note placeholder="Only add what changes the next step."></textarea>
+      </div>
+      </details>
+      </section>
+      <div class="prd-decision-savebar">
         <button class="console-action" type="button" data-object-feedback-save aria-label="Save decision">Save decision</button>
         <a class="console-action" href="{{ research_feedback.get('profile_href') or ('/app/search' ~ research_query_suffix) }}">Open active search</a>
+        <p class="object-copy" data-object-feedback-status></p>
       </div>
-      <p class="object-copy" data-object-feedback-status></p>
-      </section>
       <details class="prd-feedback-details">
       <summary>Fine-tune my preferences</summary>
       <div class="prd-feedback-body">

@@ -3019,6 +3019,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const feedback = document.querySelector('[data-object-feedback]');
               const fineTune = Array.from(document.querySelectorAll('.prd-feedback-details'))
                 .find((node) => (node.textContent || '').includes('Fine-tune my preferences'));
+              const optionalNote = Array.from(document.querySelectorAll('.prd-feedback-details'))
+                .find((node) => (node.textContent || '').includes('Add an optional note'));
+              const savebar = document.querySelector('.prd-decision-savebar');
               const heroRect = hero ? hero.getBoundingClientRect() : null;
               const bodyRect = body ? body.getBoundingClientRect() : null;
               const mediaRect = media ? media.getBoundingClientRect() : null;
@@ -3030,6 +3033,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const shellRect = shell ? shell.getBoundingClientRect() : null;
               const feedbackRect = feedback ? feedback.getBoundingClientRect() : null;
               const feedbackStyle = feedback ? getComputedStyle(feedback) : null;
+              const savebarRect = savebar ? savebar.getBoundingClientRect() : null;
               return {
                 viewportWidth: window.innerWidth,
                 viewportHeight: window.innerHeight,
@@ -3055,6 +3059,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
                 feedbackScrolls: feedback ? feedback.scrollHeight > feedback.clientHeight + 2 : false,
                 fineTuneOpen: fineTune ? Boolean(fineTune.open) : true,
+                optionalNoteOpen: optionalNote ? Boolean(optionalNote.open) : true,
+                savebarBottom: savebarRect ? Math.round(savebarRect.bottom) : 0,
               };
             }
             """
@@ -3075,10 +3081,12 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
             assert layout["summaryShortestCard"] >= 68
             assert layout["summaryTallestCard"] <= 112
         assert layout["summaryMaxRight"] <= layout["viewportWidth"] + 1
-        assert 220 <= layout["feedbackHeight"] <= layout["viewportHeight"] - 54
+        assert 180 <= layout["feedbackHeight"] <= min(420, layout["viewportHeight"] - 54)
+        assert 0 < layout["savebarBottom"] <= layout["feedbackBottom"] + 1
         assert layout["feedbackOverflowY"] in {"auto", "scroll"}
         assert layout["feedbackScrolls"] is False
         assert layout["fineTuneOpen"] is False
+        assert layout["optionalNoteOpen"] is False
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 
