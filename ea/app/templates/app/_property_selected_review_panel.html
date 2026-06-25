@@ -161,19 +161,25 @@
     <section class="pqx-card pqx-decision-wizard">
       <div class="pqx-section-head pqx-decision-section-head">
         <div>
-          <h2>Decision</h2>
-          <span class="pqx-pill">Decision</span>
+          <h2>Next step</h2>
         </div>
-        <button class="pqx-button subtle" type="button" data-pw-finetune-toggle>Fine-tune my preferences</button>
+        <button class="pqx-button subtle" type="button" data-pw-finetune-toggle aria-expanded="false">Fine-tune my preferences</button>
       </div>
-      <div class="pqx-decision-row" aria-label="Property decision reaction">
-        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
-        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="maybe">Maybe</button>
-        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
-        <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
+      <div class="pqx-actions">
+        <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
+        <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>
+        <button class="pqx-button" type="button" data-pw-decision-state="offer_candidate">Offer candidate</button>
+        <button class="pqx-button" type="button" data-pw-decision-state="archived">Archived</button>
       </div>
-      <div class="pqx-decision-status" data-pw-feedback-status>Pick Yes, Maybe, No, or Hide.</div>
+      <div class="pqx-decision-status" data-pw-decision-state-status></div>
       <div class="pqx-decision-feedback-shell" data-pw-finetune-panel hidden>
+        <div class="pqx-decision-row" aria-label="Property decision reaction">
+          <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="like">Yes</button>
+          <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="maybe">Maybe</button>
+          <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="dislike">No</button>
+          <button class="pqx-decision-button" type="button" data-pw-feedback-reaction="hide">Hide</button>
+        </div>
+        <div class="pqx-decision-status" data-pw-feedback-status>Pick Yes, Maybe, No, or Hide.</div>
         <div class="pqx-decision-detail" data-pw-decision-detail hidden>
           <div class="pqx-decision-copy"><strong>What drove that?</strong></div>
           <div class="pqx-decision-reasons" data-pw-feedback-reasons></div>
@@ -187,16 +193,6 @@
             <a class="pqx-link-button subtle" href="/app/search{{ review_query_suffix }}">Open search brief</a>
           </div>
         </div>
-      <details class="pqx-decision-advanced">
-        <summary><strong>Next step</strong></summary>
-        <div class="pqx-actions">
-          <button class="pqx-button" type="button" data-pw-decision-state="viewing_requested">Viewing requested</button>
-          <button class="pqx-button" type="button" data-pw-decision-state="documents_requested">Documents requested</button>
-          <button class="pqx-button" type="button" data-pw-decision-state="offer_candidate">Offer candidate</button>
-          <button class="pqx-button" type="button" data-pw-decision-state="archived">Archived</button>
-        </div>
-        <div class="pqx-decision-status" data-pw-decision-state-status></div>
-      </details>
       </div>
     </section>
     <details class="pqx-card">

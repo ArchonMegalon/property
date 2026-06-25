@@ -10801,8 +10801,14 @@ def test_property_selected_review_panel_stays_compact_without_old_decision_noise
     assert "Use this as the short decision read before you contact the agent, request documents, or move on." not in body
     assert "Pick the answer that matches your real-world next step. Add only the reasons that matter." not in body
     assert "<strong>This will</strong>" not in body
-    assert "<summary><strong>Next step</strong></summary>" in body
+    assert "<h2>Next step</h2>" in body
+    assert "<h2>Decision</h2>" not in body
+    assert '<span class="pqx-pill">Decision</span>' not in body
+    assert "<summary><strong>Next step</strong></summary>" not in body
+    assert body.index("<h2>Next step</h2>") < body.index("data-pw-finetune-panel hidden")
+    assert body.index("data-pw-finetune-panel hidden") < body.index('data-pw-feedback-reaction="like"')
     assert 'href="/app/search{{ review_query_suffix }}">Open search brief</a>' in body
+    assert "Pick Yes, Maybe, No, or Hide." in body
     assert "Request visuals only when this home is worth a deeper review." not in body
     assert "No verified 3D tour or playable MagicFit walkthrough is attached yet." in body
     assert "No verified Matterport, 3DVista, Pano2VR, or licensed krpano control is attached yet." in body
