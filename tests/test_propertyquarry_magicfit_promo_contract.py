@@ -68,6 +68,16 @@ def test_propertyquarry_magicfit_renderer_fails_fast_on_credit_blocker() -> None
     assert "write_debug_snapshot(page" in render_script
 
 
+def test_propertyquarry_magicfit_renderer_receipt_binds_to_property_slug() -> None:
+    render_script = (ROOT / "scripts" / "render_magicfit_property_flythrough.py").read_text(encoding="utf-8")
+
+    assert "--property-slug" in render_script
+    assert "--property-title" in render_script
+    assert "--property-url" in render_script
+    assert '"target_slug": str(args.property_slug or "").strip()' in render_script
+    assert '"property_slug": str(args.property_slug or "").strip()' in render_script
+
+
 def test_propertyquarry_magicfit_helpers_do_not_read_chummer_credentials() -> None:
     helper_paths = [
         ROOT / "scripts" / "render_magicfit_property_flythrough.py",

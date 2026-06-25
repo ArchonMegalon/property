@@ -329,6 +329,37 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
                 "provider": "MagicFit",
                 "video_output_url": "https://media.powlcdn.com/magicfit/example.mp4",
                 "output_file": str(playable_video),
+                "target_slug": "different-tour",
+                "generated_at": "2026-06-25T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    mismatched = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(playable_video),
+        "--source-receipt",
+        str(receipt_path),
+    )
+
+    assert mismatched.returncode != 0
+    assert "magicfit_receipt_target_mismatch" in mismatched.stderr
+    assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
+
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "provider": "MagicFit",
+                "video_output_url": "https://media.powlcdn.com/magicfit/example.mp4",
+                "output_file": str(playable_video),
+                "target_slug": slug,
+                "property_slug": slug,
+                "property_title": "Import target",
                 "generated_at": "2026-06-25T00:00:00Z",
             }
         ),

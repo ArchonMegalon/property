@@ -96,7 +96,21 @@ def _video_is_playable(path: Path) -> bool:
     return bool(durations and max(durations) > 0.0)
 
 
-def _load_magicfit_receipt(path_value: str, *, source: Path, allow_unreceipted: bool) -> tuple[dict[str, object], str]:
+def _receipt_target_matches_slug(payload: dict[str, object], *, slug: str) -> bool:
+    expected = str(slug or "").strip()
+    if not expected:
+        return False
+    for key in ("target_slug", "tour_slug", "property_slug", "slug"):
+        if str(payload.get(key) or "").strip() == expected:
+            return True
+    for key in ("property_url", "tour_url", "hosted_url", "public_url"):
+        value = str(payload.get(key) or "").strip().rstrip("/")
+        if value and value.rsplit("/", 1)[-1] == expected:
+            return True
+    return False
+
+
+def _load_magicfit_receipt(path_value: str, *, source: Path, slug: str, allow_unreceipted: bool) -> tuple[dict[str, object], str]:
     if allow_unreceipted:
         return {}, ""
     receipt_path = Path(path_value or "").expanduser().resolve()
@@ -118,6 +132,8 @@ def _load_magicfit_receipt(path_value: str, *, source: Path, allow_unreceipted: 
                 raise SystemExit("magicfit_receipt_output_mismatch")
         except OSError as exc:
             raise SystemExit(f"magicfit_receipt_output_invalid:{type(exc).__name__}") from exc
+    if not _receipt_target_matches_slug(payload, slug=slug):
+        raise SystemExit("magicfit_receipt_target_mismatch")
     return payload, str(receipt_path)
 
 
@@ -145,6 +161,7 @@ def main() -> int:
     _receipt_payload, receipt_relpath = _load_magicfit_receipt(
         args.source_receipt,
         source=source,
+        slug=slug,
         allow_unreceipted=bool(args.allow_unreceipted_test_asset),
     )
 

@@ -70,6 +70,9 @@ def arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-json", default="")
     parser.add_argument("--first-frame", default="", help="Optional image file to upload as MagicFit first-frame reference.")
     parser.add_argument("--extend-session-url", default="", help="Optional MagicFit session URL whose newest visible video should be continued.")
+    parser.add_argument("--property-slug", default="", help="PropertyQuarry tour/property slug this walkthrough is being rendered for.")
+    parser.add_argument("--property-title", default="", help="Human property title this walkthrough is being rendered for.")
+    parser.add_argument("--property-url", default="", help="Source or hosted property URL this walkthrough is being rendered for.")
     return parser
 
 
@@ -396,6 +399,10 @@ def run() -> int:
                 "provider": "MagicFit",
                 "video_output_url": video_url,
                 "output_file": str(out_path),
+                "target_slug": str(args.property_slug or "").strip(),
+                "property_slug": str(args.property_slug or "").strip(),
+                "property_title": str(args.property_title or "").strip(),
+                "property_url": str(args.property_url or "").strip(),
                 "duration_seconds_requested": int(args.duration or 10),
                 "duration_seconds_magicfit": provider_duration,
                 "aspect_label": args.aspect_label,
