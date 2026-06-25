@@ -2154,6 +2154,20 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     visible_message = html.unescape(re.sub(r"<[^>]+>", " ", message_match.group("message")))
     assert "Could not load property search status." not in visible_message
     assert "Search is still running across 29 provider checks; 179 homes reviewed so far." in visible_message
+    source_match = re.search(
+        r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
+        response.text,
+        re.S,
+    )
+    assert source_match
+    visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
+    assert "Could not load property search status." not in visible_source
+    assert "Search is still running across 29 provider checks; 179 homes reviewed so far." in visible_source
+    reliability_match = re.search(r'<div class="pqx-reliability-strip"[^>]*>(?P<reliability>.*?)</div>\s*</div>', response.text, re.S)
+    assert reliability_match
+    visible_reliability = html.unescape(re.sub(r"<[^>]+>", " ", reliability_match.group("reliability")))
+    assert "Could not load property search status." not in visible_reliability
+    assert "Search is still running across 29 provider checks; 179 homes reviewed so far." in visible_reliability
 
 
 def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> None:
@@ -9593,6 +9607,7 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "estimateRunEtaLabel" in script_body
     assert "formatEta" in script_body
     assert "displayRunMessage" in script_body
+    assert "providerLabel = providers > 0 ? `${providers} provider checks` : 'selected providers'" in script_body
     assert "data-pqx-progress-eta" in body
     assert "data-pqx-running-provider-state" not in body
     run_visible_branch = body.split("{% elif run_visible %}", 1)[1].split("{% elif run_terminal_no_results %}", 1)[0]
@@ -9608,6 +9623,8 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "could not load property search status" in running_body
     assert "checking run status" in running_body
     assert "Internal repair receipts and transient refresh failures stay hidden." in running_body
+    assert "progress_message_display" in body
+    assert "reliability_message_display" in body
     assert ".reverse().slice(0, 4)" in script_body
     assert "message.includes('suppressed_generic_listing_page')" in script_body
     assert "message.includes('checking run status')" in script_body

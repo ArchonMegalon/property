@@ -272,6 +272,19 @@
 {% set route_previews = run.get('route_previews') or [] %}
 {% set worker_state = run.get('worker_state') or summary.get('worker_state') or {} %}
 {% set reliability = run.get('reliability') or {} %}
+{% set progress_message_raw = (run.get('message') or '')|trim %}
+{% set progress_message_lower = progress_message_raw|lower %}
+{% set progress_provider_label = provider_display_total|string ~ ' provider checks' if provider_display_total > 0 else 'selected providers' %}
+{% set progress_message_display = progress_message_raw %}
+{% if not progress_message_display or 'could not load property search status' in progress_message_lower or 'checking run status' in progress_message_lower or 'suppressed_generic_listing_page' in progress_message_lower or progress_message_lower == 'starting' %}
+  {% set progress_message_display = 'Search is still running across ' ~ progress_provider_label ~ '; ' ~ reviewed_total ~ ' homes reviewed so far.' %}
+{% endif %}
+{% set reliability_message_raw = (reliability.get('customer_status_message') or '')|trim if reliability else '' %}
+{% set reliability_message_lower = reliability_message_raw|lower %}
+{% set reliability_message_display = reliability_message_raw %}
+{% if reliability_message_display and ('could not load property search status' in reliability_message_lower or 'checking run status' in reliability_message_lower or 'suppressed_generic_listing_page' in reliability_message_lower or reliability_message_lower == 'starting') %}
+  {% set reliability_message_display = progress_message_display %}
+{% endif %}
 <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="{{ status }}">
   <div class="pqx-concierge-pulse">
     <div class="pqx-progress-headline">
@@ -285,7 +298,7 @@
       <strong data-pqx-radar-count>{{ source_progress_label or scan_count_label }}</strong>
       <span class="pqx-small">{{ reviewed_total }} homes reviewed{% if source_progress_label and provider_display_total %} · {{ provider_display_total }} providers{% endif %}{% if layout_unverified %} · {{ layout_unverified }} still waiting on floorplans{% endif %}</span>
     </div>
-    <span class="pqx-note">{{ run.get('message') or 'Waiting for the first provider update.' }}</span>
+    <span class="pqx-note">{{ progress_message_display or 'Waiting for the first provider update.' }}</span>
     <div class="pqx-progress-meter under-source" aria-hidden="true">
       <i class="pqx-progress-meter-fill" style="--progress: {{ run_progress if run_progress > 0 else (100 if status in ['processed', 'completed', 'completed_partial'] else 4) }}"></i>
     </div>
@@ -303,7 +316,7 @@
       {% if reliability.get('result_label') %}<span>{{ reliability.get('result_label') }}</span>{% endif %}
       {% if reliability.get('filtered_label') %}<span>{{ reliability.get('filtered_label') }}</span>{% endif %}
     </div>
-    {% if reliability.get('customer_status_message') %}<div class="pqx-note">{{ reliability.get('customer_status_message') }}</div>{% endif %}
+    {% if reliability_message_display %}<div class="pqx-note">{{ reliability_message_display }}</div>{% endif %}
   </div>
   {% endif %}
   {% if worker_state.get('workers') %}

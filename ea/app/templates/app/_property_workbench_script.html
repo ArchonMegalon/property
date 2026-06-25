@@ -1418,7 +1418,8 @@
       ) {
         const reviewed = Number(summary.reviewed_listing_total || summary.listing_total || 0);
         const providers = Number(summary.provider_total || summary.source_variant_total || 0);
-        return `Search is still running across ${providers} provider checks; ${reviewed} homes reviewed so far.`;
+        const providerLabel = providers > 0 ? `${providers} provider checks` : 'selected providers';
+        return `Search is still running across ${providerLabel}; ${reviewed} homes reviewed so far.`;
       }
       return raw;
     };
