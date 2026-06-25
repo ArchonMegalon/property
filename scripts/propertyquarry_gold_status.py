@@ -168,6 +168,35 @@ def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
     return missing
 
 
+def _tour_provider_evidence_action(missing_provider_modes: list[str]) -> str:
+    actions = {
+        "matterport": "verified Matterport model URL/control receipt",
+        "3dvista": "verified 3DVista export or allowlisted 3DVista tour URL",
+        "pano2vr": "verified Pano2VR export",
+        "krpano": "real krpano walkable_scene from panorama/cube assets plus the licensed environment",
+        "magicfit": "receipt-backed playable MagicFit walkthrough",
+    }
+    parts = [actions[provider] for provider in missing_provider_modes if provider in actions]
+    if not parts:
+        return "rerun verify_property_tour_controls.py and attach any provider evidence it still reports missing"
+    return f"attach real provider evidence for missing modes only: {', '.join(parts)}"
+
+
+def _tour_provider_missing_note(missing_provider_modes: list[str]) -> str:
+    labels = {
+        "matterport": "Matterport",
+        "3dvista": "3DVista",
+        "pano2vr": "Pano2VR",
+        "krpano": "krpano",
+        "magicfit": "MagicFit",
+    }
+    names = [labels[provider] for provider in missing_provider_modes if provider in labels]
+    if not names:
+        return "This receipt has no missing tour provider modes in the active verifier output."
+    joined = ", ".join(names)
+    return f"This receipt intentionally treats missing {joined} evidence as blocked rather than pass."
+
+
 def _performance_research_detail_checks(performance: dict[str, Any]) -> tuple[bool, list[str], str]:
     for row in list(performance.get("routes") or []):
         if not isinstance(row, dict):
@@ -383,7 +412,7 @@ def build_gold_status_receipt(
             {
                 "area": "verified_tour_provider_modes",
                 "missing_provider_modes": missing_provider_modes,
-                "action": "attach real provider evidence: verified 3DVista/Pano2VR exports, a walkable_scene for licensed krpano, and a receipt-backed playable MagicFit walkthrough",
+                "action": _tour_provider_evidence_action(missing_provider_modes),
             }
         )
     if not export_discovery_ok:
@@ -455,16 +484,21 @@ def build_gold_status_receipt(
         for row in list(export_discovery.get("rejected") or [])[:6]
         if isinstance(row, dict)
     ]
+    missing_export_rejection_sample = [
+        row
+        for row in export_rejection_sample
+        if str(row.get("provider") or "").strip().lower() in set(missing_provider_modes)
+    ]
     if export_discovery.get("status") == "blocked_no_verified_exports":
         next_required_actions.append(
             {
-                "provider": "3dvista_pano2vr_krpano_magicfit",
+                "provider": "_".join(missing_provider_modes) if missing_provider_modes else "verified_tour_exports",
                 "action": (
-                    export_rejection_sample[0]["action"]
-                    if export_rejection_sample and export_rejection_sample[0].get("action")
-                    else "drop real 3DVista/Pano2VR export folders, krpano panorama/cube assets, and receipt-backed MagicFit video assets into the prepared import directories"
+                    missing_export_rejection_sample[0]["action"]
+                    if missing_export_rejection_sample and missing_export_rejection_sample[0].get("action")
+                    else _tour_provider_evidence_action(missing_provider_modes)
                 ),
-                "rejected_sample": export_rejection_sample,
+                "rejected_sample": missing_export_rejection_sample,
             }
         )
 
@@ -568,7 +602,7 @@ def build_gold_status_receipt(
             "Gold is not claimable until every required provider mode is backed by verified evidence.",
             "Self-healing is proven only when the repair canary repairs or safely quarantines a failed provider source.",
             "Provider E2E is proven only when every search-ready provider has executed strict and soft-filter targeted search cases.",
-            "This receipt intentionally treats missing 3DVista, Pano2VR, krpano, or MagicFit evidence as blocked rather than pass.",
+            _tour_provider_missing_note(missing_provider_modes),
         ],
     }
 

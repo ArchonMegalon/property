@@ -237,6 +237,73 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert any(row["area"] == "tour_export_drop" for row in receipt["blockers"])
 
 
+def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "blocked_missing_provider_modes",
+            "provider_counts": {"matterport": 29, "magicfit": 8, "3dvista": 0, "pano2vr": 0, "krpano": 0},
+            "ready_provider_modes": ["matterport", "magicfit"],
+            "missing_provider_modes": ["3dvista", "pano2vr", "krpano"],
+            "next_required_actions": [
+                {"provider": "3dvista", "action": "import a verified 3DVista export"},
+                {"provider": "pano2vr", "action": "import a verified Pano2VR export"},
+                {"provider": "krpano", "action": "provide a real walkable_scene"},
+            ],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {
+            "status": "blocked_no_verified_exports",
+            "import_count": 0,
+            "rejected_count": 4,
+            "rejected": [
+                {"slug": "flat", "provider": "3dvista", "reason": "3dvista_export_entry_unverified", "action": "copy the complete 3DVista export", "drop_layout": "<drop>/<slug>/3dvista/"},
+                {"slug": "flat", "provider": "pano2vr", "reason": "pano2vr_export_entry_unverified", "action": "copy the complete Pano2VR export", "drop_layout": "<drop>/<slug>/pano2vr/"},
+                {"slug": "flat", "provider": "krpano", "reason": "krpano_assets_missing", "action": "copy a real panorama", "drop_layout": "<drop>/<slug>/krpano/"},
+                {"slug": "flat", "provider": "magicfit", "reason": "magicfit_video_missing", "action": "copy the MagicFit walkthrough", "drop_layout": "<drop>/<slug>/magicfit/"},
+            ],
+        },
+    )
+    import_manifest = _write_json(tmp_path / "import-manifest.json", _import_manifest_payload(tmp_path))
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        import_manifest_receipt_path=import_manifest,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "verified_tour_provider_modes")
+    assert blocker["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano"]
+    assert "MagicFit" not in blocker["action"]
+    assert "Matterport" not in blocker["action"]
+    assert "3DVista" in blocker["action"]
+    assert "Pano2VR" in blocker["action"]
+    assert "krpano" in blocker["action"]
+    aggregate_action = receipt["next_required_actions"][-1]
+    assert aggregate_action["provider"] == "3dvista_pano2vr_krpano"
+    assert {row["provider"] for row in aggregate_action["rejected_sample"]} == {"3dvista", "pano2vr", "krpano"}
+    missing_note = receipt["notes"][-1]
+    assert "MagicFit" not in missing_note
+    assert "Matterport" not in missing_note
+    assert "3DVista, Pano2VR, krpano" in missing_note
+
+
 def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path: Path) -> None:
     performance = _write_json(
         tmp_path / "performance.json",
