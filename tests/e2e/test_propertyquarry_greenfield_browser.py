@@ -3116,6 +3116,10 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
         ("/app/billing", "Billing", "propertyquarry-billing-mobile.png"),
         ("/app/settings/google", "Google", "propertyquarry-google-settings-mobile.png"),
         ("/app/settings/access", "Access", "propertyquarry-access-settings-mobile.png"),
+        ("/app/settings/usage", "Usage", "propertyquarry-usage-settings-mobile.png"),
+        ("/app/settings/support", "Support", "propertyquarry-support-settings-mobile.png"),
+        ("/app/settings/trust", "Trust", "propertyquarry-trust-settings-mobile.png"),
+        ("/app/settings/invitations", "Invitations", "propertyquarry-invitations-settings-mobile.png"),
     ]
     try:
         page = context.new_page()
@@ -3180,9 +3184,21 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("body", has_text=re.compile(r"Google connection|PropertyQuarry account", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"Connect Google|Add Google account", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"account", re.I))).to_be_visible()
-            else:
+            elif route == "/app/settings/access":
                 expect(page.locator("body", has_text=re.compile(r"Access|Identity and return access", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"Invite|access", re.I))).to_be_visible()
+            elif route == "/app/settings/usage":
+                expect(page.locator("body", has_text="Usage and activation")).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"activation|usage", re.I))).to_be_visible()
+            elif route == "/app/settings/support":
+                expect(page.locator("body", has_text="What support answers")).to_be_visible()
+                expect(page.locator("body", has_text="See what failed, what still works, and the next useful action.")).to_be_visible()
+            elif route == "/app/settings/trust":
+                expect(page.locator("body", has_text=re.compile(r"Trust|Security", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"privacy|recovery|access", re.I))).to_be_visible()
+            else:
+                expect(page.locator("body", has_text=re.compile(r"Invite|Invitations", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"access|collaborator|share", re.I))).to_be_visible()
 
             screenshot_path = tmp_path / screenshot_name
             page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
