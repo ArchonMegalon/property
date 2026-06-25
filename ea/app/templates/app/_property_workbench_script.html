@@ -2359,11 +2359,13 @@
             failedPolls = 0;
           } catch (err) {
             failedPolls += 1;
-            const message = err?.message || 'Could not load property search status.';
+            const message = failedPolls >= 3
+              ? 'Still waiting for the latest search update. Keeping the visible progress.'
+              : 'Checking run status...';
             renderRun({
               status: 'in_progress',
               progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
-              message: failedPolls >= 3 ? message : 'Checking run status...',
+              message,
               events: pollRetryEvents(),
             });
             await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));

@@ -7239,6 +7239,51 @@ def test_property_search_status_replaces_internal_suppression_only_compact_event
     ]
 
 
+def test_property_search_status_replaces_stale_status_refresh_noise(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-compact-status-refresh-noise")
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Status Refresh Noise Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        assert lightweight is True
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "current_step": "source_fetching",
+            "message": "Checking RE/MAX Austria.",
+            "updated_at": "2026-06-25T15:44:41+00:00",
+            "summary": {
+                "provider_total": 29,
+                "reviewed_listing_total": 179,
+                "repair_status": "repairing",
+                "repair_status_label": "Repairing",
+                "repair_step_label": "Retrying RE/MAX Austria provider check.",
+            },
+            "events": [
+                {
+                    "step": "status_refresh",
+                    "status": "retrying",
+                    "message": "Could not load property search status.",
+                    "created_at": "2026-06-25T15:44:32+00:00",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/api/signals/property/search/run/run-status-refresh-noise?lightweight=1",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    messages = [str(event.get("message") or "") for event in payload["events"]]
+    assert "Could not load property search status." not in messages
+    assert "Checking RE/MAX Austria." in messages
+
+
 def test_property_search_progress_copy_names_providers_not_generic_sources() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     service_source = (repo_root / "ea/app/product/service.py").read_text(encoding="utf-8")
@@ -11322,6 +11367,8 @@ def test_propertyquarry_run_script_preserves_non_empty_trail_from_omitted_or_emp
     assert "if (eventsNode && !shouldPreserveRenderedRunEvents(eventsNode, runPayload.events)) {" in bundle
     assert "eventsNode.innerHTML = renderRunEvents(runPayload.events);" in bundle
     assert "events: pollRetryEvents()," in bundle
+    assert "Still waiting for the latest search update. Keeping the visible progress." in bundle
+    assert "failedPolls >= 3 ? message" not in bundle
 
 
 def test_propertyquarry_run_script_prefers_concrete_provider_labels_for_grouped_sources() -> None:

@@ -374,6 +374,14 @@ def _property_search_run_status_payload(
             )
         )
 
+    def _is_transient_status_refresh_noise(event: dict[str, object]) -> bool:
+        step = str(event.get("step") or "").strip().lower()
+        message = str(event.get("message") or "").strip().lower()
+        return step == "status_refresh" and (
+            "could not load property search status" in message
+            or "checking run status" in message
+        )
+
     def _current_progress_event() -> dict[str, object]:
         step = str(normalized.get("current_step") or summary.get("current_step") or "status_refresh").strip() or "status_refresh"
         message = str(normalized.get("message") or summary.get("message") or summary.get("status_note") or "").strip()
@@ -390,7 +398,12 @@ def _property_search_run_status_payload(
 
     existing_events = [dict(item) for item in list(normalized.get("events") or []) if isinstance(item, dict)]
     if existing_events:
-        visible_events = [event for event in existing_events if not _is_internal_generic_listing_suppression(event)]
+        visible_events = [
+            event
+            for event in existing_events
+            if not _is_internal_generic_listing_suppression(event)
+            and not _is_transient_status_refresh_noise(event)
+        ]
         normalized["events"] = visible_events or [_current_progress_event()]
     if not [item for item in list(normalized.get("events") or []) if isinstance(item, dict)]:
         synthesized_events: list[dict[str, object]] = []
