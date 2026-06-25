@@ -31,6 +31,8 @@ The candidate at `7a71d31` passed:
 - `EA_HOST_PORT=8097 make deploy`
 - `curl -fsS --max-time 5 http://127.0.0.1:8097/health/ready`
 - `PYTHONPATH=ea python3 scripts/propertyquarry_authenticated_performance_smoke.py`
+- `PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py --base-url https://propertyquarry.com --timeout-seconds 12`
+- `PYTHONPATH=ea pytest -q tests/test_property_tour_control_verifier.py tests/test_property_repo_isolation_contracts.py -k 'tour_control_verifier or release_gates_include_phase'`
 - `bash -n scripts/deploy_propertyquarry.sh`
 - `PYTHONPATH=ea pytest -q tests/test_property_deploy_operator_contracts.py`
 - `PYTHONPATH=ea pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'account_and_billing_templates_keep_controls_minimal or account_lifecycle_controls'`
@@ -62,7 +64,8 @@ The candidate at `7a71d31` passed:
 - Additional authenticated origin smoke after the gold-board scope deploy returned `200` in `4.657s` with the same visible terminal state. Treat this as another reason the route still needs browser/performance-budget receipts before gold.
 - Authenticated mobile-origin smoke for `/app/billing` returned `200`, rendered `Plan and payments`, `White-label account lane`, `Local billing is active`, and `external account lane is not enabled`, hid `Brilliant Directories`/`brilliantdirectories`, and included the mobile dock.
 - Authenticated origin smoke for `/app/search` after Rybbit analytics sanitization rendered `pq.property.opened`, `pq.tour.opened`, and `pq.flythrough.opened`, did not render `data-rybbit-prop-candidate`, did not render old `data-rybbit-event="property_*"` app event names, and did not render `saved_search_id` analytics payloads.
-- Hosted tour-control verifier after deploy returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The live-probe receipt was written to `_completion/property_tour_controls/latest-live.json` and intentionally omits raw provider URLs.
+- Public Cloudflare smoke for `https://propertyquarry.com` returned `status=pass`, `failed_count=0`, and 22 passing route checks across public pages, PWA/SEO assets, app auth boundary, and Google/Facebook sign-in redirects.
+- Hosted tour-control verifier after deploy returned `status=blocked_missing_verified_controls`, `tour_count=1`, `ready_tour_count=0`, and zero ready Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls. The current public bundle is explicitly classified as `gallery_only_not_3d`, so it is not allowed to count as a verified 3D tour. The receipt intentionally omits raw provider URLs.
 - All-search-ready provider matrix dry-run after deploy returned `status=dry_run`, `country_scope=all_search_ready`, 17 countries, 121 search-ready providers, 242 cases, 121 strict no-soft-filter payloads, 121 soft-filter payloads, `payload_contracts_ok=True`, `agent_unlimited_results_ok=True`, `strict_without_soft_filters_ok=True`, and `soft_filters_present_ok=True`. Receipt written to `_completion/provider_smoke/all-search-ready-dry-run.json`.
 - Deploy-gated authenticated smoke after compact first-paint returned `status=pass`, `failed_count=0`, and one-attempt `200` responses for `/app/account`, `/app/billing`, and `/sign-in` with security headers and paid-plan/sign-in checks intact.
 - Direct authenticated origin timings after compact first-paint were `/sign-in` 1.83s, `/app/account` 3.16s, and `/app/billing` 2.83s; before the fix the same surfaces were approximately 9.83s, 15.36s, and 17.03s under the same local-origin probe pattern.
@@ -92,13 +95,13 @@ The previous billing payload carried roughly 16.6 MB of account/form state and t
 
 - Full-page `/app/shortlist` improved from 7-11s repeated probes to roughly 1.2-2.4s warmed probes after a 3.75s cold request, but still needs browser/performance-budget receipts before gold.
 - The user-referenced research detail route improved from repeated 21-25s origin responses and a 14.02s post-compact-context cold request to 1.3-1.7s origin responses after removing redundant feedback reads and no-op search-run rewrites, but still needs browser/performance-budget receipts before gold.
-- The release gate now runs `scripts/verify_property_tour_controls.py`; current hosted tour inventory has zero verified Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls, so visual-media gold remains blocked until real provider controls/assets are imported and the verifier returns ready modes.
+- The release gate now runs `scripts/verify_property_tour_controls.py`; current hosted tour inventory has zero verified Matterport, 3DVista, Pano2VR, krpano, or MagicFit controls, and the only public bundle is a photo gallery classified as `gallery_only_not_3d`, so visual-media gold remains blocked until real provider controls/assets are imported and the verifier returns ready modes.
 - Provider matrix generation now covers every search-ready country/provider in dry-run mode, but live execution against `/app/api/property/search-runs` remains blocked until the full all-search-ready matrix is run with `PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1` and passes without provider/runtime failures.
 - The user-referenced research detail route now renders an honest unavailable/skipped visual state, but still has no live 360 source or playable walkthrough for that listing.
 - Brilliant Directories billing is in the active gold goal only as a governed handoff; the local billing surface now shows fail-closed account-lane recovery, but signature verification, replay protection, receipt logging, local entitlement reconciliation, and PropertyQuarry-owned plan/invoice/access truth remain release blockers before any webhook-driven or handoff-driven state change.
 - Rybbit app analytics now use taxonomy-style app events and strip candidate identifiers from app Rybbit attributes, but wider conversion/support-loop analytics still need end-to-end dashboard receipts before gold.
 - The documentation.ai whole-project audit P0/P1 findings remain in scope: runtime privilege, branch/deployment authority, reproducible builds, durable RBAC/session hardening, CI/security/accessibility/visual gates, public-network posture, documentation separation, and current-HEAD release evidence.
-- The public domain should be re-smoked through Cloudflare after each deploy, not only through local origin.
+- The public domain has a current Cloudflare smoke receipt from 2026-06-25, but must still be re-smoked through Cloudflare after each deploy.
 
 ## Manifest Rules
 

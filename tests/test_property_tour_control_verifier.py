@@ -66,7 +66,34 @@ def test_property_tour_control_verifier_blocks_when_no_verified_controls(tmp_pat
     assert receipt["status"] == "blocked_missing_verified_controls"
     assert receipt["ready_provider_modes"] == []
     assert receipt["tours"][0]["status"] == "blocked_missing_verified_controls"
+    assert receipt["tours"][0]["blocked_reason"] == "generated_cube_not_verified_3d"
     assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "pano2vr", "krpano", "magicfit"}
+
+
+def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: Path) -> None:
+    _write_tour(
+        tmp_path,
+        "gallery-tour",
+        {
+            "creation_mode": "hosted_photo_gallery_tour",
+            "scene_strategy": "photo_gallery_hosted",
+            "scenes": [{"asset_relpath": "photo-01.jpg", "role": "photo"}],
+        },
+        {"photo-01.jpg": "image"},
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "blocked_missing_verified_controls"
+    assert receipt["provider_counts"] == {
+        "matterport": 0,
+        "3dvista": 0,
+        "pano2vr": 0,
+        "krpano": 0,
+        "magicfit": 0,
+    }
+    assert receipt["tours"][0]["blocked_reason"] == "gallery_only_not_3d"
+    assert receipt["tours"][0]["controls"] == []
 
 
 def test_property_tour_control_verifier_does_not_treat_private_or_missing_assets_as_ready(

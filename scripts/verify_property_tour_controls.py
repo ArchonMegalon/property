@@ -157,6 +157,18 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
     return rows
 
 
+def _blocked_control_reason(payload: dict[str, object]) -> str:
+    scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+    creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+    if scene_strategy == "photo_gallery_hosted" or creation_mode == "hosted_photo_gallery_tour":
+        return "gallery_only_not_3d"
+    if scene_strategy == "pure_360_cube":
+        return "generated_cube_not_verified_3d"
+    if creation_mode in {"hosted_listing_fallback", "generated_listing_summary"}:
+        return "listing_summary_not_verified_3d"
+    return "missing_verified_provider_control"
+
+
 def _probe_url(url: str, *, timeout_seconds: float) -> dict[str, object]:
     request = urllib.request.Request(url, method="GET", headers={"User-Agent": "PropertyQuarry-tour-control-verifier/1.0"})
     try:
@@ -219,6 +231,7 @@ def build_property_tour_control_receipt(
                 "slug": slug,
                 "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
                 "status": "ready" if controls else "blocked_missing_verified_controls",
+                "blocked_reason": "" if controls else _blocked_control_reason(payload),
                 "controls": controls,
             }
         )
