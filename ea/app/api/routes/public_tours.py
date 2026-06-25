@@ -4951,7 +4951,7 @@ def _tour_control_external_iframe_html(
       .provider-launch {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }}
       .provider-launch strong {{ display: block; margin-bottom: 3px; }}
       .provider-actions {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
-      .provider-actions button, .provider-actions a {{ min-height: 40px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: var(--text); color: #111; font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
+      .provider-actions button, .provider-actions a {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: var(--text); color: #111; font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
       .provider-actions a {{ background: transparent; color: var(--text); }}
       .provider-frame {{ display: block; width: 100%; height: 100%; min-height: 520px; border: 0; background: #111; }}
       .evidence {{ padding: 14px; display: grid; gap: 12px; }}

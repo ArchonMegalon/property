@@ -146,6 +146,7 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 "display_title": "Real Browser Floorplan Tour",
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
                 "brand_name": "PropertyQuarry",
                 "scene_strategy": "layout_first",
                 "creation_mode": "hosted_floorplan_tour",
@@ -227,6 +228,45 @@ def _new_context(browser: Browser, *, mobile: bool = False) -> BrowserContext:
             else None
         ),
     )
+
+
+def _assert_no_horizontal_overflow(page) -> None:
+    overflow = page.evaluate(
+        """() => ({
+            innerWidth: window.innerWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            bodyScrollWidth: document.body ? document.body.scrollWidth : 0,
+        })"""
+    )
+    assert overflow["scrollWidth"] <= overflow["innerWidth"] + 1, overflow
+    assert overflow["bodyScrollWidth"] <= overflow["innerWidth"] + 1, overflow
+
+
+def _assert_visible_controls_meet_mobile_target_floor(page, *, floor_px: int = 44) -> None:
+    undersized = page.evaluate(
+        """(floorPx) => Array.from(document.querySelectorAll('button, a[href]'))
+          .filter((node) => {
+            const style = window.getComputedStyle(node);
+            const box = node.getBoundingClientRect();
+            return style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && !node.hidden
+              && box.width > 0
+              && box.height > 0;
+          })
+          .map((node) => {
+            const box = node.getBoundingClientRect();
+            return {
+              text: (node.textContent || node.getAttribute('aria-label') || '').trim(),
+              width: box.width,
+              height: box.height,
+            };
+          })
+          .filter((item) => item.height < floorPx || item.width < floorPx)
+        """,
+        floor_px,
+    )
+    assert undersized == []
 
 
 def test_public_tour_panorama_lane_opens_in_real_browser(
@@ -318,6 +358,45 @@ def test_public_tour_flythrough_video_decodes_and_advances_in_real_browser(
     assert _video_frame_brightness(page) > 10.0
     assert page.locator("#tour-video source").get_attribute("type") == "video/mp4"
     assert not [message for message in console_errors if "MEDIA" in message.upper() or "decode" in message.lower()]
+    context.close()
+
+
+def test_public_tour_provider_control_is_mobile_safe_and_lazy_loads_vendor(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+) -> None:
+    context = _new_context(browser, mobile=True)
+    page = context.new_page()
+    console_errors: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    url = (
+        f"{public_tour_browser_server['base_url']}/tours/"
+        f"{public_tour_browser_server['slug']}/control/matterport?pane=floorplan-pane"
+    )
+
+    page.goto(url, wait_until="networkidle")
+    page.locator("h1").wait_for()
+    assert "PROPERTY TOUR" in page.locator("body").inner_text()
+    assert page.locator(".badge").inner_text().lower() == "matterport control"
+    assert page.locator("#load-provider").is_visible()
+    assert page.locator(".provider-frame").get_attribute("src") == "about:blank"
+    assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=REALBROWSER123"
+    assert page.locator("#tour-video").is_visible()
+    assert page.locator("#stage-role").inner_text().lower() == "floorplan"
+    floorplan_image = page.locator("#stage-image")
+    assert floorplan_image.is_visible()
+    natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
+    assert natural_width >= 1000
+    _assert_no_horizontal_overflow(page)
+    _assert_visible_controls_meet_mobile_target_floor(page)
+    assert not [
+        message
+        for message in console_errors
+        if "failed to load resource" in message.lower()
+        or "refused" in message.lower()
+        or "decode" in message.lower()
+        or "media" in message.lower()
+    ]
     context.close()
 
 
