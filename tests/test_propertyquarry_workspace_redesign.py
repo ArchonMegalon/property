@@ -1317,6 +1317,9 @@ def test_propertyquarry_account_surfaces_use_persisted_property_plan() -> None:
     assert usage.status_code == 200
     assert '<strong>Agent</strong>' in billing.text
     assert 'Active plan.' in billing.text
+    assert '<strong>Account status</strong>' in billing.text
+    assert 'Your current access is active.' in billing.text
+    assert '<strong>Compare plans</strong>' not in billing.text
     assert '<strong>Current plan</strong>' in usage.text
     assert '<small>Agent</small>' in usage.text
     assert '<small>Free</small>' not in usage.text
@@ -12580,7 +12583,7 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     assert "Back to search" not in rendered_text
 
 
-def test_propertyquarry_billing_surface_embeds_white_label_commercial_lane_when_available(
+def test_propertyquarry_billing_surface_redirects_to_white_label_commercial_lane_when_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
@@ -12593,15 +12596,10 @@ def test_propertyquarry_billing_surface_embeds_white_label_commercial_lane_when_
     client = build_property_client(principal_id="pq-billing-commercial-lane")
     start_workspace(client, mode="personal", workspace_name="Embedded Billing")
 
-    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"})
+    billing = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
-    assert billing.status_code == 200
-    assert 'class="pq-billing-lane-frame"' in billing.text
-    assert 'src="https://billing.propertyquarry.com/account"' in billing.text
-    assert 'id="billing-commercial-lane"' not in billing.text
-    assert "Plan and payments" not in billing.text
-    assert "Brilliant Directories" not in billing.text
-    assert "brilliantdirectories" not in billing.text.lower()
+    assert billing.status_code == 303
+    assert billing.headers["location"] == "https://billing.propertyquarry.com/account"
 
     commercial_lane = client.get(
         "/app/api/property/billing/commercial-lane",

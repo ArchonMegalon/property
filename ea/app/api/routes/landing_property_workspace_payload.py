@@ -2694,6 +2694,30 @@ def property_workspace_payload(
         else ("Active" if has_active_paid_plan else "Inactive")
     )
     billing_handoff_available = bool(billing_handoff.get("available"))
+    billing_account_title = (
+        "Billing account"
+        if billing_handoff_available
+        else ("Account status" if has_active_paid_plan else "Compare plans")
+    )
+    billing_account_detail = (
+        "Open the account and payment lane."
+        if billing_handoff_available
+        else (
+            "Your current access is active. External account management appears here when the white-label billing lane is configured."
+            if has_active_paid_plan
+            else (
+                "Review limits before the next upgrade."
+                if bool(property_state.get("billing_checkout_enabled"))
+                else "Payments are not enabled for this workspace yet."
+            )
+        )
+    )
+    billing_account_action_label = (
+        "Open billing account"
+        if billing_handoff_available
+        else ("Compare plans" if bool(property_state.get("billing_checkout_enabled")) and not has_active_paid_plan else "")
+    )
+    billing_account_action_href = signed_in_billing_href if billing_account_action_label else ""
     billing_rows = [
         row_item(
             "Current plan",
@@ -3293,21 +3317,13 @@ def property_workspace_payload(
                         *billing_payment_rows,
                         {
                             **row_item(
-                                "Billing account" if billing_handoff_available else "Compare plans",
-                                (
-                                    "Open the account and payment lane."
-                                    if billing_handoff_available
-                                    else (
-                                        "Review limits before the next upgrade."
-                                        if bool(property_state.get("billing_checkout_enabled"))
-                                        else ("Access is active." if has_active_paid_plan else "Payments are not enabled for this workspace yet.")
-                                    )
-                                ),
-                                "Decision",
+                                billing_account_title,
+                                billing_account_detail,
+                                "Ready" if billing_handoff_available else ("Active" if has_active_paid_plan else "Decision"),
                             ),
-                            "action_href": signed_in_billing_href,
+                            "action_href": billing_account_action_href,
                             "action_method": "get",
-                            "action_label": "Open billing account" if billing_handoff_available else "Compare plans",
+                            "action_label": billing_account_action_label,
                         },
                     ],
                 },
