@@ -609,6 +609,8 @@ def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path
     public_root = tmp_path / "public_tours"
     _write_base_tour(tmp_path, "discover-3dvista")
     _write_base_tour(tmp_path, "discover-pano2vr")
+    _write_base_tour(tmp_path, "discover-krpano")
+    _write_base_tour(tmp_path, "discover-magicfit")
     drop_dir = tmp_path / "drop"
     vista_export = drop_dir / "discover-3dvista" / "3dvista"
     vista_export.mkdir(parents=True)
@@ -626,6 +628,17 @@ def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path
     )
     (pano_export / "assets").mkdir()
     (pano_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    krpano_assets = drop_dir / "discover-krpano" / "krpano"
+    krpano_assets.mkdir(parents=True)
+    _write_equirectangular_image(krpano_assets / "panorama.jpg")
+    magicfit_assets = drop_dir / "magicfit" / "discover-magicfit"
+    magicfit_assets.mkdir(parents=True)
+    magicfit_video = magicfit_assets / "magicfit-walkthrough.mp4"
+    _write_playable_mp4(magicfit_video)
+    (magicfit_assets / "magicfit-receipt.json").write_text(
+        json.dumps({"provider": "magicfit", "target_slug": "discover-magicfit", "output_file": str(magicfit_video)}),
+        encoding="utf-8",
+    )
     receipt_path = tmp_path / "discovery.json"
     manifest_path = tmp_path / "imports.json"
 
@@ -652,12 +665,23 @@ def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path
     assert discovered.returncode == 0, discovered.stderr
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "ready"
-    assert receipt["import_count"] == 2
+    assert receipt["import_count"] == 4
     assert receipt["rejected_count"] == 0
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert {row["provider"] for row in manifest["imports"]} == {"3dvista", "pano2vr"}
-    assert {row["slug"] for row in manifest["imports"]} == {"discover-3dvista", "discover-pano2vr"}
-    assert all(row["entry"] == "index.html" for row in manifest["imports"])
+    assert {row["provider"] for row in manifest["imports"]} == {"3dvista", "pano2vr", "krpano", "magicfit"}
+    assert {row["slug"] for row in manifest["imports"]} == {
+        "discover-3dvista",
+        "discover-pano2vr",
+        "discover-krpano",
+        "discover-magicfit",
+    }
+    assert {
+        row["entry"]
+        for row in manifest["imports"]
+        if row["provider"] in {"3dvista", "pano2vr"}
+    } == {"index.html"}
+    assert any(row["provider"] == "krpano" and row["panorama"].endswith("panorama.jpg") for row in manifest["imports"])
+    assert any(row["provider"] == "magicfit" and row["video"].endswith("magicfit-walkthrough.mp4") for row in manifest["imports"])
 
 
 def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(tmp_path: Path) -> None:
@@ -667,6 +691,10 @@ def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(t
     placeholder = drop_dir / "placeholder-tour" / "pano2vr"
     placeholder.mkdir(parents=True)
     (placeholder / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+    krpano_placeholder = drop_dir / "placeholder-tour" / "krpano"
+    krpano_placeholder.mkdir(parents=True)
+    magicfit_placeholder = drop_dir / "placeholder-tour" / "magicfit"
+    magicfit_placeholder.mkdir(parents=True)
     orphan = drop_dir / "orphan-tour" / "3dvista"
     orphan.mkdir(parents=True)
     (orphan / "index.html").write_text("<!doctype html><script src='tdvplayer.js'></script>", encoding="utf-8")
@@ -696,6 +724,8 @@ def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(t
     assert receipt["status"] == "blocked_no_verified_exports"
     assert receipt["import_count"] == 0
     assert {row["reason"] for row in receipt["rejected"]} == {
+        "krpano_assets_missing",
+        "magicfit_video_missing",
         "pano2vr_export_entry_unverified",
         "tour_manifest_missing",
     }

@@ -2,20 +2,25 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 
-PROVIDERS = ("3dvista", "pano2vr")
+PROVIDERS = ("3dvista", "pano2vr", "krpano", "magicfit")
 MARKERS_BY_PROVIDER = {
     "3dvista": ("tdvplayer", "tdvplayerapi", "tourviewer"),
     "pano2vr": ("ggpkg", "ggskin", "pano.xml", "tour.js"),
 }
 ENTRY_NAMES = ("index.html", "index.htm", "tour.html", "virtualtour.html", "output/index.html")
 TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
+PANORAMA_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 MAX_MARKER_SCAN_BYTES = 1_000_000
 MAX_MARKER_SCAN_FILES = 240
 
@@ -41,6 +46,10 @@ def _provider_from_text(value: object) -> str:
         return "3dvista"
     if normalized in {"pano2vr", "pano2v"}:
         return "pano2vr"
+    if normalized == "krpano":
+        return "krpano"
+    if normalized == "magicfit":
+        return "magicfit"
     return ""
 
 
@@ -97,6 +106,113 @@ def _verified_entry(export_dir: Path, provider: str) -> tuple[Path | None, str]:
     return None, ""
 
 
+def _discover_panorama(asset_dir: Path) -> Path | None:
+    for name in ("panorama.jpg", "panorama.jpeg", "panorama.png", "panorama.webp", "equirect.jpg", "equirect.jpeg", "equirect.png", "equirect.webp"):
+        candidate = asset_dir / name
+        if candidate.is_file():
+            return candidate
+    matches = [
+        path
+        for path in sorted(asset_dir.iterdir())
+        if path.is_file() and path.suffix.lower() in PANORAMA_EXTENSIONS and "panorama" in path.stem.lower()
+    ]
+    return matches[0] if matches else None
+
+
+def _discover_cube_faces(asset_dir: Path) -> list[Path]:
+    faces: list[Path] = []
+    for index in range(1, 7):
+        face = next(
+            (
+                asset_dir / f"cube-face-{index}{suffix}"
+                for suffix in sorted(PANORAMA_EXTENSIONS)
+                if (asset_dir / f"cube-face-{index}{suffix}").is_file()
+            ),
+            None,
+        )
+        if face is None:
+            return []
+        faces.append(face)
+    return faces
+
+
+def _discover_video(asset_dir: Path) -> Path | None:
+    preferred = [
+        asset_dir / f"magicfit-walkthrough{suffix}"
+        for suffix in sorted(VIDEO_EXTENSIONS)
+    ] + [
+        asset_dir / f"walkthrough{suffix}"
+        for suffix in sorted(VIDEO_EXTENSIONS)
+    ]
+    for candidate in preferred:
+        if candidate.is_file():
+            return candidate
+    matches = [path for path in sorted(asset_dir.iterdir()) if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS]
+    return matches[0] if matches else None
+
+
+def _discover_receipt(asset_dir: Path) -> Path | None:
+    for candidate in (asset_dir / "magicfit-receipt.json", asset_dir / "receipt.json"):
+        if candidate.is_file():
+            return candidate
+    matches = sorted(asset_dir.glob("*.json"))
+    return matches[0] if matches else None
+
+
+def _video_has_playable_stream(path: Path) -> bool:
+    if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        return False
+    try:
+        header = path.read_bytes()[:64]
+    except OSError:
+        return False
+    if path.suffix.lower() in {".mp4", ".m4v", ".mov"} and b"ftyp" not in header[:32]:
+        return False
+    if path.suffix.lower() == ".webm" and not header.startswith(b"\x1aE\xdf\xa3"):
+        return False
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return True
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_type,duration:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception:
+        return False
+    if completed.returncode != 0:
+        return False
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except Exception:
+        return False
+    streams = [row for row in list(payload.get("streams") or []) if isinstance(row, dict)]
+    if not any(str(row.get("codec_type") or "").strip().lower() == "video" for row in streams):
+        return False
+    durations: list[float] = []
+    if isinstance(payload.get("format"), dict):
+        with contextlib.suppress(Exception):
+            durations.append(float(payload["format"].get("duration")))
+    for row in streams:
+        with contextlib.suppress(Exception):
+            durations.append(float(row.get("duration")))
+    return bool(durations and max(durations) > 0.0)
+
+
 def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
     rows: list[tuple[str, str, Path]] = []
     if not drop_dir.is_dir():
@@ -132,18 +248,58 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
         if not manifest_path.is_file():
             rejected.append({"slug": slug, "provider": provider, "reason": "tour_manifest_missing"})
             continue
-        entry, entry_relpath = _verified_entry(export_dir, provider)
-        if entry is None:
-            rejected.append({"slug": slug, "provider": provider, "reason": f"{provider}_export_entry_unverified"})
+        if provider in {"3dvista", "pano2vr"}:
+            entry, entry_relpath = _verified_entry(export_dir, provider)
+            if entry is None:
+                rejected.append({"slug": slug, "provider": provider, "reason": f"{provider}_export_entry_unverified"})
+                continue
+            imports.append(
+                {
+                    "slug": slug,
+                    "provider": provider,
+                    "export_dir": str(export_dir),
+                    "entry": entry_relpath,
+                }
+            )
             continue
-        imports.append(
-            {
+        if provider == "krpano":
+            panorama = _discover_panorama(export_dir)
+            cube_faces = _discover_cube_faces(export_dir)
+            if panorama is None and len(cube_faces) != 6:
+                rejected.append({"slug": slug, "provider": provider, "reason": "krpano_assets_missing"})
+                continue
+            row = {
                 "slug": slug,
                 "provider": provider,
-                "export_dir": str(export_dir),
-                "entry": entry_relpath,
+                "asset_dir": str(export_dir),
             }
-        )
+            if panorama is not None:
+                row["panorama"] = str(panorama)
+            imports.append(row)
+            continue
+        if provider == "magicfit":
+            video = _discover_video(export_dir)
+            receipt = _discover_receipt(export_dir)
+            if video is None:
+                rejected.append({"slug": slug, "provider": provider, "reason": "magicfit_video_missing"})
+                continue
+            if not _video_has_playable_stream(video):
+                rejected.append({"slug": slug, "provider": provider, "reason": "magicfit_video_unverified"})
+                continue
+            if receipt is None:
+                rejected.append({"slug": slug, "provider": provider, "reason": "magicfit_receipt_missing"})
+                continue
+            imports.append(
+                {
+                    "slug": slug,
+                    "provider": provider,
+                    "asset_dir": str(export_dir),
+                    "video": str(video),
+                    "receipt": str(receipt),
+                }
+            )
+            continue
+        rejected.append({"slug": slug, "provider": provider, "reason": "unsupported_provider"})
     status = "ready" if imports else "blocked_no_verified_exports"
     return {
         "status": status,
@@ -158,6 +314,7 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
         "notes": [
             "This discovery step does not publish tours. It only emits rows accepted by the hardened import_property_tour_exports.py importer.",
             "3DVista and Pano2VR placeholders are rejected unless the entry or bundled local runtime files contain provider markers.",
+            "krpano rows require a real panorama/cubemap candidate; MagicFit rows require a playable video stream and receipt candidate before import.",
         ],
     }
 
