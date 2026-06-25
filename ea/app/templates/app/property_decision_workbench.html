@@ -6223,29 +6223,35 @@
         flex-direction: column;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card {
-        gap: 4px;
-        min-height: 82px;
-        padding: 10px;
+        gap: 7px;
+        min-height: 104px;
+        padding: 14px;
+        border-radius: 18px;
+        box-shadow: 0 14px 30px rgba(41, 37, 30, 0.08);
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card strong {
-        font-size: 1rem;
+        font-size: 1.08rem;
+        line-height: 1.12;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card small {
-        display: -webkit-box;
-        overflow: hidden;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
+        display: block;
+        overflow: visible;
+        font-size: 12px;
+        line-height: 1.35;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card .pqx-link-button {
-        display: none;
+        display: inline-flex;
+        width: 100%;
+        margin-top: 2px;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card {
-        gap: 7px;
-        padding: 10px;
+        gap: 9px;
+        padding: 12px;
+        border-radius: 18px;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card .pqx-section-head {
         margin-bottom: 0;
