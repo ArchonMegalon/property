@@ -5128,8 +5128,9 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     normalized_viewer_mode = str(viewer_mode or "").strip().lower()
     if normalized_viewer_mode in {"matterport", "metaport", "3dvista", "3d_vista", "three_d_vista"}:
-        rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
-        return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
+        # Provider controls need the verified private receipt URL server-side, but
+        # the public JSON manifest must continue to omit source/provider URLs.
+        return HTMLResponse(_tour_control_html(payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
     rendered_payload = _redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},
