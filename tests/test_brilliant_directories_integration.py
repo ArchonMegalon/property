@@ -185,6 +185,7 @@ def test_brilliant_directories_verifier_blocks_unresolved_billing_handoff(monkey
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET", "members.brilliantdirectories.com")
 
     def unresolved(_host: str, _port: int) -> None:
         raise OSError("missing dns")
@@ -196,6 +197,13 @@ def test_brilliant_directories_verifier_blocks_unresolved_billing_handoff(monkey
     assert receipt["billing_handoff"]["configured"] is True
     assert receipt["billing_handoff"]["host"] == "billing.propertyquarry.com"
     assert receipt["billing_handoff"]["host_resolves"] is False
+    assert receipt["billing_handoff"]["required_dns_record"] == {
+        "name": "billing.propertyquarry.com",
+        "type": "CNAME",
+        "target": "members.brilliantdirectories.com",
+        "purpose": "make /app/billing redirect only to a resolving HTTPS white-label account lane",
+    }
+    assert "create DNS for billing.propertyquarry.com" in receipt["billing_handoff"]["next_action"]
 
 
 def test_brilliant_directories_verifier_accepts_resolving_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -212,6 +220,8 @@ def test_brilliant_directories_verifier_accepts_resolving_billing_handoff(monkey
     assert receipt["error"] == ""
     assert receipt["billing_handoff"]["configured"] is True
     assert receipt["billing_handoff"]["host_resolves"] is True
+    assert receipt["billing_handoff"]["required_dns_record"]["name"] == "billing.propertyquarry.com"
+    assert receipt["billing_handoff"]["next_action"].startswith("keep the resolving HTTPS billing handoff")
 
 
 def test_property_billing_route_redirects_to_allowlisted_brilliant_directories_account(monkeypatch: pytest.MonkeyPatch) -> None:

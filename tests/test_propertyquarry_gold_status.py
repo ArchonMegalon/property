@@ -115,6 +115,15 @@ def _billing_payload(*, host_resolves: bool = True, status: str = "disabled") ->
             "host": "billing.propertyquarry.com",
             "host_resolves": host_resolves,
             "error": "" if host_resolves else "billing_handoff_host_unresolved:gaierror",
+            "required_dns_record": {
+                "name": "billing.propertyquarry.com",
+                "type": "CNAME",
+                "target": "members.brilliantdirectories.com",
+                "purpose": "make /app/billing redirect only to a resolving HTTPS white-label account lane",
+            },
+            "next_action": "keep the resolving HTTPS billing handoff under the allowlisted white-label host"
+            if host_resolves
+            else "create DNS for billing.propertyquarry.com before enabling the Brilliant Directories billing handoff",
         },
     }
 
@@ -619,8 +628,13 @@ def test_gold_status_blocks_when_brilliant_directories_billing_handoff_does_not_
     assert receipt["status"] == "blocked"
     assert receipt["billing_handoff"]["ready"] is False
     assert receipt["billing_handoff"]["host"] == "billing.propertyquarry.com"
+    assert receipt["billing_handoff"]["required_dns_record"]["target"] == "members.brilliantdirectories.com"
+    assert "create DNS for billing.propertyquarry.com" in receipt["billing_handoff"]["next_action"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
     assert blocker["host_resolves"] is False
+    assert blocker["required_dns_record"]["name"] == "billing.propertyquarry.com"
+    assert blocker["required_dns_record"]["type"] == "CNAME"
+    assert blocker["required_dns_record"]["target"] == "members.brilliantdirectories.com"
     assert "Brilliant Directories" in blocker["action"]
 
 

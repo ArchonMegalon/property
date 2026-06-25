@@ -798,6 +798,8 @@ def build_gold_status_receipt(
                 "error": billing_receipt.get("error") or "",
                 "host": str(billing_handoff.get("host") or ""),
                 "host_resolves": bool(billing_handoff.get("host_resolves")),
+                "required_dns_record": billing_handoff.get("required_dns_record") if isinstance(billing_handoff.get("required_dns_record"), dict) else {},
+                "next_action": str(billing_handoff.get("next_action") or ""),
                 "action": "configure the white-label Brilliant Directories billing host so /app/billing redirects to a resolving external account lane",
             }
         )
@@ -1022,6 +1024,8 @@ def build_gold_status_receipt(
             "configured": bool((billing_receipt.get("billing_handoff") or {}).get("configured")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
             "host": str((billing_receipt.get("billing_handoff") or {}).get("host") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "host_resolves": bool((billing_receipt.get("billing_handoff") or {}).get("host_resolves")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
+            "required_dns_record": (billing_receipt.get("billing_handoff") or {}).get("required_dns_record") if isinstance(billing_receipt.get("billing_handoff"), dict) and isinstance((billing_receipt.get("billing_handoff") or {}).get("required_dns_record"), dict) else {},
+            "next_action": str((billing_receipt.get("billing_handoff") or {}).get("next_action") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "ready": billing_ok,
             "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",
         },

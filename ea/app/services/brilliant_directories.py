@@ -298,6 +298,13 @@ def _billing_handoff_dns_receipt(
 ) -> dict[str, object]:
     parsed = urllib.parse.urlparse(handoff_url)
     host = str(parsed.hostname or "").strip().lower()
+    dns_target = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET") or "").strip()
+    required_dns_record = {
+        "name": host,
+        "type": "CNAME" if dns_target else "CNAME or A/AAAA",
+        "target": dns_target or "the Brilliant Directories white-label billing host assigned to this account",
+        "purpose": "make /app/billing redirect only to a resolving HTTPS white-label account lane",
+    }
     if not handoff_url:
         return {
             "configured": False,
@@ -305,6 +312,8 @@ def _billing_handoff_dns_receipt(
             "host": "",
             "host_resolves": False,
             "error": "",
+            "required_dns_record": {},
+            "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL to an HTTPS allowlisted white-label account URL",
         }
     if not host:
         return {
@@ -313,6 +322,8 @@ def _billing_handoff_dns_receipt(
             "host": "",
             "host_resolves": False,
             "error": "billing_handoff_host_missing",
+            "required_dns_record": {},
+            "next_action": "replace PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL with an HTTPS URL containing a host",
         }
     resolve = resolver or socket.getaddrinfo
     try:
@@ -324,6 +335,8 @@ def _billing_handoff_dns_receipt(
             "host": host,
             "host_resolves": False,
             "error": f"billing_handoff_host_unresolved:{exc.__class__.__name__}",
+            "required_dns_record": required_dns_record,
+            "next_action": f"create DNS for {host} before enabling the Brilliant Directories billing handoff",
         }
     return {
         "configured": True,
@@ -331,6 +344,8 @@ def _billing_handoff_dns_receipt(
         "host": host,
         "host_resolves": True,
         "error": "",
+        "required_dns_record": required_dns_record,
+        "next_action": "keep the resolving HTTPS billing handoff under the allowlisted white-label host",
     }
 
 
