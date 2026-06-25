@@ -4023,11 +4023,22 @@ def property_research_packet(
             "title": "Why this home stayed on the list",
             "items": ooda_summary_rows[:6],
         },
-        {
-            "eyebrow": "Property details",
-            "title": "What the listing says",
-            "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("object_rows") or [])],
-        },
+    ]
+    if packet_score_rows:
+        research_sections.append(
+            {
+                "eyebrow": "Confirmed facts",
+                "title": "What PropertyQuarry confirmed automatically",
+                "items": packet_score_rows[:5],
+            }
+        )
+    research_sections.extend(
+        [
+            {
+                "eyebrow": "Property details",
+                "title": "What the listing says",
+                "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("object_rows") or [])],
+            },
         {
             "eyebrow": "Costs",
             "title": "Price, running costs, and fees",
@@ -4076,7 +4087,8 @@ def property_research_packet(
             "title": "Timeline and follow-up",
             "items": timeline_rows,
         },
-    ]
+        ]
+    )
     if str(preferences.get("listing_mode") or "").strip().lower() == "buy":
         research_sections.insert(
             7,
@@ -4143,6 +4155,7 @@ def property_research_packet(
         sections=research_sections,
         match_reasons=match_reasons,
         mismatch_reasons=mismatch_reasons,
+        score_rows=packet_score_rows,
         listing_rows=list(detail_sections.get("object_rows") or []),
         cost_rows=list(detail_sections.get("cost_rows") or []),
         feature_values=list(detail_sections.get("feature_values") or []),

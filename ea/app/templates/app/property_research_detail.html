@@ -1890,6 +1890,21 @@
       </section>
       {% endif %}
 
+      {% if research_score_rows %}
+      <section class="prd-band">
+        <div class="prd-kicker">Confirmed facts</div>
+        <h2 class="prd-section-title">What PropertyQuarry confirmed automatically</h2>
+        <div class="object-list">
+          {% for row in research_score_rows[:5] %}
+          <div class="prd-row">
+            <div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div>
+            <span class="prd-tag">{{ row.get('tag') }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
       <section class="prd-split">
         <section class="prd-band">
           <div class="prd-kicker">Listing evidence</div>

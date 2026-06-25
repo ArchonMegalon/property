@@ -3722,6 +3722,7 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
         sections=[{"eyebrow": "At a glance", "title": "Why this stayed"}],
         match_reasons=["Transit"],
         mismatch_reasons=["Kitchen refresh"],
+        score_rows=[{"title": "Facts confirmed", "detail": "4 facts", "tag": "Confirmed"}],
         listing_rows=[{"label": "Rooms", "value": "3"}],
         cost_rows=[{"label": "Costs", "value": "320"}],
         feature_values=[{"label": "Balcony", "value": "Yes"}],
@@ -3749,6 +3750,7 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
     assert snapshot["research_title"] == "Lead home"
     assert snapshot["research_candidate_ref"] == "cand-1"
     assert snapshot["research_gallery_items"][0]["kind"] == "image"
+    assert snapshot["research_score_rows"][0]["title"] == "Facts confirmed"
     assert snapshot["research_feedback"]["save_endpoint"] == "/app/api/property-feedback"
     assert snapshot["research_official_evidence_rows"][0]["title"] == "Cadastre"
 

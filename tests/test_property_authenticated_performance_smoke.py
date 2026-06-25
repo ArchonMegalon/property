@@ -40,6 +40,8 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         assert check_names["mobile_dock_target"]
     assert any(check["name"] == "map_only_thumbnails" and check["ok"] for check in routes["/app/agents"]["checks"])
     assert any(check["name"] == "media_requests_explicit" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_confirmed_listing_facts" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
+    assert any(check["name"] == "research_confirmed_price_signal" and check["ok"] for check in routes["/app/research/perf-candidate-1020"]["checks"])
     assert any(check["name"] == "delivery_controls" and check["ok"] for check in routes["/app/alerts"]["checks"])
     assert any(check["name"] == "implicit_account_creation_copy" and check["ok"] for check in routes["/app/settings/google"]["checks"])
     assert any(check["name"] == "account_access_controls" and check["ok"] for check in routes["/app/settings/access"]["checks"])

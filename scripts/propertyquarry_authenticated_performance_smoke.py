@@ -129,76 +129,74 @@ def _seed_workspace(client: TestClient) -> None:
         raise RuntimeError(f"workspace_seed_failed:{response.status_code}:{response.text[:280]}")
 
 
-def _seed_saved_agents(client: TestClient) -> None:
-    response = client.post(
-        "/v1/onboarding/property-search/preferences",
-        json={
-            "country_code": "AT",
-            "region_code": "vienna",
-            "language_code": "de",
-            "listing_mode": "rent",
-            "property_type": "apartment",
-            "location_query": "1020 Vienna",
-            "selected_platforms": ["willhaben", "derstandard_at"],
-            "active_search_agent_id": "perf-watch-1020",
-            "search_agents": [
-                {
-                    "agent_id": "perf-watch-1020",
-                    "name": "Leopoldstadt rent watch",
-                    "enabled": True,
+def _property_preferences_payload(*, saved_candidates: list[dict[str, object]] | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "country_code": "AT",
+        "region_code": "vienna",
+        "language_code": "de",
+        "listing_mode": "rent",
+        "property_type": "apartment",
+        "location_query": "1020 Vienna",
+        "selected_platforms": ["willhaben", "derstandard_at"],
+        "active_search_agent_id": "perf-watch-1020",
+        "search_agents": [
+            {
+                "agent_id": "perf-watch-1020",
+                "name": "Leopoldstadt rent watch",
+                "enabled": True,
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": "1020 Vienna",
+                "listing_mode": "rent",
+                "property_type": "apartment",
+                "notification_limit": 3,
+                "notification_period": "day",
+                "preferences_json": {
                     "country_code": "AT",
                     "region_code": "vienna",
                     "location_query": "1020 Vienna",
                     "listing_mode": "rent",
                     "property_type": "apartment",
-                    "notification_limit": 3,
-                    "notification_period": "day",
-                    "preferences_json": {
-                        "country_code": "AT",
-                        "region_code": "vienna",
-                        "location_query": "1020 Vienna",
-                        "listing_mode": "rent",
-                        "property_type": "apartment",
-                        "selected_platforms": ["willhaben", "derstandard_at"],
-                    },
+                    "selected_platforms": ["willhaben", "derstandard_at"],
                 },
-                {
-                    "agent_id": "perf-watch-1130",
-                    "name": "Hietzing buy watch",
-                    "enabled": False,
+            },
+            {
+                "agent_id": "perf-watch-1130",
+                "name": "Hietzing buy watch",
+                "enabled": False,
+                "country_code": "AT",
+                "region_code": "vienna",
+                "location_query": "1130 Vienna",
+                "listing_mode": "buy",
+                "property_type": "apartment",
+                "notification_limit": 5,
+                "notification_period": "week",
+                "preferences_json": {
                     "country_code": "AT",
                     "region_code": "vienna",
                     "location_query": "1130 Vienna",
                     "listing_mode": "buy",
                     "property_type": "apartment",
-                    "notification_limit": 5,
-                    "notification_period": "week",
-                    "preferences_json": {
-                        "country_code": "AT",
-                        "region_code": "vienna",
-                        "location_query": "1130 Vienna",
-                        "listing_mode": "buy",
-                        "property_type": "apartment",
-                        "selected_platforms": ["willhaben"],
-                    },
+                    "selected_platforms": ["willhaben"],
                 },
-            ],
-        },
+            },
+        ],
+    }
+    if saved_candidates is not None:
+        payload["saved_shortlist_candidates"] = saved_candidates
+    return payload
+
+
+def _seed_saved_agents(client: TestClient, *, saved_candidates: list[dict[str, object]] | None = None) -> None:
+    response = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json=_property_preferences_payload(saved_candidates=saved_candidates),
     )
     if response.status_code != 200:
         raise RuntimeError(f"saved_agents_seed_failed:{response.status_code}:{response.text[:280]}")
 
 
-def _synthetic_search_result(*args: object, **kwargs: object) -> dict[str, object]:
-    progress_callback = kwargs.get("progress_callback")
-    if callable(progress_callback):
-        progress_callback(
-            step="sources_resolved",
-            message="Resolved synthetic performance smoke source.",
-            status="in_progress",
-            steps_delta=1,
-            summary_updates={"sources_total": 1, "source_variant_total": 1, "provider_total": 1},
-        )
+def _synthetic_candidate(*, saved_from_run_id: str = "") -> dict[str, object]:
     candidate = {
         "candidate_ref": "perf-candidate-1020",
         "rank": 1,
@@ -215,19 +213,51 @@ def _synthetic_search_result(*args: object, **kwargs: object) -> dict[str, objec
         "mismatch_reasons": ["Operating-cost evidence still needs a provider document."],
         "property_facts": {
             "postal_code": "1020",
+            "postal_name": "1020 Vienna",
             "district": "1020 Vienna",
+            "price_display": "EUR 1,290",
             "price_eur": 1290,
             "area_m2": 72,
+            "area_sqm": 72,
             "rooms": 3,
             "has_floorplan": True,
             "has_balcony": True,
             "operating_costs_status": "missing",
+            "listing_fact_confirmation": {
+                "status": "confirmed",
+                "label": "Facts confirmed",
+                "summary": "4 listing facts confirmed automatically from provider evidence.",
+                "fields": ["area", "location", "price", "rooms"],
+                "sources": {
+                    "area": "provider_structured_fact",
+                    "location": "provider_structured_fact",
+                    "price": "provider_structured_fact",
+                    "rooms": "provider_structured_fact",
+                },
+                "requires_manual_confirmation": False,
+            },
         },
         "route_evidence": [
             {"label": "Transit", "distance": "350 m", "icon": "U"},
             {"label": "School", "distance": "650 m", "icon": "S"},
         ],
     }
+    if saved_from_run_id:
+        candidate["saved_from_run_id"] = saved_from_run_id
+    return candidate
+
+
+def _synthetic_search_result(*args: object, **kwargs: object) -> dict[str, object]:
+    progress_callback = kwargs.get("progress_callback")
+    if callable(progress_callback):
+        progress_callback(
+            step="sources_resolved",
+            message="Resolved synthetic performance smoke source.",
+            status="in_progress",
+            steps_delta=1,
+            summary_updates={"sources_total": 1, "source_variant_total": 1, "provider_total": 1},
+        )
+    candidate = _synthetic_candidate()
     return {
         "generated_at": _now_iso(),
         "status": "processed",
@@ -290,6 +320,7 @@ def _start_synthetic_run(client: TestClient) -> str:
         for _ in range(160):
             status = client.get(f"/app/api/property/search-runs/{run_id}")
             if status.status_code == 200 and str(status.json().get("status") or "").lower() in {"processed", "completed"}:
+                _seed_saved_agents(client, saved_candidates=[_synthetic_candidate(saved_from_run_id=run_id)])
                 return run_id
             time.sleep(0.025)
         raise RuntimeError(f"synthetic_run_timeout:{run_id}")
@@ -299,7 +330,11 @@ def _start_synthetic_run(client: TestClient) -> str:
 
 def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str, object]:
     started = time.perf_counter()
-    response = client.get(path, headers={"host": "propertyquarry.com"})
+    response = client.get(
+        path,
+        headers={"host": "propertyquarry.com"},
+        follow_redirects=not path.startswith("/app/research/"),
+    )
     duration_ms = round((time.perf_counter() - started) * 1000)
     body = response.text or ""
     lowered_body = body.lower()
@@ -328,6 +363,8 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             (
                 {"name": "research_candidate", "ok": "Performance smoke apartment in 1020 Vienna" in body},
                 {"name": "media_requests_explicit", "ok": "Request" in body and "tour" in body.lower()},
+                {"name": "research_confirmed_listing_facts", "ok": "Facts confirmed" in body and "confirmed automatically from provider evidence" in body},
+                {"name": "research_confirmed_price_signal", "ok": "Budget signal" in body and "EUR 1,290" in body},
             )
         )
     if path.startswith("/app/alerts"):

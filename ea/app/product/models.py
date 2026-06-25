@@ -538,6 +538,7 @@ class PropertyResearchPacketSnapshot:
     research_sections: list[dict[str, object]] = field(default_factory=list)
     research_match_reasons: list[str] = field(default_factory=list)
     research_mismatch_reasons: list[str] = field(default_factory=list)
+    research_score_rows: list[dict[str, object]] = field(default_factory=list)
     research_listing_rows: list[dict[str, object]] = field(default_factory=list)
     research_cost_rows: list[dict[str, object]] = field(default_factory=list)
     research_feature_values: list[dict[str, object]] = field(default_factory=list)
