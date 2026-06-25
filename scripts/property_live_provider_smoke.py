@@ -264,6 +264,7 @@ def _build_targeted_provider_search_matrix(
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
     status_fetcher: Callable[[str, str, float], dict[str, object]] | None = None,
     checkpoint_writer: Callable[[list[dict[str, object]]], None] | None = None,
+    resume_rows: Iterable[dict[str, object]] = (),
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     executor = search_executor or (lambda payload, timeout: _post_search_run_payload(base_url=base_url, payload=payload, timeout_seconds=timeout))
@@ -275,6 +276,15 @@ def _build_targeted_provider_search_matrix(
             timeout_seconds=timeout,
         )
     )
+    resumed_by_key = {
+        (
+            str(row.get("country_code") or "").strip().upper(),
+            str(row.get("provider") or "").strip(),
+            str(row.get("mode") or "").strip(),
+        ): dict(row)
+        for row in resume_rows
+        if str(row.get("status") or "").strip().lower() == "pass"
+    }
     for country in countries:
         normalized_country = str(country or "").strip().upper()
         for option in _search_ready_provider_options(normalized_country):
@@ -310,6 +320,29 @@ def _build_targeted_provider_search_matrix(
                     ),
                     "status": "skipped" if not enabled else "dry_run" if dry_run else "planned",
                 }
+                resumed_row = resumed_by_key.get((normalized_country, provider_key, mode))
+                if enabled and not dry_run and execute and resumed_row is not None:
+                    row.update(
+                        {
+                            key: value
+                            for key, value in resumed_row.items()
+                            if key
+                            in {
+                                "status",
+                                "run_id",
+                                "status_url",
+                                "runtime_status",
+                                "status_probe_ok",
+                                "status_probe_status",
+                                "status_probe_candidate_count",
+                            }
+                        }
+                    )
+                    row["resumed_from_checkpoint"] = True
+                    rows.append(row)
+                    if checkpoint_writer is not None:
+                        checkpoint_writer([dict(item) for item in rows])
+                    continue
                 if enabled and not dry_run and execute:
                     try:
                         response = dict(executor(payload, timeout_seconds) or {})
@@ -391,6 +424,7 @@ def _targeted_search_matrix_summary(
         for row in rows
         if str(row.get("status") or "").strip().lower() in {"pass", "fail"}
     ] if executed else []
+    resumed_rows = [row for row in executed_rows if bool(row.get("resumed_from_checkpoint"))]
     accepted_dispatch_rows = [
         row
         for row in executed_rows
@@ -428,6 +462,7 @@ def _targeted_search_matrix_summary(
         "execution_requested": bool(execute_requested),
         "executed": executed,
         "executed_case_count": len(executed_rows),
+        "resumed_case_count": len(resumed_rows),
         "passed_case_count": status_counts.get("pass", 0),
         "failed_case_count": status_counts.get("fail", 0),
         "failed_cases": failed_cases,
@@ -489,6 +524,7 @@ def build_live_provider_smoke_receipt(
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
     status_fetcher: Callable[[str, str, float], dict[str, object]] | None = None,
     checkpoint_path: str | Path = "",
+    resume_checkpoint_path: str | Path = "",
 ) -> dict[str, object]:
     requested_countries = tuple(dict.fromkeys(str(country or "").strip().upper() for country in countries if str(country or "").strip()))
     all_search_ready_scope = _all_search_ready_countries_enabled() if all_search_ready_countries is None else bool(all_search_ready_countries)
@@ -567,6 +603,21 @@ def build_live_provider_smoke_receipt(
                 )
         checks.append(row)
     checkpoint_target = Path(checkpoint_path) if str(checkpoint_path or "").strip() else None
+    resume_rows: list[dict[str, object]] = []
+    resume_source = ""
+    resume_target = Path(resume_checkpoint_path) if str(resume_checkpoint_path or "").strip() else None
+    if resume_target is not None and resume_target.exists():
+        try:
+            resume_payload = json.loads(resume_target.read_text(encoding="utf-8"))
+            resume_rows = [
+                dict(row)
+                for row in list(resume_payload.get("targeted_search_matrix") or [])
+                if isinstance(row, dict)
+            ]
+            resume_source = str(resume_target)
+        except Exception:
+            resume_rows = []
+            resume_source = ""
 
     def _write_checkpoint(rows: list[dict[str, object]]) -> None:
         if checkpoint_target is None:
@@ -584,6 +635,7 @@ def build_live_provider_smoke_receipt(
             "enabled": enabled,
             "dry_run": dry_run,
             "base_url": base_url,
+            "resume_source": resume_source,
             "checks": checks,
             "targeted_search_matrix": rows,
             "targeted_search_matrix_summary": summary,
@@ -610,6 +662,7 @@ def build_live_provider_smoke_receipt(
         search_executor=search_executor,
         status_fetcher=status_fetcher,
         checkpoint_writer=_write_checkpoint if should_execute_search_matrix and enabled and not dry_run else None,
+        resume_rows=resume_rows if should_execute_search_matrix and enabled and not dry_run else (),
     )
     search_matrix_summary = _targeted_search_matrix_summary(
         search_matrix,
@@ -636,6 +689,7 @@ def build_live_provider_smoke_receipt(
         "enabled": enabled,
         "dry_run": dry_run,
         "base_url": base_url,
+        "resume_source": resume_source,
         "country_scope": "all_search_ready" if all_search_ready_scope else "explicit",
         "checks": checks,
         "targeted_search_matrix": search_matrix,
@@ -661,6 +715,7 @@ def build_live_provider_smoke_receipt(
             "Live mode probes the runtime provider catalog endpoint and checks provider/default-provider parity.",
             "The targeted search matrix covers every search-ready provider with one strict no-soft-filter payload and one discovery soft-filter payload.",
             "When the targeted matrix is executed, each accepted dispatch must also return a readable search-run status receipt.",
+            "Use --resume-from with a checkpoint/final receipt to reuse passed targeted search rows and rerun only missing or failed cases.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES=1 or pass --all-search-ready-countries to expand the matrix to every country with search-ready providers.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 with live mode to execute the targeted search matrix against /app/api/property/search-runs.",
         ],
@@ -683,6 +738,7 @@ def main() -> int:
         help="Include every country that has at least one search-ready provider. Ignored when --country is also supplied.",
     )
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
+    parser.add_argument("--resume-from", default="", help="Optional checkpoint/final receipt whose passed targeted search rows should be reused.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_BASE_URL") or "http://localhost:8097")
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
     matrix_group = parser.add_mutually_exclusive_group()
@@ -712,6 +768,7 @@ def main() -> int:
             execute_search_matrix=execute_search_matrix,
             all_search_ready_countries=bool(args.all_search_ready_countries and not args.country),
             checkpoint_path=args.write,
+            resume_checkpoint_path=args.resume_from,
         )
     except KeyboardInterrupt:
         if args.write and Path(args.write).exists():

@@ -285,6 +285,82 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     )
 
 
+def test_live_provider_smoke_can_resume_passed_targeted_search_cases(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E", "1")
+
+    first_provider = str(provider_options(country_code="AT")[0]["value"])
+    resume_path = tmp_path / "provider-matrix-resume.json"
+    resume_path.write_text(
+        json.dumps(
+            {
+                "targeted_search_matrix": [
+                    {
+                        "country_code": "AT",
+                        "provider": first_provider,
+                        "mode": "targeted_no_soft_filters",
+                        "status": "pass",
+                        "run_id": "resumed-run",
+                        "status_url": "/app/api/property/search-runs/resumed-run",
+                        "runtime_status": "queued",
+                        "status_probe_ok": True,
+                        "status_probe_status": "queued",
+                        "status_probe_candidate_count": 0,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalog_payload = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "property_type": "apartment",
+        "default_platforms": [
+            "willhaben",
+            "derstandard_at",
+            "immoscout_at",
+            "public_housing_at",
+            "genossenschaften_at",
+            "immmo",
+        ],
+        "providers": [{"value": row.get("value")} for row in provider_options(country_code="AT")],
+    }
+    observed_payloads: list[dict[str, object]] = []
+
+    def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
+        observed_payloads.append(dict(payload))
+        provider = str((payload.get("selected_platforms") or ["provider"])[0])
+        preferences = dict(payload.get("property_preferences") or {})
+        mode = str(preferences.get("search_mode") or "strict")
+        return {
+            "run_id": f"run-{provider}-{mode}",
+            "status_url": f"/app/api/property/search-runs/run-{provider}-{mode}",
+            "status": "queued",
+        }
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        fetcher=lambda _country, _timeout: catalog_payload,
+        search_executor=_search_executor,
+        status_fetcher=lambda run_id, status_url, _timeout: {"run_id": run_id, "status_url": status_url, "status": "queued"},
+        resume_checkpoint_path=resume_path,
+    )
+
+    expected_case_count = 2 * _search_ready_provider_count("AT")
+    summary = receipt["targeted_search_matrix_summary"]
+    assert receipt["status"] == "pass"
+    assert receipt["resume_source"] == str(resume_path)
+    assert summary["executed_case_count"] == expected_case_count
+    assert summary["resumed_case_count"] == 1
+    assert summary["passed_case_count"] == expected_case_count
+    assert len(observed_payloads) == expected_case_count - 1
+    resumed_rows = [row for row in receipt["targeted_search_matrix"] if row.get("resumed_from_checkpoint")]
+    assert len(resumed_rows) == 1
+    assert resumed_rows[0]["run_id"] == "resumed-run"
+
+
 def test_live_provider_smoke_execution_fails_when_status_probe_is_unreadable(monkeypatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
     monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
