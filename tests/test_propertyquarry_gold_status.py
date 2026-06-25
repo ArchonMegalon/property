@@ -20,6 +20,7 @@ def test_gold_status_cli_defaults_to_live_container_tour_receipt() -> None:
     source = (ROOT / "scripts/propertyquarry_gold_status.py").read_text(encoding="utf-8")
 
     assert "_completion/tours/property-tour-controls-live-container-current.json" in source
+    assert "_completion/smoke/property-live-public-latest.json" in source
     assert "_completion/tours/property-tour-controls-after-monotonic-counters.json" not in source
 
 
@@ -117,6 +118,28 @@ def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass
         "route_count": len(route_list),
         "viewport": {"width": 390, "height": 844},
         "routes": [{"route": route, "ok": True, "checks": []} for route in route_list],
+    }
+
+
+def _public_smoke_payload(*, status: str = "pass", failed_count: int = 0, include_account_creation: bool = True) -> dict[str, object]:
+    sign_in_checks = [
+        {"name": "sign_in_minimal_copy", "ok": True},
+        {"name": "sign_in_provider_creates_account", "ok": include_account_creation},
+        {"name": "sign_in_no_unavailable_auth_copy", "ok": True},
+        {"name": "sign_in_google_state", "ok": True},
+        {"name": "sign_in_google_feedback", "ok": True},
+    ]
+    return {
+        "status": status,
+        "failed_count": failed_count,
+        "route_count": 22,
+        "checks": [
+            {
+                "path": "/sign-in",
+                "ok": status == "pass" and failed_count == 0 and include_account_creation,
+                "checks": sign_in_checks,
+            }
+        ],
     }
 
 
@@ -427,6 +450,45 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["performance"]["research_detail_checks_ok"] is True
     assert receipt["performance"]["missing_research_detail_checks"] == []
     assert receipt["blockers"] == []
+
+
+def test_gold_status_blocks_when_public_sign_in_account_creation_smoke_is_missing(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    public_smoke = _write_json(tmp_path / "public-smoke.json", _public_smoke_payload(include_account_creation=False))
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        public_smoke_receipt_path=public_smoke,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "public_auth_surfaces")
+    assert receipt["status"] == "blocked"
+    assert receipt["public_auth_surfaces"]["sign_in_checks_ok"] is False
+    assert "sign_in_provider_creates_account" in blocker["missing_sign_in_checks"]
 
 
 def test_gold_status_blocks_when_brilliant_directories_billing_handoff_does_not_resolve(tmp_path: Path) -> None:
