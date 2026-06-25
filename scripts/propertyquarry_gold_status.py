@@ -225,6 +225,14 @@ def _covered_live_mobile_routes(live_mobile: dict[str, Any]) -> set[str]:
     return covered
 
 
+def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
+    normalized_route = str(route or "").strip().rstrip("/")
+    normalized_prefix = str(required_prefix or "").strip().rstrip("/")
+    if not normalized_route or not normalized_prefix:
+        return False
+    return normalized_route == normalized_prefix or normalized_route.startswith(f"{normalized_prefix}/")
+
+
 def _operator_drop_readme_status(import_manifest: dict[str, Any]) -> tuple[bool, int, list[str], list[dict[str, Any]]]:
     expected_providers = set(PROVIDER_OPERATOR_DROP_README_TOKENS)
     provider_rows = {
@@ -330,7 +338,7 @@ def build_gold_status_receipt(
     missing_live_mobile_detail_routes = [
         prefix
         for prefix in REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES
-        if not any(route.startswith(prefix) for route in live_mobile_covered_routes)
+        if not any(_route_covers_required_detail(route, prefix) for route in live_mobile_covered_routes)
     ]
     live_mobile_ok = (
         live_mobile_receipt_path is None
@@ -484,6 +492,19 @@ def build_gold_status_receipt(
         for row in list(export_discovery.get("rejected") or [])[:6]
         if isinstance(row, dict)
     ]
+    export_repair_sample = [
+        {
+            "slug": str(row.get("slug") or ""),
+            "provider": str(row.get("provider") or ""),
+            "status": str(row.get("status") or ""),
+            "reason": str(row.get("reason") or ""),
+            "required_action": str(row.get("required_action") or ""),
+            "drop_path": str(row.get("drop_path") or ""),
+            "import_command_after_assets_arrive": str(row.get("import_command_after_assets_arrive") or ""),
+        }
+        for row in list(export_discovery.get("repair_manifest") or [])[:6]
+        if isinstance(row, dict)
+    ]
     missing_export_rejection_sample = [
         row
         for row in export_rejection_sample
@@ -551,7 +572,9 @@ def build_gold_status_receipt(
             "status": export_discovery.get("status"),
             "import_count": export_discovery.get("import_count"),
             "rejected_count": export_discovery.get("rejected_count"),
+            "repair_count": export_discovery.get("repair_count"),
             "rejected_sample": export_rejection_sample,
+            "repair_sample": export_repair_sample,
             "receipt_path": str(export_discovery_receipt_path),
         },
         "operator_import_manifest": {

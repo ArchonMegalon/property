@@ -197,6 +197,18 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
                     "drop_layout": "<drop>/<slug>/magicfit/",
                 }
             ],
+            "repair_count": 1,
+            "repair_manifest": [
+                {
+                    "slug": "family-flat",
+                    "provider": "magicfit",
+                    "status": "waiting_for_verified_assets",
+                    "reason": "magicfit_receipt_missing",
+                    "drop_path": "/drop/family-flat/magicfit",
+                    "required_action": "copy the matching MagicFit render receipt as magicfit-receipt.json or receipt.json",
+                    "import_command_after_assets_arrive": "python /app/scripts/import_magicfit_walkthrough.py --slug family-flat --video-path /drop/family-flat/magicfit/magicfit-walkthrough.mp4 --source-receipt /drop/family-flat/magicfit/magicfit-receipt.json",
+                }
+            ],
         },
     )
     import_manifest = _write_json(tmp_path / "import-manifest.json", _import_manifest_payload(tmp_path))
@@ -231,6 +243,9 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["operator_import_manifest"]["hardened_readme_provider_count"] == 4
     assert "gold still requires real imported assets" in receipt["operator_import_manifest"]["note"]
     assert receipt["export_discovery"]["rejected_sample"][0]["reason"] == "magicfit_receipt_missing"
+    assert receipt["export_discovery"]["repair_count"] == 1
+    assert receipt["export_discovery"]["repair_sample"][0]["status"] == "waiting_for_verified_assets"
+    assert "import_magicfit_walkthrough.py" in receipt["export_discovery"]["repair_sample"][0]["import_command_after_assets_arrive"]
     assert "magicfit-receipt.json" in receipt["next_required_actions"][-1]["action"]
     assert receipt["next_required_actions"][-1]["rejected_sample"][0]["provider"] == "magicfit"
     assert any(row["area"] == "verified_tour_provider_modes" for row in receipt["blockers"])
@@ -646,10 +661,62 @@ def test_gold_status_blocks_when_live_mobile_surface_coverage_is_old_or_narrow(t
     assert receipt["status"] == "blocked"
     assert receipt["live_mobile_surfaces"]["required_route_count"] == 14
     assert "/app/settings/access" in receipt["live_mobile_surfaces"]["missing_routes"]
-    assert "/app/research/" in receipt["live_mobile_surfaces"]["missing_detail_routes"]
+    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == []
     blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
     assert "/app/settings/invitations" in blocker["missing_routes"]
-    assert "/app/research/" in blocker["missing_detail_routes"]
+    assert blocker["missing_detail_routes"] == []
+
+
+def test_gold_status_blocks_when_live_mobile_research_surface_is_missing(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    routes_without_research = [
+        route
+        for route in _live_mobile_payload()["routes"]
+        if not str(route["route"]).startswith("/app/research")
+    ]
+    live_mobile = _write_json(
+        tmp_path / "live-mobile.json",
+        {
+            "status": "pass",
+            "failed_count": 0,
+            "route_count": 14,
+            "viewport": {"width": 390, "height": 844},
+            "routes": routes_without_research,
+        },
+    )
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "/app/research" in receipt["live_mobile_surfaces"]["missing_routes"]
+    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == ["/app/research/"]
 
 
 def test_gold_status_blocks_when_performance_receipt_lacks_research_detail_checks(tmp_path: Path) -> None:

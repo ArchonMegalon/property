@@ -764,12 +764,18 @@ def test_tour_export_discovery_rejects_magicfit_receipt_mismatch_before_import(t
     assert receipt["status"] == "blocked_no_verified_exports"
     assert receipt["import_count"] == 0
     assert len(receipt["rejected"]) == 1
+    assert receipt["repair_count"] == 1
     rejection = receipt["rejected"][0]
     assert rejection["slug"] == "discover-magicfit"
     assert rejection["provider"] == "magicfit"
     assert rejection["reason"] == "magicfit_receipt_target_mismatch"
     assert "target_slug" in rejection["action"]
     assert "magicfit-walkthrough" in rejection["drop_layout"]
+    repair = receipt["repair_manifest"][0]
+    assert repair["status"] == "waiting_for_verified_assets"
+    assert repair["reason"] == "magicfit_receipt_target_mismatch"
+    assert "import_magicfit_walkthrough.py" in repair["import_command_after_assets_arrive"]
+    assert "magicfit-receipt.json" in repair["import_command_after_assets_arrive"]
 
 
 def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(tmp_path: Path) -> None:
@@ -817,9 +823,24 @@ def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(t
         "pano2vr_export_entry_unverified",
         "tour_manifest_missing",
     }
+    assert receipt["repair_count"] == 4
+    assert {row["reason"] for row in receipt["repair_manifest"]} == {
+        "krpano_assets_missing",
+        "magicfit_video_missing",
+        "pano2vr_export_entry_unverified",
+        "tour_manifest_missing",
+    }
     for row in receipt["rejected"]:
         assert row["action"]
         assert row["drop_layout"]
         assert row["drop_path"]
+    for row in receipt["repair_manifest"]:
+        assert row["status"] == "waiting_for_verified_assets"
+        assert row["required_action"]
+        assert row["drop_layout"]
+        assert row["drop_path"]
+    assert any("import_pano2vr_export.py" in row["import_command_after_assets_arrive"] for row in receipt["repair_manifest"])
+    assert any("import_krpano_walkable_scene.py" in row["import_command_after_assets_arrive"] for row in receipt["repair_manifest"])
+    assert any("import_magicfit_walkthrough.py" in row["import_command_after_assets_arrive"] for row in receipt["repair_manifest"])
     assert any("ggpkg" in row["action"] for row in receipt["rejected"] if row["provider"] == "pano2vr")
     assert any("panorama" in row["action"] for row in receipt["rejected"] if row["provider"] == "krpano")

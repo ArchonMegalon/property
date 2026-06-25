@@ -232,6 +232,41 @@ def _rejection_row(*, slug: str, provider: str, reason: str, export_dir: Path | 
     return row
 
 
+def _repair_manifest_rows(rejected: Iterable[dict[str, str]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for row in rejected:
+        provider = str(row.get("provider") or "").strip().lower()
+        slug = str(row.get("slug") or "").strip()
+        reason = str(row.get("reason") or "").strip()
+        drop_path = str(row.get("drop_path") or "").strip()
+        if not provider or not slug or not reason:
+            continue
+        command = ""
+        if provider in {"3dvista", "pano2vr"} and drop_path:
+            command = f"python /app/scripts/import_{provider}_export.py --slug {slug} --export-dir {drop_path}"
+        elif provider == "krpano" and drop_path:
+            command = f"python /app/scripts/import_krpano_walkable_scene.py --slug {slug} --panorama {drop_path}/panorama.jpg"
+        elif provider == "magicfit" and drop_path:
+            command = (
+                "python /app/scripts/import_magicfit_walkthrough.py "
+                f"--slug {slug} --video-path {drop_path}/magicfit-walkthrough.mp4 "
+                f"--source-receipt {drop_path}/magicfit-receipt.json"
+            )
+        rows.append(
+            {
+                "slug": slug,
+                "provider": provider,
+                "status": "waiting_for_verified_assets",
+                "reason": reason,
+                "drop_path": drop_path,
+                "required_action": str(row.get("action") or "").strip(),
+                "drop_layout": str(row.get("drop_layout") or "").strip(),
+                "import_command_after_assets_arrive": command,
+            }
+        )
+    return rows
+
+
 def _video_has_playable_stream(path: Path) -> bool:
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         return False
@@ -381,6 +416,7 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
             continue
         rejected.append(_rejection_row(slug=slug, provider=provider, reason="unsupported_provider", export_dir=export_dir))
     status = "ready" if imports else "blocked_no_verified_exports"
+    repair_manifest = _repair_manifest_rows(rejected)
     return {
         "status": status,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
@@ -390,11 +426,14 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
         "rejected_count": len(rejected),
         "imports": imports,
         "rejected": rejected,
+        "repair_count": len(repair_manifest),
+        "repair_manifest": repair_manifest,
         "import_manifest": {"imports": imports},
         "notes": [
             "This discovery step does not publish tours. It only emits rows accepted by the hardened import_property_tour_exports.py importer.",
             "3DVista and Pano2VR placeholders are rejected unless the entry or bundled local runtime files contain provider markers.",
             "krpano rows require a real panorama/cubemap candidate; MagicFit rows require a playable video stream and receipt candidate before import.",
+            "Rejected rows are also emitted in repair_manifest so status/UI repair can show exact missing assets without treating placeholders as verified tours.",
         ],
     }
 
