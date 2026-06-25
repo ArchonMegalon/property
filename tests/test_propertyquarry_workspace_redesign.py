@@ -904,7 +904,7 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert 'href="/app/properties">Open PropertyQuarry</a>' not in onboarding_rules
 
 
-def test_propertyquarry_provider_sign_in_errors_use_live_service_language() -> None:
+def test_propertyquarry_provider_sign_in_errors_use_customer_safe_language() -> None:
     client = build_property_client(principal_id="pq-provider-sign-in-errors")
     client.headers.pop("X-EA-Principal-ID", None)
     headers = {"host": "propertyquarry.com"}
@@ -918,15 +918,22 @@ def test_propertyquarry_provider_sign_in_errors_use_live_service_language() -> N
     assert google.status_code == 200
 
     assert "Facebook sign-in is temporarily unavailable." in facebook.text
-    assert "verify the Facebook OAuth configuration and callback setup on this host." in facebook.text
+    assert "Try again, or use a secure email link for the same account." in facebook.text
     assert "Facebook sign-in is not ready on this deployment yet." not in facebook.text
 
     assert "ID Austria sign-in is temporarily unavailable." in id_austria.text
-    assert "verify the ID Austria OpenID configuration and callback setup on this host." in id_austria.text
+    assert "Try again, or use a secure email link for the same account." in id_austria.text
     assert "ID Austria sign-in is not ready on this deployment yet." not in id_austria.text
 
     assert "Google sign-in is temporarily unavailable." in google.text
-    assert "verify the Google OAuth configuration and callback setup on this host." in google.text
+    assert "Try again, or use a secure email link for the same account." in google.text
+
+    combined = "\n".join([facebook.text, id_austria.text, google.text]).lower()
+    assert "oauth" not in combined
+    assert "openid" not in combined
+    assert "callback setup" not in combined
+    assert "config_missing" not in combined
+    assert "configuration" not in combined
 
 
 def test_propertyquarry_email_link_unavailable_uses_live_service_language() -> None:
