@@ -209,6 +209,27 @@ def test_property_search_compact_run_backfills_missing_row_timestamps() -> None:
     assert compact["summary"]["updated_at"] == "2026-06-25T15:03:00+00:00"
 
 
+def test_property_search_ranked_candidates_replace_search_url_title() -> None:
+    ranked = product_service._property_search_ranked_candidates_from_sources(  # type: ignore[attr-defined]
+        [
+            {
+                "source_label": "RE/MAX Austria",
+                "top_candidates": [
+                    {
+                        "title": "https://www.remax.at/properties/propertysearch?q=1010+Vienna&maxPrice=1200&minArea=45",
+                        "property_url": "https://www.remax.at/properties/propertysearch?q=1010+Vienna&maxPrice=1200&minArea=45",
+                        "fit_score": 72,
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert ranked[0]["title"] == "RE/MAX Austria · 1010 Vienna · search candidate"
+    assert ranked[0]["display_title_was_url"] is True
+    assert "PropertyQuarry is still extracting a concrete listing" in ranked[0]["summary"]
+
+
 def test_property_search_repair_receipts_normalize_historical_top_level_tasks() -> None:
     client = build_property_client(principal_id="cf-email:historical.repair@example.com")
     service = ProductService(client.app.state.container)

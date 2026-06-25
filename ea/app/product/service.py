@@ -7418,6 +7418,62 @@ def _property_candidate_google_maps_url(candidate: dict[str, object]) -> str:
     return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(query)}"
 
 
+def _property_candidate_title_looks_like_url(value: object) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(text)
+    except Exception:
+        return False
+    return bool(parsed.scheme in {"http", "https"} and parsed.netloc)
+
+
+def _property_candidate_search_page_display(candidate: dict[str, object]) -> dict[str, object]:
+    row = dict(candidate or {})
+    title = str(row.get("title") or row.get("listing_title") or "").strip()
+    property_url = str(row.get("property_url") or row.get("source_url") or "").strip()
+    if not _property_candidate_title_looks_like_url(title):
+        return row
+    url = property_url or title
+    try:
+        parsed = urllib.parse.urlparse(url)
+        query = urllib.parse.parse_qs(parsed.query)
+    except Exception:
+        parsed = urllib.parse.urlparse("")
+        query = {}
+    host = str(parsed.netloc or "").lower().removeprefix("www.")
+    provider = str(row.get("source_label") or row.get("source_platform") or "").strip()
+    if not provider:
+        provider = {
+            "remax.at": "RE/MAX Austria",
+            "willhaben.at": "Willhaben",
+        }.get(host, host or "Provider")
+    location = str((query.get("q") or [""])[0] or row.get("location_label") or "").strip()
+    location = urllib.parse.unquote_plus(location)
+    min_area = str((query.get("minArea") or [""])[0] or "").strip()
+    max_price = str((query.get("maxPrice") or [""])[0] or "").strip()
+    title_parts = [provider]
+    if location:
+        title_parts.append(location)
+    title_parts.append("search candidate")
+    row["title"] = " · ".join(part for part in title_parts if part)
+    detail_parts: list[str] = []
+    if max_price:
+        detail_parts.append(f"up to EUR {max_price}")
+    if min_area:
+        detail_parts.append(f"from {min_area} m2")
+    filter_text = ", ".join(detail_parts)
+    row["summary"] = (
+        f"{provider} returned a search-results page"
+        + (f" for {location}" if location else "")
+        + (f" ({filter_text})" if filter_text else "")
+        + ". PropertyQuarry is still extracting a concrete listing before this becomes a confirmed property."
+    )
+    row["display_title_was_url"] = True
+    return row
+
+
 def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int = 50) -> list[dict[str, object]]:
     rows_by_key: dict[str, dict[str, object]] = {}
     order_keys: list[str] = []
@@ -7575,6 +7631,7 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
                     continue
                 row = dict(candidate)
                 row.setdefault("source_label", source_label)
+                row = _property_candidate_search_page_display(row)
                 if not str(row.get("map_url") or "").strip():
                     row["map_url"] = _property_candidate_google_maps_url(row)
                 row.setdefault("candidate_ref", _candidate_ref(row, source_label))
@@ -36160,7 +36217,7 @@ class ProductService:
                     email_notified_total += 1
                     notified_total += 1
 
-                top_candidates_for_source.append(
+                candidate_payload = _property_candidate_search_page_display(
                     {
                         "property_url": property_url,
                         "source_ref": source_ref,
@@ -36222,6 +36279,7 @@ class ProductService:
                         ][:2],
                     }
                 )
+                top_candidates_for_source.append(candidate_payload)
 
             sorted_top_candidates_for_source = sorted(
                 top_candidates_for_source,

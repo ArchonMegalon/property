@@ -6826,6 +6826,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Underground" in packet.text
     assert "Current read" in packet.text
     assert "Save this property decision" in packet.text
+    assert "prd-decision-workspace" in packet.text
+    assert packet.text.index('class="prd-panel prd-decision-workspace object-feedback"') > packet.text.index("</aside>")
     assert "What to do next" not in packet.text
     assert "Evidence added" in packet.text
     assert "Manual clearance required" in packet.text
