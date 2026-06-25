@@ -7,7 +7,7 @@ import os
 import shutil
 from pathlib import Path
 
-_3DVISTA_EXPORT_MARKERS = ("3dvista", "tdvplayer", "tdvplayerapi", "tourviewer", "panorama")
+_PANO2VR_EXPORT_MARKERS = ("pano2vr", "ggpkg", "ggskin", "pano.xml", "tour.js")
 
 
 def _public_tour_dir() -> Path:
@@ -25,12 +25,12 @@ def _find_entry(export_dir: Path, explicit_entry: str = "") -> Path:
         candidate = (export_dir / _safe_relpath(explicit_entry)).resolve()
         if export_dir in candidate.parents and candidate.is_file():
             return candidate
-        raise SystemExit(f"3dvista_entry_not_found:{explicit_entry}")
+        raise SystemExit(f"pano2vr_entry_not_found:{explicit_entry}")
     preferred = (
         "index.html",
         "index.htm",
         "tour.html",
-        "virtualtour.html",
+        "output/index.html",
     )
     for name in preferred:
         candidate = export_dir / name
@@ -38,16 +38,16 @@ def _find_entry(export_dir: Path, explicit_entry: str = "") -> Path:
             return candidate.resolve()
     matches = sorted(export_dir.rglob("*.html")) + sorted(export_dir.rglob("*.htm"))
     if not matches:
-        raise SystemExit("3dvista_export_entry_missing")
+        raise SystemExit("pano2vr_export_entry_missing")
     return matches[0].resolve()
 
 
-def _entry_has_3dvista_markers(entry: Path) -> bool:
+def _entry_has_pano2vr_markers(entry: Path) -> bool:
     try:
         body = entry.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
     except OSError:
         return False
-    return any(marker in body for marker in _3DVISTA_EXPORT_MARKERS)
+    return any(marker in body for marker in _PANO2VR_EXPORT_MARKERS)
 
 
 def _copy_export(export_dir: Path, target_dir: Path) -> None:
@@ -64,11 +64,11 @@ def _copy_export(export_dir: Path, target_dir: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Import a 3DVista VT Pro export into a PropertyQuarry public tour bundle.")
+    parser = argparse.ArgumentParser(description="Import a Pano2VR export into a PropertyQuarry public tour bundle.")
     parser.add_argument("--slug", required=True, help="Existing PropertyQuarry public tour slug.")
-    parser.add_argument("--export-dir", required=True, help="Directory exported by 3DVista VT Pro.")
+    parser.add_argument("--export-dir", required=True, help="Directory exported by Pano2VR.")
     parser.add_argument("--entry", default="", help="Optional entry HTML path relative to export-dir.")
-    parser.add_argument("--target-subdir", default="3dvista", help="Subdirectory inside the tour bundle.")
+    parser.add_argument("--target-subdir", default="pano2vr", help="Subdirectory inside the tour bundle.")
     args = parser.parse_args()
 
     slug = _safe_relpath(args.slug)
@@ -76,29 +76,29 @@ def main() -> int:
         raise SystemExit("invalid_tour_slug")
     export_dir = Path(args.export_dir).expanduser().resolve()
     if not export_dir.is_dir():
-        raise SystemExit("3dvista_export_dir_missing")
+        raise SystemExit("pano2vr_export_dir_missing")
     entry = _find_entry(export_dir, args.entry)
-    if not _entry_has_3dvista_markers(entry):
-        raise SystemExit("3dvista_export_entry_unverified")
+    if not _entry_has_pano2vr_markers(entry):
+        raise SystemExit("pano2vr_export_entry_unverified")
 
     bundle_dir = _public_tour_dir() / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.is_file():
         raise SystemExit("tour_manifest_missing")
-    target_subdir = _safe_relpath(args.target_subdir or "3dvista") or "3dvista"
+    target_subdir = _safe_relpath(args.target_subdir or "pano2vr") or "pano2vr"
     target_dir = (bundle_dir / target_subdir).resolve()
     if bundle_dir.resolve() not in target_dir.parents:
-        raise SystemExit("invalid_3dvista_target")
+        raise SystemExit("invalid_pano2vr_target")
 
     _copy_export(export_dir, target_dir)
     entry_rel_to_export = entry.relative_to(export_dir).as_posix()
     entry_relpath = f"{target_subdir}/{entry_rel_to_export}"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload["control_mode"] = "3dvista"
-    payload["viewer_provider"] = "3dvista_vt_pro"
-    payload["three_d_vista_entry_relpath"] = entry_relpath
-    payload["three_d_vista_import"] = {
-        "source": "3dvista_vt_pro_export",
+    payload["control_mode"] = "pano2vr"
+    payload["viewer_provider"] = "pano2vr"
+    payload["pano2vr_entry_relpath"] = entry_relpath
+    payload["pano2vr_import"] = {
+        "source": "pano2vr_export",
         "entry_relpath": entry_relpath,
         "target_subdir": target_subdir,
     }
@@ -109,7 +109,7 @@ def main() -> int:
                 "status": "imported",
                 "slug": slug,
                 "entry_relpath": entry_relpath,
-                "control_url": f"/tours/{slug}/control/3dvista",
+                "control_url": f"/tours/{slug}/control/pano2vr",
             },
             ensure_ascii=False,
         )
