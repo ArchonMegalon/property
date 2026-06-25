@@ -1,9 +1,13 @@
 {% set billing_cards = (primary_cards or []) + (secondary_cards or []) %}
-{% set checkout_card = namespace(value={}) %}
+{% set plan_card = namespace(value={}) %}
+{% set account_card = namespace(value={}) %}
 {% set upgrade_card = namespace(value={}) %}
 {% set history_card = namespace(value={}) %}
 {% for card in billing_cards %}
-  {% if card.get('title') in ['Payment', 'Account'] %}{% set checkout_card.value = card %}{% endif %}
+  {% set card_title = card.get('title') or '' %}
+  {% set card_eyebrow = card.get('eyebrow') or '' %}
+  {% if card_eyebrow == 'Plan' or card_title == 'Current access' %}{% set plan_card.value = card %}{% endif %}
+  {% if card_eyebrow == 'Account' or card_title in ['Payment', 'Account', 'Billing account', 'Access status', 'Compare plans'] %}{% set account_card.value = card %}{% endif %}
   {% if card.get('title') == 'Tier changes' %}{% set upgrade_card.value = card %}{% endif %}
   {% if card.get('title') == 'Billing history' %}{% set history_card.value = card %}{% endif %}
 {% endfor %}
@@ -13,7 +17,7 @@
     <div>
       <div class="pqx-small">Billing</div>
       <h2>Plan and payments</h2>
-      <div class="pqx-note">Keep plan state, upgrade decisions, and payment recovery visible without mixing them into the search workflow.</div>
+      <div class="pqx-note">Plan, invoices, and account access without leaving the workspace.</div>
     </div>
   </div>
 
@@ -27,31 +31,13 @@
     {% endfor %}
   </div>
 
-  {% if checkout_card.value.get('items') %}
-  {% set payment_rows = checkout_card.value.get('items') or [] %}
-  {% set payment_status = payment_rows[0] if payment_rows else {} %}
-  {% set payment_followup = payment_rows[1] if payment_rows|length > 1 else {} %}
-  <div class="pqx-note" style="margin:14px 0 0;">
-    {% if payment_status.get('tag') == 'Ready' %}
-    Payment updates are ready. Plan changes can happen without losing the current search context.
-    {% elif payment_status.get('tag') == 'Active' %}
-    Access is active. Use this page for plan state, invoices, and account handoff.
-    {% elif payment_status.get('tag') == 'Pending' %}
-    A payment change is still settling. PropertyQuarry keeps the current plan visible until the provider confirms the new state.
-    {% else %}
-    Billing is visible even when checkout is not ready, so plan state can be verified before the next run.
-    {% endif %}
-    {% if payment_followup.get('detail') %} {{ payment_followup.get('detail') }}{% endif %}
-  </div>
-  {% endif %}
-
   <div class="pqx-billing-grid">
-    {% for card in [checkout_card.value, upgrade_card.value, history_card.value] if card %}
+    {% for card in [plan_card.value, account_card.value, upgrade_card.value, history_card.value] if card %}
     <section class="pqx-billing-card"{% if card.get('id') %} id="{{ card.get('id') }}"{% endif %}>
       <div class="pqx-section-head">
         <div>
           {% if card.get('eyebrow') %}<div class="pqx-small">{{ card.get('eyebrow') }}</div>{% endif %}
-          <h2>{{ card.get('title') }}</h2>
+          <h2>{% if card.get('title') == 'Current access' %}Your plan{% else %}{{ card.get('title') }}{% endif %}</h2>
           {% if card.get('body') %}<div class="pqx-note">{{ card.get('body') }}</div>{% endif %}
         </div>
       </div>

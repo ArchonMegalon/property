@@ -2761,13 +2761,7 @@ def property_workspace_payload(
                 "Recorded",
             )
         )
-    billing_payment_rows = [
-        row_item(
-            "Status",
-            payment_status_detail,
-            payment_status_tag,
-        ),
-    ]
+    billing_payment_rows = []
     if last_payment_status:
         latest_payment_detail = last_payment_status.title()
         if last_payment_amount:

@@ -12635,6 +12635,9 @@ def test_propertyquarry_billing_surface_stays_compact_and_customer_facing() -> N
     assert "When to upgrade" not in rendered_text
     assert "White-label account lane" not in rendered_text
     assert "Local billing is active" not in rendered_text
+    assert "Status Payment lane not active yet" not in rendered_text
+    assert "Billing is visible even when checkout is not ready" not in rendered_text
+    assert "Your plan" in rendered_text
     assert "Open guide" in rendered_text
     assert "Back to search" not in rendered_text
 
