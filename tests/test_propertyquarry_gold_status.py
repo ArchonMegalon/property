@@ -209,6 +209,20 @@ def _bts_methodology_contract_payload(*, status: str = "pass") -> dict[str, obje
     }
 
 
+def _tour_delivery_contract_payload(*, status: str = "pass") -> dict[str, object]:
+    failures = [] if status == "pass" else ["Matterport must remain a first-class ready provider mode"]
+    return {
+        "schema": "propertyquarry.tour_delivery_contract_shape_receipt.v1",
+        "status": status,
+        "required_providers": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+        "ready_provider_modes": ["krpano", "magicfit", "matterport", "pano2vr"] if status == "pass" else ["krpano", "magicfit", "pano2vr"],
+        "missing_provider_modes": ["3dvista"] if status == "pass" else ["3dvista", "matterport"],
+        "matterport_ready_count": 29 if status == "pass" else 0,
+        "failure_count": len(failures),
+        "failures": failures,
+    }
+
+
 def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass", failed_count: int = 0) -> dict[str, object]:
     route_list = routes or [
         "/app/search",
@@ -727,6 +741,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     release_hygiene = _write_json(tmp_path / "release-hygiene.json", _release_hygiene_payload())
     furniture_style_contract = _write_json(tmp_path / "furniture-style-contract.json", _furniture_style_contract_payload())
     bts_methodology_contract = _write_json(tmp_path / "bts-methodology-contract.json", _bts_methodology_contract_payload())
+    tour_delivery_contract = _write_json(tmp_path / "tour-delivery-contract.json", _tour_delivery_contract_payload())
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -740,6 +755,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         release_hygiene_receipt_path=release_hygiene,
         furniture_style_contract_receipt_path=furniture_style_contract,
         bts_methodology_contract_receipt_path=bts_methodology_contract,
+        tour_delivery_contract_receipt_path=tour_delivery_contract,
     )
 
     assert receipt["status"] == "pass"
@@ -769,9 +785,11 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "release_hygiene",
         "furniture_style_variants",
         "bts_methodology",
+        "tour_delivery_contract_shape",
         "receipt_freshness",
     }.issubset(pass_areas)
     assert receipt["bts_methodology"]["source_section_count"] == 5
+    assert receipt["tour_delivery_contract_shape"]["matterport_ready_count"] == 29
 
 
 def test_gold_status_blocks_when_security_posture_receipt_fails(tmp_path: Path) -> None:
@@ -936,6 +954,49 @@ def test_gold_status_blocks_when_bts_methodology_contract_fails(tmp_path: Path) 
     assert receipt["bts_methodology"]["status"] == "fail"
     assert blocker["source_section_count"] == 4
     assert "score-PDF provenance" in blocker["action"]
+
+
+def test_gold_status_blocks_when_tour_delivery_contract_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    tour_delivery_contract = _write_json(
+        tmp_path / "tour-delivery-contract.json",
+        _tour_delivery_contract_payload(status="fail"),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        tour_delivery_contract_receipt_path=tour_delivery_contract,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "tour_delivery_contract_shape")
+    assert receipt["status"] == "blocked"
+    assert receipt["tour_delivery_contract_shape"]["status"] == "fail"
+    assert blocker["matterport_ready_count"] == 0
+    assert "first-class Matterport readiness" in blocker["action"]
 
 
 def test_gold_status_blocks_when_public_sign_in_account_creation_smoke_is_missing(tmp_path: Path) -> None:

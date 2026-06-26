@@ -117,6 +117,7 @@ DEFAULT_RECEIPT_PATTERNS = {
     "release_hygiene": ("_completion/release_hygiene/property-release-hygiene*.json",),
     "furniture_style_contract": ("_completion/furniture_styles/property-furniture-style-contract*.json",),
     "bts_methodology_contract": ("_completion/bts_methodology/property-bts-methodology-contract*.json",),
+    "tour_delivery_contract": ("_completion/tour_delivery/property-tour-delivery-contract*.json",),
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
@@ -135,6 +136,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "release_hygiene": "_completion/release_hygiene/property-release-hygiene-latest.json",
     "furniture_style_contract": "_completion/furniture_styles/property-furniture-style-contract-latest.json",
     "bts_methodology_contract": "_completion/bts_methodology/property-bts-methodology-contract-latest.json",
+    "tour_delivery_contract": "_completion/tour_delivery/property-tour-delivery-contract-latest.json",
 }
 
 
@@ -612,6 +614,7 @@ def build_gold_status_receipt(
     release_hygiene_receipt_path: Path | None = None,
     furniture_style_contract_receipt_path: Path | None = None,
     bts_methodology_contract_receipt_path: Path | None = None,
+    tour_delivery_contract_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -630,6 +633,7 @@ def build_gold_status_receipt(
     release_hygiene = _load_json(release_hygiene_receipt_path) if release_hygiene_receipt_path is not None else {}
     furniture_style_contract = _load_json(furniture_style_contract_receipt_path) if furniture_style_contract_receipt_path is not None else {}
     bts_methodology_contract = _load_json(bts_methodology_contract_receipt_path) if bts_methodology_contract_receipt_path is not None else {}
+    tour_delivery_contract = _load_json(tour_delivery_contract_receipt_path) if tour_delivery_contract_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
@@ -650,6 +654,7 @@ def build_gold_status_receipt(
             **({"release_hygiene": release_hygiene} if release_hygiene_receipt_path is not None else {}),
             **({"furniture_style_contract": furniture_style_contract} if furniture_style_contract_receipt_path is not None else {}),
             **({"bts_methodology_contract": bts_methodology_contract} if bts_methodology_contract_receipt_path is not None else {}),
+            **({"tour_delivery_contract": tour_delivery_contract} if tour_delivery_contract_receipt_path is not None else {}),
         },
         now=now,
         max_age_hours=max_receipt_age_hours,
@@ -832,6 +837,16 @@ def build_gold_status_receipt(
             and not list(bts_methodology_contract.get("failures") or [])
             and int(bts_methodology_contract.get("source_section_count") or 0) >= 5
             and {"en", "de"}.issubset(set(bts_methodology_contract.get("languages") or []))
+        )
+    )
+    tour_delivery_contract_ok = (
+        tour_delivery_contract_receipt_path is None
+        or (
+            tour_delivery_contract.get("status") == "pass"
+            and not list(tour_delivery_contract.get("failures") or [])
+            and "matterport" in set(tour_delivery_contract.get("ready_provider_modes") or [])
+            and int(tour_delivery_contract.get("matterport_ready_count") or 0) > 0
+            and set(tour_delivery_contract.get("required_providers") or []) == set(REQUIRED_TOUR_PROVIDER_MODES)
         )
     )
 
@@ -1020,6 +1035,18 @@ def build_gold_status_receipt(
                 "action": "rerun check_property_bts_methodology_contract.py --write and keep score-PDF provenance, official data-source copy, and selected-district no-reward policy passing",
             }
         )
+    if not tour_delivery_contract_ok:
+        blockers.append(
+            {
+                "area": "tour_delivery_contract_shape",
+                "status": tour_delivery_contract.get("status") or "missing",
+                "matterport_ready_count": tour_delivery_contract.get("matterport_ready_count"),
+                "ready_provider_modes": tour_delivery_contract.get("ready_provider_modes") or [],
+                "missing_provider_modes": tour_delivery_contract.get("missing_provider_modes") or [],
+                "failures": list(tour_delivery_contract.get("failures") or [])[:12],
+                "action": "rerun check_property_tour_delivery_contract.py --write and keep public-safe ready_payload, blocked_reason, required_to_send, white-label separation, and first-class Matterport readiness passing",
+            }
+        )
     if not receipt_freshness_ok:
         blockers.append(
             {
@@ -1160,6 +1187,15 @@ def build_gold_status_receipt(
         }
         if bts_methodology_contract_receipt_path is not None and bts_methodology_contract_ok
         else None,
+        {
+            "area": "tour_delivery_contract_shape",
+            "status": "pass",
+            "matterport_ready_count": tour_delivery_contract.get("matterport_ready_count"),
+            "ready_provider_modes": tour_delivery_contract.get("ready_provider_modes") or [],
+            "receipt_path": str(tour_delivery_contract_receipt_path),
+        }
+        if tour_delivery_contract_receipt_path is not None and tour_delivery_contract_ok
+        else None,
         {"area": "receipt_freshness", "status": "pass"}
         if receipt_freshness_ok
         else None,
@@ -1183,6 +1219,7 @@ def build_gold_status_receipt(
             and release_hygiene_ok
             and furniture_style_contract_ok
             and bts_methodology_contract_ok
+            and tour_delivery_contract_ok
             and receipt_freshness_ok
         )
         else "blocked"
@@ -1407,6 +1444,18 @@ def build_gold_status_receipt(
             "receipt_path": str(bts_methodology_contract_receipt_path) if bts_methodology_contract_receipt_path is not None else "",
             "note": "BTS score-PDF methodology gate for data-source provenance and selected-district no-reward scoring policy.",
         },
+        "tour_delivery_contract_shape": {
+            "status": tour_delivery_contract.get("status") or ("not_configured" if tour_delivery_contract_receipt_path is None else "missing"),
+            "schema": str(tour_delivery_contract.get("schema") or "") if tour_delivery_contract_receipt_path is not None else "",
+            "required_providers": tour_delivery_contract.get("required_providers") or [],
+            "ready_provider_modes": tour_delivery_contract.get("ready_provider_modes") or [],
+            "missing_provider_modes": tour_delivery_contract.get("missing_provider_modes") or [],
+            "matterport_ready_count": tour_delivery_contract.get("matterport_ready_count") if tour_delivery_contract_receipt_path is not None else None,
+            "failure_count": len(list(tour_delivery_contract.get("failures") or [])) if tour_delivery_contract_receipt_path is not None else None,
+            "failures": list(tour_delivery_contract.get("failures") or [])[:12] if tour_delivery_contract_receipt_path is not None else [],
+            "receipt_path": str(tour_delivery_contract_receipt_path) if tour_delivery_contract_receipt_path is not None else "",
+            "note": "Public-safe tour delivery contract shape gate with Chummer-derived ready/blocker vocabulary and first-class Matterport readiness.",
+        },
         "receipt_freshness": {
             "status": "pass" if receipt_freshness_ok else "fail",
             "max_age_hours": max_receipt_age_hours,
@@ -1441,6 +1490,7 @@ def main() -> int:
     parser.add_argument("--release-hygiene-receipt", default="")
     parser.add_argument("--furniture-style-contract-receipt", default="")
     parser.add_argument("--bts-methodology-contract-receipt", default="")
+    parser.add_argument("--tour-delivery-contract-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
     parser.add_argument("--provider-matrix-receipt", default="")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
@@ -1464,6 +1514,7 @@ def main() -> int:
         release_hygiene_receipt_path=Path(args.release_hygiene_receipt) if args.release_hygiene_receipt else _default_receipt_path("release_hygiene"),
         furniture_style_contract_receipt_path=Path(args.furniture_style_contract_receipt) if args.furniture_style_contract_receipt else _default_receipt_path("furniture_style_contract"),
         bts_methodology_contract_receipt_path=Path(args.bts_methodology_contract_receipt) if args.bts_methodology_contract_receipt else _default_receipt_path("bts_methodology_contract"),
+        tour_delivery_contract_receipt_path=Path(args.tour_delivery_contract_receipt) if args.tour_delivery_contract_receipt else _default_receipt_path("tour_delivery_contract"),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,

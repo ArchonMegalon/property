@@ -12,6 +12,7 @@ from PIL import Image
 
 from scripts.discover_property_tour_exports import build_discovery_receipt
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
+from scripts.check_property_tour_delivery_contract import build_tour_delivery_contract_receipt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -216,6 +217,95 @@ def test_tour_delivery_contract_reports_ready_public_safe_payload(tmp_path: Path
     ]
     assert "READY123" not in serialized_contract
     assert "my.matterport.com" not in serialized_contract
+
+
+def test_tour_delivery_contract_checker_accepts_matterport_ready_and_3dvista_blocked(
+    tmp_path: Path,
+) -> None:
+    slug = "delivery-contract-checker"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "display_title": "Matterport Delivery Contract",
+            "matterport_url": "https://my.matterport.com/show/?m=READY123",
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    tour_control_receipt = tmp_path / "tour-control.json"
+    tour_control_receipt.write_text(
+        json.dumps(build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")),
+        encoding="utf-8",
+    )
+
+    receipt = build_tour_delivery_contract_receipt(tour_control_receipt)
+
+    assert receipt["status"] == "pass"
+    assert receipt["matterport_ready_count"] == 1
+    assert "matterport" in receipt["ready_provider_modes"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "pano2vr", "krpano", "magicfit"}
+
+
+def test_tour_delivery_contract_checker_rejects_matterport_url_leak(tmp_path: Path) -> None:
+    receipt_path = tmp_path / "tour-control.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "ready_provider_modes": ["matterport"],
+                "missing_provider_modes": ["3dvista", "pano2vr", "krpano", "magicfit"],
+                "delivery_contracts": {
+                    provider: {
+                        "schema": "propertyquarry.tour_delivery_contract.v1",
+                        "provider": provider,
+                        "status": "blocked",
+                        "ready_payload": {"provider": provider, "ready_count": 0, "sample_controls": []},
+                        "blocked_reason": f"missing_{provider}",
+                        "required_to_send": ["attach verified evidence"],
+                        "white_label_contract": {
+                            "schema": "propertyquarry.tour_white_label_contract.v1",
+                            "provider": provider,
+                            "status": "blocked",
+                            "required_to_white_label": ["attach verified evidence"],
+                            "source_project": "propertyquarry",
+                            "cross_project_warning": "Chummer RunSite/Horizon white-label readiness is reusable process evidence only; it is not PropertyQuarry tour proof."
+                            if provider == "3dvista"
+                            else "",
+                        },
+                        "notes": [
+                            "The viewer presents tour media only. PropertyQuarry remains source of truth for listing facts, ranking, evidence, pricing, entitlement, and customer decisions."
+                        ],
+                    }
+                    for provider in ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["delivery_contracts"]["matterport"]["status"] = "ready"
+    payload["delivery_contracts"]["matterport"]["blocked_reason"] = ""
+    payload["delivery_contracts"]["matterport"]["required_to_send"] = []
+    payload["delivery_contracts"]["matterport"]["ready_payload"] = {
+        "provider": "matterport",
+        "ready_count": 1,
+        "sample_controls": [
+            {
+                "slug": "leaky",
+                "title": "Leaky Matterport",
+                "control_path": "/tours/leaky/control/matterport",
+                "evidence": "https://my.matterport.com/show/?m=LEAKED123",
+            }
+        ],
+    }
+    payload["delivery_contracts"]["matterport"]["white_label_contract"]["status"] = "ready"
+    payload["delivery_contracts"]["matterport"]["white_label_contract"]["required_to_white_label"] = []
+    receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    receipt = build_tour_delivery_contract_receipt(receipt_path)
+
+    assert receipt["status"] == "fail"
+    assert any("my.matterport.com/show" in failure for failure in receipt["failures"])
 
 
 def test_discovery_rejects_trial_branded_3dvista_export(tmp_path: Path) -> None:

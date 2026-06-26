@@ -40,6 +40,7 @@ Runs the focused PropertyQuarry release bundle:
   - consolidated PropertyQuarry gold-status receipt for mobile/performance, provider matrix, tour controls, repair, and export discovery
   - furniture-style variant contract for five visible styles, plan caps, examples, UI handoff, and style-aware cached rendering
   - BTS score-PDF methodology contract for source provenance and selected-district no-reward policy
+  - public-safe tour delivery contract shape for Matterport, 3DVista, Pano2VR, krpano, and MagicFit
   - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
@@ -66,7 +67,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_teable_portability.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
-mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/tours _completion/smoke _completion/property_gold_status _completion/repair _completion/provider_smoke _completion/furniture_styles _completion/bts_methodology
+mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/tours _completion/smoke _completion/property_gold_status _completion/repair _completion/provider_smoke _completion/furniture_styles _completion/bts_methodology _completion/tour_delivery
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_furniture_style_contract.py \
   --write _completion/furniture_styles/property-furniture-style-contract-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_bts_methodology_contract.py \
@@ -122,6 +123,9 @@ else
     --write _completion/tours/property-tour-vendor-tooling-current.json \
     > /dev/null
 fi
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_tour_delivery_contract.py \
+  --tour-control-receipt _completion/property_tour_controls/release-gate.json \
+  --write _completion/tour_delivery/property-tour-delivery-contract-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
@@ -192,6 +196,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --vendor-tooling-receipt _completion/tours/property-tour-vendor-tooling-current.json \
   --furniture-style-contract-receipt _completion/furniture_styles/property-furniture-style-contract-release-gate.json \
   --bts-methodology-contract-receipt _completion/bts_methodology/property-bts-methodology-contract-release-gate.json \
+  --tour-delivery-contract-receipt _completion/tour_delivery/property-tour-delivery-contract-release-gate.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
