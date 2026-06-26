@@ -61,7 +61,7 @@ def test_env_example_lists_flagship_property_provider_switches() -> None:
         "PROPERTYQUARRY_FASTESTVPN_AUTO_STOP_AFTER_REFRESH=1",
         "PROPERTYQUARRY_RYBBIT_ENABLED=0",
         "PROPERTYQUARRY_RYBBIT_AUTHENTICATED_ENABLED=0",
-        "PROPERTYQUARRY_RYBBIT_SKIP_PATTERNS=/app/**,/workspace-access/**,/app/api/**,/v1/**,/api/**,/auth/**,/admin/**,/tours/**",
+        "PROPERTYQUARRY_RYBBIT_SKIP_PATTERNS=/workspace-access/**,/app/api/**,/v1/**,/api/**,/auth/**,/admin/**,/tours/files/**",
         "PROPERTYQUARRY_RYBBIT_MASK_PATTERNS=/app/**,/workspace-access/**,/app/handoffs/**,/tours/**,/app/properties/**,/app/research/**",
     ):
         assert required in env
