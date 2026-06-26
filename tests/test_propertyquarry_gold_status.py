@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from scripts.propertyquarry_gold_status import build_gold_status_receipt
+from scripts.propertyquarry_gold_status import _latest_receipt_path, build_gold_status_receipt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,13 +16,32 @@ def _write_json(path: Path, payload: dict[str, object]) -> Path:
     return path
 
 
-def test_gold_status_cli_defaults_to_live_container_tour_receipt() -> None:
+def test_gold_status_cli_keeps_live_container_tour_receipt_as_fallback() -> None:
     source = (ROOT / "scripts/propertyquarry_gold_status.py").read_text(encoding="utf-8")
 
     assert "_completion/tours/property-tour-controls-live-container-current.json" in source
     assert "_completion/smoke/property-live-public-latest.json" in source
     assert "_completion/smoke/property-live-authenticated-latest.json" in source
     assert "_completion/tours/property-tour-controls-after-monotonic-counters.json" not in source
+
+
+def test_gold_status_defaults_pick_newest_matching_receipt(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    older = _write_json(
+        tmp_path / "_completion" / "tours" / "property-tour-controls-live-container-current.json",
+        {"generated_at": "2026-06-26T01:00:00+00:00", "status": "blocked_missing_provider_modes"},
+    )
+    newer = _write_json(
+        tmp_path / "_completion" / "tours" / "property-tour-controls-live-current-refresh.json",
+        {"generated_at": "2026-06-26T03:45:47+00:00", "status": "blocked_missing_provider_modes"},
+    )
+
+    selected = _latest_receipt_path(
+        ("_completion/tours/property-tour-controls*.json",),
+        fallback=str(older),
+    )
+
+    assert selected == newer
 
 
 def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> dict[str, object]:

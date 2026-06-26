@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -98,6 +100,32 @@ PROVIDER_OPERATOR_DROP_README_TOKENS = {
 }
 
 
+DEFAULT_RECEIPT_PATTERNS = {
+    "performance": ("_completion/smoke/property-auth-performance-*.json",),
+    "live_mobile": ("_completion/smoke/property-live-mobile-surface*.json",),
+    "public_smoke": ("_completion/smoke/property-live-public*.json",),
+    "authenticated_smoke": ("_completion/smoke/property-live-authenticated*.json",),
+    "tour_control": ("_completion/tours/property-tour-controls*.json",),
+    "export_discovery": ("_completion/tours/property-tour-export-discovery*.json",),
+    "import_manifest": ("_completion/property_tour_exports/import-manifest*.json",),
+    "billing": ("_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION*.json",),
+    "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
+    "provider_matrix": ("_completion/provider_smoke/all-search-ready*.json",),
+}
+DEFAULT_RECEIPT_FALLBACKS = {
+    "performance": "_completion/smoke/property-auth-performance-latest.json",
+    "live_mobile": "_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json",
+    "public_smoke": "_completion/smoke/property-live-public-latest.json",
+    "authenticated_smoke": "_completion/smoke/property-live-authenticated-latest.json",
+    "tour_control": "_completion/tours/property-tour-controls-live-container-current.json",
+    "export_discovery": "_completion/tours/property-tour-export-discovery-full-current.json",
+    "import_manifest": "_completion/property_tour_exports/import-manifest-current.json",
+    "billing": "_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json",
+    "repair_canary": "_completion/repair/propertyquarry-repair-canary-latest.json",
+    "provider_matrix": "_completion/provider_smoke/all-search-ready-current-resumed.json",
+}
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -108,6 +136,33 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"status": "invalid", "path": str(path), "error": "json_root_not_object"}
     return payload
+
+
+def _latest_receipt_path(patterns: tuple[str, ...], *, fallback: str) -> Path:
+    candidates: list[Path] = []
+    for pattern in patterns:
+        candidates.extend(path for path in Path().glob(pattern) if path.is_file())
+    if not candidates:
+        return Path(fallback).expanduser().resolve()
+
+    def sort_key(path: Path) -> tuple[float, float, str]:
+        payload = _load_json(path)
+        generated_at, _timestamp_source, _raw_generated_at = _receipt_generated_at(payload)
+        generated_timestamp = generated_at.timestamp() if generated_at is not None else 0.0
+        try:
+            modified_timestamp = path.stat().st_mtime
+        except OSError:
+            modified_timestamp = 0.0
+        return (generated_timestamp, modified_timestamp, path.as_posix())
+
+    return max(candidates, key=sort_key).resolve()
+
+
+def _default_receipt_path(name: str) -> Path:
+    return _latest_receipt_path(
+        DEFAULT_RECEIPT_PATTERNS[name],
+        fallback=DEFAULT_RECEIPT_FALLBACKS[name],
+    )
 
 
 def _parse_receipt_datetime(value: object) -> datetime | None:
@@ -1135,34 +1190,34 @@ def build_gold_status_receipt(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize current PropertyQuarry gold-readiness receipts.")
-    parser.add_argument("--performance-receipt", default="_completion/smoke/property-auth-performance-latest.json")
-    parser.add_argument("--live-mobile-receipt", default="_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json")
-    parser.add_argument("--public-smoke-receipt", default="_completion/smoke/property-live-public-latest.json")
-    parser.add_argument("--authenticated-smoke-receipt", default="_completion/smoke/property-live-authenticated-latest.json")
-    parser.add_argument("--tour-control-receipt", default="_completion/tours/property-tour-controls-live-container-current.json")
-    parser.add_argument("--export-discovery-receipt", default="_completion/tours/property-tour-export-discovery-full-current.json")
-    parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
-    parser.add_argument("--billing-receipt", default="_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json")
+    parser.add_argument("--performance-receipt", default="")
+    parser.add_argument("--live-mobile-receipt", default="")
+    parser.add_argument("--public-smoke-receipt", default="")
+    parser.add_argument("--authenticated-smoke-receipt", default="")
+    parser.add_argument("--tour-control-receipt", default="")
+    parser.add_argument("--export-discovery-receipt", default="")
+    parser.add_argument("--import-manifest-receipt", default="")
+    parser.add_argument("--billing-receipt", default="")
     parser.add_argument("--tour-provider-ownership-receipt", default="")
-    parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
-    parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-current-resumed.json")
+    parser.add_argument("--repair-canary-receipt", default="")
+    parser.add_argument("--provider-matrix-receipt", default="")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
     parser.add_argument("--max-receipt-age-hours", type=float, default=24.0)
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
 
     receipt = build_gold_status_receipt(
-        performance_receipt_path=Path(args.performance_receipt),
-        live_mobile_receipt_path=Path(args.live_mobile_receipt),
-        public_smoke_receipt_path=Path(args.public_smoke_receipt),
-        authenticated_smoke_receipt_path=Path(args.authenticated_smoke_receipt),
-        tour_control_receipt_path=Path(args.tour_control_receipt),
-        export_discovery_receipt_path=Path(args.export_discovery_receipt),
-        import_manifest_receipt_path=Path(args.import_manifest_receipt),
-        billing_receipt_path=Path(args.billing_receipt),
+        performance_receipt_path=Path(args.performance_receipt) if args.performance_receipt else _default_receipt_path("performance"),
+        live_mobile_receipt_path=Path(args.live_mobile_receipt) if args.live_mobile_receipt else _default_receipt_path("live_mobile"),
+        public_smoke_receipt_path=Path(args.public_smoke_receipt) if args.public_smoke_receipt else _default_receipt_path("public_smoke"),
+        authenticated_smoke_receipt_path=Path(args.authenticated_smoke_receipt) if args.authenticated_smoke_receipt else _default_receipt_path("authenticated_smoke"),
+        tour_control_receipt_path=Path(args.tour_control_receipt) if args.tour_control_receipt else _default_receipt_path("tour_control"),
+        export_discovery_receipt_path=Path(args.export_discovery_receipt) if args.export_discovery_receipt else _default_receipt_path("export_discovery"),
+        import_manifest_receipt_path=Path(args.import_manifest_receipt) if args.import_manifest_receipt else _default_receipt_path("import_manifest"),
+        billing_receipt_path=Path(args.billing_receipt) if args.billing_receipt else _default_receipt_path("billing"),
         tour_provider_ownership_receipt_path=Path(args.tour_provider_ownership_receipt) if args.tour_provider_ownership_receipt else None,
-        repair_canary_receipt_path=Path(args.repair_canary_receipt),
-        provider_matrix_receipt_path=Path(args.provider_matrix_receipt),
+        repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
+        provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
@@ -1170,7 +1225,11 @@ def main() -> int:
         out_path = Path(args.write)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(output + "\n", encoding="utf-8")
-    print(output)
+    try:
+        print(output)
+    except BrokenPipeError:
+        with contextlib.suppress(Exception):
+            sys.stdout.close()
     if receipt.get("status") == "pass":
         return 0
     return 2 if args.fail_on_blocked else 0
