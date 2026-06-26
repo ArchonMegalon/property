@@ -722,6 +722,45 @@ def test_propertyquarry_research_everyday_fit_rows_use_named_confirmed_distances
     assert "with no value" not in json.dumps(rows)
 
 
+def test_propertyquarry_route_previews_require_values_and_name_unnamed_distances() -> None:
+    rows = landing_property_workspace_helpers._property_progress_route_preview_rows(
+        run_summary={
+            "ranked_candidates": [
+                {
+                    "title": "Unnamed daily-life evidence",
+                    "property_facts": {
+                        "nearest_supermarket_m": 420,
+                        "nearest_pharmacy_m": "",
+                        "nearest_subway_m": "unknown",
+                    },
+                }
+            ]
+        },
+        property_preferences={},
+    )
+
+    assert rows == [
+        {
+            "title": "Nearest confirmed supermarket",
+            "label": "Supermarket",
+            "detail": "420 m from the property",
+            "mode_label": "Walk",
+            "map_url": "https://www.google.com/maps/dir/?api=1&origin=Unnamed%20daily-life%20evidence&destination=Nearest%20confirmed%20supermarket&travelmode=walking",
+            "preview_path": "M 12.0 56.0 C 42.0 48.0, 96.0 24.0, 132.0 18.0",
+        }
+    ]
+    assert "unknown" not in json.dumps(rows).lower()
+    assert "with no value" not in json.dumps(rows).lower()
+
+
+def test_propertyquarry_browser_route_preview_uses_confirmed_distance_fallback_copy() -> None:
+    body = _read_workbench_bundle()
+
+    assert "Nearest confirmed ${String(label || 'place').toLowerCase()}" in body
+    assert "const distance = Number(facts[distanceKey] || 0);" in body
+    assert "if (!Number.isFinite(distance) || distance <= 0) return;" in body
+
+
 def test_propertyquarry_research_missing_rows_respect_confirmed_distance_aliases() -> None:
     rows = landing_property_research._property_packet_missing_rows(
         facts={

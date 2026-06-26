@@ -604,7 +604,8 @@ def _property_candidate_route_evidence(
             meters = int(float(raw_distance))
         except Exception:
             continue
-        place_name = str(facts.get(name_key) or label).strip() or label
+        raw_place_name = str(facts.get(name_key) or "").strip()
+        place_name = raw_place_name or f"Nearest confirmed {label.lower()}"
         row = {
             "icon": icon,
             "label": label,
@@ -735,7 +736,8 @@ def _property_progress_route_preview_rows(
             meters = int(float(raw_distance))
         except Exception:
             continue
-        place_name = str(facts.get(name_key) or label).strip() or label
+        raw_place_name = str(facts.get(name_key) or "").strip()
+        place_name = raw_place_name or f"Nearest confirmed {label.lower()}"
         rows.append(
             {
                 "title": place_name,

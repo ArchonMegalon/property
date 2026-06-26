@@ -1595,9 +1595,11 @@
         if (!enabled) return;
         const distance = Number(facts[distanceKey] || 0);
         if (!Number.isFinite(distance) || distance <= 0) return;
+        const rawName = String(facts[nameKey] || '').trim();
+        const placeName = rawName || `Nearest confirmed ${String(label || 'place').toLowerCase()}`;
         previews.push({
           label,
-          title: String(facts[nameKey] || label),
+          title: placeName,
           detail: `${Math.round(distance)} m from the property`,
           mode_label: modeLabel,
           map_url: String(((Array.isArray(candidate.route_evidence) ? candidate.route_evidence : []).find((row) => String(row?.label || '') === label)?.map_url) || candidate.map_url || '').trim(),
