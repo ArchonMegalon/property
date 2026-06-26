@@ -116,7 +116,10 @@ DEFAULT_RECEIPT_PATTERNS = {
     "billing": ("_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION*.json",),
     "vendor_tooling": ("_completion/tours/property-tour-vendor-tooling*.json",),
     "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
-    "provider_matrix": ("_completion/provider_smoke/all-search-ready*.json",),
+    "provider_matrix": (
+        "_completion/provider_smoke/all-search-ready*.json",
+        "_completion/smoke/property-provider-e2e*.json",
+    ),
     "whole_project_scope": ("_completion/whole_project_scope/property-whole-project-scope*.json",),
     "security_posture": ("_completion/security/property-security-posture*.json",),
     "release_hygiene": ("_completion/release_hygiene/property-release-hygiene*.json",),

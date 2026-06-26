@@ -349,6 +349,13 @@ def _billing_handoff_dns_receipt(
                 "local_resolver_error": local_error,
                 "public_dns": public_dns,
             }
+        if public_dns.get("matched_target") and public_dns.get("target_resolves") is False:
+            next_action = (
+                f"replace PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET and the {host} CNAME "
+                "with the resolving white-label billing target shown in Brilliant Directories Domain Manager"
+            )
+        else:
+            next_action = f"create DNS for {host} before enabling the Brilliant Directories billing handoff"
         return {
             "configured": True,
             "url": handoff_url,
@@ -356,7 +363,7 @@ def _billing_handoff_dns_receipt(
             "host_resolves": False,
             "error": local_error,
             "required_dns_record": required_dns_record,
-            "next_action": f"create DNS for {host} before enabling the Brilliant Directories billing handoff",
+            "next_action": next_action,
             "resolution_source": "local_resolver",
             "local_resolver_error": local_error,
             "public_dns": public_dns,
@@ -378,41 +385,58 @@ def _public_dns_handoff_receipt(*, host: str, dns_target: str) -> dict[str, obje
     normalized_target = str(dns_target or "").strip().lower().rstrip(".")
     if not normalized_host:
         return {"checked": False, "host_resolves": False, "reason": "host_missing"}
-    answers: list[dict[str, object]] = []
     errors: list[str] = []
-    for endpoint in BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS:
-        query = urllib.parse.urlencode({"name": normalized_host, "type": "CNAME"})
-        url = f"{endpoint}?{query}"
-        request = urllib.request.Request(
-            url,
-            headers={
-                "Accept": "application/dns-json",
-                "User-Agent": "PropertyQuarryBillingDnsVerifier/1.0",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=8) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except Exception as exc:
-            errors.append(f"{urllib.parse.urlparse(endpoint).hostname or endpoint}:{type(exc).__name__}")
-            continue
-        for row in payload.get("Answer") or []:
-            if not isinstance(row, dict):
+
+    def query_answers(name: str, qtype: str) -> list[dict[str, object]]:
+        normalized_name = str(name or "").strip().lower().rstrip(".")
+        if not normalized_name:
+            return []
+        answers: list[dict[str, object]] = []
+        for endpoint in BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS:
+            query = urllib.parse.urlencode({"name": normalized_name, "type": qtype})
+            url = f"{endpoint}?{query}"
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/dns-json",
+                    "User-Agent": "PropertyQuarryBillingDnsVerifier/1.0",
+                },
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=8) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            except Exception as exc:
+                errors.append(f"{urllib.parse.urlparse(endpoint).hostname or endpoint}:{qtype}:{type(exc).__name__}")
                 continue
-            answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
-            answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
-            answer_type = int(row.get("type") or 0)
-            if answer_name == normalized_host and answer_data:
-                answers.append({"type": answer_type, "data": answer_data, "endpoint": endpoint})
+            for row in payload.get("Answer") or []:
+                if not isinstance(row, dict):
+                    continue
+                answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
+                answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
+                answer_type = int(row.get("type") or 0)
+                if answer_name == normalized_name and answer_data:
+                    answers.append({"type": answer_type, "data": answer_data, "endpoint": endpoint})
+        return answers
+
+    answers = query_answers(normalized_host, "CNAME")
     cname_answers = [row for row in answers if int(row.get("type") or 0) == 5]
     if normalized_target:
         matched = any(str(row.get("data") or "").strip().lower().rstrip(".") == normalized_target for row in cname_answers)
+        target_answers = [
+            row
+            for qtype in ("A", "AAAA")
+            for row in query_answers(normalized_target, qtype)
+            if int(row.get("type") or 0) in {1, 28}
+        ] if matched else []
+        target_resolves = bool(target_answers)
         return {
             "checked": True,
-            "host_resolves": matched,
+            "host_resolves": matched and target_resolves,
             "required_target": normalized_target,
             "matched_target": matched,
+            "target_resolves": target_resolves,
             "answers": cname_answers[:5],
+            "target_answers": target_answers[:5],
             "errors": errors,
         }
     return {

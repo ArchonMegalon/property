@@ -44,6 +44,22 @@ def test_gold_status_defaults_pick_newest_matching_receipt(tmp_path: Path, monke
     assert selected == newer
 
 
+def test_gold_status_provider_matrix_default_finds_live_e2e_receipts(tmp_path: Path, monkeypatch) -> None:
+    from scripts.propertyquarry_gold_status import _default_receipt_path
+
+    monkeypatch.chdir(tmp_path)
+    _write_json(
+        tmp_path / "_completion" / "provider_smoke" / "all-search-ready-current-resumed.json",
+        {"generated_at": "2026-06-26T09:00:00+00:00", "status": "pass"},
+    )
+    live_e2e = _write_json(
+        tmp_path / "_completion" / "smoke" / "property-provider-e2e-at-de-cr-latest.json",
+        {"generated_at": "2026-06-26T11:07:15+00:00", "status": "pass"},
+    )
+
+    assert _default_receipt_path("provider_matrix") == live_e2e.resolve()
+
+
 def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> dict[str, object]:
     return {
         "status": status,

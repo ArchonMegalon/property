@@ -235,6 +235,9 @@ def test_brilliant_directories_verifier_accepts_public_dns_when_local_resolver_i
         raise OSError("stale local dns")
 
     class _DnsResponse:
+        def __init__(self, payload: dict[str, object]):
+            self._payload = payload
+
         def __enter__(self):
             return self
 
@@ -242,7 +245,12 @@ def test_brilliant_directories_verifier_accepts_public_dns_when_local_resolver_i
             return False
 
         def read(self) -> bytes:
-            return json.dumps(
+            return json.dumps(self._payload).encode("utf-8")
+
+    def dns_response(request, timeout=0):
+        url = str(getattr(request, "full_url", request))
+        if "name=billing.propertyquarry.com" in url:
+            return _DnsResponse(
                 {
                     "Status": 0,
                     "Answer": [
@@ -253,9 +261,23 @@ def test_brilliant_directories_verifier_accepts_public_dns_when_local_resolver_i
                         }
                     ],
                 }
-            ).encode("utf-8")
+            )
+        if "name=members.brilliantdirectories.com" in url and "type=A" in url:
+            return _DnsResponse(
+                {
+                    "Status": 0,
+                    "Answer": [
+                        {
+                            "name": "members.brilliantdirectories.com.",
+                            "type": 1,
+                            "data": "203.0.113.20",
+                        }
+                    ],
+                }
+            )
+        return _DnsResponse({"Status": 0, "Answer": []})
 
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0: _DnsResponse())
+    monkeypatch.setattr(urllib.request, "urlopen", dns_response)
     monkeypatch.setattr(brilliant_directories_service.socket, "getaddrinfo", stale_local_resolver)
 
     receipt = build_brilliant_directories_verification_receipt()
@@ -266,6 +288,58 @@ def test_brilliant_directories_verifier_accepts_public_dns_when_local_resolver_i
     assert receipt["billing_handoff"]["resolution_source"] == "public_dns_over_https"
     assert receipt["billing_handoff"]["local_resolver_error"].startswith("billing_handoff_host_unresolved")
     assert receipt["billing_handoff"]["public_dns"]["matched_target"] is True
+    assert receipt["billing_handoff"]["public_dns"]["target_resolves"] is True
+
+
+def test_brilliant_directories_verifier_rejects_public_dns_target_without_address_records(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET", "members.brilliantdirectories.com")
+
+    def stale_local_resolver(_host: str, _port: int) -> None:
+        raise OSError("stale local dns")
+
+    class _DnsResponse:
+        def __init__(self, payload: dict[str, object]):
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+    def dns_response(request, timeout=0):
+        url = str(getattr(request, "full_url", request))
+        if "name=billing.propertyquarry.com" in url:
+            return _DnsResponse(
+                {
+                    "Status": 0,
+                    "Answer": [
+                        {
+                            "name": "billing.propertyquarry.com.",
+                            "type": 5,
+                            "data": "members.brilliantdirectories.com.",
+                        }
+                    ],
+                }
+            )
+        return _DnsResponse({"Status": 3, "Answer": []})
+
+    monkeypatch.setattr(urllib.request, "urlopen", dns_response)
+    monkeypatch.setattr(brilliant_directories_service.socket, "getaddrinfo", stale_local_resolver)
+
+    receipt = build_brilliant_directories_verification_receipt()
+
+    assert receipt["status"] == "blocked"
+    assert receipt["billing_handoff"]["host_resolves"] is False
+    assert receipt["billing_handoff"]["public_dns"]["matched_target"] is True
+    assert receipt["billing_handoff"]["public_dns"]["target_resolves"] is False
+    assert "Brilliant Directories Domain Manager" in receipt["billing_handoff"]["next_action"]
 
 
 def test_brilliant_directories_verifier_rejects_public_dns_target_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
