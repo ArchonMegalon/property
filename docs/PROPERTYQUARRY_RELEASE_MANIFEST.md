@@ -13,13 +13,23 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `67875b372cfe8a218b2c8df4c7bf180a0756d858` |
+| Runtime commit SHA | `a60f0e6f45ef65b0a2e30312deb4a5790adc185d` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | local compose redeploy on 2026-06-26 after `make deploy` for Teable oversized-field sync hardening, confirmed-distance route-preview copy, zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `a60f0e6f` passed:
+
+- `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_renders_what_matters_as_comboboxes tests/test_product_api_contracts.py::test_property_search_preferences_enable_new_research_and_source_flags tests/test_product_api_contracts.py::test_property_official_risk_evidence_for_austria_includes_school_noise_and_broadband tests/test_product_api_contracts.py::test_property_austria_preference_adjustment_scores_heat_resilience tests/test_property_score_methodology.py tests/test_fliplink_webhook_contracts.py::test_score_methodology_pdf_endpoint_uses_requested_language tests/test_property_market_catalog.py::test_austria_official_sources_are_evidence_not_listing_providers` returned `12 passed`.
+- `python3 -m py_compile ea/app/api/routes/landing_view_models.py ea/app/product/property_location_research.py ea/app/product/property_score_methodology.py ea/app/product/service.py ea/app/services/property_market_catalog.py ea/app/services/fliplink/pdf_renderer.py`
+- `git diff --check`
+- What Matters now includes `Klimaerwärmungsfit` under the customer-facing `Check before deciding` group with multilingual helper metadata.
+- The heat-resilience preference normalizes to `prefer_heat_resilient_home` and affects ranking through Austria scoring: penalties for Dachgeschoss/top floor, large south-facing windows, inner-city heat-island heuristic, and official/extracted heat risk; bonuses for cooling, Altbau/thick-wall signal, external shading, tree/courtyard shade, and attached official climate evidence.
+- Official evidence lanes now include Vienna `Klimaanalysekarte` heat evidence, data.gv.at-backed Breitbandatlas, air quality, noise, traffic, green shade, schools, childcare through existing controls, and flood/water context without inventing duplicate user-facing filters.
+- The BTS score PDF now explains where information comes from and no longer awards points merely for being in the selected district; selected district remains an eligibility/location-verification rule with `+0` example delta.
 
 The candidate at `67875b37` passed:
 
