@@ -2830,6 +2830,13 @@ def test_propertyquarry_shared_shells_apply_saved_dark_theme_tokens() -> None:
     assert 'html[data-pq-theme="dark"] .pq-appbar' in base_console
     assert 'html[data-pq-theme="dark"] .pq-appbar-mobile-nav a' in base_console
     assert '.pq-mobile-nav' not in base_console
+    mobile_start = base_console.find("@media (max-width: 760px)")
+    assert mobile_start > 0
+    mobile_block = base_console[mobile_start:base_console.find("@media", mobile_start + 1)]
+    assert ".pq-topbar-actions .account-menu summary span" in mobile_block
+    assert "max-width: 1.1em;" in mobile_block
+    assert ".pq-topbar-actions .account-menu-panel" in mobile_block
+    assert "position: fixed;" in mobile_block
 
     base_public = (repo_root / "ea/app/templates/base_public.html").read_text(encoding="utf-8")
     assert 'html[data-pq-theme="dark"] .mobile-nav a' in base_public

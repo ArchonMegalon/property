@@ -7364,8 +7364,8 @@
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card,
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-summary-card,
       .pqx-shell[data-pqx-surface="alerts"] .pqx-card {
-        border-color: color-mix(in srgb, var(--pq-line) 86%, transparent);
-        background: color-mix(in srgb, var(--pq-paper) 96%, transparent);
+        border-color: color-mix(in srgb, var(--pq-line) 58%, transparent);
+        background: color-mix(in srgb, var(--pq-paper) 98%, transparent);
         box-shadow: none;
       }
       .pqx-shell[data-pqx-surface="billing"] .pqx-billing-card .pqx-section-head {
@@ -7396,8 +7396,12 @@
       .pqx-account-logout-strip {
         grid-template-columns: minmax(0, 1fr);
         gap: 8px;
-        padding: 10px;
+        padding: 9px;
         border-radius: 14px;
+        box-shadow: none;
+      }
+      .pqx-account-logout-strip small {
+        display: none;
       }
       .pqx-account-logout-strip-form {
         display: grid;
@@ -7412,10 +7416,10 @@
       .pqx-account-board,
       .pqx-account-action-grid,
       .pqx-account-channel-form {
-        gap: 10px;
+        gap: 8px;
       }
       .pqx-account-action-card {
-        padding: 8px;
+        padding: 9px;
         border-radius: 12px;
         box-shadow: none;
       }
@@ -7432,12 +7436,12 @@
       }
       .pqx-account-channel-options {
         grid-template-columns: minmax(0, 1fr);
-        gap: 8px;
+        gap: 6px;
       }
       .pqx-account-channel-option {
-        min-height: 64px;
+        min-height: 52px;
         gap: 9px;
-        padding: 10px 12px;
+        padding: 8px 10px;
         border-radius: 14px;
         font-size: 14px;
         line-height: 1.18;
@@ -7462,9 +7466,9 @@
         display: none;
         grid-template-columns: minmax(0, 1fr);
         align-items: stretch;
-        gap: 8px;
+        gap: 6px;
         min-height: 0;
-        padding: 10px;
+        padding: 8px;
         border-radius: 14px;
         font-size: 12px;
       }
