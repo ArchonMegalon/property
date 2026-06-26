@@ -128,6 +128,17 @@ def _billing_payload(*, host_resolves: bool = True, status: str = "disabled") ->
     }
 
 
+def _tour_provider_ownership_payload() -> dict[str, object]:
+    return {
+        "status": "pass",
+        "missing_providers": [],
+        "providers": {
+            "3dvista": {"status": "owned_configured", "export_verified": False},
+            "pano2vr": {"status": "owned_configured", "export_verified": False},
+        },
+    }
+
+
 def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass", failed_count: int = 0) -> dict[str, object]:
     route_list = routes or [
         "/app/search",
@@ -495,6 +506,7 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
         },
     )
     provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    ownership = _write_json(tmp_path / "tour-provider-ownership.json", _tour_provider_ownership_payload())
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -502,6 +514,7 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
         export_discovery_receipt_path=discovery,
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
+        tour_provider_ownership_receipt_path=ownership,
     )
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "magicfit_walkthrough_playback")
@@ -539,6 +552,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         },
     )
     provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    ownership = _write_json(tmp_path / "tour-provider-ownership.json", _tour_provider_ownership_payload())
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -546,6 +560,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         export_discovery_receipt_path=discovery,
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
+        tour_provider_ownership_receipt_path=ownership,
     )
 
     assert receipt["status"] == "pass"
@@ -560,6 +575,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert {
         "performance",
         "analytics_privacy",
+        "tour_provider_ownership",
         "provider_targeted_search_matrix",
         "self_healing",
         "receipt_freshness",

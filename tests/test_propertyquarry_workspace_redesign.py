@@ -936,11 +936,15 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     public_client.headers.pop("X-EA-Principal-ID", None)
 
     page = client.get("/register", headers={"host": "propertyquarry.com"})
+    pricing = client.get("/pricing", headers={"host": "propertyquarry.com"})
     sign_in = public_client.get("/sign-in", headers={"host": "propertyquarry.com"})
+    public_pricing = public_client.get("/pricing", headers={"host": "propertyquarry.com"})
     signed_in_sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
 
     assert page.status_code == 200
+    assert pricing.status_code == 200
     assert sign_in.status_code == 200
+    assert public_pricing.status_code == 200
     assert signed_in_sign_in.status_code == 200
     assert "Start an account that finds and ranks the right properties" in page.text
     assert "Create the account and start the first search" in page.text
@@ -951,6 +955,13 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert ">Log out<" not in sign_in.text
     assert 'href="/app/search"' in signed_in_sign_in.text
     assert "Open search" in signed_in_sign_in.text
+    assert 'href="/app/search"' in pricing.text
+    assert "Your account is already active." in pricing.text
+    assert 'href="/app/billing"' in pricing.text
+    assert 'href="/register"' not in pricing.text
+    assert "Create account" not in pricing.text
+    assert "Start free" in public_pricing.text
+    assert "First sign-in creates the account automatically." in public_pricing.text
     assert 'action="/app/actions/sign-out"' in signed_in_sign_in.text
     assert ">Log out<" in signed_in_sign_in.text
     assert signed_in_sign_in.text.count('action="/app/actions/sign-out"') == 1

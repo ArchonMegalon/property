@@ -2686,7 +2686,11 @@ def pricing_page(
         if payfunnels_configured(plan_key=paid_plan):
             checkout_enabled_plans.append(paid_plan)
             checkout_order_endpoints_by_plan[paid_plan] = "/app/api/signals/property/billing/checkout/order"
-    checkout_session_ready = access_identity is not None or _workspace_session_payload(request, container) is not None
+    checkout_session_ready = bool(
+        access_identity is not None
+        or principal_id
+        or _workspace_session_payload(request, container) is not None
+    )
     return _render_public_template(
         request,
         "pricing_page.html",

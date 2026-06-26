@@ -13,13 +13,28 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `0e3c364d9d030b8c3c1b301b55aa4f274b977da1` |
+| Runtime commit SHA | `35736fa012b7880579dbcfdd5b6f9142b7064702` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `35736fa` passed:
+
+- `python3 -m py_compile scripts/verify_property_tour_provider_ownership.py scripts/propertyquarry_gold_status.py ea/app/api/routes/landing.py`
+- `bash -n scripts/property_release_gates.sh`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_property_tour_provider_ownership.py tests/test_propertyquarry_gold_status.py tests/test_property_deploy_operator_contracts.py`
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'register_surface_uses_property_search_language'`
+- `make deploy`
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`.
+- A live session-cookie pricing smoke against `http://127.0.0.1:8097/pricing` returned `status=200`, no `Start free`, no `Create account`, no `/register`, and confirmed `Open search`, `Open billing`, and `Your account is already active.` for an active `ea_workspace_session`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py --base-url http://localhost:8097 --write _completion/smoke/property-live-public-release-gate.json` returned `status=pass`, `failed_count=0`, and `route_count=22`.
+- The pricing page now treats a resolved PropertyQuarry principal as an active account session: logged-in users see `Open search` and billing/account-lane CTAs instead of `/register` or `Create account`.
+- The tour ownership gate now writes `_completion/property_tour_ownership/release-gate.json` from local ignored environment configuration and receipt metadata without printing or tracking secrets. This proves 3DVista/Pano2VR ownership/config presence only; it is not export/playback evidence.
+- A broader `tests/test_propertyquarry_workspace_redesign.py` run still has unrelated residual failures for stale trust/research/workbench copy expectations and Brilliant Directories DNS-gated billing redirects; those remain outside this pricing/ownership patch.
+- Current gold status remains `blocked` because ownership proof does not replace the required verified 3DVista/Pano2VR export/control evidence and `billing.propertyquarry.com` DNS remains unresolved.
 
 The candidate at `0e3c364` passed:
 

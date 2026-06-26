@@ -140,6 +140,9 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py
   --api-token "${EA_API_TOKEN}" \
   --write _completion/smoke/property-live-authenticated-release-gate.json \
   > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_provider_ownership.py \
+  --write _completion/property_tour_ownership/release-gate.json \
+  > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_repair_fleet_canary.py \
   > _completion/repair/propertyquarry-repair-canary-release-gate.json
 if [[ -f _completion/provider_smoke/all-search-ready-current-resumed.json ]]; then
@@ -165,6 +168,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json \
   --public-smoke-receipt _completion/smoke/property-live-public-release-gate.json \
   --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-release-gate.json \
+  --tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \

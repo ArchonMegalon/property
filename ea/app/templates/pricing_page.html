@@ -114,7 +114,10 @@
         <li><span>Saved searches</span><strong>{% if plan.search_agent_limit > 0 %}{{ plan.search_agent_limit }}{% else %}Unlimited{% endif %}</strong></li>
       </ul>
       <div class="tier-actions">
-        {% if plan.plan_key == 'free' %}
+        {% if plan.plan_key == 'free' and pricing_checkout_session_ready %}
+        <a class="btn primary" href="/app/search" data-analytics-event="pricing_open_search" data-rybbit-event="pricing_open_search" data-rybbit-prop-plan="free">Open search</a>
+        <span class="tier-provider">Your account is already active.</span>
+        {% elif plan.plan_key == 'free' %}
         <a class="btn primary" href="/register" data-analytics-event="pricing_start_free" data-rybbit-event="pricing_start_free" data-rybbit-prop-plan="free">Start free</a>
         <span class="tier-provider">No payment required.</span>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) and pricing_checkout_session_ready %}
@@ -129,11 +132,14 @@
         >Start checkout</button>
         <span class="tier-provider">Secure checkout.</span>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) %}
-        <a class="btn primary" href="/register" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
+        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
         <span class="tier-provider">Secure checkout.</span>
+        {% elif pricing_checkout_session_ready %}
+        <a class="btn ghost" href="/app/billing" data-analytics-event="pricing_billing_{{ plan.plan_key }}" data-rybbit-event="pricing_open_billing_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Open billing</a>
+        <span class="tier-provider">Use your active account lane.</span>
         {% else %}
-        <a class="btn ghost" href="/register" data-analytics-event="pricing_account_{{ plan.plan_key }}" data-rybbit-event="pricing_create_account_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Create account</a>
-        <span class="tier-provider">Open account, then activate from billing.</span>
+        <a class="btn ghost" href="/sign-in?signing_in=1" data-analytics-event="pricing_account_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to start</a>
+        <span class="tier-provider">First sign-in creates the account automatically.</span>
         {% endif %}
       </div>
     </section>

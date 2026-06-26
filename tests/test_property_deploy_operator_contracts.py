@@ -191,6 +191,9 @@ def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
     assert "_completion/smoke/property-live-authenticated-release-gate.json" in release_gate
     assert "--public-smoke-receipt _completion/smoke/property-live-public-release-gate.json" in release_gate
     assert "--authenticated-smoke-receipt _completion/smoke/property-live-authenticated-release-gate.json" in release_gate
+    assert "scripts/verify_property_tour_provider_ownership.py" in release_gate
+    assert "_completion/property_tour_ownership/release-gate.json" in release_gate
+    assert "--tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate
 
 

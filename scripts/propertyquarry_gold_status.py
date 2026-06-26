@@ -538,6 +538,7 @@ def build_gold_status_receipt(
     live_mobile_receipt_path: Path | None = None,
     public_smoke_receipt_path: Path | None = None,
     authenticated_smoke_receipt_path: Path | None = None,
+    tour_provider_ownership_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -549,6 +550,7 @@ def build_gold_status_receipt(
     export_discovery = _load_json(export_discovery_receipt_path)
     import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
     billing_receipt = _load_json(billing_receipt_path) if billing_receipt_path is not None else {}
+    tour_provider_ownership = _load_json(tour_provider_ownership_receipt_path) if tour_provider_ownership_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
@@ -562,6 +564,7 @@ def build_gold_status_receipt(
             **({"live_mobile_surfaces": live_mobile} if live_mobile_receipt_path is not None else {}),
             **({"public_auth_surfaces": public_smoke} if public_smoke_receipt_path is not None else {}),
             **({"authenticated_customer_surfaces": authenticated_smoke} if authenticated_smoke_receipt_path is not None else {}),
+            **({"tour_provider_ownership": tour_provider_ownership} if tour_provider_ownership_receipt_path is not None else {}),
         },
         now=now,
         max_age_hours=max_receipt_age_hours,
@@ -907,6 +910,11 @@ def build_gold_status_receipt(
         )
 
     operator_import_manifest_ok = import_manifest_receipt_path is None or operator_import_manifest_ready
+    tour_provider_ownership_ok = (
+        tour_provider_ownership_receipt_path is not None
+        and tour_provider_ownership.get("status") == "pass"
+        and not list(tour_provider_ownership.get("missing_providers") or [])
+    )
     pass_areas = [
         {"area": "performance", "status": "pass", "receipt_path": str(performance_receipt_path)}
         if performance_ok
@@ -922,6 +930,15 @@ def build_gold_status_receipt(
         else None,
         {"area": "authenticated_customer_surfaces", "status": "pass", "receipt_path": str(authenticated_smoke_receipt_path)}
         if authenticated_smoke_receipt_path is not None and authenticated_customer_ok
+        else None,
+        {
+            "area": "tour_provider_ownership",
+            "status": "pass",
+            "providers": sorted((tour_provider_ownership.get("providers") or {}).keys()),
+            "receipt_path": str(tour_provider_ownership_receipt_path),
+            "note": "Ownership/config proof only; verified exports are still required for gold tour readiness.",
+        }
+        if tour_provider_ownership_ok
         else None,
         {
             "area": "provider_targeted_search_matrix",
@@ -1061,6 +1078,14 @@ def build_gold_status_receipt(
             "ready": billing_ok,
             "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",
         },
+        "tour_provider_ownership": {
+            "status": tour_provider_ownership.get("status") or ("not_configured" if tour_provider_ownership_receipt_path is None else "missing"),
+            "missing_providers": tour_provider_ownership.get("missing_providers") or [],
+            "providers": sorted((tour_provider_ownership.get("providers") or {}).keys()) if isinstance(tour_provider_ownership.get("providers"), dict) else [],
+            "ready": tour_provider_ownership_ok,
+            "receipt_path": str(tour_provider_ownership_receipt_path) if tour_provider_ownership_receipt_path is not None else "",
+            "note": "This does not satisfy 3D-tour gold without verified 3DVista/Pano2VR exports or allowlisted hosted controls.",
+        },
         "self_healing": {
             "status": repair_canary.get("status"),
             "run_status": repair_canary.get("run_status"),
@@ -1118,6 +1143,7 @@ def main() -> int:
     parser.add_argument("--export-discovery-receipt", default="_completion/tours/property-tour-export-discovery-full-current.json")
     parser.add_argument("--import-manifest-receipt", default="_completion/property_tour_exports/import-manifest-current.json")
     parser.add_argument("--billing-receipt", default="_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json")
+    parser.add_argument("--tour-provider-ownership-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="_completion/repair/propertyquarry-repair-canary-latest.json")
     parser.add_argument("--provider-matrix-receipt", default="_completion/provider_smoke/all-search-ready-current-resumed.json")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
@@ -1134,6 +1160,7 @@ def main() -> int:
         export_discovery_receipt_path=Path(args.export_discovery_receipt),
         import_manifest_receipt_path=Path(args.import_manifest_receipt),
         billing_receipt_path=Path(args.billing_receipt),
+        tour_provider_ownership_receipt_path=Path(args.tour_provider_ownership_receipt) if args.tour_provider_ownership_receipt else None,
         repair_canary_receipt_path=Path(args.repair_canary_receipt),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt),
         max_receipt_age_hours=args.max_receipt_age_hours,
