@@ -6,6 +6,7 @@ import hmac
 import os
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -222,6 +223,89 @@ def test_brilliant_directories_verifier_accepts_resolving_billing_handoff(monkey
     assert receipt["billing_handoff"]["host_resolves"] is True
     assert receipt["billing_handoff"]["required_dns_record"]["name"] == "billing.propertyquarry.com"
     assert receipt["billing_handoff"]["next_action"].startswith("keep the resolving HTTPS billing handoff")
+
+
+def test_brilliant_directories_verifier_accepts_public_dns_when_local_resolver_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET", "members.brilliantdirectories.com")
+
+    def stale_local_resolver(_host: str, _port: int) -> None:
+        raise OSError("stale local dns")
+
+    class _DnsResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "Status": 0,
+                    "Answer": [
+                        {
+                            "name": "billing.propertyquarry.com.",
+                            "type": 5,
+                            "data": "members.brilliantdirectories.com.",
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0: _DnsResponse())
+    monkeypatch.setattr(brilliant_directories_service.socket, "getaddrinfo", stale_local_resolver)
+
+    receipt = build_brilliant_directories_verification_receipt()
+
+    assert receipt["status"] == "disabled"
+    assert receipt["error"] == ""
+    assert receipt["billing_handoff"]["host_resolves"] is True
+    assert receipt["billing_handoff"]["resolution_source"] == "public_dns_over_https"
+    assert receipt["billing_handoff"]["local_resolver_error"].startswith("billing_handoff_host_unresolved")
+    assert receipt["billing_handoff"]["public_dns"]["matched_target"] is True
+
+
+def test_brilliant_directories_verifier_rejects_public_dns_target_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET", "members.brilliantdirectories.com")
+
+    def stale_local_resolver(_host: str, _port: int) -> None:
+        raise OSError("stale local dns")
+
+    class _DnsResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "Status": 0,
+                    "Answer": [
+                        {
+                            "name": "billing.propertyquarry.com.",
+                            "type": 5,
+                            "data": "wrong.example.com.",
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0: _DnsResponse())
+    monkeypatch.setattr(brilliant_directories_service.socket, "getaddrinfo", stale_local_resolver)
+
+    receipt = build_brilliant_directories_verification_receipt()
+
+    assert receipt["status"] == "blocked"
+    assert receipt["billing_handoff"]["host_resolves"] is False
+    assert receipt["billing_handoff"]["public_dns"]["matched_target"] is False
 
 
 def test_property_billing_route_redirects_to_allowlisted_brilliant_directories_account(monkeypatch: pytest.MonkeyPatch) -> None:

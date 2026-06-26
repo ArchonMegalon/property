@@ -17,6 +17,10 @@ BRILLIANT_DIRECTORIES_CONTRACT_NAME = "propertyquarry.brilliant_directories_proj
 BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME = "propertyquarry.brilliant_directories_provider_verification.v1"
 BRILLIANT_DIRECTORIES_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 BRILLIANT_DIRECTORIES_WHITE_LABEL_BLOCKLIST = ("brilliantdirectories", "brilliant-directories")
+BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS = (
+    "https://cloudflare-dns.com/dns-query",
+    "https://dns.google/resolve",
+)
 
 BRILLIANT_DIRECTORIES_PUBLIC_PROFILE_FIELDS = frozenset(
     {
@@ -326,17 +330,36 @@ def _billing_handoff_dns_receipt(
             "next_action": "replace PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL with an HTTPS URL containing a host",
         }
     resolve = resolver or socket.getaddrinfo
+    local_error = ""
     try:
         resolve(host, 443)
     except OSError as exc:
+        local_error = f"billing_handoff_host_unresolved:{exc.__class__.__name__}"
+        public_dns = {} if resolver is not None else _public_dns_handoff_receipt(host=host, dns_target=dns_target)
+        if public_dns.get("host_resolves"):
+            return {
+                "configured": True,
+                "url": handoff_url,
+                "host": host,
+                "host_resolves": True,
+                "error": "",
+                "required_dns_record": required_dns_record,
+                "next_action": "keep the resolving HTTPS billing handoff under the allowlisted white-label host",
+                "resolution_source": "public_dns_over_https",
+                "local_resolver_error": local_error,
+                "public_dns": public_dns,
+            }
         return {
             "configured": True,
             "url": handoff_url,
             "host": host,
             "host_resolves": False,
-            "error": f"billing_handoff_host_unresolved:{exc.__class__.__name__}",
+            "error": local_error,
             "required_dns_record": required_dns_record,
             "next_action": f"create DNS for {host} before enabling the Brilliant Directories billing handoff",
+            "resolution_source": "local_resolver",
+            "local_resolver_error": local_error,
+            "public_dns": public_dns,
         }
     return {
         "configured": True,
@@ -346,6 +369,57 @@ def _billing_handoff_dns_receipt(
         "error": "",
         "required_dns_record": required_dns_record,
         "next_action": "keep the resolving HTTPS billing handoff under the allowlisted white-label host",
+        "resolution_source": "local_resolver",
+    }
+
+
+def _public_dns_handoff_receipt(*, host: str, dns_target: str) -> dict[str, object]:
+    normalized_host = str(host or "").strip().lower().rstrip(".")
+    normalized_target = str(dns_target or "").strip().lower().rstrip(".")
+    if not normalized_host:
+        return {"checked": False, "host_resolves": False, "reason": "host_missing"}
+    answers: list[dict[str, object]] = []
+    errors: list[str] = []
+    for endpoint in BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS:
+        query = urllib.parse.urlencode({"name": normalized_host, "type": "CNAME"})
+        url = f"{endpoint}?{query}"
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/dns-json",
+                "User-Agent": "PropertyQuarryBillingDnsVerifier/1.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            errors.append(f"{urllib.parse.urlparse(endpoint).hostname or endpoint}:{type(exc).__name__}")
+            continue
+        for row in payload.get("Answer") or []:
+            if not isinstance(row, dict):
+                continue
+            answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
+            answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
+            answer_type = int(row.get("type") or 0)
+            if answer_name == normalized_host and answer_data:
+                answers.append({"type": answer_type, "data": answer_data, "endpoint": endpoint})
+    cname_answers = [row for row in answers if int(row.get("type") or 0) == 5]
+    if normalized_target:
+        matched = any(str(row.get("data") or "").strip().lower().rstrip(".") == normalized_target for row in cname_answers)
+        return {
+            "checked": True,
+            "host_resolves": matched,
+            "required_target": normalized_target,
+            "matched_target": matched,
+            "answers": cname_answers[:5],
+            "errors": errors,
+        }
+    return {
+        "checked": True,
+        "host_resolves": bool(answers),
+        "answers": answers[:5],
+        "errors": errors,
     }
 
 
