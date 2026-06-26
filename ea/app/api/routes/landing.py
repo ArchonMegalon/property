@@ -131,6 +131,7 @@ from app.services.property_market_catalog import (
     listing_mode_options as property_listing_mode_options,
     investment_research_mode_label as property_investment_research_mode_label,
     investment_research_mode_options as property_investment_research_mode_options,
+    is_customer_search_country_code,
     normalize_country_code,
     normalize_listing_mode,
     normalize_property_search_preferences,
@@ -607,6 +608,20 @@ def _property_country_catalog_snapshot_json() -> str:
 
 def _property_country_catalog_snapshot() -> dict[str, object]:
     return dict(json.loads(_property_country_catalog_snapshot_json()))
+
+
+def _property_customer_scoped_preferences(preferences: dict[str, object]) -> dict[str, object]:
+    scoped = dict(preferences or {})
+    selected_country = normalize_country_code(scoped.get("country_code"))
+    if not is_customer_search_country_code(selected_country):
+        removed_platforms = list(scoped.get("selected_platforms") or [])
+        scoped["country_code"] = "AT"
+        scoped["region_code"] = ""
+        scoped["location_query"] = ""
+        scoped["selected_platforms"] = []
+        scoped["provider_selection_filter_applied"] = True
+        scoped["provider_selection_filter_removed"] = removed_platforms
+    return scoped
 
 
 @lru_cache(maxsize=1)
@@ -1730,7 +1745,7 @@ def _property_console_context(
         dict,
     ):
         merged_preference_seed["property_commercial"] = dict(raw_property_preferences.get("property_commercial") or {})
-    preferences = normalize_property_search_preferences(merged_preference_seed)
+    preferences = _property_customer_scoped_preferences(normalize_property_search_preferences(merged_preference_seed))
     selected_country = normalize_country_code(preferences.get("country_code"))
     commercial = property_commercial_snapshot(preferences)
     billing_order_endpoints_by_plan: dict[str, str] = {}
@@ -1873,8 +1888,10 @@ def _property_console_context(
             else {}
         )
         if run_preferences_payload:
-            preferences = normalize_property_search_preferences(
-                {**preferences, **_property_compact_preference_overlay(run_preferences_payload)}
+            preferences = _property_customer_scoped_preferences(
+                normalize_property_search_preferences(
+                    {**preferences, **_property_compact_preference_overlay(run_preferences_payload)}
+                )
             )
             selected_country = normalize_country_code(preferences.get("country_code"))
             commercial = property_commercial_snapshot(preferences)

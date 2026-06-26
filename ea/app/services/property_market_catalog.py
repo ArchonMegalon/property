@@ -147,6 +147,10 @@ COUNTRIES: tuple[PropertyCountrySpec, ...] = (
 )
 
 
+CUSTOMER_SEARCH_COUNTRY_ORDER: tuple[str, ...] = ("AT", "DE", "CR")
+CUSTOMER_SEARCH_COUNTRY_CODES: frozenset[str] = frozenset(CUSTOMER_SEARCH_COUNTRY_ORDER)
+
+
 LANGUAGES: tuple[tuple[str, str], ...] = (
     ("en", "English"),
     ("de", "Deutsch"),
@@ -3012,6 +3016,11 @@ def is_supported_country_code(value: object) -> bool:
     return resolve_country_code(value) is not None
 
 
+def is_customer_search_country_code(value: object) -> bool:
+    resolved = resolve_country_code(value)
+    return bool(resolved and resolved in CUSTOMER_SEARCH_COUNTRY_CODES)
+
+
 def normalize_country_code(value: object, *, default: str = "AT") -> str:
     return resolve_country_code(value) or default
 
@@ -3076,7 +3085,11 @@ def normalize_property_type(value: object) -> str:
 
 
 def country_options() -> list[dict[str, str]]:
-    return [{"value": row.code, "label": row.label} for row in COUNTRIES]
+    return [
+        {"value": code, "label": _COUNTRY_INDEX[code].label}
+        for code in CUSTOMER_SEARCH_COUNTRY_ORDER
+        if code in _COUNTRY_INDEX
+    ]
 
 
 def language_options() -> list[dict[str, str]]:

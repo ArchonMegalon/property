@@ -87,6 +87,7 @@ from app.services.property_market_catalog import (
     default_platforms_for_country_listing_mode as property_default_platforms_for_country_listing_mode,
     evidence_source_options as property_evidence_source_options,
     filter_selectable_property_platforms as property_filter_selectable_property_platforms,
+    is_customer_search_country_code as property_is_customer_search_country_code,
     normalize_listing_mode as property_normalize_listing_mode,
     normalize_property_search_preferences as property_normalize_search_preferences,
     normalize_property_platform as property_normalize_platform,
@@ -267,6 +268,8 @@ def _sanitize_property_search_run_platforms(
 ) -> tuple[dict[str, object], tuple[str, ...]]:
     normalized_preferences = property_normalize_search_preferences(dict(property_preferences or {}))
     country_code = property_normalize_country_code(normalized_preferences.get("country_code")) or "AT"
+    if not property_is_customer_search_country_code(country_code):
+        raise ValueError("unsupported_property_market")
     listing_mode = property_normalize_listing_mode(normalized_preferences.get("listing_mode"))
     requested = tuple(
         dict.fromkeys(
@@ -1146,6 +1149,8 @@ def get_property_providers(
     property_type: str = Query(default="any", min_length=1, max_length=24),
 ) -> dict[str, object]:
     country_code = property_normalize_country_code(country)
+    if not property_is_customer_search_country_code(country_code):
+        raise HTTPException(status_code=400, detail="unsupported_property_market")
     normalized_listing_mode = property_normalize_listing_mode(listing_mode)
     normalized_property_type = property_normalize_property_type(property_type)
     return {

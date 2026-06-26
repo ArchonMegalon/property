@@ -12,6 +12,8 @@ from app.services.property_market_catalog import (
     evidence_source_options,
     filter_selectable_property_platforms,
     generated_source_specs,
+    country_options,
+    is_customer_search_country_code,
     is_supported_country_code,
     language_label,
     listing_mode_label,
@@ -370,6 +372,19 @@ def test_country_normalization_understands_common_country_names() -> None:
     assert normalize_country_code("Costa Rica") == "CR"
     assert is_supported_country_code("Spain") is True
     assert is_supported_country_code("NO") is False
+
+
+def test_customer_country_options_are_limited_to_presentation_markets() -> None:
+    options = country_options()
+    values = [row["value"] for row in options]
+
+    assert values == ["AT", "DE", "CR"]
+    assert is_customer_search_country_code("Austria") is True
+    assert is_customer_search_country_code("Germany") is True
+    assert is_customer_search_country_code("Costa Rica") is True
+    assert is_customer_search_country_code("UK") is False
+    assert is_customer_search_country_code("AU") is False
+    assert is_customer_search_country_code("PL") is False
 
 
 def test_generated_source_specs_use_country_platform_defaults() -> None:

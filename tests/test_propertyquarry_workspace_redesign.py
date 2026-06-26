@@ -7713,9 +7713,9 @@ def test_property_search_progress_copy_names_providers_not_generic_sources() -> 
     assert '"label": "Source checks"' not in view_model_source
 
 
-def test_propertyquarry_search_range_controls_use_selected_country_currency() -> None:
-    client = build_property_client(principal_id="pq-search-currency-uk")
-    start_workspace(client, mode="personal", workspace_name="Property Search Currency UK")
+def test_propertyquarry_search_surface_hides_out_of_scope_country_currency() -> None:
+    client = build_property_client(principal_id="pq-search-currency-out-of-scope")
+    start_workspace(client, mode="personal", workspace_name="Property Search Currency Scope")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
         json={
@@ -7733,8 +7733,12 @@ def test_propertyquarry_search_range_controls_use_selected_country_currency() ->
     assert response.status_code == 200
     assert 'data-range-control="max_price_eur"' in response.text
     assert 'data-range-format="currency_eur"' in response.text
-    assert 'data-range-currency-code="GBP"' in response.text
-    assert "GBP 2M" in response.text
+    assert 'data-range-currency-code="GBP"' not in response.text
+    assert "GBP 2M" not in response.text
+    assert 'value="rightmove"' not in response.text
+    assert 'value="AT"' in response.text
+    assert 'value="DE"' in response.text
+    assert 'value="CR"' in response.text
 
 
 def test_property_research_decision_rows_remove_clarification_noise() -> None:

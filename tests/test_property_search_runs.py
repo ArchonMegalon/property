@@ -8959,10 +8959,9 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
     cr_response = client.get("/app/api/property/providers", params={"country": "CR"})
 
     assert at_response.status_code == 200, at_response.text
-    assert uk_response.status_code == 200, uk_response.text
+    assert uk_response.status_code == 400, uk_response.text
     assert cr_response.status_code == 200, cr_response.text
     at_body = at_response.json()
-    uk_body = uk_response.json()
     cr_body = cr_response.json()
     assert at_body["country_code"] == "AT"
     assert cr_body["country_code"] == "CR"
@@ -8976,8 +8975,7 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
     assert any(row["value"] == "bwsg_at" and row["family"] == "cooperative" for row in at_body["providers"])
     assert any(row["value"] == "arwag_at" and row["family"] == "developer_projects" for row in at_body["providers"])
     assert any(row["value"] == "raiffeisen_wohnbau_at" and row["family"] == "developer_projects" for row in at_body["providers"])
-    assert all("Willhaben" not in row["label"] for row in uk_body["providers"])
-    assert any(row["value"] == "rightmove" for row in uk_body["providers"])
+    assert uk_response.json()["error"]["code"] == "unsupported_property_market"
     assert any(row["value"] == "encuentra24_cr" for row in cr_body["providers"])
     assert any(row["value"] == "re_cr_mls" for row in cr_body["providers"])
     assert any(row["value"] == "theagency_cr" and row["family"] == "broker_direct" for row in cr_body["providers"])
@@ -10926,7 +10924,7 @@ def test_property_search_effective_min_match_score_uses_discovery_floor() -> Non
     assert product_service._property_search_effective_min_match_score({"search_mode": "discovery", "min_match_score": 60}) == 1.0
 
 
-def test_property_search_run_defaults_platforms_from_country_preferences(monkeypatch) -> None:
+def test_property_search_run_rejects_saved_out_of_scope_country_preferences(monkeypatch) -> None:
     principal_id = "exec-property-search-country-defaults"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Search Country Defaults")
@@ -10944,43 +10942,9 @@ def test_property_search_run_defaults_platforms_from_country_preferences(monkeyp
     )
     assert stored.status_code == 200, stored.text
 
-    observed: dict[str, object] = {}
-
-    def _fake_sync_direct_property_scout(
-        self,
-        *,
-        principal_id: str,
-        actor: str,
-        selected_platforms: tuple[str, ...] = (),
-        property_search_preferences: dict[str, object] | None = None,
-        force_refresh: bool = False,
-        max_results_per_source: int | None = None,
-        progress_callback: callable | None = None,
-    ) -> dict[str, object]:
-        observed["selected_platforms"] = tuple(selected_platforms)
-        observed["property_search_preferences"] = dict(property_search_preferences or {})
-        return {
-            "generated_at": product_service._now_iso(),
-            "status": "processed",
-            "sources_total": 1,
-            "listing_total": 1,
-            "review_created_total": 1,
-            "review_existing_total": 0,
-            "notified_total": 0,
-            "tour_created_total": 0,
-            "tour_existing_total": 0,
-            "high_fit_total": 0,
-            "watch_notified_total": 0,
-            "sources": [],
-        }
-
-    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
-
     started = client.post("/app/api/signals/property/search/run", json={"property_preferences": {}})
-    assert started.status_code == 200, started.text
-    assert set(observed.get("selected_platforms") or ()) == {"rightmove", "zoopla", "onthemarket"}
-    assert observed["property_search_preferences"]["country_code"] == "UK"
-    assert observed["property_search_preferences"]["location_query"] == "London"
+    assert started.status_code == 400, started.text
+    assert started.json()["error"]["code"] == "unsupported_property_market"
 
 
 def test_property_search_run_drops_saved_providers_from_wrong_country(monkeypatch) -> None:
