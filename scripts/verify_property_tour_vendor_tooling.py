@@ -97,6 +97,32 @@ def _container_command_available(container: str, command: str) -> dict[str, obje
     }
 
 
+def _container_python_import_available(container: str, module: str) -> dict[str, object]:
+    if not container:
+        return {"available": False, "container": "", "module": module}
+    docker = shutil.which("docker")
+    if not docker:
+        return {"available": False, "container": container, "module": module, "reason": "docker_missing"}
+    script = f"python3 - <<'PY'\nimport {module}\nprint({module}.__version__ if hasattr({module}, '__version__') else 'available')\nPY"
+    try:
+        completed = subprocess.run(
+            [docker, "exec", container, "sh", "-lc", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        return {"available": False, "container": container, "module": module, "reason": type(exc).__name__}
+    return {
+        "available": completed.returncode == 0,
+        "container": container,
+        "module": module,
+        "version": (completed.stdout or completed.stderr or "").strip().splitlines()[0][:120] if (completed.stdout or completed.stderr or "").strip() else "",
+        "returncode": int(completed.returncode),
+    }
+
+
 def _installer_search_roots(extra_roots: list[str]) -> list[Path]:
     roots = [
         _repo_root() / "state" / "vendor_installers",
@@ -187,6 +213,8 @@ def build_vendor_tooling_receipt(
         command: _container_command_available(runtime_container, command)
         for command in runtime_required_tools
     } if runtime_container else {}
+    if runtime_container:
+        runtime_generated_tour_tools["python:numpy"] = _container_python_import_available(runtime_container, "numpy")
     runtime_generated_tour_ready = (
         all(bool(row.get("available")) for row in runtime_generated_tour_tools.values())
         if runtime_generated_tour_tools

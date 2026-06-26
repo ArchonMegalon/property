@@ -14139,6 +14139,7 @@ def _default_magicfit_property_flythrough_prompt(
         f"{movement_directive}"
         f"{daylight_context} "
         f"{location_easter_egg}"
+        "This is a photoreal staging render, not a Blender preview, not a game engine, not CGI, and not a synthetic showroom. "
         "Realistic inhabited family-home styling, not an empty showroom: jackets and shoes in the entry, "
         "someone naturally cooking in the kitchen where the layout allows it, TV running in the living area, "
         "toys or school items in one room, laundry or towels near bath/storage zones, open books, plants, cups, "

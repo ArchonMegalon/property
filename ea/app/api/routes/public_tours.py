@@ -494,21 +494,27 @@ def _3dvista_export_file(slug: str, asset_path: str) -> Path:
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-    entry_relpath = _3dvista_entry_relpath(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     bundle_dir = _tour_bundle_dir(slug)
-    if not entry_relpath or not safe_relpath or bundle_dir is None:
+    entries, _roots = _3dvista_export_allowed_relpaths(payload)
+    if not entries or not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
-    if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
+    verified_entries = {
+        entry_relpath
+        for entry_relpath in entries
+        if _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS)
+    }
+    if not verified_entries:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
     suffix = PurePosixPath(safe_relpath).suffix.lower()
     if suffix not in _3DVISTA_EXPORT_ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
-    export_root = _3dvista_export_root_relpath(payload)
-    if export_root:
-        allowed = safe_relpath == entry_relpath or safe_relpath.startswith(f"{export_root}/")
-    else:
-        allowed = safe_relpath == entry_relpath
+    verified_roots: set[str] = set()
+    for entry_relpath in verified_entries:
+        parent = str(PurePosixPath(entry_relpath).parent)
+        if parent and parent != ".":
+            verified_roots.add(parent.rstrip("/"))
+    allowed = safe_relpath in verified_entries or any(safe_relpath.startswith(f"{root}/") for root in verified_roots)
     if not allowed:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
     candidate = (bundle_dir / safe_relpath).resolve()
@@ -1486,6 +1492,42 @@ def _3dvista_export_root_relpath(payload: dict[str, object]) -> str:
         return ""
     parent = str(PurePosixPath(entry_relpath).parent)
     return "" if parent == "." else parent.rstrip("/")
+
+
+def _3dvista_export_layer_entry_relpaths(payload: dict[str, object]) -> list[str]:
+    relpaths: list[str] = []
+    raw_layers = payload.get("tour_layers") or payload.get("provider_layers") or payload.get("interactive_layers")
+    if not isinstance(raw_layers, list):
+        return relpaths
+    for row in raw_layers:
+        if not isinstance(row, dict):
+            continue
+        provider = str(row.get("provider") or row.get("viewer_provider") or "").strip().lower()
+        if provider not in {"3dvista", "3d_vista", "three_d_vista"}:
+            continue
+        relpath = _public_tour_safe_asset_relpath(
+            str(
+                row.get("three_d_vista_entry_relpath")
+                or row.get("threedvista_entry_relpath")
+                or row.get("3dvista_entry_relpath")
+                or row.get("entry_relpath")
+                or ""
+            ).strip()
+        )
+        if relpath and relpath not in relpaths:
+            relpaths.append(relpath)
+    return relpaths
+
+
+def _3dvista_export_allowed_relpaths(payload: dict[str, object]) -> tuple[set[str], set[str]]:
+    entries = {_3dvista_entry_relpath(payload)}
+    roots = {_3dvista_export_root_relpath(payload)}
+    for entry_relpath in _3dvista_export_layer_entry_relpaths(payload):
+        entries.add(entry_relpath)
+        parent = str(PurePosixPath(entry_relpath).parent)
+        if parent and parent != ".":
+            roots.add(parent.rstrip("/"))
+    return {entry for entry in entries if entry}, {root.rstrip("/") for root in roots if root}
 
 
 def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
@@ -5098,6 +5140,93 @@ def _tour_control_video_provider(payload: dict[str, object]) -> str:
     ).strip().lower()
 
 
+def _tour_control_provider_layers(
+    *,
+    payload: dict[str, object],
+    default_src: str,
+    default_label: str,
+) -> list[dict[str, str]]:
+    slug = str(payload.get("slug") or "").strip()
+    safe_slug = html.escape(slug)
+    layers: list[dict[str, str]] = [
+        {
+            "id": "as_listed",
+            "label": "As listed",
+            "src": str(default_src or "").strip(),
+            "provider": str(default_label or "Provider").strip(),
+            "disclosure": "Source provider tour. This is the evidence-grade visual baseline.",
+        }
+    ]
+    seen = {layers[0]["src"]}
+    raw_layers = payload.get("tour_layers") or payload.get("provider_layers") or payload.get("interactive_layers")
+    if not isinstance(raw_layers, list):
+        return layers
+    for index, row in enumerate(raw_layers, start=1):
+        if not isinstance(row, dict):
+            continue
+        provider = str(row.get("provider") or row.get("viewer_provider") or "").strip().lower()
+        layer_id = re.sub(r"[^a-z0-9_-]+", "-", str(row.get("id") or row.get("mode") or f"layer-{index}").strip().lower()).strip("-")
+        label = str(row.get("label") or row.get("title") or layer_id.replace("-", " ").title()).strip()
+        disclosure = str(row.get("disclosure") or "").strip()
+        src = ""
+        if provider == "matterport":
+            for key in ("matterport_url", "url", "iframe_src"):
+                src = _safe_matterport_external_url(row.get(key))
+                if src:
+                    break
+            disclosure = disclosure or "Staged Matterport variant. Requires a separate provider-backed model; the original source tour is unchanged."
+        elif provider in {"3dvista", "3d_vista", "three_d_vista"}:
+            for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "url", "iframe_src"):
+                src = _safe_3dvista_external_url(row.get(key))
+                if src:
+                    break
+            if not src and bool(row.get("same_tour_layer")):
+                query = str(row.get("query") or row.get("layer_query") or "").strip().lstrip("?")
+                fragment = str(row.get("fragment") or row.get("hash") or row.get("layer_hash") or "").strip().lstrip("#")
+                if default_src and (query or fragment):
+                    safe_query = urllib.parse.urlencode(urllib.parse.parse_qsl(query, keep_blank_values=False), doseq=True)
+                    safe_fragment = urllib.parse.quote(fragment, safe="/=&:;,+_-")
+                    parsed_default = urllib.parse.urlparse(default_src)
+                    src = urllib.parse.urlunparse(
+                        (
+                            parsed_default.scheme,
+                            parsed_default.netloc,
+                            parsed_default.path,
+                            parsed_default.params,
+                            safe_query,
+                            safe_fragment,
+                        )
+                    )
+            if not src and slug:
+                entry_relpath = _public_tour_safe_asset_relpath(
+                    str(
+                        row.get("three_d_vista_entry_relpath")
+                        or row.get("threedvista_entry_relpath")
+                        or row.get("3dvista_entry_relpath")
+                        or row.get("entry_relpath")
+                        or ""
+                    ).strip()
+                )
+                if entry_relpath and _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_3DVISTA_EXPORT_MARKERS):
+                    src = f"/tours/3dvista/{safe_slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
+            disclosure = disclosure or (
+                "Staged 3DVista layer. This uses a declared provider layer or second export, not a fake overlay."
+            )
+        if not src or src in seen:
+            continue
+        seen.add(src)
+        layers.append(
+            {
+                "id": layer_id or f"layer-{index}",
+                "label": label or f"Layer {index}",
+                "src": src,
+                "provider": "Matterport" if provider == "matterport" else "3DVista",
+                "disclosure": disclosure,
+            }
+        )
+    return layers
+
+
 def _tour_control_external_iframe_html(
     *,
     title: str,
@@ -5107,6 +5236,18 @@ def _tour_control_external_iframe_html(
 ) -> str:
     payload = payload or {}
     scene_data, video_url, video_mime_type = _tour_control_media_context(payload)
+    provider_layers = _tour_control_provider_layers(payload=payload, default_src=iframe_src, default_label=badge)
+    provider_layers_json = html.escape(json.dumps(provider_layers, ensure_ascii=False).replace("</", "<\\/"), quote=False)
+    has_provider_layers = len(provider_layers) > 1
+    provider_layer_buttons = "".join(
+        f'<button type="button" data-provider-layer="{html.escape(row["id"])}" aria-pressed="{"true" if index == 0 else "false"}">{html.escape(row["label"])}</button>'
+        for index, row in enumerate(provider_layers)
+    )
+    provider_layer_switch_html = (
+        f'<div class="provider-layer-switch" aria-label="3D tour layer">{provider_layer_buttons}</div>'
+        if has_provider_layers
+        else ""
+    )
     if scene_data or video_url:
         data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
         first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
@@ -5170,6 +5311,10 @@ def _tour_control_external_iframe_html(
       .provider-actions {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
       .provider-actions button, .provider-actions a {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: var(--text); color: #111; font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
       .provider-actions a {{ background: transparent; color: var(--text); }}
+      .provider-layer-switch {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }}
+      .provider-layer-switch button {{ min-height: 42px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: rgba(255,250,240,.08); color: var(--text); font: inherit; font-weight: 800; cursor: pointer; }}
+      .provider-layer-switch button[aria-pressed="true"] {{ background: var(--text); color: #111; }}
+      .provider-layer-note {{ margin-top: 8px; color: var(--muted); font-size: .86rem; line-height: 1.35; }}
       .provider-frame {{ display: block; width: 100%; height: 100%; min-height: 520px; border: 0; background: #111; }}
       .evidence {{ padding: 14px; display: grid; gap: 12px; }}
       .evidence h2 {{ margin: 0; font-size: 1rem; letter-spacing: -.02em; }}
@@ -5225,6 +5370,8 @@ def _tour_control_external_iframe_html(
             <div>
               <strong>{provider_badge}</strong>
               <p class="hint">Load the external provider only when you need the live vendor control.</p>
+              {provider_layer_switch_html}
+              <p class="provider-layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>
             </div>
             <div class="provider-actions">
               <button type="button" id="load-provider">Load provider viewer</button>
@@ -5243,8 +5390,10 @@ def _tour_control_external_iframe_html(
         </aside>
       </main>
     </div>
+    <script id="provider-layers" type="application/json">{provider_layers_json}</script>
     <script id="scene-data" type="application/json">{data_json}</script>
     <script>
+      const providerLayers = JSON.parse(document.getElementById("provider-layers").textContent || "[]");
       const scenes = JSON.parse(document.getElementById("scene-data").textContent || "[]");
       const stageImage = document.getElementById("stage-image");
       const stageFrame = document.getElementById("stage-frame");
@@ -5254,11 +5403,27 @@ def _tour_control_external_iframe_html(
       const tourVideo = document.getElementById("tour-video");
       const providerFrame = document.querySelector(".provider-frame");
       const loadProvider = document.getElementById("load-provider");
+      const providerLayerNote = document.getElementById("provider-layer-note");
+      let selectedProviderLayer = providerLayers[0] || {{}};
       let activeIndex = 0;
       let activeRoleFilter = "all";
+      document.querySelectorAll("[data-provider-layer]").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          const layer = providerLayers.find((candidate) => candidate.id === button.dataset.providerLayer);
+          if (!layer) return;
+          selectedProviderLayer = layer;
+          document.querySelectorAll("[data-provider-layer]").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
+          if (providerLayerNote) providerLayerNote.textContent = layer.disclosure || "";
+          if (providerFrame && providerFrame.getAttribute("src") !== "about:blank") providerFrame.setAttribute("src", layer.src || "about:blank");
+          if (loadProvider) {{
+            loadProvider.textContent = "Load " + (layer.label || "provider");
+            loadProvider.disabled = false;
+          }}
+        }});
+      }});
       if (loadProvider && providerFrame) {{
         loadProvider.addEventListener("click", () => {{
-          const src = providerFrame.dataset.src || "";
+          const src = selectedProviderLayer.src || providerFrame.dataset.src || "";
           if (src && providerFrame.getAttribute("src") !== src) providerFrame.setAttribute("src", src);
           loadProvider.textContent = "Provider loaded";
           loadProvider.disabled = true;
@@ -5341,6 +5506,10 @@ def _tour_control_external_iframe_html(
       .summary {{ padding: 12px 14px; border-radius: 10px; background: rgba(15,17,18,.72); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(12px); box-shadow: 0 12px 28px rgba(0,0,0,.24); }}
       .summary p {{ margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(248,244,235,.72); }}
       .summary h1 {{ margin: 0; font-size: clamp(1.1rem, 2vw, 1.45rem); line-height: 1.12; }}
+      .layer-switch {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+      .layer-switch button {{ min-height: 42px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; padding: 0 13px; background: rgba(15,17,18,.72); color: #f8f4eb; font: inherit; font-weight: 800; cursor: pointer; backdrop-filter: blur(10px); }}
+      .layer-switch button[aria-pressed="true"] {{ background: #f8f4eb; color: #111; }}
+      .layer-note {{ margin: 0; color: rgba(248,244,235,.78); font-size: 12px; line-height: 1.35; }}
       @media (max-width: 720px) {{
         .shell {{ max-width: calc(100vw - 20px); left: 10px; top: 10px; }}
         .summary {{ padding: 10px 12px; }}
@@ -5348,14 +5517,30 @@ def _tour_control_external_iframe_html(
     </style>
   </head>
   <body>
-    <iframe src="{html.escape(iframe_src)}" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+    <iframe id="provider-frame" src="{html.escape(iframe_src)}" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
     <div class="shell">
       <div class="badge">{html.escape(badge)}</div>
+      {f'<div class="layer-switch" aria-label="3D tour layer">{provider_layer_buttons}</div><p class="layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>' if has_provider_layers else ""}
       <section class="summary" aria-label="Property tour summary">
         <p>Property Tour</p>
         <h1>{title}</h1>
       </section>
     </div>
+    <script id="provider-layers" type="application/json">{provider_layers_json}</script>
+    <script>
+      const providerLayers = JSON.parse(document.getElementById("provider-layers").textContent || "[]");
+      const providerFrame = document.getElementById("provider-frame");
+      const providerLayerNote = document.getElementById("provider-layer-note");
+      document.querySelectorAll("[data-provider-layer]").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          const layer = providerLayers.find((candidate) => candidate.id === button.dataset.providerLayer);
+          if (!layer || !providerFrame) return;
+          providerFrame.setAttribute("src", layer.src || "about:blank");
+          document.querySelectorAll("[data-provider-layer]").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
+          if (providerLayerNote) providerLayerNote.textContent = layer.disclosure || "";
+        }});
+      }});
+    </script>
   </body>
 </html>"""
 

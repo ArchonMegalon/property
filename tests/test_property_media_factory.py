@@ -52,6 +52,40 @@ def test_magicfit_is_final_continuity_publisher() -> None:
     assert final_route.provider_key == "magicfit"
 
 
+def test_lived_in_staging_routes_to_photoreal_magicfit_not_local_geometry() -> None:
+    staged_route = route_property_media_task(
+        MediaRequirement(
+            task="staged_lived_in_tour",
+            first_frame_continuity=True,
+            constant_speed=True,
+            must_be_magicfit=True,
+        )
+    )
+    geometry_route = route_property_media_task(MediaRequirement(task="geometry_reference"))
+
+    assert staged_route.ok
+    assert staged_route.provider_key == "magicfit"
+    assert staged_route.role == "photoreal_walkthrough_segment_chain"
+    assert geometry_route.provider_key == "local_true_one_take"
+    assert geometry_route.role == "technical_fallback_renderer"
+
+
+def test_lived_in_staging_prompt_rejects_cgi_showroom_language() -> None:
+    from app.product import service as product_service
+
+    prompt = product_service._default_magicfit_property_flythrough_prompt(
+        title="Family flat with balcony",
+        property_facts={"room_count": 3, "city": "Vienna", "area_sqm": 72},
+        room_count=3,
+        room_visit_plan=["entry", "living room", "kitchen", "bedroom", "bathroom", "balcony"],
+    )
+
+    assert "photoreal staging render" in prompt
+    assert "not a Blender preview" in prompt
+    assert "not a game engine" in prompt
+    assert "not an empty showroom" in prompt
+
+
 def test_unverified_video_providers_fail_closed_for_final_walkthrough() -> None:
     providers = (
         ProviderCapability(

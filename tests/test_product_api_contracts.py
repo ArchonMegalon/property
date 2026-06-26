@@ -24761,7 +24761,7 @@ def test_public_tour_control_embeds_external_3dvista_url() -> None:
     )
 
     assert "3DVista Control" in html
-    assert '<iframe src="https://example.3dvista.com/tours/top22/index.html"' in html
+    assert 'src="https://example.3dvista.com/tours/top22/index.html"' in html
 
 
 def test_public_tour_control_rejects_3dvista_lookalike_domain() -> None:
@@ -24794,7 +24794,88 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
     )
 
     assert "Matterport Control" in html
-    assert '<iframe src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
+    assert 'src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
+
+
+def test_public_tour_control_switches_between_provider_backed_matterport_layers() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "matterport-layered",
+            "display_title": "Layered Matterport",
+            "source_virtual_tour_url": "https://my.matterport.com/show/?m=SOURCE123",
+            "tour_layers": [
+                {
+                    "id": "lived_in",
+                    "label": "Lived-in",
+                    "provider": "matterport",
+                    "matterport_url": "https://my.matterport.com/show/?m=STAGED123",
+                    "disclosure": "Separate staged Matterport model.",
+                }
+            ],
+        },
+        viewer_mode="matterport",
+    )
+
+    assert 'data-provider-layer="as_listed"' in html
+    assert 'data-provider-layer="lived_in"' in html
+    assert "https://my.matterport.com/show/?m=SOURCE123" in html
+    assert "https://my.matterport.com/show/?m=STAGED123" in html
+    assert "Separate staged Matterport model." in html
+
+
+def test_public_tour_control_ignores_unverified_provider_layer_url() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "matterport-layered-bad",
+            "display_title": "Layered Matterport Bad",
+            "source_virtual_tour_url": "https://my.matterport.com/show/?m=SOURCE123",
+            "tour_layers": [
+                {
+                    "id": "fake_lived_in",
+                    "label": "Fake lived-in",
+                    "provider": "matterport",
+                    "matterport_url": "https://matterport.com.evil.example/show/?m=STAGED123",
+                }
+            ],
+        },
+        viewer_mode="matterport",
+    )
+
+    assert 'data-provider-layer="as_listed"' not in html
+    assert "fake_lived_in" not in html
+    assert "matterport.com.evil.example" not in html
+
+
+def test_public_tour_control_supports_3dvista_same_tour_layer_state() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_html(
+        {
+            "slug": "3dvista-same-tour-layer",
+            "display_title": "3DVista Same Tour Layer",
+            "control_mode": "3dvista",
+            "three_d_vista_url": "https://client.3dvista.com/tours/top22/index.html",
+            "tour_layers": [
+                {
+                    "id": "lived_in",
+                    "label": "Lived-in",
+                    "provider": "3dvista",
+                    "same_tour_layer": True,
+                    "query": "?startmedia=lived_in&skin=staged",
+                    "hash": "#scene=living-room",
+                }
+            ],
+        }
+    )
+
+    assert 'data-provider-layer="as_listed"' in html
+    assert 'data-provider-layer="lived_in"' in html
+    assert "https://client.3dvista.com/tours/top22/index.html?startmedia=lived_in&amp;skin=staged#scene=living-room" in html
+    assert "Staged 3DVista layer" in html
 
 
 def test_public_tour_control_rejects_matterport_lookalike_domain() -> None:
@@ -25321,6 +25402,73 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     assert "TDVPlayer" in script_response.text
     assert other_response.status_code == 404
     assert private_response.status_code == 404
+
+
+def test_public_tour_control_3dvista_layer_can_use_second_declared_export(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "3dvista-layer-export"
+    bundle_dir = tmp_path / slug
+    base_export_dir = bundle_dir / "3dvista"
+    staged_export_dir = bundle_dir / "3dvista-staged"
+    base_export_dir.mkdir(parents=True)
+    staged_export_dir.mkdir(parents=True)
+    (base_export_dir / "index.htm").write_text(
+        "<!doctype html><title>3DVista</title><script src='tdvplayer.js'></script>",
+        encoding="utf-8",
+    )
+    (base_export_dir / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (staged_export_dir / "index.htm").write_text(
+        "<!doctype html><title>3DVista staged</title><script src='tdvplayer.js'></script><div>tourviewer lived in</div>",
+        encoding="utf-8",
+    )
+    (staged_export_dir / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (bundle_dir / "3dvista-placeholder").mkdir()
+    (bundle_dir / "3dvista-placeholder" / "index.htm").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "3DVista Layer Export",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_export_root_relpath": "3dvista",
+                "tour_layers": [
+                    {
+                        "id": "lived_in",
+                        "label": "Lived-in",
+                        "provider": "3dvista",
+                        "three_d_vista_entry_relpath": "3dvista-staged/index.htm",
+                    },
+                    {
+                        "id": "bad_placeholder",
+                        "label": "Bad placeholder",
+                        "provider": "3dvista",
+                        "three_d_vista_entry_relpath": "3dvista-placeholder/index.htm",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-3dvista-layer-export")
+    control_response = client.get(f"/tours/{slug}/control/3dvista")
+    staged_entry_response = client.get(f"/tours/3dvista/{slug}/3dvista-staged/index.htm")
+    staged_script_response = client.get(f"/tours/3dvista/{slug}/3dvista-staged/tdvplayer.js")
+    placeholder_response = client.get(f"/tours/3dvista/{slug}/3dvista-placeholder/index.htm")
+
+    assert control_response.status_code == 200
+    assert 'data-provider-layer="lived_in"' in control_response.text
+    assert f"/tours/3dvista/{slug}/3dvista-staged/index.htm" in control_response.text
+    assert "bad_placeholder" not in control_response.text
+    assert staged_entry_response.status_code == 200
+    assert "tourviewer lived in" in staged_entry_response.text
+    assert staged_script_response.status_code == 200
+    assert "TDVPlayer" in staged_script_response.text
+    assert placeholder_response.status_code == 404
 
 
 def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
