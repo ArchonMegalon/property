@@ -688,6 +688,14 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {"name": "notification_primary_channel_controls", "ok": "Primary response lane" in body and "Save notification routing" in body},
                 {"name": "notification_opt_in_copy", "ok": "Strong matches and watch hits" in body and "Near-miss follow-up prompts" in body},
                 {"name": "notification_secret_safe", "ok": "telegram-secret-token" not in body and "raw_delivery_receipts" not in body},
+                {"name": "account_notifications", "ok": "<h2>Notifications</h2>" in body},
+                {"name": "account_notification_form", "ok": 'action="/app/api/property/account/notifications"' in body},
+                {"name": "account_notification_email_channel", "ok": 'name="notification_channels" value="email"' in body},
+                {"name": "account_notification_telegram_channel", "ok": 'name="notification_channels" value="telegram"' in body},
+                {"name": "account_notification_whatsapp_channel", "ok": 'name="notification_channels" value="whatsapp"' in body},
+                {"name": "account_notification_primary_route", "ok": 'name="preferred_channel"' in body},
+                {"name": "account_notification_whatsapp_phone", "ok": 'name="whatsapp_ai_support_phone"' in body},
+                {"name": "account_notification_save_action", "ok": "Save notification routing" in body},
             )
         )
     if path == "/app/settings/google":
