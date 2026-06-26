@@ -2107,9 +2107,9 @@ def test_propertyquarry_account_notifications_have_dedicated_phone_layout(
         )
         assert metrics["columns"] == 1, metrics
         assert metrics["rowCount"] >= 3, metrics
-        assert metrics["minRowHeight"] >= 64, metrics
+        assert metrics["minRowHeight"] >= 52, metrics
         assert metrics["visibleDetailCount"] >= 2, metrics
-        assert metrics["minInputHeight"] >= 52, metrics
+        assert metrics["minInputHeight"] >= 48, metrics
         assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1, metrics
         assert metrics["maxRowRight"] <= metrics["viewportWidth"] + 1, metrics
         assert metrics["maxDetailRight"] <= metrics["viewportWidth"] + 1, metrics

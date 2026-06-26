@@ -32,6 +32,9 @@ def _base_metrics() -> dict[str, object]:
         "mobile_what_matters_single_open": True,
         "account_logout_strip_visible": True,
         "logout_button_count": 1,
+        "account_menu_present": True,
+        "account_menu_mobile_sheet": True,
+        "account_menu_trigger_compact": True,
         "research_detail_workspace": True,
         "research_detail_decision_after_aside": True,
         "research_detail_media_stage": True,
@@ -262,6 +265,23 @@ def test_live_mobile_smoke_requires_single_account_logout() -> None:
     metrics.update({"logout_button_count": 2})
 
     assert _failed_names("/app/account", metrics) == {"single_logout_action"}
+
+
+def test_live_mobile_smoke_requires_compact_account_menu_sheet() -> None:
+    metrics = _base_metrics()
+    metrics.update({"account_menu_mobile_sheet": False, "account_menu_trigger_compact": False})
+
+    assert _failed_names("/app/account", metrics) == {
+        "account_menu_mobile_sheet",
+        "account_menu_trigger_compact",
+    }
+
+
+def test_live_mobile_smoke_accepts_dedicated_account_logout_without_dropdown() -> None:
+    metrics = _base_metrics()
+    metrics.update({"account_menu_present": False, "account_menu_mobile_sheet": False, "account_menu_trigger_compact": False})
+
+    assert _failed_names("/app/account", metrics) == set()
 
 
 def test_live_mobile_smoke_rejects_small_packet_touch_targets() -> None:

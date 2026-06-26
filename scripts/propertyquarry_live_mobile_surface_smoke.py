@@ -196,10 +196,14 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
             )
         )
     if expectations.get("needs_single_logout"):
+        account_menu_present = bool(metrics.get("account_menu_present"))
+        account_logout_strip_visible = bool(metrics.get("account_logout_strip_visible"))
         checks.extend(
             (
-                {"name": "account_logout_strip_visible", "ok": bool(metrics.get("account_logout_strip_visible"))},
+                {"name": "account_logout_strip_visible", "ok": account_logout_strip_visible},
                 {"name": "single_logout_action", "ok": int(metrics.get("logout_button_count") or 0) == 1},
+                {"name": "account_menu_mobile_sheet", "ok": bool(metrics.get("account_menu_mobile_sheet")) or (account_logout_strip_visible and not account_menu_present)},
+                {"name": "account_menu_trigger_compact", "ok": bool(metrics.get("account_menu_trigger_compact")) or (account_logout_strip_visible and not account_menu_present)},
             )
         )
     if expectations.get("needs_research_detail"):
@@ -274,6 +278,13 @@ def _collect_metrics_script() -> str:
         singleOpen = whatMatterGroups.filter((node) => node.open).length === 1 && whatMatterGroups[1].open;
       }
       const logoutButtons = visibleNodes('button, a').filter((node) => String(node.textContent || '').trim() === 'Log out');
+      const accountMenu = document.querySelector('.account-menu, .pqx-account-menu');
+      const accountSummary = accountMenu?.querySelector('summary') || null;
+      if (accountSummary && !accountMenu.open) accountSummary.click();
+      const accountPanel = accountMenu?.querySelector('.account-menu-panel') || null;
+      const accountSummaryRect = accountSummary?.getBoundingClientRect();
+      const accountPanelStyle = accountPanel ? window.getComputedStyle(accountPanel) : null;
+      const accountPanelRect = accountPanel?.getBoundingClientRect();
       const decisionWorkspace = document.querySelector('.prd-decision-workspace');
       const firstAside = document.querySelector('aside');
       const mediaStage = document.querySelector('[data-object-media-stage]');
@@ -303,6 +314,9 @@ def _collect_metrics_script() -> str:
         mobile_what_matters_single_open: singleOpen,
         account_logout_strip_visible: visible(document.querySelector('.pqx-account-logout-strip')),
         logout_button_count: logoutButtons.length,
+        account_menu_present: Boolean(accountMenu),
+        account_menu_mobile_sheet: Boolean(accountPanel && accountPanelStyle?.position === 'fixed' && accountPanelRect && accountPanelRect.width >= window.innerWidth - 24),
+        account_menu_trigger_compact: Boolean(accountSummaryRect && accountSummaryRect.width <= 58),
         research_detail_workspace: visible(decisionWorkspace),
         research_detail_decision_after_aside: Boolean(decisionWorkspace && firstAside && (firstAside.compareDocumentPosition(decisionWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING)),
         research_detail_media_stage: visible(mediaStage),
