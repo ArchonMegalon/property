@@ -107,6 +107,11 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
     assert "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58" in payload["calculation_rows"][-1]["why"]
     assert payload["calculation_detail_title"] == "Wo jede Zahl herkommt"
     assert any(row["label"] == "Harte Regeln bestanden" and row["delta"] == "+8" for row in payload["calculation_detail_rows"])
+    location_rows = [row for row in payload["calculation_detail_rows"] if row["label"] == "Lage geprüft"]
+    assert location_rows and location_rows[0]["delta"] == "+0"
+    location_copy = " ".join(str(location_rows[0].get(key) or "") for key in ("source", "rule", "alternatives"))
+    assert "Randlage" in location_copy
+    assert "nicht belohnt" in location_copy
     assert any("starker Wunsch etwa +12" in row["alternatives"] for row in payload["calculation_detail_rows"])
     assert any("Wünschenswert etwa -3" in row["alternatives"] for row in payload["calculation_detail_rows"])
     assert any(row["level"] == "Starker Wunsch" for row in payload["weight_ladder_rows"])
