@@ -109,6 +109,7 @@ DEFAULT_RECEIPT_PATTERNS = {
     "export_discovery": ("_completion/tours/property-tour-export-discovery*.json",),
     "import_manifest": ("_completion/property_tour_exports/import-manifest*.json",),
     "billing": ("_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION*.json",),
+    "vendor_tooling": ("_completion/tours/property-tour-vendor-tooling*.json",),
     "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
     "provider_matrix": ("_completion/provider_smoke/all-search-ready*.json",),
 }
@@ -121,6 +122,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "export_discovery": "_completion/tours/property-tour-export-discovery-full-current.json",
     "import_manifest": "_completion/property_tour_exports/import-manifest-current.json",
     "billing": "_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json",
+    "vendor_tooling": "_completion/tours/property-tour-vendor-tooling-current.json",
     "repair_canary": "_completion/repair/propertyquarry-repair-canary-latest.json",
     "provider_matrix": "_completion/provider_smoke/all-search-ready-current-resumed.json",
 }
@@ -594,6 +596,7 @@ def build_gold_status_receipt(
     public_smoke_receipt_path: Path | None = None,
     authenticated_smoke_receipt_path: Path | None = None,
     tour_provider_ownership_receipt_path: Path | None = None,
+    vendor_tooling_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -606,6 +609,7 @@ def build_gold_status_receipt(
     import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
     billing_receipt = _load_json(billing_receipt_path) if billing_receipt_path is not None else {}
     tour_provider_ownership = _load_json(tour_provider_ownership_receipt_path) if tour_provider_ownership_receipt_path is not None else {}
+    vendor_tooling = _load_json(vendor_tooling_receipt_path) if vendor_tooling_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
@@ -620,6 +624,7 @@ def build_gold_status_receipt(
             **({"public_auth_surfaces": public_smoke} if public_smoke_receipt_path is not None else {}),
             **({"authenticated_customer_surfaces": authenticated_smoke} if authenticated_smoke_receipt_path is not None else {}),
             **({"tour_provider_ownership": tour_provider_ownership} if tour_provider_ownership_receipt_path is not None else {}),
+            **({"vendor_tooling": vendor_tooling} if vendor_tooling_receipt_path is not None else {}),
         },
         now=now,
         max_age_hours=max_receipt_age_hours,
@@ -1133,6 +1138,17 @@ def build_gold_status_receipt(
             "ready": billing_ok,
             "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",
         },
+        "vendor_tooling": {
+            "status": vendor_tooling.get("status") or ("not_configured" if vendor_tooling_receipt_path is None else "missing"),
+            "host_ready": bool(vendor_tooling.get("host_ready")) if vendor_tooling_receipt_path is not None else None,
+            "wine_runtime_ready": bool(vendor_tooling.get("wine_runtime_ready")) if vendor_tooling_receipt_path is not None else None,
+            "installer_count": vendor_tooling.get("installer_count") if vendor_tooling_receipt_path is not None else None,
+            "verified_export_ready_counts": vendor_tooling.get("verified_export_ready_counts") or {},
+            "missing_verified_exports": vendor_tooling.get("missing_verified_exports") or [],
+            "next_actions": vendor_tooling.get("next_actions") or [],
+            "receipt_path": str(vendor_tooling_receipt_path) if vendor_tooling_receipt_path is not None else "",
+            "note": "Host tooling readiness is tracked separately from verified 3DVista/Pano2VR export evidence.",
+        },
         "tour_provider_ownership": {
             "status": tour_provider_ownership.get("status") or ("not_configured" if tour_provider_ownership_receipt_path is None else "missing"),
             "missing_providers": tour_provider_ownership.get("missing_providers") or [],
@@ -1199,6 +1215,7 @@ def main() -> int:
     parser.add_argument("--import-manifest-receipt", default="")
     parser.add_argument("--billing-receipt", default="")
     parser.add_argument("--tour-provider-ownership-receipt", default="")
+    parser.add_argument("--vendor-tooling-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
     parser.add_argument("--provider-matrix-receipt", default="")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
@@ -1216,6 +1233,7 @@ def main() -> int:
         import_manifest_receipt_path=Path(args.import_manifest_receipt) if args.import_manifest_receipt else _default_receipt_path("import_manifest"),
         billing_receipt_path=Path(args.billing_receipt) if args.billing_receipt else _default_receipt_path("billing"),
         tour_provider_ownership_receipt_path=Path(args.tour_provider_ownership_receipt) if args.tour_provider_ownership_receipt else None,
+        vendor_tooling_receipt_path=Path(args.vendor_tooling_receipt) if args.vendor_tooling_receipt else _default_receipt_path("vendor_tooling"),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,

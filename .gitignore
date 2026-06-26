@@ -70,6 +70,7 @@ decision_brief.md
 state/fastestvpn-proxy-pool/
 state/incoming_property_tours/
 state/public_property_tours/
+state/wine-pano2vr/
 state/property_investment_external_cache.json
 state/property_investment_external_cache.json.lock
 state/*.db
