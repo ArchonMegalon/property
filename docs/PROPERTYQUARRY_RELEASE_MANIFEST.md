@@ -13,13 +13,21 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `b7d8b44727839f24a9bb4ffc8cccc1c829d03964` |
+| Runtime commit SHA | `1c7352b81bf07c5e0832dada31b8452fd7eacec6` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | local compose redeploy on 2026-06-26 after `make deploy` for Teable oversized-field sync hardening, confirmed-distance route-preview copy, zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `1c7352b8` passed:
+
+- `PYTHONPATH=ea pytest -q tests/test_extract_3dvista_desktop_app.py tests/test_property_tour_vendor_tooling.py --tb=short` returned `8 passed`.
+- `PYTHONPATH=ea python3 scripts/extract_3dvista_desktop_app.py --write _completion/tours/3dvista-desktop-app-current.json --fail-on-missing` returned `status=ready`.
+- The 3DVista desktop app receipt proves the official extracted app at `state/vendor_apps/3dvista`, AIR version label `2026.0.3`, and helper CLIs `tdvtools_v2`, `three_d_tools`, `tdv_server`, `zip_sign`, and `file_picker_cli`.
+- The same receipt deliberately records `headless_publish_cli_ready=false` and `verified_export_required=true`; 3DVista desktop readiness is not accepted as verified hosted-tour evidence.
+- Current gold status remains `blocked` because verified 3DVista/Pano2VR export/control evidence is still missing.
 
 The candidate at `b7d8b44` passed:
 
