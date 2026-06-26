@@ -4,11 +4,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(EA_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_ROOT))
 
 
 DEFAULT_ROUTES = (
