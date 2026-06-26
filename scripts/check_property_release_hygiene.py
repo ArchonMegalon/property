@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import re
+import argparse
+import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -100,7 +103,7 @@ def looks_like_text(path: Path) -> bool:
     return path.name.startswith(".env")
 
 
-def main() -> int:
+def build_release_hygiene_receipt() -> dict[str, object]:
     failures: list[str] = []
     manifest_sha = release_manifest_runtime_sha()
     head_sha = git_head_sha()
@@ -142,6 +145,41 @@ def main() -> int:
             failures.append(f"raw {LOCAL_BRIDGE_HOST} host reference forbidden in tracked file: {normalized}")
         if BEARER_LITERAL_RE.search(text):
             failures.append(f"hardcoded bearer authorization forbidden in tracked file: {normalized}")
+    required_checks = [
+        "release_manifest_runtime_commit_matches_head_or_parent",
+        "no_tracked_live_env_files",
+        "no_tracked_audit_scratch_paths",
+        "no_tracked_audit_artifacts",
+        "no_hardcoded_local_api_token_marker",
+        "no_raw_local_bridge_host_refs",
+        "no_hardcoded_bearer_authorization",
+    ]
+    return {
+        "schema": "propertyquarry.release_hygiene_receipt.v1",
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "status": "pass" if not failures else "fail",
+        "required_checks": required_checks,
+        "failure_count": len(failures),
+        "failures": failures,
+        "manifest_runtime_commit": manifest_sha,
+        "head_commit": head_sha,
+        "parent_commit": parent_sha,
+        "note": "Repository hygiene and release-manifest authority gate for the tracked PropertyQuarry release plane.",
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check PropertyQuarry release hygiene.")
+    parser.add_argument("--write", default="", help="Optional path for a JSON receipt.")
+    args = parser.parse_args()
+
+    receipt = build_release_hygiene_receipt()
+    failures = list(receipt.get("failures") or [])
+    if args.write:
+        out_path = Path(args.write)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
     if failures:
         print("property release hygiene check failed:", file=sys.stderr)
         for failure in failures:

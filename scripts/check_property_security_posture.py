@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import re
 import sys
+import argparse
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -33,7 +36,7 @@ def _lock_package_names(lock_text: str) -> set[str]:
     return names
 
 
-def main() -> int:
+def build_security_posture_receipt() -> dict[str, object]:
     failures: list[str] = []
     env_example = _read(".env.example")
     if "property@propertyquery.com" in env_example:
@@ -171,6 +174,47 @@ def main() -> int:
         raw = line.strip()
         if raw and not raw.startswith("#") and "==" not in raw:
             failures.append(f"ea/requirements.lock contains an unpinned row: {raw}")
+
+    required_checks = [
+        "property_env_placeholders",
+        "property_service_aliases",
+        "property_compose_isolation",
+        "non_root_pinned_runtime_image",
+        "no_docker_tooling_in_property_runtime",
+        "sidecar_images_pinned_by_digest",
+        "public_tour_secret_and_mutation_guards",
+        "public_tour_redacted_payloads",
+        "public_tour_manifest_asset_allowlist",
+        "public_tour_no_live_research_fetches",
+        "public_tour_media_host_allowlist",
+        "public_tour_exact_location_redaction",
+        "public_tour_pdf_privacy_class",
+        "public_tour_rate_limit_fail_closed",
+        "public_tour_security_headers",
+        "locked_direct_requirements",
+    ]
+    return {
+        "schema": "propertyquarry.security_posture_receipt.v1",
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "status": "pass" if not failures else "fail",
+        "required_checks": required_checks,
+        "failure_count": len(failures),
+        "failures": failures,
+        "note": "Static production-security posture gate for the isolated PropertyQuarry deployment plane.",
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check PropertyQuarry production security posture.")
+    parser.add_argument("--write", default="", help="Optional path for a JSON receipt.")
+    args = parser.parse_args()
+
+    receipt = build_security_posture_receipt()
+    failures = list(receipt.get("failures") or [])
+    if args.write:
+        out_path = Path(args.write)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     if failures:
         print("property security posture check failed:", file=sys.stderr)

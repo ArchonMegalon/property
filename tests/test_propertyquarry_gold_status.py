@@ -158,6 +158,31 @@ def _tour_provider_ownership_payload() -> dict[str, object]:
     }
 
 
+def _security_posture_payload(*, status: str = "pass") -> dict[str, object]:
+    failures = [] if status == "pass" else ["ea/Dockerfile.property must run as USER ea"]
+    return {
+        "schema": "propertyquarry.security_posture_receipt.v1",
+        "status": status,
+        "required_checks": ["non_root_pinned_runtime_image"],
+        "failure_count": len(failures),
+        "failures": failures,
+    }
+
+
+def _release_hygiene_payload(*, status: str = "pass") -> dict[str, object]:
+    failures = [] if status == "pass" else ["release manifest runtime commit does not match current HEAD or deployed parent"]
+    return {
+        "schema": "propertyquarry.release_hygiene_receipt.v1",
+        "status": status,
+        "required_checks": ["release_manifest_runtime_commit_matches_head_or_parent"],
+        "failure_count": len(failures),
+        "failures": failures,
+        "manifest_runtime_commit": "d8426c7",
+        "head_commit": "88cdc13",
+        "parent_commit": "6d80515",
+    }
+
+
 def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass", failed_count: int = 0) -> dict[str, object]:
     route_list = routes or [
         "/app/search",
@@ -672,6 +697,8 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
             "next_actions": [],
         },
     )
+    security_posture = _write_json(tmp_path / "security-posture.json", _security_posture_payload())
+    release_hygiene = _write_json(tmp_path / "release-hygiene.json", _release_hygiene_payload())
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -681,6 +708,8 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         provider_matrix_receipt_path=provider_matrix,
         tour_provider_ownership_receipt_path=ownership,
         vendor_tooling_receipt_path=vendor_tooling,
+        security_posture_receipt_path=security_posture,
+        release_hygiene_receipt_path=release_hygiene,
     )
 
     assert receipt["status"] == "pass"
@@ -706,8 +735,91 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "tour_provider_ownership",
         "provider_targeted_search_matrix",
         "self_healing",
+        "production_security_posture",
+        "release_hygiene",
         "receipt_freshness",
     }.issubset(pass_areas)
+
+
+def test_gold_status_blocks_when_security_posture_receipt_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    security_posture = _write_json(tmp_path / "security-posture.json", _security_posture_payload(status="fail"))
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        security_posture_receipt_path=security_posture,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "production_security_posture")
+    assert receipt["status"] == "blocked"
+    assert receipt["production_security_posture"]["status"] == "fail"
+    assert "USER ea" in blocker["failures"][0]
+    assert "isolated runtime" in blocker["action"]
+
+
+def test_gold_status_blocks_when_release_hygiene_receipt_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    release_hygiene = _write_json(tmp_path / "release-hygiene.json", _release_hygiene_payload(status="fail"))
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        release_hygiene_receipt_path=release_hygiene,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "release_hygiene")
+    assert receipt["status"] == "blocked"
+    assert receipt["release_hygiene"]["status"] == "fail"
+    assert blocker["manifest_runtime_commit"] == "d8426c7"
+    assert blocker["head_commit"] == "88cdc13"
+    assert "release manifest runtime commit" in blocker["failures"][0]
 
 
 def test_gold_status_blocks_when_public_sign_in_account_creation_smoke_is_missing(tmp_path: Path) -> None:

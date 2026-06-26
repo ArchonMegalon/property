@@ -113,6 +113,8 @@ DEFAULT_RECEIPT_PATTERNS = {
     "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
     "provider_matrix": ("_completion/provider_smoke/all-search-ready*.json",),
     "whole_project_scope": ("_completion/whole_project_scope/property-whole-project-scope*.json",),
+    "security_posture": ("_completion/security/property-security-posture*.json",),
+    "release_hygiene": ("_completion/release_hygiene/property-release-hygiene*.json",),
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
@@ -127,6 +129,8 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "repair_canary": "_completion/repair/propertyquarry-repair-canary-latest.json",
     "provider_matrix": "_completion/provider_smoke/all-search-ready-current-resumed.json",
     "whole_project_scope": "_completion/whole_project_scope/property-whole-project-scope-latest.json",
+    "security_posture": "_completion/security/property-security-posture-latest.json",
+    "release_hygiene": "_completion/release_hygiene/property-release-hygiene-latest.json",
 }
 
 
@@ -600,6 +604,8 @@ def build_gold_status_receipt(
     tour_provider_ownership_receipt_path: Path | None = None,
     vendor_tooling_receipt_path: Path | None = None,
     whole_project_scope_receipt_path: Path | None = None,
+    security_posture_receipt_path: Path | None = None,
+    release_hygiene_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -614,6 +620,8 @@ def build_gold_status_receipt(
     tour_provider_ownership = _load_json(tour_provider_ownership_receipt_path) if tour_provider_ownership_receipt_path is not None else {}
     vendor_tooling = _load_json(vendor_tooling_receipt_path) if vendor_tooling_receipt_path is not None else {}
     whole_project_scope = _load_json(whole_project_scope_receipt_path) if whole_project_scope_receipt_path is not None else {}
+    security_posture = _load_json(security_posture_receipt_path) if security_posture_receipt_path is not None else {}
+    release_hygiene = _load_json(release_hygiene_receipt_path) if release_hygiene_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_matrix = _load_json(provider_matrix_receipt_path)
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
@@ -630,6 +638,8 @@ def build_gold_status_receipt(
             **({"tour_provider_ownership": tour_provider_ownership} if tour_provider_ownership_receipt_path is not None else {}),
             **({"vendor_tooling": vendor_tooling} if vendor_tooling_receipt_path is not None else {}),
             **({"whole_project_scope": whole_project_scope} if whole_project_scope_receipt_path is not None else {}),
+            **({"security_posture": security_posture} if security_posture_receipt_path is not None else {}),
+            **({"release_hygiene": release_hygiene} if release_hygiene_receipt_path is not None else {}),
         },
         now=now,
         max_age_hours=max_receipt_age_hours,
@@ -782,6 +792,20 @@ def build_gold_status_receipt(
             and not list(whole_project_scope.get("failures") or [])
         )
     )
+    security_posture_ok = (
+        security_posture_receipt_path is None
+        or (
+            security_posture.get("status") == "pass"
+            and not list(security_posture.get("failures") or [])
+        )
+    )
+    release_hygiene_ok = (
+        release_hygiene_receipt_path is None
+        or (
+            release_hygiene.get("status") == "pass"
+            and not list(release_hygiene.get("failures") or [])
+        )
+    )
 
     blockers: list[dict[str, Any]] = []
     if not performance_ok:
@@ -926,6 +950,26 @@ def build_gold_status_receipt(
                 "action": "rerun check_property_whole_project_scope.py --write and keep the evidence-overlay registry, Teable/cached-read-model policy, and whole-product scope contracts passing",
             }
         )
+    if not security_posture_ok:
+        blockers.append(
+            {
+                "area": "production_security_posture",
+                "status": security_posture.get("status") or "missing",
+                "failures": list(security_posture.get("failures") or [])[:12],
+                "action": "rerun check_property_security_posture.py --write and keep the isolated runtime, pinned supply chain, public-tour privacy, and locked-dependency posture passing",
+            }
+        )
+    if not release_hygiene_ok:
+        blockers.append(
+            {
+                "area": "release_hygiene",
+                "status": release_hygiene.get("status") or "missing",
+                "manifest_runtime_commit": str(release_hygiene.get("manifest_runtime_commit") or ""),
+                "head_commit": str(release_hygiene.get("head_commit") or ""),
+                "failures": list(release_hygiene.get("failures") or [])[:12],
+                "action": "rerun check_property_release_hygiene.py --write after reconciling the release manifest runtime commit with current HEAD or the deployed parent",
+            }
+        )
     if not receipt_freshness_ok:
         blockers.append(
             {
@@ -1036,6 +1080,18 @@ def build_gold_status_receipt(
         {"area": "whole_project_scope", "status": "pass", "receipt_path": str(whole_project_scope_receipt_path)}
         if whole_project_scope_receipt_path is not None and whole_project_scope_ok
         else None,
+        {"area": "production_security_posture", "status": "pass", "receipt_path": str(security_posture_receipt_path)}
+        if security_posture_receipt_path is not None and security_posture_ok
+        else None,
+        {
+            "area": "release_hygiene",
+            "status": "pass",
+            "manifest_runtime_commit": str(release_hygiene.get("manifest_runtime_commit") or ""),
+            "head_commit": str(release_hygiene.get("head_commit") or ""),
+            "receipt_path": str(release_hygiene_receipt_path),
+        }
+        if release_hygiene_receipt_path is not None and release_hygiene_ok
+        else None,
         {"area": "receipt_freshness", "status": "pass"}
         if receipt_freshness_ok
         else None,
@@ -1055,6 +1111,8 @@ def build_gold_status_receipt(
             and repair_canary_ok
             and provider_matrix_ok
             and whole_project_scope_ok
+            and security_posture_ok
+            and release_hygiene_ok
             and receipt_freshness_ok
         )
         else "blocked"
@@ -1236,6 +1294,27 @@ def build_gold_status_receipt(
             "receipt_path": str(whole_project_scope_receipt_path) if whole_project_scope_receipt_path is not None else "",
             "note": "Whole-project scope covers evidence-overlay registry shape, async Teable-first ingestion policy, cached-read-model search policy, and whole-product boundary language.",
         },
+        "production_security_posture": {
+            "status": security_posture.get("status") or ("not_configured" if security_posture_receipt_path is None else "missing"),
+            "schema": str(security_posture.get("schema") or "") if security_posture_receipt_path is not None else "",
+            "required_checks": security_posture.get("required_checks") or [],
+            "failure_count": len(list(security_posture.get("failures") or [])) if security_posture_receipt_path is not None else None,
+            "failures": list(security_posture.get("failures") or [])[:12] if security_posture_receipt_path is not None else [],
+            "receipt_path": str(security_posture_receipt_path) if security_posture_receipt_path is not None else "",
+            "note": "Static security gate for isolated runtime/container posture, public-tour privacy, and locked Python dependency posture.",
+        },
+        "release_hygiene": {
+            "status": release_hygiene.get("status") or ("not_configured" if release_hygiene_receipt_path is None else "missing"),
+            "schema": str(release_hygiene.get("schema") or "") if release_hygiene_receipt_path is not None else "",
+            "required_checks": release_hygiene.get("required_checks") or [],
+            "failure_count": len(list(release_hygiene.get("failures") or [])) if release_hygiene_receipt_path is not None else None,
+            "failures": list(release_hygiene.get("failures") or [])[:12] if release_hygiene_receipt_path is not None else [],
+            "manifest_runtime_commit": str(release_hygiene.get("manifest_runtime_commit") or "") if release_hygiene_receipt_path is not None else "",
+            "head_commit": str(release_hygiene.get("head_commit") or "") if release_hygiene_receipt_path is not None else "",
+            "parent_commit": str(release_hygiene.get("parent_commit") or "") if release_hygiene_receipt_path is not None else "",
+            "receipt_path": str(release_hygiene_receipt_path) if release_hygiene_receipt_path is not None else "",
+            "note": "Repository hygiene and release-manifest authority gate.",
+        },
         "receipt_freshness": {
             "status": "pass" if receipt_freshness_ok else "fail",
             "max_age_hours": max_receipt_age_hours,
@@ -1266,6 +1345,8 @@ def main() -> int:
     parser.add_argument("--tour-provider-ownership-receipt", default="")
     parser.add_argument("--vendor-tooling-receipt", default="")
     parser.add_argument("--whole-project-scope-receipt", default="")
+    parser.add_argument("--security-posture-receipt", default="")
+    parser.add_argument("--release-hygiene-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
     parser.add_argument("--provider-matrix-receipt", default="")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
@@ -1285,6 +1366,8 @@ def main() -> int:
         tour_provider_ownership_receipt_path=Path(args.tour_provider_ownership_receipt) if args.tour_provider_ownership_receipt else None,
         vendor_tooling_receipt_path=Path(args.vendor_tooling_receipt) if args.vendor_tooling_receipt else _default_receipt_path("vendor_tooling"),
         whole_project_scope_receipt_path=Path(args.whole_project_scope_receipt) if args.whole_project_scope_receipt else _default_receipt_path("whole_project_scope"),
+        security_posture_receipt_path=Path(args.security_posture_receipt) if args.security_posture_receipt else _default_receipt_path("security_posture"),
+        release_hygiene_receipt_path=Path(args.release_hygiene_receipt) if args.release_hygiene_receipt else _default_receipt_path("release_hygiene"),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,
