@@ -676,6 +676,9 @@
       padding: 14px;
     }
     .pqx-account-logout-strip strong { display: block; }
+    .pqx-account-logout-strip-form .pqx-link-button {
+      min-height: 46px;
+    }
     .pqx-account-action-card {
       display: flex;
       min-height: 168px;
@@ -752,6 +755,10 @@
     .pqx-result-panel,
     .pqx-map-shell,
     .pqx-bottom-dock { display: none !important; }
+    .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch,
+    .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-switch,
+    .pqx-shell[data-pqx-surface="account"] .pqx-mobile-switch,
+    .pqx-shell[data-pqx-surface="billing"] .pqx-mobile-switch { display: none !important; }
     .pqx-shell [hidden] { display: none !important; }
     html[data-pq-theme="dark"] .pqx-topbar,
     html[data-pq-theme="dark"] .pqx-setup-intro,
@@ -4482,6 +4489,15 @@
       align-items: center;
       justify-content: flex-end;
       margin: 0;
+    }
+    .pqx-account-logout-strip-form .pqx-link-button {
+      min-height: 46px;
+    }
+    .pqx-shell[data-pqx-surface="agents"] .pqx-mobile-switch,
+    .pqx-shell[data-pqx-surface="alerts"] .pqx-mobile-switch,
+    .pqx-shell[data-pqx-surface="account"] .pqx-mobile-switch,
+    .pqx-shell[data-pqx-surface="billing"] .pqx-mobile-switch {
+      display: none;
     }
     .pqx-account-action-card {
       display: grid;
