@@ -1443,6 +1443,104 @@ def test_gold_status_blocks_when_live_mobile_coverage_check_fails(tmp_path: Path
     assert blocker["failed_coverage_checks"] == receipt["live_mobile_surfaces"]["failed_coverage_checks"]
 
 
+def test_gold_status_surfaces_whole_project_scope_receipt(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    whole_project_scope = _write_json(
+        tmp_path / "whole-project-scope.json",
+        {
+            "schema": "propertyquarry.whole_project_scope_receipt.v1",
+            "status": "pass",
+            "generated_at": "2026-06-26T09:00:00+00:00",
+            "required_overlay_layers": ["summer_heat", "media_attention", "fiber_broadband"],
+            "failures": [],
+        },
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        whole_project_scope_receipt_path=whole_project_scope,
+    )
+
+    assert receipt["whole_project_scope"]["status"] == "pass"
+    assert receipt["whole_project_scope"]["schema"] == "propertyquarry.whole_project_scope_receipt.v1"
+    assert receipt["whole_project_scope"]["failure_count"] == 0
+    assert any(row["area"] == "whole_project_scope" for row in receipt["pass_areas"])
+
+
+def test_gold_status_blocks_when_whole_project_scope_receipt_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    whole_project_scope = _write_json(
+        tmp_path / "whole-project-scope.json",
+        {
+            "schema": "propertyquarry.whole_project_scope_receipt.v1",
+            "status": "fail",
+            "generated_at": "2026-06-26T09:00:00+00:00",
+            "failures": ["evidence overlay registry missing required layers: fiber_broadband"],
+        },
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        whole_project_scope_receipt_path=whole_project_scope,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "whole_project_scope")
+    assert receipt["status"] == "blocked"
+    assert blocker["failures"] == ["evidence overlay registry missing required layers: fiber_broadband"]
+
+
 def test_gold_status_resolves_container_incoming_readme_paths(monkeypatch, tmp_path: Path) -> None:
     incoming_root = tmp_path / "incoming"
     readme = incoming_root / "slug-a" / "3dvista" / "README.propertyquarry-export.txt"

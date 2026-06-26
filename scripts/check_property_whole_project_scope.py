@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -99,7 +101,7 @@ def _check_overlay_registry(failures: list[str]) -> None:
             failures.append("fiber_broadband overlay must keep provider checks secondary to official coverage")
 
 
-def main() -> int:
+def build_scope_receipt() -> dict[str, object]:
     failures: list[str] = []
     if not SCOPE_DOC.exists():
         failures.append("docs/PROPERTYQUARRY_WHOLE_PROJECT_SCOPE.md must define whole-product scope")
@@ -120,6 +122,35 @@ def main() -> int:
     if "scripts/check_property_whole_project_scope.py" not in release_gate:
         failures.append("property_release_gates.sh must run check_property_whole_project_scope.py")
 
+    return {
+        "schema": "propertyquarry.whole_project_scope_receipt.v1",
+        "status": "pass" if not failures else "fail",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "scope_doc": str(SCOPE_DOC.relative_to(ROOT)),
+        "evidence_overlay_registry": str(OVERLAY_REGISTRY.relative_to(ROOT)),
+        "required_overlay_layers": sorted(REQUIRED_OVERLAY_LAYERS),
+        "required_phrase_count": len(REQUIRED_PHRASES),
+        "forbidden_phrase_count": len(FORBIDDEN_PHRASES),
+        "release_gate": "scripts/property_release_gates.sh",
+        "failures": failures,
+        "notes": [
+            "This receipt proves the whole-project scope contract and evidence-overlay registry shape.",
+            "It does not replace runtime/mobile/provider/tour receipts; gold status must combine all gates.",
+        ],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Verify PropertyQuarry whole-project scope and evidence-overlay registry contracts.")
+    parser.add_argument("--write", default="")
+    args = parser.parse_args()
+
+    receipt = build_scope_receipt()
+    failures = list(receipt.get("failures") or [])
+    if args.write:
+        out_path = Path(args.write)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if failures:
         print("property whole-project scope check failed:", file=sys.stderr)
         for failure in failures:

@@ -74,3 +74,30 @@ def test_whole_project_scope_checker_enforces_overlay_registry() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "ok: property whole-project scope" in result.stdout
+
+
+def test_whole_project_scope_checker_writes_gold_receipt(tmp_path: Path) -> None:
+    receipt_path = tmp_path / "whole-project-scope.json"
+    result = subprocess.run(
+        [sys.executable, "scripts/check_property_whole_project_scope.py", "--write", str(receipt_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["schema"] == "propertyquarry.whole_project_scope_receipt.v1"
+    assert receipt["status"] == "pass"
+    assert receipt["failures"] == []
+    assert set(receipt["required_overlay_layers"]) == {
+        "environmental_quality",
+        "summer_heat",
+        "traffic_noise",
+        "public_mobility",
+        "school_context",
+        "official_safety_context",
+        "media_attention",
+        "fiber_broadband",
+    }
