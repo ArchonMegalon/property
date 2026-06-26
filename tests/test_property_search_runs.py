@@ -1393,6 +1393,52 @@ def test_property_adjacent_area_radius_falls_back_to_reference_point_when_bounda
     ) is True
 
 
+def test_property_search_area_interior_ratio_is_relative_to_district_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    compact_district = {
+        "type": "Polygon",
+        "coordinates": [[
+            [16.0000, 48.0000],
+            [16.0100, 48.0000],
+            [16.0100, 48.0100],
+            [16.0000, 48.0100],
+            [16.0000, 48.0000],
+        ]],
+    }
+    large_district = {
+        "type": "Polygon",
+        "coordinates": [[
+            [16.0000, 48.0000],
+            [16.1000, 48.0000],
+            [16.1000, 48.1000],
+            [16.0000, 48.1000],
+            [16.0000, 48.0000],
+        ]],
+    }
+    facts = {"map_lat": 48.0050, "map_lng": 16.0020}
+
+    monkeypatch.setattr(product_service, "_property_search_area_boundary_geojsons", lambda **_kwargs: (compact_district,))
+    compact_ratio = product_service._property_candidate_search_area_interior_ratio(
+        location_hints=("1010 Vienna",),
+        property_facts=facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+
+    monkeypatch.setattr(product_service, "_property_search_area_boundary_geojsons", lambda **_kwargs: (large_district,))
+    large_ratio = product_service._property_candidate_search_area_interior_ratio(
+        location_hints=("1220 Vienna",),
+        property_facts=facts,
+        country_code="AT",
+        region_code="vienna",
+    )
+
+    assert compact_ratio is not None
+    assert large_ratio is not None
+    assert compact_ratio > 0.35
+    assert large_ratio < 0.05
+    assert compact_ratio > large_ratio * 8
+
+
 def test_property_search_interleave_by_provider_group_spreads_same_provider_shards() -> None:
     ordered = product_service._property_search_interleave_by_provider_group(
         [

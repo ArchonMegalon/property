@@ -174,6 +174,12 @@ def _property_research_point_to_ring_distance_m(lat: float, lon: float, ring: li
     if _property_research_point_in_ring(lat, lon, ring):
         return 0.0
 
+    return _property_research_point_to_ring_boundary_distance_m(lat, lon, ring)
+
+
+def _property_research_point_to_ring_boundary_distance_m(lat: float, lon: float, ring: list[tuple[float, float]]) -> float | None:
+    if len(ring) < 2:
+        return None
     lat0_rad = math.radians(float(lat))
     meters_per_lon = 111_320.0 * max(math.cos(lat0_rad), 0.000001)
     meters_per_lat = 111_320.0
@@ -214,6 +220,52 @@ def _property_research_point_to_geojson_distance_m(lat: float, lon: float, geojs
     if not known:
         return None
     return min(known)
+
+
+def _property_research_geojson_characteristic_span_m(geojson: dict[str, object]) -> float | None:
+    rings = _property_research_geojson_outer_rings(dict(geojson or {}))
+    points = [(lon, lat) for ring in rings for lon, lat in ring]
+    if not points:
+        return None
+    min_lon = min(lon for lon, _lat in points)
+    max_lon = max(lon for lon, _lat in points)
+    min_lat = min(lat for _lon, lat in points)
+    max_lat = max(lat for _lon, lat in points)
+    mid_lat = (min_lat + max_lat) / 2.0
+    width_m = _property_research_distance_m(mid_lat, min_lon, mid_lat, max_lon)
+    height_m = _property_research_distance_m(min_lat, min_lon, max_lat, min_lon)
+    span_m = min(width_m, height_m)
+    return float(span_m) if span_m > 0 else None
+
+
+def _property_research_point_to_geojson_boundary_distance_m(
+    lat: float,
+    lon: float,
+    geojson: dict[str, object],
+) -> float | None:
+    distances = [
+        _property_research_point_to_ring_boundary_distance_m(lat, lon, ring)
+        for ring in _property_research_geojson_outer_rings(dict(geojson or {}))
+        if _property_research_point_in_ring(lat, lon, ring)
+    ]
+    known = [float(distance) for distance in distances if distance is not None]
+    if not known:
+        return None
+    return min(known)
+
+
+def _property_research_point_to_geojson_interior_ratio(
+    lat: float,
+    lon: float,
+    geojson: dict[str, object],
+) -> float | None:
+    boundary_distance_m = _property_research_point_to_geojson_boundary_distance_m(lat, lon, geojson)
+    characteristic_span_m = _property_research_geojson_characteristic_span_m(geojson)
+    if boundary_distance_m is None or not characteristic_span_m:
+        return None
+    # Normalize by half of the smaller district span: 150m is interior for a
+    # compact district much sooner than for a very large one.
+    return max(0.0, min(float(boundary_distance_m) / max(float(characteristic_span_m) / 2.0, 1.0), 1.0))
 
 def _property_schoolatlas_wfs_base_url() -> str:
     raw = str(

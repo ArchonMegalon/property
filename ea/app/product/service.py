@@ -104,6 +104,7 @@ from app.product.property_location_research import (
     _property_research_forward_geocode,
     _property_research_geojson_outer_rings,
     _property_research_point_to_geojson_distance_m,
+    _property_research_point_to_geojson_interior_ratio,
     _property_research_nearby_pois,
     _property_research_reverse_geocode,
     _property_schoolatlas_coords_from_facts,
@@ -6839,6 +6840,34 @@ def _property_candidate_within_adjacent_area_radius(
         if distance_m <= adjacent_area_radius_m:
             return True
     return False
+
+
+def _property_candidate_search_area_interior_ratio(
+    *,
+    location_hints: tuple[str, ...],
+    property_facts: dict[str, object] | None,
+    country_code: str = "",
+    region_code: str = "",
+) -> float | None:
+    candidate_point = _property_candidate_point(property_facts)
+    if candidate_point is None:
+        return None
+    candidate_lat, candidate_lon = candidate_point
+    ratios: list[float] = []
+    for geojson in _property_search_area_boundary_geojsons(
+        location_hints=location_hints,
+        country_code=country_code,
+        region_code=region_code,
+    ):
+        try:
+            ratio = _property_research_point_to_geojson_interior_ratio(candidate_lat, candidate_lon, geojson)
+        except Exception:
+            ratio = None
+        if ratio is not None:
+            ratios.append(float(ratio))
+    if not ratios:
+        return None
+    return max(0.0, min(max(ratios), 1.0))
 
 
 def _property_candidate_matches_search_area(
