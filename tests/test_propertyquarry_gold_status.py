@@ -56,8 +56,12 @@ def test_gold_status_provider_matrix_default_finds_live_e2e_receipts(tmp_path: P
         tmp_path / "_completion" / "smoke" / "property-provider-e2e-at-de-cr-latest.json",
         {"generated_at": "2026-06-26T11:07:15+00:00", "status": "pass"},
     )
+    deploy_receipt = _write_json(
+        tmp_path / "_completion" / "smoke" / "property-live-provider-latest.json",
+        {"generated_at": "2026-06-26T12:10:00+00:00", "status": "blocked_targeted_search_matrix_not_executed"},
+    )
 
-    assert _default_receipt_path("provider_matrix") == live_e2e.resolve()
+    assert _default_receipt_path("provider_matrix") == deploy_receipt.resolve()
 
 
 def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> dict[str, object]:

@@ -117,6 +117,7 @@ DEFAULT_RECEIPT_PATTERNS = {
     "vendor_tooling": ("_completion/tours/property-tour-vendor-tooling*.json",),
     "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
     "provider_matrix": (
+        "_completion/smoke/property-live-provider*.json",
         "_completion/provider_smoke/all-search-ready*.json",
         "_completion/smoke/property-provider-e2e*.json",
     ),
@@ -138,7 +139,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "billing": "_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json",
     "vendor_tooling": "_completion/tours/property-tour-vendor-tooling-current.json",
     "repair_canary": "_completion/repair/propertyquarry-repair-canary-latest.json",
-    "provider_matrix": "_completion/provider_smoke/all-search-ready-current-resumed.json",
+    "provider_matrix": "_completion/smoke/property-live-provider-latest.json",
     "whole_project_scope": "_completion/whole_project_scope/property-whole-project-scope-latest.json",
     "security_posture": "_completion/security/property-security-posture-latest.json",
     "release_hygiene": "_completion/release_hygiene/property-release-hygiene-latest.json",
