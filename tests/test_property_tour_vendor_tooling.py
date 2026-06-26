@@ -37,6 +37,7 @@ def test_vendor_tooling_receipt_reports_missing_3dvista_and_pano2vr_exports(tmp_
         tour_root=tour_root,
         wine_prefix=wine_prefix,
         installer_roots=[tmp_path / "installers"],
+        runtime_container="",
     )
     serialized = json.dumps(receipt).lower()
 
@@ -45,6 +46,8 @@ def test_vendor_tooling_receipt_reports_missing_3dvista_and_pano2vr_exports(tmp_
     assert {"krpanotools", "blender", "colmap", "meshlabserver", "ffmpeg", "exiftool", "imagemagick"} <= set(
         receipt["generated_tour_tools"]
     )
+    assert receipt["runtime_generated_tour_ready"] is None
+    assert receipt["runtime_generated_tour_tools"] == {}
     assert receipt["verified_export_ready_counts"] == {"3dvista": 0, "pano2vr": 0}
     assert receipt["missing_verified_exports"] == ["3dvista", "pano2vr"]
     assert "password" not in serialized

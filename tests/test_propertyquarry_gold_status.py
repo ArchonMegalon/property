@@ -537,6 +537,11 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
                 "blender": {"available": True, "path": "/usr/bin/blender"},
                 "colmap": {"available": True, "path": "/usr/bin/colmap"},
             },
+            "runtime_generated_tour_ready": False,
+            "runtime_generated_tour_tools": {
+                "ffmpeg": {"available": True, "path": "/usr/bin/ffmpeg"},
+                "blender": {"available": False, "path": ""},
+            },
             "wine_runtime_ready": True,
             "installer_count": 2,
             "verified_export_ready_counts": {"3dvista": 1, "pano2vr": 1},
@@ -602,6 +607,11 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
                 "blender": {"available": True, "path": "/usr/bin/blender"},
                 "colmap": {"available": True, "path": "/usr/bin/colmap"},
             },
+            "runtime_generated_tour_ready": False,
+            "runtime_generated_tour_tools": {
+                "ffmpeg": {"available": True, "path": "/usr/bin/ffmpeg"},
+                "blender": {"available": False, "path": ""},
+            },
             "wine_runtime_ready": True,
             "installer_count": 2,
             "verified_export_ready_counts": {"3dvista": 1, "pano2vr": 1},
@@ -629,6 +639,8 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["analytics"]["route_count"] == 2
     assert receipt["vendor_tooling"]["generated_tour_ready"] is True
     assert receipt["vendor_tooling"]["generated_tour_tools"]["colmap"]["available"] is True
+    assert receipt["vendor_tooling"]["runtime_generated_tour_ready"] is False
+    assert receipt["vendor_tooling"]["runtime_generated_tour_tools"]["blender"]["available"] is False
     assert receipt["blockers"] == []
     pass_areas = {str(row["area"]) for row in receipt["pass_areas"]}
     assert {

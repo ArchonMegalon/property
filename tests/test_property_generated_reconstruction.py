@@ -99,6 +99,10 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert receipt["satisfies_verified_tour_gate"] is False
     assert receipt["room_dimensions_m"]["width"] == 10.0
     assert len(receipt["photos"]) == 2
+    assert receipt["model"]["glb_export"]["status"] in {"generated", "failed", "skipped"}
+    if receipt["model"]["glb_export"]["status"] == "generated":
+        assert receipt["model"]["glb_relpath"] == "model.glb"
+        assert (output_dir / "model.glb").is_file()
     assert receipt["walkthrough"]["status"] in {"generated", "failed", "skipped"}
     if receipt["walkthrough"]["status"] == "generated":
         assert (output_dir / "generated-walkthrough.mp4").is_file()
@@ -108,6 +112,9 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert generated_reconstruction["viewer_relpath"] == "generated-reconstruction/viewer.html"
     assert generated_reconstruction["model_relpath"] == "generated-reconstruction/model.obj"
     assert generated_reconstruction["material_relpath"] == "generated-reconstruction/model.mtl"
+    assert generated_reconstruction["glb_export_status"] in {"generated", "failed", "skipped"}
+    if generated_reconstruction["glb_export_status"] == "generated":
+        assert generated_reconstruction["glb_model_relpath"] == "generated-reconstruction/model.glb"
     assert generated_reconstruction["verified_provider_capture"] is False
     assert "control_mode" not in manifest
     assert "viewer_provider" not in manifest
@@ -188,6 +195,7 @@ def test_generated_reconstruction_public_allowlist_exposes_viewer_model_and_vide
             "viewer_relpath": "generated-reconstruction/viewer.html",
             "model_relpath": "generated-reconstruction/model.obj",
             "material_relpath": "generated-reconstruction/model.mtl",
+            "glb_model_relpath": "generated-reconstruction/model.glb",
             "manifest_relpath": "generated-reconstruction/reconstruction.json",
             "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
         },
@@ -198,6 +206,7 @@ def test_generated_reconstruction_public_allowlist_exposes_viewer_model_and_vide
     assert "generated-reconstruction/viewer.html" in allowed
     assert "generated-reconstruction/model.obj" in allowed
     assert "generated-reconstruction/model.mtl" in allowed
+    assert "generated-reconstruction/model.glb" in allowed
     assert "generated-reconstruction/generated-walkthrough.mp4" in allowed
     assert "generated-reconstruction/reconstruction.json" not in allowed
     assert "generated-reconstruction/private-debug.html" not in public_tour_allowed_asset_paths(

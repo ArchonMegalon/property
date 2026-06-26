@@ -419,7 +419,7 @@ def public_tour_asset_path_is_public(
                 and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES
             )
         )
-    if suffix in {".obj", ".mtl"}:
+    if suffix in {".obj", ".mtl", ".glb"}:
         return (
             normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
             and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_MODEL_ROLES
@@ -482,6 +482,11 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             generated_reconstruction.get("material_relpath"),
             privacy_class="generated_reconstruction_public",
             role="generated_reconstruction_material",
+        )
+        _add(
+            generated_reconstruction.get("glb_model_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_model",
         )
         _add(
             generated_reconstruction.get("walkthrough_video_relpath"),
@@ -575,6 +580,11 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
             generated_reconstruction.get("material_relpath"),
             privacy_class="generated_reconstruction_public",
             role="generated_reconstruction_material",
+        )
+        _record(
+            generated_reconstruction.get("glb_model_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_model",
         )
         _record(
             generated_reconstruction.get("walkthrough_video_relpath"),

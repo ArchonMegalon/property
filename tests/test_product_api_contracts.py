@@ -25734,6 +25734,7 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
     (bundle_dir / "generated-reconstruction").mkdir()
     (bundle_dir / "generated-reconstruction" / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
     (bundle_dir / "generated-reconstruction" / "model.obj").write_text("o room\n", encoding="utf-8")
+    (bundle_dir / "generated-reconstruction" / "model.glb").write_bytes(b"glTF")
     (bundle_dir / "generated-reconstruction" / "walkthrough.mp4").write_bytes(b"video")
     (bundle_dir / "generated-reconstruction" / "reconstruction.json").write_text("{}", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
@@ -25744,6 +25745,7 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
                     "provider": "propertyquarry_generated_reconstruction",
                     "viewer_relpath": "generated-reconstruction/viewer.html",
                     "model_relpath": "generated-reconstruction/model.obj",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
                     "manifest_relpath": "generated-reconstruction/reconstruction.json",
                     "walkthrough_video_relpath": "generated-reconstruction/walkthrough.mp4",
                     "verified_provider_capture": False,
@@ -25763,6 +25765,10 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
         tour_url,
         asset_key="model_relpath",
     ) == f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/model.obj"
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+        tour_url,
+        asset_key="glb_model_relpath",
+    ) == f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/model.glb"
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
         tour_url,
         asset_key="walkthrough_video_relpath",

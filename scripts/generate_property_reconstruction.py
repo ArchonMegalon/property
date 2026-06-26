@@ -158,6 +158,60 @@ def _write_obj(target_dir: Path, *, width_m: float, depth_m: float, height_m: fl
     )
 
 
+def _write_glb_with_blender(target_dir: Path) -> dict[str, object]:
+    blender = shutil.which("blender")
+    if not blender:
+        return {"status": "skipped", "reason": "blender_missing"}
+    obj_path = target_dir / "model.obj"
+    glb_path = target_dir / "model.glb"
+    if not obj_path.is_file():
+        return {"status": "skipped", "reason": "obj_missing"}
+    with tempfile.TemporaryDirectory(prefix="propertyquarry-blender-export-") as tempdir:
+        script_path = Path(tempdir) / "export_glb.py"
+        script_path.write_text(
+            "\n".join(
+                [
+                    "import bpy",
+                    "import sys",
+                    "from pathlib import Path",
+                    f"obj_path = Path({str(obj_path)!r})",
+                    f"glb_path = Path({str(glb_path)!r})",
+                    "bpy.ops.object.select_all(action='SELECT')",
+                    "bpy.ops.object.delete()",
+                    "if hasattr(bpy.ops.wm, 'obj_import'):",
+                    "    bpy.ops.wm.obj_import(filepath=str(obj_path))",
+                    "else:",
+                    "    bpy.ops.import_scene.obj(filepath=str(obj_path))",
+                    "for obj in bpy.context.scene.objects:",
+                    "    obj.select_set(True)",
+                    "bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_yup=True)",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [blender, "--background", "--factory-startup", "--python", str(script_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    if result.returncode != 0 or not glb_path.is_file():
+        return {
+            "status": "failed",
+            "reason": "blender_glb_export_failed",
+            "stdout_tail": (result.stdout or "")[-500:],
+            "stderr_tail": (result.stderr or "")[-500:],
+        }
+    return {
+        "status": "generated",
+        "glb_relpath": glb_path.name,
+        "glb_sha256": _sha256(glb_path),
+        "glb_size_bytes": glb_path.stat().st_size,
+    }
+
+
 def _viewer_html(*, manifest: dict[str, object]) -> str:
     width_m = manifest["room_dimensions_m"]["width"]
     depth_m = manifest["room_dimensions_m"]["depth"]
@@ -168,6 +222,8 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
         for index, row in enumerate(photos, start=1)
         if isinstance(row, dict) and row.get("relpath")
     )
+    glb = manifest.get("model", {}).get("glb_relpath") if isinstance(manifest.get("model"), dict) else ""
+    glb_link = f' · <a href="{glb}">Download GLB</a>' if glb else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -218,7 +274,7 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
       <div class="photos">{photo_items}</div>
     </section>
     <section class="card">
-      <p><a href="model.obj">Download OBJ</a> · receipt stored with operator artifacts</p>
+      <p><a href="model.obj">Download OBJ</a>{glb_link} · receipt stored with operator artifacts</p>
     </section>
   </aside>
 </main>
@@ -375,6 +431,7 @@ def main() -> int:
     )
 
     _write_obj(output_dir, width_m=width_m, depth_m=depth_m, height_m=height_m)
+    glb_export = _write_glb_with_blender(output_dir)
     source_images = [floorplan_target, *photo_paths]
     walkthrough = (
         {"status": "skipped", "reason": "skip_video_requested"}
@@ -399,10 +456,15 @@ def main() -> int:
             "mtl_relpath": "model.mtl",
             "obj_sha256": _sha256(output_dir / "model.obj"),
             "mtl_sha256": _sha256(output_dir / "model.mtl"),
+            "glb_export": glb_export,
         },
         "viewer": {"relpath": "viewer.html"},
         "walkthrough": walkthrough,
     }
+    if glb_export.get("status") == "generated":
+        receipt["model"]["glb_relpath"] = str(glb_export.get("glb_relpath") or "model.glb")
+        receipt["model"]["glb_sha256"] = str(glb_export.get("glb_sha256") or "")
+        receipt["model"]["glb_size_bytes"] = int(glb_export.get("glb_size_bytes") or 0)
     (output_dir / "reconstruction.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (output_dir / "viewer.html").write_text(_viewer_html(manifest=receipt), encoding="utf-8")
     receipt["viewer"]["sha256"] = _sha256(output_dir / "viewer.html")
@@ -419,10 +481,13 @@ def main() -> int:
         "model_relpath": f"{base_relpath}/model.obj",
         "material_relpath": f"{base_relpath}/model.mtl",
         "manifest_relpath": f"{base_relpath}/reconstruction.json",
+        "glb_export_status": str(glb_export.get("status") or ""),
         "verified_provider_capture": False,
         "satisfies_verified_tour_gate": False,
         "disclosure": DISCLOSURE,
     }
+    if glb_export.get("status") == "generated":
+        generated_reconstruction["glb_model_relpath"] = f"{base_relpath}/{glb_export.get('glb_relpath') or 'model.glb'}"
     if walkthrough.get("status") == "generated":
         generated_reconstruction["walkthrough_video_relpath"] = f"{base_relpath}/generated-walkthrough.mp4"
     payload["generated_reconstruction"] = generated_reconstruction

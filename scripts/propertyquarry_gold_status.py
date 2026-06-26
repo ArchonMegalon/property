@@ -1143,6 +1143,8 @@ def build_gold_status_receipt(
             "host_ready": bool(vendor_tooling.get("host_ready")) if vendor_tooling_receipt_path is not None else None,
             "generated_tour_ready": bool(vendor_tooling.get("generated_tour_ready")) if vendor_tooling_receipt_path is not None else None,
             "generated_tour_tools": vendor_tooling.get("generated_tour_tools") or {},
+            "runtime_generated_tour_ready": vendor_tooling.get("runtime_generated_tour_ready") if vendor_tooling_receipt_path is not None else None,
+            "runtime_generated_tour_tools": vendor_tooling.get("runtime_generated_tour_tools") or {},
             "wine_runtime_ready": bool(vendor_tooling.get("wine_runtime_ready")) if vendor_tooling_receipt_path is not None else None,
             "installer_count": vendor_tooling.get("installer_count") if vendor_tooling_receipt_path is not None else None,
             "verified_export_ready_counts": vendor_tooling.get("verified_export_ready_counts") or {},

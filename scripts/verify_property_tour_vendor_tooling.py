@@ -72,6 +72,31 @@ def _command_version(command: str, *args: str, env: dict[str, str] | None = None
     return {"available": True, "path": executable, "version": version}
 
 
+def _container_command_available(container: str, command: str) -> dict[str, object]:
+    if not container:
+        return {"available": False, "container": "", "path": ""}
+    docker = shutil.which("docker")
+    if not docker:
+        return {"available": False, "container": container, "path": "", "reason": "docker_missing"}
+    try:
+        completed = subprocess.run(
+            [docker, "exec", container, "sh", "-lc", f"command -v {command}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        return {"available": False, "container": container, "path": "", "reason": type(exc).__name__}
+    path = (completed.stdout or "").strip().splitlines()[0] if completed.stdout.strip() else ""
+    return {
+        "available": completed.returncode == 0 and bool(path),
+        "container": container,
+        "path": path,
+        "returncode": int(completed.returncode),
+    }
+
+
 def _installer_search_roots(extra_roots: list[str]) -> list[Path]:
     roots = [
         _repo_root() / "state" / "vendor_installers",
@@ -126,6 +151,7 @@ def build_vendor_tooling_receipt(
     tour_root: Path,
     wine_prefix: Path,
     installer_roots: list[Path],
+    runtime_container: str = "",
 ) -> dict[str, Any]:
     discovery = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=tour_root)
     provider_ready_counts = _provider_ready_counts(discovery)
@@ -156,6 +182,16 @@ def build_vendor_tooling_receipt(
         "imagemagick": imagemagick,
     }
     generated_tour_ready = all(bool(row.get("available")) for row in generated_tour_tools.values())
+    runtime_required_tools = ("ffmpeg", "blender", "colmap", "exiftool", "convert")
+    runtime_generated_tour_tools = {
+        command: _container_command_available(runtime_container, command)
+        for command in runtime_required_tools
+    } if runtime_container else {}
+    runtime_generated_tour_ready = (
+        all(bool(row.get("available")) for row in runtime_generated_tour_tools.values())
+        if runtime_generated_tour_tools
+        else None
+    )
     missing_exports = [
         provider
         for provider in ("3dvista", "pano2vr")
@@ -176,6 +212,16 @@ def build_vendor_tooling_receipt(
                 "area": "generated_tour_tooling",
                 "missing_tools": missing_tools,
                 "action": "install the missing local generation tools before claiming floorplan/photos-to-tour readiness",
+            }
+        )
+    if runtime_generated_tour_ready is False:
+        missing_runtime_tools = [name for name, row in runtime_generated_tour_tools.items() if not row.get("available")]
+        next_actions.append(
+            {
+                "area": "runtime_generated_tour_tooling",
+                "container": runtime_container,
+                "missing_tools": missing_runtime_tools,
+                "action": "install missing runtime tools or route reconstruction generation to the prepared operator host lane",
             }
         )
     if not installers:
@@ -199,6 +245,8 @@ def build_vendor_tooling_receipt(
         "host_ready": host_ready,
         "generated_tour_ready": generated_tour_ready,
         "generated_tour_tools": generated_tour_tools,
+        "runtime_generated_tour_ready": runtime_generated_tour_ready,
+        "runtime_generated_tour_tools": runtime_generated_tour_tools,
         "wine_runtime_ready": wine_runtime_ready,
         "wine": wine,
         "wine64": wine64,
@@ -228,6 +276,7 @@ def main() -> int:
     parser.add_argument("--tour-root", default=str(_default_tour_root()))
     parser.add_argument("--wine-prefix", default=str(_default_wine_prefix()))
     parser.add_argument("--installer-root", action="append", default=[])
+    parser.add_argument("--runtime-container", default=os.getenv("PROPERTYQUARRY_API_CONTAINER_NAME") or "propertyquarry-api")
     parser.add_argument("--write", default="_completion/tours/property-tour-vendor-tooling-current.json")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
@@ -237,6 +286,7 @@ def main() -> int:
         tour_root=Path(args.tour_root).expanduser(),
         wine_prefix=Path(args.wine_prefix).expanduser(),
         installer_roots=_installer_search_roots(args.installer_root),
+        runtime_container=str(args.runtime_container or "").strip(),
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:

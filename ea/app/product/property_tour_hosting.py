@@ -621,6 +621,7 @@ def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *
         "viewer_relpath",
         "model_relpath",
         "material_relpath",
+        "glb_model_relpath",
         "walkthrough_video_relpath",
     }:
         return ""
