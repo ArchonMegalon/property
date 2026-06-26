@@ -46,6 +46,10 @@ def route_is_research_detail(route: str) -> bool:
     return route_path.startswith("/app/research/") and route_path != "/app/research"
 
 
+def routes_require_api_auth(routes: tuple[str, ...]) -> bool:
+    return any(str(route or "").split("?", 1)[0].strip().startswith("/app/") for route in routes)
+
+
 def seeded_research_detail_payload() -> dict[str, Any]:
     candidate = {
         "candidate_ref": "perf-candidate-1020",
@@ -322,6 +326,30 @@ def build_live_mobile_surface_receipt(
     viewport_height: int = 844,
     timeout_ms: int = 30_000,
 ) -> dict[str, Any]:
+    if routes_require_api_auth(routes) and not str(api_token or "").strip():
+        return {
+            "status": "blocked",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "base_url": base_url,
+            "host_header": host_header,
+            "navigation_base_url": base_url,
+            "principal_id": principal_id,
+            "viewport": {"width": viewport_width, "height": viewport_height},
+            "route_count": 0,
+            "failed_count": 1,
+            "coverage_checks": [
+                {
+                    "name": "api_token_present_for_app_routes",
+                    "ok": False,
+                    "reason": "Live mobile app-surface smoke requires EA_API_TOKEN or --api-token; otherwise protected pages render sign-in redirects instead of the app UI.",
+                }
+            ],
+            "routes": [],
+            "notes": [
+                "Live mobile smoke checks deployed HTML geometry only; it does not call listing providers.",
+                "API token values are never written to this receipt.",
+            ],
+        }
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:  # pragma: no cover - exercised when optional dependency is absent.

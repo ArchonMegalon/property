@@ -3,9 +3,11 @@ from __future__ import annotations
 from scripts.propertyquarry_live_mobile_surface_smoke import (
     DEFAULT_ROUTES,
     SEEDED_RESEARCH_DETAIL_ROUTE,
+    build_live_mobile_surface_receipt,
     build_mobile_coverage_checks,
     evaluate_mobile_metrics,
     route_is_research_detail,
+    routes_require_api_auth,
     seeded_research_detail_payload,
 )
 
@@ -150,6 +152,28 @@ def test_live_mobile_smoke_default_routes_cover_settings_surfaces() -> None:
         "/app/settings/trust",
         "/app/settings/invitations",
     }.issubset(set(DEFAULT_ROUTES))
+
+
+def test_live_mobile_smoke_blocks_app_routes_without_api_token_before_playwright() -> None:
+    assert routes_require_api_auth(("/app/search",)) is True
+    assert routes_require_api_auth(("/pricing",)) is False
+
+    receipt = build_live_mobile_surface_receipt(
+        base_url="http://localhost:8097",
+        api_token="",
+        principal_id="pq-live-mobile-smoke",
+        routes=("/app/search",),
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["routes"] == []
+    assert receipt["coverage_checks"] == [
+        {
+            "name": "api_token_present_for_app_routes",
+            "ok": False,
+            "reason": "Live mobile app-surface smoke requires EA_API_TOKEN or --api-token; otherwise protected pages render sign-in redirects instead of the app UI.",
+        }
+    ]
 
 
 def test_live_mobile_smoke_can_require_current_research_detail_route() -> None:
