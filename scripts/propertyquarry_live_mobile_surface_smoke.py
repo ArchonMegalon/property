@@ -292,6 +292,9 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "research_detail_visual_controls", "ok": bool(metrics.get("research_detail_visual_controls"))},
                 {"name": "research_detail_no_fake_visual_ready", "ok": not bool(metrics.get("research_detail_fake_visual_ready"))},
                 {"name": "research_detail_generated_reconstruction_honest", "ok": bool(metrics.get("research_detail_generated_reconstruction_honest"))},
+                {"name": "research_detail_verified_tour_evidence_copy", "ok": bool(metrics.get("research_detail_verified_tour_evidence_copy"))},
+                {"name": "research_detail_walkthrough_evidence_copy", "ok": bool(metrics.get("research_detail_walkthrough_evidence_copy"))},
+                {"name": "research_detail_no_vague_visual_copy", "ok": bool(metrics.get("research_detail_no_vague_visual_copy"))},
             )
         )
     return checks
@@ -373,6 +376,27 @@ def _collect_metrics_script() -> str:
         && bodyText.includes('build verified 3d tour')
         && Boolean(document.querySelector('[data-pw-visual-request="tour"]'))
       );
+      const verifiedTourEvidenceCopy = (
+        bodyText.includes('evidence: verified matterport control')
+        || bodyText.includes('evidence: verified 3dvista control')
+        || bodyText.includes('evidence: verified pano2vr control')
+        || bodyText.includes('evidence: verified krpano control')
+        || bodyText.includes('no verified 3d tour is published yet')
+        || bodyText.includes('a matterport, 3dvista, pano2vr, or licensed krpano capture is still needed')
+      );
+      const walkthroughEvidenceCopy = (
+        bodyText.includes('open walkthrough')
+        || bodyText.includes('walkthrough is ready')
+        || bodyText.includes('rendered walkthrough is ready')
+        || bodyText.includes('no playable walkthrough is published yet')
+        || bodyText.includes('a verified rendered video is still needed')
+      );
+      const vagueVisualCopy = (
+        bodyText.includes('more source material is still needed before this 3d tour can be built')
+        || bodyText.includes('more source material is still needed before this walkthrough can be built')
+        || bodyText.includes('more source material is still needed before this visual can be built')
+        || bodyText.includes('more source material is needed first')
+      );
       return {
         body_width: document.documentElement.scrollWidth,
         viewport_width: window.innerWidth,
@@ -400,6 +424,9 @@ def _collect_metrics_script() -> str:
         research_detail_visual_controls: visualControls.length > 0,
         research_detail_fake_visual_ready: bodyText.includes('fake 3d') || bodyText.includes('fake tour') || bodyText.includes('placeholder 3d') || bodyText.includes('placeholder tour'),
         research_detail_generated_reconstruction_honest: generatedReconstructionHonest,
+        research_detail_verified_tour_evidence_copy: verifiedTourEvidenceCopy,
+        research_detail_walkthrough_evidence_copy: walkthroughEvidenceCopy,
+        research_detail_no_vague_visual_copy: !vagueVisualCopy,
       };
     }
     """
