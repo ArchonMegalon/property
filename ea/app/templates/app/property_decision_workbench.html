@@ -457,6 +457,400 @@
       --pq-hover-shadow: 0 18px 42px rgba(0, 0, 0, 0.46);
       color-scheme: dark;
     }
+    {% if static_surface %}
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background:
+        radial-gradient(circle at 12% 0%, rgba(189, 139, 47, 0.14), transparent 30%),
+        linear-gradient(180deg, #fbf7ef 0%, var(--pq-bg) 42%, #eee8dc 100%);
+      color: var(--pq-ink);
+      font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif;
+    }
+    html[data-pq-theme="dark"] body {
+      background:
+        radial-gradient(circle at 12% 0%, rgba(210, 161, 74, 0.12), transparent 28%),
+        linear-gradient(180deg, #171412 0%, var(--pq-bg) 42%, #0f0d0c 100%);
+    }
+    a { color: inherit; text-decoration: none; }
+    button, input, select { font: inherit; }
+    .pqx-shell {
+      min-height: 100vh;
+      overflow-x: clip;
+    }
+    .pqx-topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 60px;
+      padding: 10px clamp(14px, 4vw, 26px);
+      border-bottom: 1px solid color-mix(in srgb, var(--pq-line) 84%, white);
+      background: color-mix(in srgb, var(--pq-bg) 86%, transparent);
+      backdrop-filter: blur(16px);
+    }
+    .pqx-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+      font-weight: 800;
+    }
+    .pqx-mark {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--pq-ink);
+      color: var(--pq-paper);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+    .pqx-brand-copy,
+    .pqx-small {
+      display: block;
+      color: var(--pq-muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    .pqx-primary-nav {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      min-width: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .pqx-primary-nav::-webkit-scrollbar { display: none; }
+    .pqx-primary-nav a,
+    .pqx-primary-nav span,
+    .pqx-link-button,
+    .pqx-button {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      padding: 0 14px;
+      background: color-mix(in srgb, var(--pq-paper) 90%, transparent);
+      color: var(--pq-ink);
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .pqx-primary-nav span,
+    .pqx-link-button.primary,
+    .pqx-button.primary {
+      border-color: var(--pq-ink);
+      background: var(--pq-ink);
+      color: var(--pq-paper);
+    }
+    .pqx-link-button.danger,
+    .pqx-link-button.subtle.danger {
+      border-color: color-mix(in srgb, var(--pq-red) 44%, var(--pq-line));
+      color: var(--pq-red);
+    }
+    .pqx-top-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      min-width: 0;
+    }
+    .pqx-mobile-nav-menu { display: contents; }
+    .pqx-mobile-nav-menu > summary { display: none; }
+    .pqx-account-menu { position: relative; }
+    .pqx-account-menu summary {
+      display: inline-grid;
+      width: 44px;
+      height: 44px;
+      place-items: center;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: var(--pq-paper);
+      font-weight: 900;
+      cursor: pointer;
+      list-style: none;
+    }
+    .pqx-account-menu summary::-webkit-details-marker { display: none; }
+    .pqx-account-menu-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 10px);
+      width: min(82vw, 280px);
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 22px;
+      background: var(--pq-paper);
+      box-shadow: var(--pq-shadow);
+    }
+    .pqx-account-menu-links,
+    .pqx-actions,
+    .pqx-account-card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pqx-main {
+      width: min(100%, 1160px);
+      margin: 0 auto;
+      padding: clamp(14px, 4vw, 30px);
+    }
+    .pqx-stage,
+    .pqx-command,
+    .pqx-brief-drawer-panel,
+    .pqx-setup-intro {
+      min-width: 0;
+    }
+    .pqx-setup {
+      display: grid;
+      grid-template-columns: minmax(0, 0.78fr) minmax(320px, 1.22fr);
+      gap: clamp(16px, 3vw, 28px);
+      align-items: start;
+    }
+    .pqx-setup-intro,
+    .pqx-brief-drawer-panel,
+    .pqx-card {
+      border: 1px solid var(--pq-line);
+      border-radius: 28px;
+      background: color-mix(in srgb, var(--pq-paper) 92%, transparent);
+      box-shadow: none;
+    }
+    .pqx-setup-intro,
+    .pqx-brief-drawer-panel {
+      padding: clamp(16px, 3vw, 24px);
+    }
+    .pqx-title h1,
+    .pqx-section-head h2,
+    .pqx-account-action-card h2 {
+      margin: 0;
+      line-height: 0.96;
+      letter-spacing: -0.035em;
+    }
+    .pqx-title h1 { font-size: clamp(34px, 6vw, 58px); }
+    .pqx-section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .pqx-note,
+    .pqx-account-action-card p,
+    .pqx-pref-row small {
+      color: var(--pq-muted);
+    }
+    .pqx-account-board {
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      padding: 0;
+    }
+    .pqx-account-board > .pqx-section-head { display: none; }
+    .pqx-account-action-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .pqx-account-logout-strip,
+    .pqx-account-action-card,
+    .pqx-account-channel-option,
+    .pqx-account-channel-detail,
+    .pqx-pref-row {
+      border: 1px solid var(--pq-line);
+      border-radius: 22px;
+      background: color-mix(in srgb, var(--pq-paper) 94%, transparent);
+    }
+    .pqx-account-logout-strip {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 12px;
+      padding: 14px;
+    }
+    .pqx-account-logout-strip strong { display: block; }
+    .pqx-account-action-card {
+      display: flex;
+      min-height: 168px;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px;
+    }
+    .pqx-account-action-card.primary {
+      background: linear-gradient(145deg, color-mix(in srgb, var(--pq-gold) 13%, var(--pq-paper)), var(--pq-paper));
+    }
+    .pqx-pref-list,
+    .pqx-account-channel-form {
+      display: grid;
+      gap: 8px;
+    }
+    .pqx-pref-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px;
+    }
+    .pqx-pill {
+      display: inline-flex;
+      min-height: 28px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      padding: 0 10px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .pqx-account-channel-options {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-account-channel-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 46px;
+      padding: 10px;
+      font-weight: 800;
+    }
+    .pqx-account-channel-option:has(input:checked) {
+      border-color: color-mix(in srgb, var(--pq-gold) 55%, var(--pq-line));
+      background: color-mix(in srgb, var(--pq-gold) 14%, var(--pq-paper));
+    }
+    .pqx-account-channel-detail {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+    }
+    .pqx-account-channel-detail[data-channel-detail] { display: none; }
+    .pqx-account-channel-form:has(input[name="notification_channels"][value="email"]:checked) [data-channel-detail="email"],
+    .pqx-account-channel-form:has(input[name="notification_channels"][value="telegram"]:checked) [data-channel-detail="telegram"],
+    .pqx-account-channel-form:has(input[name="notification_channels"][value="whatsapp"]:checked) [data-channel-detail="whatsapp"] {
+      display: grid;
+    }
+    .pqx-account-channel-detail input {
+      min-height: 44px;
+      width: 100%;
+      border: 1px solid var(--pq-line);
+      border-radius: 14px;
+      padding: 0 12px;
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+    }
+    .pqx-mobile-switch,
+    .pqx-result-panel,
+    .pqx-map-shell,
+    .pqx-bottom-dock { display: none !important; }
+    .pqx-shell [hidden] { display: none !important; }
+    html[data-pq-theme="dark"] .pqx-topbar,
+    html[data-pq-theme="dark"] .pqx-setup-intro,
+    html[data-pq-theme="dark"] .pqx-brief-drawer-panel,
+    html[data-pq-theme="dark"] .pqx-account-action-card,
+    html[data-pq-theme="dark"] .pqx-account-logout-strip,
+    html[data-pq-theme="dark"] .pqx-account-channel-option,
+    html[data-pq-theme="dark"] .pqx-account-channel-detail,
+    html[data-pq-theme="dark"] .pqx-pref-row,
+    html[data-pq-theme="dark"] .pqx-account-menu-panel {
+      border-color: var(--pq-line);
+      background: color-mix(in srgb, var(--pq-paper) 90%, transparent);
+    }
+    @media (max-width: 760px) {
+      body { font-size: 15px; }
+      .pqx-topbar {
+        grid-template-columns: auto 1fr auto;
+        gap: 8px;
+        min-height: 58px;
+        padding: 8px 10px;
+      }
+      .pqx-brand span:last-child { display: none; }
+      .pqx-mobile-nav-menu {
+        display: block;
+        min-width: 0;
+      }
+      .pqx-mobile-nav-menu > summary {
+        display: flex;
+        min-height: 44px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--pq-line);
+        border-radius: 999px;
+        padding: 0 14px;
+        background: var(--pq-paper);
+        font-weight: 900;
+        list-style: none;
+      }
+      .pqx-mobile-nav-menu > summary::-webkit-details-marker { display: none; }
+      .pqx-primary-nav {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: calc(100% + 8px);
+        display: none;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 10px;
+        border: 1px solid var(--pq-line);
+        border-radius: 22px;
+        background: var(--pq-paper);
+        box-shadow: var(--pq-shadow);
+      }
+      .pqx-mobile-nav-menu[open] .pqx-primary-nav { display: flex; }
+      .pqx-top-actions > :not([data-pqx-theme-toggle]):not(.pqx-account-menu) { display: none; }
+      .pqx-main { padding: 12px 10px 24px; }
+      .pqx-setup {
+        display: block;
+      }
+      .pqx-setup-intro {
+        display: none;
+      }
+      .pqx-brief-drawer-panel {
+        border-radius: 22px;
+        padding: 12px;
+      }
+      .pqx-brief-drawer-panel > .pqx-section-head {
+        margin-bottom: 10px;
+      }
+      .pqx-brief-drawer-panel > .pqx-section-head .pqx-note {
+        display: none;
+      }
+      .pqx-account-action-grid,
+      .pqx-account-channel-options {
+        grid-template-columns: 1fr;
+      }
+      .pqx-account-logout-strip,
+      .pqx-account-action-card {
+        border-radius: 18px;
+        min-height: 0;
+        padding: 12px;
+      }
+      .pqx-account-logout-strip {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .pqx-account-logout-strip .pqx-link-button,
+      .pqx-account-action-card .pqx-link-button,
+      .pqx-account-action-card button,
+      .pqx-account-card-actions .pqx-link-button,
+      .pqx-account-channel-form > .pqx-link-button {
+        width: 100%;
+      }
+      .pqx-account-action-card p,
+      .pqx-pref-list {
+        margin-top: 6px !important;
+      }
+    }
+    {% else %}
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
     body {
@@ -8100,6 +8494,7 @@
     html[data-pq-theme="dark"] .pqx-shell :is([class$="-card"], [class*="-card "], [class$="-panel"], [class*="-panel "]) :is(small, span, p) {
       color: inherit;
     }
+    {% endif %}
   </style>
 </head>
 <body>

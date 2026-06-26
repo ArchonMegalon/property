@@ -46,6 +46,21 @@ The live operator import and verifier hardening on 2026-06-26 verified:
 - Focused route/import/verifier tests returned `4 passed` for Pano2VR route contracts and `54 passed` for tour control verifier, export importer, and vendor tooling contracts.
 - Current gold-status tooling is blocked until a licensed 3DVista export or allowlisted hosted 3DVista tour URL replaces the trial-branded export.
 
+## Cross-Project 3DVista Pattern Learned From Chummer RunSite
+
+Chummer RunSite/Horizon work should be treated as a reusable tour-delivery pattern, not as direct PropertyQuarry proof. The relevant Chummer receipt currently records `status=blocked` for 3DVista delivery because no authenticated 3DVista account upload automation, hosted-tour API binding, or local 3DVista project export is configured in that workspace. Its useful pattern is the contract shape:
+
+- `ready_payload`: public-safe caption, generated media path, poster path, source viewer URL, and manifest URL.
+- `blocked_reason`: one concise operator-facing reason when the tour cannot be promoted.
+- `required_to_send`: authenticated 3DVista session, hosted-tour/project upload target, and the chosen delivery role.
+
+PropertyQuarry should mirror that discipline for 3DVista and Matterport/krpano/Pano2VR/MagicFit integrations:
+
+- Do not promote provider sample viewers, Chummer demo tours, trial-branded exports, or marketing fly-throughs as PropertyQuarry-ready tours.
+- Accept only a playable PropertyQuarry-specific hosted 3DVista URL, private-viewer bundle, or self-hosted VT Pro export that passes the existing non-trial export verifier.
+- Keep source-of-truth separation explicit: the tour viewer presents visual walkthrough assets; PropertyQuarry owns listing facts, ranking, evidence, pricing, entitlement, and customer decisions.
+- Reuse Chummer's receipt vocabulary for future private-viewer arrival: `ready_payload`, `blocked_reason`, `required_to_send`, and public-safe manifest URLs.
+
 The candidate at `a60f0e6f` passed:
 
 - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_renders_what_matters_as_comboboxes tests/test_product_api_contracts.py::test_property_search_preferences_enable_new_research_and_source_flags tests/test_product_api_contracts.py::test_property_official_risk_evidence_for_austria_includes_school_noise_and_broadband tests/test_product_api_contracts.py::test_property_austria_preference_adjustment_scores_heat_resilience tests/test_property_score_methodology.py tests/test_fliplink_webhook_contracts.py::test_score_methodology_pdf_endpoint_uses_requested_language tests/test_property_market_catalog.py::test_austria_official_sources_are_evidence_not_listing_providers` returned `12 passed`.
