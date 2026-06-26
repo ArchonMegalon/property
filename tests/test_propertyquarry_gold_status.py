@@ -544,6 +544,17 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
             },
             "wine_runtime_ready": True,
             "installer_count": 2,
+            "installer_counts": {"3dvista": 1, "pano2vr": 1},
+            "installed_app_count": 1,
+            "installed_app_counts": {"3dvista": 1, "pano2vr": 0},
+            "installed_apps": [
+                {
+                    "provider": "3dvista",
+                    "path": "/state/vendor_apps/3dvista/3DVista Virtual Tour.exe",
+                    "size_bytes": 123,
+                    "layout": "portable_extract",
+                }
+            ],
             "verified_export_ready_counts": {"3dvista": 1, "pano2vr": 1},
             "missing_verified_exports": [],
             "next_actions": [],
@@ -614,6 +625,17 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
             },
             "wine_runtime_ready": True,
             "installer_count": 2,
+            "installer_counts": {"3dvista": 1, "pano2vr": 1},
+            "installed_app_count": 1,
+            "installed_app_counts": {"3dvista": 1, "pano2vr": 0},
+            "installed_apps": [
+                {
+                    "provider": "3dvista",
+                    "path": "/state/vendor_apps/3dvista/3DVista Virtual Tour.exe",
+                    "size_bytes": 123,
+                    "layout": "portable_extract",
+                }
+            ],
             "verified_export_ready_counts": {"3dvista": 1, "pano2vr": 1},
             "missing_verified_exports": [],
             "next_actions": [],
@@ -641,6 +663,10 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["vendor_tooling"]["generated_tour_tools"]["colmap"]["available"] is True
     assert receipt["vendor_tooling"]["runtime_generated_tour_ready"] is False
     assert receipt["vendor_tooling"]["runtime_generated_tour_tools"]["blender"]["available"] is False
+    assert receipt["vendor_tooling"]["installer_counts"] == {"3dvista": 1, "pano2vr": 1}
+    assert receipt["vendor_tooling"]["installed_app_count"] == 1
+    assert receipt["vendor_tooling"]["installed_app_counts"] == {"3dvista": 1, "pano2vr": 0}
+    assert receipt["vendor_tooling"]["installed_apps"][0]["layout"] == "portable_extract"
     assert receipt["blockers"] == []
     pass_areas = {str(row["area"]) for row in receipt["pass_areas"]}
     assert {
