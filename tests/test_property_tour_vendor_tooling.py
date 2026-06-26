@@ -41,6 +41,10 @@ def test_vendor_tooling_receipt_reports_missing_3dvista_and_pano2vr_exports(tmp_
     serialized = json.dumps(receipt).lower()
 
     assert receipt["status"] == "blocked_missing_verified_exports"
+    assert "generated_tour_ready" in receipt
+    assert {"krpanotools", "blender", "colmap", "meshlabserver", "ffmpeg", "exiftool", "imagemagick"} <= set(
+        receipt["generated_tour_tools"]
+    )
     assert receipt["verified_export_ready_counts"] == {"3dvista": 0, "pano2vr": 0}
     assert receipt["missing_verified_exports"] == ["3dvista", "pano2vr"]
     assert "password" not in serialized

@@ -526,6 +526,24 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
     )
     provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
     ownership = _write_json(tmp_path / "tour-provider-ownership.json", _tour_provider_ownership_payload())
+    vendor_tooling = _write_json(
+        tmp_path / "vendor-tooling.json",
+        {
+            "status": "pass",
+            "host_ready": True,
+            "generated_tour_ready": True,
+            "generated_tour_tools": {
+                "krpanotools": {"available": True, "path": "/usr/local/bin/krpanotools"},
+                "blender": {"available": True, "path": "/usr/bin/blender"},
+                "colmap": {"available": True, "path": "/usr/bin/colmap"},
+            },
+            "wine_runtime_ready": True,
+            "installer_count": 2,
+            "verified_export_ready_counts": {"3dvista": 1, "pano2vr": 1},
+            "missing_verified_exports": [],
+            "next_actions": [],
+        },
+    )
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -534,6 +552,7 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
         tour_provider_ownership_receipt_path=ownership,
+        vendor_tooling_receipt_path=vendor_tooling,
     )
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "magicfit_walkthrough_playback")
@@ -572,6 +591,24 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     )
     provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
     ownership = _write_json(tmp_path / "tour-provider-ownership.json", _tour_provider_ownership_payload())
+    vendor_tooling = _write_json(
+        tmp_path / "vendor-tooling.json",
+        {
+            "status": "pass",
+            "host_ready": True,
+            "generated_tour_ready": True,
+            "generated_tour_tools": {
+                "krpanotools": {"available": True, "path": "/usr/local/bin/krpanotools"},
+                "blender": {"available": True, "path": "/usr/bin/blender"},
+                "colmap": {"available": True, "path": "/usr/bin/colmap"},
+            },
+            "wine_runtime_ready": True,
+            "installer_count": 2,
+            "verified_export_ready_counts": {"3dvista": 1, "pano2vr": 1},
+            "missing_verified_exports": [],
+            "next_actions": [],
+        },
+    )
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -580,6 +617,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
         tour_provider_ownership_receipt_path=ownership,
+        vendor_tooling_receipt_path=vendor_tooling,
     )
 
     assert receipt["status"] == "pass"
@@ -589,6 +627,8 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["performance"]["missing_search_checks"] == []
     assert receipt["analytics"]["status"] == "pass"
     assert receipt["analytics"]["route_count"] == 2
+    assert receipt["vendor_tooling"]["generated_tour_ready"] is True
+    assert receipt["vendor_tooling"]["generated_tour_tools"]["colmap"]["available"] is True
     assert receipt["blockers"] == []
     pass_areas = {str(row["area"]) for row in receipt["pass_areas"]}
     assert {

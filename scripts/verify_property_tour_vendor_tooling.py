@@ -49,18 +49,22 @@ def _default_wine_prefix() -> Path:
     return Path(os.getenv("PROPERTYQUARRY_PANO2VR_WINEPREFIX") or _repo_root() / "state" / "wine-pano2vr").expanduser()
 
 
-def _command_version(command: str, *args: str) -> dict[str, object]:
+def _command_version(command: str, *args: str, env: dict[str, str] | None = None) -> dict[str, object]:
     executable = shutil.which(command)
     if not executable:
         return {"available": False, "path": "", "version": ""}
     version = ""
     try:
+        command_env = os.environ.copy()
+        if env:
+            command_env.update(env)
         completed = subprocess.run(
             [executable, *args],
             check=False,
             capture_output=True,
             text=True,
             timeout=8,
+            env=command_env,
         )
         version = (completed.stdout or completed.stderr or "").strip().splitlines()[0][:160]
     except Exception:
@@ -130,9 +134,28 @@ def build_vendor_tooling_receipt(
     wine64 = _command_version("wine64", "--version")
     xvfb = _command_version("xvfb-run", "--help")
     winetricks = _command_version("winetricks", "--version")
+    krpano = _command_version("krpanotools", "version")
+    blender = _command_version("blender", "--version")
+    colmap = _command_version("colmap", "-h")
+    meshlabserver = _command_version("meshlabserver", "-h", env={"QT_QPA_PLATFORM": "offscreen"})
+    ffmpeg = _command_version("ffmpeg", "-version")
+    exiftool = _command_version("exiftool", "-ver")
+    imagemagick = _command_version("magick", "-version")
+    if not imagemagick.get("available"):
+        imagemagick = _command_version("convert", "-version")
     wine_prefix_ready = wine_prefix.is_dir() and (wine_prefix / "system.reg").is_file()
     wine_runtime_ready = bool(wine.get("available")) or bool(wine64.get("available"))
     host_ready = wine_runtime_ready and bool(xvfb.get("available")) and wine_prefix_ready
+    generated_tour_tools = {
+        "krpanotools": krpano,
+        "blender": blender,
+        "colmap": colmap,
+        "meshlabserver": meshlabserver,
+        "ffmpeg": ffmpeg,
+        "exiftool": exiftool,
+        "imagemagick": imagemagick,
+    }
+    generated_tour_ready = all(bool(row.get("available")) for row in generated_tour_tools.values())
     missing_exports = [
         provider
         for provider in ("3dvista", "pano2vr")
@@ -144,6 +167,15 @@ def build_vendor_tooling_receipt(
             {
                 "area": "host_tooling",
                 "action": "install wine64, wine32, winetricks, xvfb-run and initialize PROPERTYQUARRY_PANO2VR_WINEPREFIX",
+            }
+        )
+    if not generated_tour_ready:
+        missing_tools = [name for name, row in generated_tour_tools.items() if not row.get("available")]
+        next_actions.append(
+            {
+                "area": "generated_tour_tooling",
+                "missing_tools": missing_tools,
+                "action": "install the missing local generation tools before claiming floorplan/photos-to-tour readiness",
             }
         )
     if not installers:
@@ -165,6 +197,8 @@ def build_vendor_tooling_receipt(
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": "pass" if host_ready and not missing_exports else "blocked_missing_verified_exports",
         "host_ready": host_ready,
+        "generated_tour_ready": generated_tour_ready,
+        "generated_tour_tools": generated_tour_tools,
         "wine_runtime_ready": wine_runtime_ready,
         "wine": wine,
         "wine64": wine64,
