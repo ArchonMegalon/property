@@ -24,12 +24,24 @@ def _billing_dns_handoff_markdown(payload: dict[str, object]) -> str:
     record_type = str(record.get("type") or "CNAME or A/AAAA").strip()
     target = str(record.get("target") or "the Brilliant Directories white-label billing host assigned to this account").strip()
     next_action = str(handoff.get("next_action") or f"create DNS for {host} before enabling the Brilliant Directories billing handoff").strip()
+    configured = handoff.get("configured") is True
+    ready = configured and handoff.get("host_resolves") is True and bool(url)
     host_resolves = "yes" if handoff.get("host_resolves") is True else "no"
+    status_line = (
+        "Brilliant Directories billing handoff DNS is ready for the configured white-label host."
+        if ready
+        else "Gold remains blocked until the Brilliant Directories billing handoff host resolves."
+    )
+    operator_line = (
+        "Keep `/app/billing` pointed at the resolving HTTPS white-label billing handoff."
+        if ready
+        else "Do not enable `/app/billing` as an external redirect until this host resolves over HTTPS."
+    )
     return "\n".join(
         [
             "# PropertyQuarry Billing DNS Handoff",
             "",
-            "Gold remains blocked until the Brilliant Directories billing handoff host resolves.",
+            status_line,
             "",
             f"- Host: `{host}`",
             f"- URL: `{url or 'not configured'}`",
@@ -38,7 +50,7 @@ def _billing_dns_handoff_markdown(payload: dict[str, object]) -> str:
             f"- Required DNS target: `{target}`",
             f"- Next action: {next_action}",
             "",
-            "Do not enable `/app/billing` as an external redirect until this host resolves over HTTPS.",
+            operator_line,
             "PropertyQuarry must remain the source of truth for entitlements; Brilliant Directories billing events stay advisory until reconciled.",
             "",
         ]

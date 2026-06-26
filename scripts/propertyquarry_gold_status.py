@@ -1034,6 +1034,10 @@ def build_gold_status_receipt(
         )
         else "blocked"
     )
+    billing_provider_status = str(
+        billing_receipt.get("status") or ("not_configured" if billing_receipt_path is None else "missing")
+    )
+    billing_handoff_status = "ready" if billing_ok else billing_provider_status
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
@@ -1128,7 +1132,8 @@ def build_gold_status_receipt(
             "note": "Prepared operator drop lanes are progress only; gold still requires real imported assets and verified playable controls.",
         },
         "billing_handoff": {
-            "status": billing_receipt.get("status") or ("not_configured" if billing_receipt_path is None else "missing"),
+            "status": billing_handoff_status,
+            "provider_status": billing_provider_status,
             "error": billing_receipt.get("error") or "",
             "configured": bool((billing_receipt.get("billing_handoff") or {}).get("configured")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
             "host": str((billing_receipt.get("billing_handoff") or {}).get("host") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",

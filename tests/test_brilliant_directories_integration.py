@@ -342,6 +342,7 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_host_doe
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_CHECK", "1")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,billing.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
@@ -1419,9 +1420,9 @@ def test_brilliant_directories_pricing_stays_propertyquarry_white_label(
     response = client.get("/pricing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
 
     assert response.status_code == 200
-    assert "Start free" in response.text
-    assert "Create account" in response.text
-    assert "Open account, then activate from billing." in response.text
+    assert "Open search" in response.text
+    assert "Create account" not in response.text
+    assert "Open account, then activate from billing." not in response.text
     assert "directory.example" not in response.text
     assert "Brilliant Directories" not in response.text
     assert "brilliantdirectories" not in response.text.lower()
@@ -1469,8 +1470,8 @@ def test_brilliant_directories_script_writes_billing_dns_handoff_for_unresolved_
             **dict(os.environ),
             "PYTHONPATH": str(ROOT / "ea"),
             "PROPERTYQUARRY_SKIP_DOTENV": "1",
-            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS": "billing.propertyquarry.com",
-            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL": "https://billing.propertyquarry.com/account",
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS": "billing-unresolved.propertyquarry.invalid",
+            "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL": "https://billing-unresolved.propertyquarry.invalid/account",
             "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET": "members.brilliantdirectories.com",
         },
         text=True,
@@ -1484,8 +1485,8 @@ def test_brilliant_directories_script_writes_billing_dns_handoff_for_unresolved_
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     dns_body = out_path.with_name("BRILLIANT_DIRECTORIES_BILLING_DNS_HANDOFF.md").read_text(encoding="utf-8")
     assert payload["status"] == "blocked"
-    assert "- Host: `billing.propertyquarry.com`" in dns_body
-    assert "- URL: `https://billing.propertyquarry.com/account`" in dns_body
+    assert "- Host: `billing-unresolved.propertyquarry.invalid`" in dns_body
+    assert "- URL: `https://billing-unresolved.propertyquarry.invalid/account`" in dns_body
     assert "- Resolves now: `no`" in dns_body
     assert "- Required DNS record type: `CNAME`" in dns_body
     assert "- Required DNS target: `members.brilliantdirectories.com`" in dns_body
