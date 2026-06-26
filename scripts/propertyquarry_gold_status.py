@@ -102,7 +102,7 @@ PROVIDER_OPERATOR_DROP_README_TOKENS = {
 
 DEFAULT_RECEIPT_PATTERNS = {
     "performance": ("_completion/smoke/property-auth-performance-*.json",),
-    "live_mobile": ("_completion/smoke/property-live-mobile-surface*.json",),
+    "live_mobile": ("_completion/smoke/property-live-mobile*.json",),
     "public_smoke": ("_completion/smoke/property-live-public*.json",),
     "authenticated_smoke": ("_completion/smoke/property-live-authenticated*.json",),
     "tour_control": ("_completion/tours/property-tour-controls*.json",),
@@ -1100,6 +1100,7 @@ def build_gold_status_receipt(
             "status": tour_controls.get("status"),
             "provider_counts": tour_controls.get("provider_counts"),
             "provider_blockers": tour_controls.get("provider_blockers"),
+            "delivery_contracts": tour_controls.get("delivery_contracts") or {},
             "magicfit_playback": magicfit_playback,
             "magicfit_playback_ok": magicfit_playback_ok,
             "ready_provider_modes": tour_controls.get("ready_provider_modes"),

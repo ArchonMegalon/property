@@ -334,6 +334,15 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
             "ready_provider_modes": ["matterport"],
             "missing_provider_modes": ["3dvista", "pano2vr", "krpano", "magicfit"],
             "next_required_actions": [{"provider": "magicfit", "action": "import a walkthrough"}],
+            "delivery_contracts": {
+                "3dvista": {
+                    "schema": "propertyquarry.tour_delivery_contract.v1",
+                    "status": "blocked",
+                    "blocked_reason": "missing_3dvista_export",
+                    "required_to_send": ["A verified non-trial 3DVista VT Pro export"],
+                    "ready_payload": {"provider": "3dvista", "ready_count": 0, "sample_controls": []},
+                }
+            },
         },
     )
     discovery = _write_json(
@@ -398,6 +407,8 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["provider_matrix"]["status_readback_complete"] is True
     assert receipt["provider_matrix"]["payload_contracts_ok"] is True
     assert receipt["tour_controls"]["missing_provider_modes"] == ["3dvista", "pano2vr", "krpano", "magicfit"]
+    assert receipt["tour_controls"]["delivery_contracts"]["3dvista"]["blocked_reason"] == "missing_3dvista_export"
+    assert "verified non-trial 3DVista" in receipt["tour_controls"]["delivery_contracts"]["3dvista"]["required_to_send"][0]
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
     assert receipt["operator_import_manifest"]["status"] == "waiting_for_verified_assets"
     assert receipt["operator_import_manifest"]["drop_status_summary"]["waiting_for_assets"] == 4
@@ -413,6 +424,26 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
     assert receipt["next_required_actions"][-1]["rejected_sample"][0]["provider"] == "magicfit"
     assert any(row["area"] == "verified_tour_provider_modes" for row in receipt["blockers"])
     assert any(row["area"] == "tour_export_drop" for row in receipt["blockers"])
+
+
+def test_gold_status_default_live_mobile_receipt_includes_postdeploy_names(tmp_path: Path, monkeypatch) -> None:
+    from scripts.propertyquarry_gold_status import _default_receipt_path
+
+    smoke_dir = tmp_path / "_completion" / "smoke"
+    smoke_dir.mkdir(parents=True)
+    older = smoke_dir / "property-live-mobile-surface-old.json"
+    older.write_text(
+        json.dumps({"generated_at": "2026-06-26T01:00:00+00:00", "status": "pass"}),
+        encoding="utf-8",
+    )
+    newer = smoke_dir / "property-live-mobile-delivery-contract-postdeploy.json"
+    newer.write_text(
+        json.dumps({"generated_at": "2026-06-26T09:34:07+00:00", "status": "pass"}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert _default_receipt_path("live_mobile") == newer.resolve()
 
 
 def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_path: Path) -> None:
