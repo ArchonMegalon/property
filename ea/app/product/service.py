@@ -6002,6 +6002,11 @@ def _property_austria_preference_score_adjustment(
         for row in official_sources
         if isinstance(row, dict) and str(row.get("risk_key") or "").strip()
     }
+    district_text = " ".join(
+        str(facts.get(key) or "").strip().lower()
+        for key in ("postal_code", "postal_name", "district", "location", "street_address")
+        if str(facts.get(key) or "").strip()
+    )
     family_mode = bool(payload.get("enable_family_mode"))
     school_requested = family_mode or bool(payload.get("require_school_evidence")) or bool(list(payload.get("school_stage_preferences") or []))
     public_or_cooperative = _property_austria_provider_is_public_or_cooperative(facts)
@@ -6098,6 +6103,48 @@ def _property_austria_preference_score_adjustment(
         else:
             adjustment -= 5.0
             notes.append("broadband evidence missing")
+
+    if bool(payload.get("prefer_heat_resilient_home")):
+        heat_score = 0.0
+        heat_notes: list[str] = []
+        heat_risk_level = str(facts.get("heat_resilience_risk") or facts.get("urban_heat_risk") or facts.get("summer_heat_risk") or "").strip().lower()
+        if bool(facts.get("air_conditioning")) or any(marker in text for marker in ("klimaanlage", "air conditioning", "aircondition", "splitgerät", "splitgeraet")):
+            heat_score += 5.0
+            heat_notes.append("cooling present")
+        if bool(facts.get("altbau")) or any(marker in text for marker in ("altbau", "dicke wände", "dicke waende", "thick walls")):
+            heat_score += 3.0
+            heat_notes.append("altbau or thick-wall cooling signal")
+        if bool(facts.get("external_shading")) or bool(facts.get("aussenjalousien")) or any(marker in text for marker in ("außenjalous", "aussenjalous", "raffstore", "rollladen", "außenrollo", "aussenrollo")):
+            heat_score += 4.0
+            heat_notes.append("external shading present")
+        if bool(facts.get("tree_shade_signal")) or bool(facts.get("green_shade_signal")) or any(marker in text for marker in ("bäume vor", "baeume vor", "baum vor", "schattiger innenhof", "begrünter innenhof", "begruenter innenhof")):
+            heat_score += 3.0
+            heat_notes.append("tree or courtyard shade signal")
+        if bool(facts.get("top_floor")) or bool(facts.get("dachgeschoss")) or any(marker in text for marker in ("dachgeschoss", "dg-wohnung", "top floor", "attic apartment", "mansarde")):
+            heat_score -= 7.0
+            heat_notes.append("top-floor heat risk")
+        if bool(facts.get("large_south_windows")) or any(marker in text for marker in ("südseitige fenster", "suedseitige fenster", "südseitig", "suedseitig", "south-facing windows", "south facing windows")):
+            heat_score -= 5.0
+            heat_notes.append("large south-facing window risk")
+        inner_vienna_markers = {"1010", "1020", "1030", "1040", "1050", "1060", "1070", "1080", "1090"}
+        if any(marker in district_text for marker in inner_vienna_markers) or any(marker in district_text for marker in ("innere stadt", "leopoldstadt", "landstraße", "landstrasse", "wieden", "margareten", "mariahilf", "neubau", "josefstadt", "alsergrund")):
+            heat_score -= 3.0
+            heat_notes.append("inner-city Vienna heat-island heuristic")
+        if heat_risk_level in {"high", "very_high", "severe"} or bool(facts.get("heat_resilience_risk")):
+            heat_score -= 6.0
+            heat_notes.append("official or extracted heat risk flagged")
+        elif heat_risk_level in {"low", "cool", "good"}:
+            heat_score += 3.0
+            heat_notes.append("low heat-risk signal")
+        if "heat_resilience" in official_risk_keys:
+            heat_score += 1.0
+            heat_notes.append("official climate evidence lane attached")
+        else:
+            heat_score -= 2.0
+            heat_notes.append("official heat evidence missing")
+        if heat_score:
+            adjustment += max(-14.0, min(10.0, heat_score))
+            notes.extend(heat_notes)
 
     if bool(payload.get("require_energy_certificate")):
         if bool(facts.get("energy_certificate_present")):

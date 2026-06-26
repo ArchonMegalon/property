@@ -137,7 +137,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
         "bands": [("0-34", "Watch only"), ("35-44", "Possible fit"), ("45-59", "Good fit"), ("60+", "Strong fit")],
         "pdf_title": "How the PropertyQuarry score is calculated",
         "candidate_title": "Current candidate score read",
-        "calculation_title": "Example calculation: why this property lands at 62",
+        "calculation_title": "Example calculation: why this property lands at 58",
         "steps_label": "Rules applied",
         "examples_label": "Examples",
         "positive_label": "Signals lifting the score",
@@ -148,11 +148,11 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
             ("Hard gate passed", "+8", "Country, selected area, rent/buy mode, property type, budget, rooms and size do not conflict."),
             ("Evidence quality", "+10", "Floorplan, costs and a real 360/tour source make the listing easier to verify remotely."),
             ("Soft preferences", "+6", "Daily-life, commute and family preferences fit well enough to lift rank."),
-            ("Location confidence", "+4", "The listing location is specific enough to compare against selected districts and nearby evidence."),
+            ("Location checked", "+0", "The selected district is an eligibility check, not a reward. Only missing or contradictory location evidence hurts the score."),
             ("Missing heating detail", "-8", "Heating is still unknown, so confidence drops until verified."),
             ("One soft wish missing", "-3", "A missing nice-to-have lowers rank but does not filter the home."),
             ("Open verification risk", "-5", "Remaining unknowns are kept as viewing questions."),
-            ("Final score", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. The rows below explain every delta and show how neutral, nice-to-have, strong wish, must-have, and avoid settings change the movement."),
+            ("Final score", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. The rows below explain every delta and show how neutral, nice-to-have, strong wish, must-have, and avoid settings change the movement."),
         ],
     },
     "de": {
@@ -184,7 +184,7 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
         "bands": [("0-34", "Nur beobachten"), ("35-44", "Mögliche Passung"), ("45-59", "Gute Passung"), ("60+", "Starke Passung")],
         "pdf_title": "Wie der PropertyQuarry-Score berechnet wird",
         "candidate_title": "Score-Lesart für dieses Objekt",
-        "calculation_title": "Beispielrechnung: warum dieses Objekt bei 62 landet",
+        "calculation_title": "Beispielrechnung: warum dieses Objekt bei 58 landet",
         "steps_label": "Angewendete Regeln",
         "examples_label": "Beispiele",
         "positive_label": "Signale, die den Score heben",
@@ -195,11 +195,11 @@ _LOCALIZED_COPY: dict[str, dict[str, object]] = {
             ("Harte Regeln bestanden", "+8", "Land, Bezirk, Miete/Kauf, Objekttyp, Budget, Zimmer und Fläche widersprechen der Suche nicht."),
             ("Evidenzqualität", "+10", "Grundriss, Kosten und echte 360-/Tour-Quelle machen das Objekt aus der Ferne besser prüfbar."),
             ("Weiche Präferenzen", "+6", "Alltag, Wege und Familienwunsch passen gut genug, um den Rang zu heben."),
-            ("Lagevertrauen", "+4", "Die Lage ist konkret genug, um Bezirk und Umfeld sinnvoll zu prüfen."),
+            ("Lage geprüft", "+0", "Der gewählte Bezirk ist eine harte Eignungsprüfung, keine Belohnung. Nur fehlende oder widersprüchliche Lageevidenz senkt den Score."),
             ("Heizung offen", "-8", "Die Heizungsinformation fehlt, daher sinkt das Vertrauen bis zur Klärung."),
             ("Ein Wunsch fehlt", "-3", "Ein fehlender Wunsch senkt nur den Rang und filtert das Objekt nicht aus."),
             ("Offenes Prüfrisiko", "-5", "Restliche Unklarheiten bleiben als Fragen für Besichtigung oder Makler sichtbar."),
-            ("Endwert", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Die Zeilen darunter erklären jedes Delta und zeigen, wie Neutral, Nice-to-have, starker Wunsch, Must-have und Avoid die Bewegung verändern."),
+            ("Endwert", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. Die Zeilen darunter erklären jedes Delta und zeigen, wie Neutral, Nice-to-have, starker Wunsch, Must-have und Avoid die Bewegung verändern."),
         ],
     },
 }
@@ -442,7 +442,7 @@ _TRANSLATION_HINTS: dict[str, dict[str, object]] = {
 
 _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
     "es": {
-        "calculation_title": "Calculo de ejemplo: por que esta vivienda llega a 62",
+        "calculation_title": "Calculo de ejemplo: por que esta vivienda llega a 58",
         "steps_label": "Reglas aplicadas",
         "examples_label": "Ejemplos",
         "calculation_rows": [
@@ -450,15 +450,15 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Reglas duras superadas", "+8", "Pais, zona, alquiler/compra, tipo, presupuesto, habitaciones y superficie no contradicen la busqueda."),
             ("Calidad de evidencia", "+10", "Plano, gastos y una fuente 360/tour real hacen la vivienda mas verificable a distancia."),
             ("Preferencias flexibles", "+6", "Vida diaria, trayectos y preferencias familiares encajan lo suficiente para subir el rango."),
-            ("Confianza de ubicacion", "+4", "La ubicacion es concreta para comparar zonas elegidas y evidencia cercana."),
+            ("Ubicacion verificada", "+0", "La zona elegida es una regla de elegibilidad, no una recompensa. Solo penaliza si falta evidencia o contradice la zona."),
             ("Calefaccion pendiente", "-8", "La calefaccion sigue sin confirmar, asi que baja la confianza."),
             ("Un deseo falta", "-3", "Un deseo ausente baja el rango, pero no filtra la vivienda."),
             ("Riesgo abierto", "-5", "Las incognitas restantes quedan como preguntas de visita."),
-            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Las filas siguientes explican cada delta y como Neutral, Nice-to-have, Strong wish, Must-have y Avoid cambian el movimiento."),
+            ("Resultado", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. Las filas siguientes explican cada delta y como Neutral, Nice-to-have, Strong wish, Must-have y Avoid cambian el movimiento."),
         ],
     },
     "fr": {
-        "calculation_title": "Calcul d'exemple: pourquoi ce bien arrive a 62",
+        "calculation_title": "Calcul d'exemple: pourquoi ce bien arrive a 58",
         "steps_label": "Regles appliquees",
         "examples_label": "Exemples",
         "calculation_rows": [
@@ -466,15 +466,15 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Regles strictes passees", "+8", "Pays, zone, location/achat, type, budget, pieces et surface ne contredisent pas la recherche."),
             ("Qualite des preuves", "+10", "Plan, charges et vraie source 360/tour rendent le bien plus verifiable a distance."),
             ("Preferences souples", "+6", "Quotidien, trajets et preferences familiales correspondent assez pour relever le rang."),
-            ("Confiance de localisation", "+4", "La localisation est assez concrete pour comparer zones choisies et preuves proches."),
+            ("Localisation verifiee", "+0", "La zone choisie est une regle d'eligibilite, pas une recompense. Seule une preuve absente ou contradictoire penalise."),
             ("Chauffage inconnu", "-8", "Le chauffage reste a confirmer, donc la confiance baisse."),
             ("Un souhait manque", "-3", "Un souhait manquant baisse le rang, mais ne filtre pas le bien."),
             ("Risque a verifier", "-5", "Les inconnues restantes deviennent des questions de visite."),
-            ("Resultat", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Les lignes suivantes expliquent chaque delta et comment Neutral, Nice-to-have, Strong wish, Must-have et Avoid changent le mouvement."),
+            ("Resultat", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. Les lignes suivantes expliquent chaque delta et comment Neutral, Nice-to-have, Strong wish, Must-have et Avoid changent le mouvement."),
         ],
     },
     "it": {
-        "calculation_title": "Calcolo di esempio: perche questa casa arriva a 62",
+        "calculation_title": "Calcolo di esempio: perche questa casa arriva a 58",
         "steps_label": "Regole applicate",
         "examples_label": "Esempi",
         "calculation_rows": [
@@ -482,15 +482,15 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Regole dure superate", "+8", "Paese, area, affitto/acquisto, tipo, budget, stanze e superficie non sono in conflitto."),
             ("Qualita prove", "+10", "Planimetria, costi e una vera fonte 360/tour rendono la casa piu verificabile da remoto."),
             ("Preferenze morbide", "+6", "Vita quotidiana, spostamenti e preferenze familiari alzano abbastanza il rango."),
-            ("Fiducia posizione", "+4", "La posizione e abbastanza concreta per confrontare aree e prove vicine."),
+            ("Posizione verificata", "+0", "L'area scelta e una regola di idoneita, non un premio. Penalizza solo se la prova manca o contraddice l'area."),
             ("Riscaldamento aperto", "-8", "Il riscaldamento e ancora da confermare, quindi la fiducia scende."),
             ("Un desiderio manca", "-3", "Un desiderio mancante abbassa il rango, ma non filtra la casa."),
             ("Rischio da verificare", "-5", "Le incognite restanti diventano domande per la visita."),
-            ("Risultato", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Le righe seguenti spiegano ogni delta e come Neutral, Nice-to-have, Strong wish, Must-have e Avoid cambiano il movimento."),
+            ("Risultato", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. Le righe seguenti spiegano ogni delta e come Neutral, Nice-to-have, Strong wish, Must-have e Avoid cambiano il movimento."),
         ],
     },
     "nl": {
-        "calculation_title": "Voorbeeldberekening: waarom deze woning op 62 uitkomt",
+        "calculation_title": "Voorbeeldberekening: waarom deze woning op 58 uitkomt",
         "steps_label": "Toegepaste regels",
         "examples_label": "Voorbeelden",
         "calculation_rows": [
@@ -498,15 +498,15 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Harde regels gehaald", "+8", "Land, gebied, huur/koop, type, budget, kamers en oppervlakte spreken de zoekopdracht niet tegen."),
             ("Bewijskwaliteit", "+10", "Plattegrond, kosten en een echte 360/tourbron maken de woning beter op afstand te controleren."),
             ("Zachte voorkeuren", "+6", "Dagelijks leven, routes en gezinsvoorkeuren passen goed genoeg om de rang te verhogen."),
-            ("Locatievertrouwen", "+4", "De locatie is concreet genoeg om gekozen gebieden en nabije evidence te vergelijken."),
+            ("Locatie gecontroleerd", "+0", "Het gekozen gebied is een harde geschiktheidscheck, geen beloning. Alleen ontbrekend of tegenstrijdig locatiebewijs verlaagt de score."),
             ("Verwarming open", "-8", "De verwarming is nog onbekend, dus vertrouwen daalt tot verificatie."),
             ("Een wens ontbreekt", "-3", "Een ontbrekende wens verlaagt de rang, maar filtert de woning niet."),
             ("Open verificatierisico", "-5", "Resterende onbekenden blijven als kijkvragen staan."),
-            ("Eindscore", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. De rijen hieronder leggen elke delta uit en hoe Neutral, Nice-to-have, Strong wish, Must-have en Avoid de beweging veranderen."),
+            ("Eindscore", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. De rijen hieronder leggen elke delta uit en hoe Neutral, Nice-to-have, Strong wish, Must-have en Avoid de beweging veranderen."),
         ],
     },
     "pt": {
-        "calculation_title": "Calculo de exemplo: porque esta casa chega a 62",
+        "calculation_title": "Calculo de exemplo: porque esta casa chega a 58",
         "steps_label": "Regras aplicadas",
         "examples_label": "Exemplos",
         "calculation_rows": [
@@ -514,15 +514,15 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Regras duras cumpridas", "+8", "Pais, zona, arrendar/comprar, tipo, orcamento, quartos e area nao entram em conflito."),
             ("Qualidade da evidencia", "+10", "Planta, custos e uma fonte 360/tour real tornam a casa mais verificavel remotamente."),
             ("Preferencias suaves", "+6", "Vida diaria, trajetos e preferencias familiares encaixam o suficiente para subir o ranking."),
-            ("Confianca de localizacao", "+4", "A localizacao e concreta o suficiente para comparar zonas escolhidas e evidencia proxima."),
+            ("Localizacao verificada", "+0", "A zona escolhida e uma regra de elegibilidade, nao uma recompensa. So penaliza se a evidencia faltar ou contradizer a zona."),
             ("Aquecimento em aberto", "-8", "O aquecimento ainda precisa de confirmacao, entao a confianca baixa."),
             ("Um desejo falta", "-3", "Um desejo em falta baixa o ranking, mas nao filtra a casa."),
             ("Risco a verificar", "-5", "As restantes incertezas ficam como perguntas de visita."),
-            ("Resultado", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. As linhas abaixo explicam cada delta e como Neutral, Nice-to-have, Strong wish, Must-have e Avoid mudam o movimento."),
+            ("Resultado", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. As linhas abaixo explicam cada delta e como Neutral, Nice-to-have, Strong wish, Must-have e Avoid mudam o movimento."),
         ],
     },
     "pl": {
-        "calculation_title": "Przykladowe obliczenie: dlaczego ta nieruchomosc ma 62",
+        "calculation_title": "Przykladowe obliczenie: dlaczego ta nieruchomosc ma 58",
         "steps_label": "Zastosowane reguly",
         "examples_label": "Przyklady",
         "calculation_rows": [
@@ -530,15 +530,15 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Twarde reguly spelnione", "+8", "Kraj, obszar, najem/zakup, typ, budzet, pokoje i metraz nie kloca sie z wyszukiwaniem."),
             ("Jakosc dowodow", "+10", "Plan, koszty i prawdziwe 360/tour ulatwiaja zdalna weryfikacje."),
             ("Miekkie preferencje", "+6", "Codziennosc, dojazdy i potrzeby rodzinne pasuja na tyle, by podniesc ranking."),
-            ("Zaufanie lokalizacji", "+4", "Lokalizacja jest dosc konkretna do porownania z wybranymi obszarami i pobliskimi dowodami."),
+            ("Lokalizacja sprawdzona", "+0", "Wybrany obszar to twarda regola kwalifikacji, nie nagroda. Brak lub sprzecznosc dowodu obniza wynik."),
             ("Ogrzewanie otwarte", "-8", "Ogrzewanie nadal wymaga potwierdzenia, wiec zaufanie spada."),
             ("Brakuje jednego zyczenia", "-3", "Brak zyczenia obniza ranking, ale nie filtruje oferty."),
             ("Otwarte ryzyko", "-5", "Pozostale niewiadome zostaja pytaniami na ogladanie."),
-            ("Wynik koncowy", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Wiersze ponizej wyjasniaja kazda delte i jak Neutral, Nice-to-have, Strong wish, Must-have oraz Avoid zmieniaja ruch."),
+            ("Wynik koncowy", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. Wiersze ponizej wyjasniaja kazda delte i jak Neutral, Nice-to-have, Strong wish, Must-have oraz Avoid zmieniaja ruch."),
         ],
     },
     "sv": {
-        "calculation_title": "Exempelberakning: varfor bostaden landar pa 62",
+        "calculation_title": "Exempelberakning: varfor bostaden landar pa 58",
         "steps_label": "Tillampade regler",
         "examples_label": "Exempel",
         "calculation_rows": [
@@ -546,11 +546,11 @@ _LOCALIZED_CALCULATION_COPY: dict[str, dict[str, object]] = {
             ("Harda regler passerade", "+8", "Land, omrade, hyra/kop, typ, budget, rum och yta motsager inte sokningen."),
             ("Evidenskvalitet", "+10", "Planritning, kostnader och riktig 360/tour-kalla gor bostaden lattare att fjarrverifiera."),
             ("Mjuka preferenser", "+6", "Vardag, rutter och familjepreferenser passar nog for att hoja rankingen."),
-            ("Platsfortroende", "+4", "Platsen ar tillrackligt konkret for att jamfora valda omraden och nara evidens."),
+            ("Plats kontrollerad", "+0", "Valt omrade ar en hard behorighetsregel, inte en bonus. Endast saknad eller motsagd platsevidens sanker score."),
             ("Varme okand", "-8", "Varmeinformation saknas fortfarande, sa fortroendet sjunker."),
             ("Ett onskemal saknas", "-3", "Ett saknat onskemal sanker rang men filtrerar inte bort bostaden."),
             ("Oppen verifieringsrisk", "-5", "Kvarvarande okanda blir fragor vid visning."),
-            ("Slutpoang", "=62", "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62. Raderna nedan forklarar varje delta och hur Neutral, Nice-to-have, Strong wish, Must-have och Avoid andrar rorelsen."),
+            ("Slutpoang", "=58", "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58. Raderna nedan forklarar varje delta och hur Neutral, Nice-to-have, Strong wish, Must-have och Avoid andrar rorelsen."),
         ],
     },
 }
@@ -744,12 +744,20 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Must have", "gate or cap", "If the fact contradicts the must-have, the listing is filtered or score-capped instead of merely lowered."),
             ("Avoid", "negative move", "If the avoided condition is present, the score drops; only explicit hard avoid rules exclude."),
         ],
+        "source_sections_label": "Where the information comes from",
+        "source_sections": [
+            ("Listing pages", "Provider pages, structured data, titles, snippets, photos, floorplans, costs, availability, and source 360 links are extracted and normalized. Unsupported claims stay open questions."),
+            ("Official geo data", "Official sources such as data.gv.at, climate maps, air-quality, noise, flood, broadband, school, childcare, and other public datasets are attached as evidence lanes when they cover the location."),
+            ("Maps and routes", "OpenStreetMap/Overpass, route checks, and distance calculations turn errands, transit, schools, parks, shade, and services into comparable proximity facts."),
+            ("User preferences", "What Matters settings and saved feedback decide whether a fact is neutral, a wish, a strong wish, a must-have, or an avoid signal."),
+            ("Verification rules", "Prices, costs, energy data, tours, floorplans, and location facts are promoted only when source evidence supports them. Missing evidence lowers confidence instead of being invented."),
+        ],
         "calculation_detail_rows": [
             ("Start", "+50", "Neutral baseline after hard-gate eligibility.", "Every reviewable candidate starts from 50 so positive and negative evidence can both move it.", "Preference strength does not change the baseline."),
             ("Hard gate passed", "+8", "Country, selected district, transaction type, home type, budget, rooms and area do not conflict.", "This is an eligibility confidence lift, not a soft preference.", "If a selected district, buy/rent mode, budget, rooms or hard type fails, the candidate is excluded instead of scored."),
             ("Evidence quality", "+10", "Floorplan, operating costs and real 360/tour evidence are available in the example.", "More verified facts means the remote decision is safer, so confidence rises.", "Floorplan only would be closer to +4; floorplan plus costs closer to +7; full evidence earns the +10 example."),
             ("Soft preferences", "+6", "Commute, daily-life and family preferences match at nice-to-have strength.", "Soft matches raise rank but never hide other homes by themselves.", "Neutral would be +0; nice-to-have gives about +6 here; strong wish would be about +12; a must-have contradiction would gate or cap."),
-            ("Location confidence", "+4", "The listing has candidate-level postal or district evidence, not only provider search-scope text.", "Specific location evidence allows the engine to compare selected districts and nearby amenities safely.", "Coarse evidence would be about +1; a contradicted postal code such as 1220 during a hard 1010 search excludes."),
+            ("Location checked", "+0", "The listing has candidate-level postal or district evidence, not only provider search-scope text.", "Specific location evidence is used to verify eligibility and compare nearby evidence, not to reward being in the right district.", "Coarse evidence stays neutral; a contradicted postal code such as 1220 during a hard 1010 search excludes."),
             ("Missing heating detail", "-8", "Heating is relevant but unknown in the reviewed source.", "Missing facts are not invented; important unknowns reduce confidence until verified.", "If heating detail were neutral it might be -2 or 0; as a strong wish it can be -8 to -12; as a hard must-have it can cap or exclude."),
             ("One soft wish missing", "-3", "A non-critical desired feature is absent or unproven.", "A soft miss lowers rank only.", "Neutral would be 0; nice-to-have is about -3; strong wish about -6; must-have missing would gate or cap."),
             ("Open verification risk", "-5", "There are still unresolved viewing or agent questions.", "The score keeps uncertainty visible instead of pretending the listing is complete.", "Minor risk would be about -2; unresolved important risk about -5; high risk can cap below the strong-fit band."),
@@ -767,12 +775,20 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Must-have", "Filter oder Deckel", "Widerspricht der Fakt dem Must-have, wird gefiltert oder gedeckelt statt nur gesenkt."),
             ("Avoid", "negativer Schritt", "Ist das zu vermeidende Merkmal vorhanden, sinkt der Score; nur harte Avoid-Regeln schließen aus."),
         ],
+        "source_sections_label": "Woher die Informationen kommen",
+        "source_sections": [
+            ("Inserate", "Providerseiten, strukturierte Daten, Titel, Kurztexte, Fotos, Grundrisse, Kosten, Verfügbarkeit und 360-Links werden extrahiert und normalisiert. Nicht belegte Aussagen bleiben offene Fragen."),
+            ("Offizielle Geodaten", "Offizielle Quellen wie data.gv.at, Stadtklimakarten, Luftgüte, Lärm, Hochwasser, Breitband, Schulen, Kindergarten und weitere öffentliche Datensätze werden als Evidenz-Lanes angehängt, wenn sie den Standort abdecken."),
+            ("Karten und Wege", "OpenStreetMap/Overpass, Routenprüfungen und Distanzen machen Alltag, Öffis, Schulen, Parks, Schatten und Services vergleichbar."),
+            ("Nutzerwünsche", "What Matters und gespeichertes Feedback bestimmen, ob ein Fakt neutral, Wunsch, starker Wunsch, Must-have oder Avoid-Signal ist."),
+            ("Prüfregeln", "Preise, Kosten, Energie, Touren, Grundrisse und Lagefakten werden nur hervorgehoben, wenn die Quelle sie stützt. Fehlende Evidenz senkt Vertrauen, statt erfunden zu werden."),
+        ],
         "calculation_detail_rows": [
             ("Start", "+50", "Neutraler Ausgangswert nach bestandener harter Vorauswahl.", "Jedes prüfbare Objekt startet bei 50, damit positive und negative Evidenz wirken können.", "Die Präferenzstärke verändert den Startwert nicht."),
             ("Harte Regeln bestanden", "+8", "Land, ausgewählter Bezirk, Miete/Kauf, Objekttyp, Budget, Zimmer und Fläche widersprechen nicht.", "Das ist ein Eligibility-Boost, keine weiche Präferenz.", "Wenn Bezirk, Modus, Budget, Zimmer oder harter Typ scheitern, wird ausgeschlossen statt niedriger bewertet."),
             ("Evidenzqualität", "+10", "Im Beispiel sind Grundriss, Betriebskosten und echte 360-/Tour-Evidenz vorhanden.", "Mehr belegte Fakten machen die Remote-Entscheidung sicherer, daher steigt das Vertrauen.", "Nur Grundriss wäre eher +4; Grundriss plus Kosten eher +7; volle Evidenz ergibt hier +10."),
             ("Weiche Präferenzen", "+6", "Wege, Alltag und Familienkontext passen auf Nice-to-have-Stärke.", "Weiche Treffer heben den Rang, verstecken aber keine anderen Objekte.", "Neutral wäre +0; Nice-to-have hier etwa +6; starker Wunsch etwa +12; Must-have-Widerspruch würde filtern oder deckeln."),
-            ("Lagevertrauen", "+4", "Die Lage stammt aus Objekt-Postleitzahl oder Bezirk, nicht nur aus dem Suchumfang des Providers.", "Konkrete Lagebelege erlauben sicheren Bezirks- und Umfeldvergleich.", "Grobe Evidenz wäre etwa +1; eine widersprechende PLZ wie 1220 bei harter Suche 1010 schließt aus."),
+            ("Lage geprüft", "+0", "Die Lage stammt aus Objekt-Postleitzahl oder Bezirk, nicht nur aus dem Suchumfang des Providers.", "Konkrete Lagebelege prüfen Eignung und Umfeld, belohnen aber nicht den richtigen Bezirk.", "Grobe Evidenz bleibt neutral; eine widersprechende PLZ wie 1220 bei harter Suche 1010 schließt aus."),
             ("Heizung offen", "-8", "Heizung ist relevant, aber in der Quelle unbekannt.", "Fehlende Fakten werden nicht erfunden; wichtige Unbekannte senken Vertrauen bis zur Klärung.", "Neutral wäre eher -2 oder 0; als starker Wunsch -8 bis -12; als hartes Must-have Deckel oder Ausschluss."),
             ("Ein Wunsch fehlt", "-3", "Ein nicht kritisches Wunschmerkmal fehlt oder ist nicht belegt.", "Ein weicher Fehltreffer senkt nur den Rang.", "Neutral wäre 0; Nice-to-have etwa -3; starker Wunsch etwa -6; fehlendes Must-have würde filtern oder deckeln."),
             ("Offenes Prüfrisiko", "-5", "Es bleiben offene Fragen für Besichtigung oder Anbieter.", "Der Score macht Unsicherheit sichtbar, statt Vollständigkeit vorzutäuschen.", "Kleines Risiko wäre etwa -2; wichtiges offenes Risiko etwa -5; hohes Risiko kann unter die starke Passung deckeln."),
@@ -795,7 +811,7 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Reglas duras superadas", "+8", "Pais, zona, modo, tipo, presupuesto, habitaciones y superficie no chocan.", "Es un aumento de elegibilidad, no una preferencia flexible.", "Si falla zona, modo, presupuesto, habitaciones o tipo duro, se excluye en vez de puntuar."),
             ("Calidad de evidencia", "+10", "Plano, gastos y evidencia real 360/tour estan disponibles.", "Mas hechos verificados hacen mas segura la decision remota.", "Solo plano seria cerca de +4; plano mas gastos cerca de +7; evidencia completa da +10."),
             ("Preferencias flexibles", "+6", "Trayectos, vida diaria y familia coinciden como nice-to-have.", "Los matches flexibles suben rango sin ocultar viviendas.", "Neutral +0; nice-to-have aqui +6; strong wish cerca de +12; must-have contrario filtra o limita."),
-            ("Confianza de ubicacion", "+4", "La ubicacion viene del candidato, no solo del alcance de busqueda del proveedor.", "Permite comparar zonas y servicios cercanos con seguridad.", "Evidencia gruesa seria +1; codigo postal contradictorio excluye si la zona es dura."),
+            ("Ubicacion verificada", "+0", "La ubicacion viene del candidato, no solo del alcance de busqueda del proveedor.", "Sirve para verificar elegibilidad y contexto cercano, no para premiar estar en la zona correcta.", "Evidencia gruesa queda neutral; codigo postal contradictorio excluye si la zona es dura."),
             ("Calefaccion pendiente", "-8", "La calefaccion importa pero esta desconocida.", "Los datos ausentes no se inventan; bajan confianza hasta verificarse.", "Neutral seria -2 o 0; strong wish -8 a -12; must-have duro puede limitar o excluir."),
             ("Un deseo falta", "-3", "Una caracteristica deseada no critica falta o no esta probada.", "Un fallo flexible solo baja el rango.", "Neutral 0; nice-to-have -3; strong wish -6; must-have ausente filtra o limita."),
             ("Riesgo abierto", "-5", "Quedan preguntas para visita o agente.", "El score muestra incertidumbre en vez de fingir completitud.", "Riesgo menor -2; riesgo importante -5; riesgo alto puede limitar bajo strong-fit."),
@@ -818,7 +834,7 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Regles strictes passees", "+8", "Pays, zone, mode, type, budget, pieces et surface ne contredisent pas la recherche.", "C'est un bonus d'eligibilite, pas une preference souple.", "Si zone, mode, budget, pieces ou type strict echoue, le bien est exclu."),
             ("Qualite des preuves", "+10", "Plan, charges et vraie evidence 360/tour sont presents.", "Plus de faits verifies rend la decision a distance plus sure.", "Plan seul environ +4; plan plus charges environ +7; evidence complete +10."),
             ("Preferences souples", "+6", "Trajets, quotidien et famille matchent en nice-to-have.", "Les matches souples montent le rang sans cacher d'autres biens.", "Neutre +0; nice-to-have ici +6; strong wish environ +12; must-have contraire filtre ou plafonne."),
-            ("Confiance localisation", "+4", "La localisation vient du candidat, pas seulement du perimetre fournisseur.", "Elle permet de comparer zones et services proches.", "Evidence grossiere environ +1; code postal contradictoire exclut si zone stricte."),
+            ("Localisation verifiee", "+0", "La localisation vient du candidat, pas seulement du perimetre fournisseur.", "Elle verifie l'eligibilite et le contexte proche, sans bonus pour etre dans la bonne zone.", "Evidence grossiere reste neutre; code postal contradictoire exclut si zone stricte."),
             ("Chauffage inconnu", "-8", "Le chauffage est pertinent mais inconnu.", "Les faits manquants ne sont pas inventes; ils baissent la confiance.", "Neutre serait -2 ou 0; strong wish -8 a -12; must-have strict peut plafonner ou exclure."),
             ("Un souhait manque", "-3", "Un souhait non critique manque ou n'est pas prouve.", "Un manque souple baisse seulement le rang.", "Neutre 0; nice-to-have -3; strong wish -6; must-have absent filtre ou plafonne."),
             ("Risque a verifier", "-5", "Il reste des questions pour visite ou agent.", "Le score garde l'incertitude visible.", "Risque mineur -2; risque important -5; risque eleve peut plafonner sous strong-fit."),
@@ -841,7 +857,7 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Regole dure superate", "+8", "Paese, area, modo, tipo, budget, stanze e superficie non confliggono.", "E un boost di idoneita, non una preferenza morbida.", "Se area, modo, budget, stanze o tipo duro falliscono, la casa viene esclusa."),
             ("Qualita prove", "+10", "Sono presenti planimetria, costi e vera evidenza 360/tour.", "Piu fatti verificati rendono piu sicura la decisione remota.", "Solo planimetria circa +4; planimetria piu costi circa +7; evidenza completa +10."),
             ("Preferenze morbide", "+6", "Spostamenti, vita quotidiana e famiglia combaciano come nice-to-have.", "I match morbidi alzano il rango senza nascondere case.", "Neutrale +0; nice-to-have qui +6; strong wish circa +12; must-have contrario filtra o limita."),
-            ("Fiducia posizione", "+4", "La posizione viene dal candidato, non solo dallo scope del provider.", "Permette di confrontare aree e servizi vicini.", "Evidenza grossolana circa +1; CAP contraddittorio esclude se area dura."),
+            ("Posizione verificata", "+0", "La posizione viene dal candidato, non solo dallo scope del provider.", "Verifica idoneita e contesto vicino, senza premio per essere nell'area giusta.", "Evidenza grossolana resta neutra; CAP contraddittorio esclude se area dura."),
             ("Riscaldamento aperto", "-8", "Il riscaldamento e rilevante ma ignoto.", "I fatti mancanti non si inventano; abbassano fiducia.", "Neutrale sarebbe -2 o 0; strong wish -8 a -12; must-have duro puo limitare o escludere."),
             ("Un desiderio manca", "-3", "Una caratteristica desiderata non critica manca o non e provata.", "Una mancanza morbida abbassa solo il rango.", "Neutrale 0; nice-to-have -3; strong wish -6; must-have assente filtra o limita."),
             ("Rischio da verificare", "-5", "Restano domande per visita o agente.", "Lo score rende visibile l'incertezza.", "Rischio minore -2; importante -5; alto puo limitare sotto strong-fit."),
@@ -864,7 +880,7 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Harde regels gehaald", "+8", "Land, gebied, modus, type, budget, kamers en oppervlakte botsen niet.", "Dit is een geschiktheidsboost, geen zachte voorkeur.", "Als gebied, modus, budget, kamers of hard type faalt, wordt de woning uitgesloten."),
             ("Bewijskwaliteit", "+10", "Plattegrond, kosten en echte 360/tour-evidence zijn aanwezig.", "Meer geverifieerde feiten maken de remote beslissing veiliger.", "Alleen plattegrond ongeveer +4; plattegrond plus kosten +7; volledige evidence +10."),
             ("Zachte voorkeuren", "+6", "Routes, dagelijks leven en gezin matchen als nice-to-have.", "Zachte matches verhogen rang zonder woningen te verbergen.", "Neutraal +0; nice-to-have hier +6; strong wish ongeveer +12; must-have-tegenspraak filtert of plafonneert."),
-            ("Locatievertrouwen", "+4", "De locatie komt van kandidaatbewijs, niet alleen provider-scope.", "Daarmee kan de engine gebieden en nabijheid veilig vergelijken.", "Grove evidence ongeveer +1; tegengesproken postcode sluit uit bij hard gebied."),
+            ("Locatie gecontroleerd", "+0", "De locatie komt van kandidaatbewijs, niet alleen provider-scope.", "Dit verifieert geschiktheid en nabijheid, maar beloont het juiste gebied niet.", "Grove evidence blijft neutraal; tegengesproken postcode sluit uit bij hard gebied."),
             ("Verwarming open", "-8", "Verwarming is relevant maar onbekend.", "Ontbrekende feiten worden niet verzonnen; ze verlagen vertrouwen.", "Neutraal zou -2 of 0 zijn; strong wish -8 tot -12; hard must-have kan plafonneren of uitsluiten."),
             ("Een wens ontbreekt", "-3", "Een niet-kritische wens ontbreekt of is onbewezen.", "Een zachte misser verlaagt alleen rang.", "Neutraal 0; nice-to-have -3; strong wish -6; must-have ontbrekend filtert of plafonneert."),
             ("Open verificatierisico", "-5", "Er blijven vragen voor bezichtiging of makelaar.", "De score houdt onzekerheid zichtbaar.", "Klein risico -2; belangrijk risico -5; hoog risico kan onder strong-fit plafonneren."),
@@ -887,7 +903,7 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Regras duras cumpridas", "+8", "Pais, zona, modo, tipo, orcamento, quartos e area nao conflitam.", "E um boost de elegibilidade, nao uma preferencia suave.", "Se zona, modo, orcamento, quartos ou tipo duro falham, a casa e excluida."),
             ("Qualidade da evidencia", "+10", "Planta, custos e evidencia real 360/tour estao presentes.", "Mais factos verificados tornam a decisao remota mais segura.", "So planta cerca de +4; planta mais custos +7; evidencia completa +10."),
             ("Preferencias suaves", "+6", "Trajetos, vida diaria e familia combinam como nice-to-have.", "Matches suaves sobem ranking sem esconder casas.", "Neutro +0; nice-to-have aqui +6; strong wish cerca de +12; must-have contrario filtra ou limita."),
-            ("Confianca de localizacao", "+4", "A localizacao vem do candidato, nao apenas do scope do fornecedor.", "Permite comparar zonas e proximidade com seguranca.", "Evidencia grosseira cerca de +1; postal contraditorio exclui se a zona for dura."),
+            ("Localizacao verificada", "+0", "A localizacao vem do candidato, nao apenas do scope do fornecedor.", "Verifica elegibilidade e contexto proximo, sem bonus por estar na zona certa.", "Evidencia grosseira fica neutra; postal contraditorio exclui se a zona for dura."),
             ("Aquecimento em aberto", "-8", "O aquecimento e relevante mas desconhecido.", "Factos em falta nao sao inventados; baixam confianca.", "Neutro seria -2 ou 0; strong wish -8 a -12; must-have duro pode limitar ou excluir."),
             ("Um desejo falta", "-3", "Uma caracteristica desejada nao critica falta ou nao esta provada.", "Uma falta suave baixa apenas ranking.", "Neutro 0; nice-to-have -3; strong wish -6; must-have ausente filtra ou limita."),
             ("Risco a verificar", "-5", "Restam perguntas para visita ou agente.", "O score mantem incerteza visivel.", "Risco menor -2; importante -5; alto pode limitar abaixo de strong-fit."),
@@ -910,7 +926,7 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Twarde reguly spelnione", "+8", "Kraj, obszar, tryb, typ, budzet, pokoje i metraz nie koliduja.", "To boost kwalifikacji, nie miekka preferencja.", "Jesli obszar, tryb, budzet, pokoje lub twardy typ nie przejda, oferta jest wykluczona."),
             ("Jakosc dowodow", "+10", "Plan, koszty i prawdziwe 360/tour sa dostepne.", "Wiecej zweryfikowanych faktow zwieksza bezpieczenstwo decyzji zdalnej.", "Sam plan okolo +4; plan plus koszty +7; pelne dowody +10."),
             ("Miekkie preferencje", "+6", "Dojazdy, codziennosc i rodzina pasuja jako nice-to-have.", "Miekkie trafienia podnosza ranking bez ukrywania ofert.", "Neutralnie +0; nice-to-have tu +6; strong wish okolo +12; sprzeczny must-have filtruje lub naklada pulap."),
-            ("Zaufanie lokalizacji", "+4", "Lokalizacja pochodzi z kandydata, nie tylko ze scope dostawcy.", "Pozwala bezpiecznie porownac obszary i bliskosc.", "Grube dowody okolo +1; sprzeczny kod pocztowy wyklucza przy twardym obszarze."),
+            ("Lokalizacja sprawdzona", "+0", "Lokalizacja pochodzi z kandydata, nie tylko ze scope dostawcy.", "Sprawdza kwalifikacje i pobliski kontekst, ale nie nagradza za wlasciwy obszar.", "Grube dowody zostaja neutralne; sprzeczny kod pocztowy wyklucza przy twardym obszarze."),
             ("Ogrzewanie otwarte", "-8", "Ogrzewanie jest wazne, ale nieznane.", "Brakujace fakty nie sa wymyslane; obnizaja zaufanie.", "Neutralnie byloby -2 lub 0; strong wish -8 do -12; hard must-have moze dac pulap lub wykluczenie."),
             ("Brakuje jednego zyczenia", "-3", "Nie-krytyczna cecha po prostu nie jest potwierdzona.", "Miekki brak obniza tylko ranking.", "Neutralnie 0; nice-to-have -3; strong wish -6; brak must-have filtruje lub daje pulap."),
             ("Otwarte ryzyko", "-5", "Zostaja pytania na ogladanie lub do agenta.", "Wynik pokazuje niepewnosc.", "Male ryzyko -2; wazne -5; wysokie moze ograniczyc ponizej strong-fit."),
@@ -933,7 +949,7 @@ _LOCALIZED_WEIGHT_EXPLAINER_COPY: dict[str, dict[str, object]] = {
             ("Harda regler passerade", "+8", "Land, omrade, lage, typ, budget, rum och yta krockar inte.", "Detta ar en behorighetsboost, inte mjuk preferens.", "Om omrade, lage, budget, rum eller hard typ faller, exkluderas bostaden."),
             ("Evidenskvalitet", "+10", "Planritning, kostnader och riktig 360/tour-evidens finns.", "Fler verifierade fakta gor fjarrbeslutet tryggare.", "Endast plan cirka +4; plan plus kostnader +7; full evidens +10."),
             ("Mjuka preferenser", "+6", "Pendling, vardag och familj matchar som nice-to-have.", "Mjuka matchningar hojer ranking utan att gomma bostader.", "Neutral +0; nice-to-have har +6; strong wish cirka +12; must-have-motsagelse filtrerar eller satter tak."),
-            ("Platsfortroende", "+4", "Platsen kommer fran kandidatens evidens, inte bara leverantorens sokomrade.", "Det gor omrades- och narhetsjamforelse saker.", "Grov evidens cirka +1; motsagd postkod exkluderar vid hardt omrade."),
+            ("Plats kontrollerad", "+0", "Platsen kommer fran kandidatens evidens, inte bara leverantorens sokomrade.", "Den verifierar behorighet och narliggande kontext, utan bonus for ratt omrade.", "Grov evidens ar neutral; motsagd postkod exkluderar vid hardt omrade."),
             ("Varme okand", "-8", "Varme ar relevant men okand.", "Saknade fakta hittas inte pa; de sanker fortroende.", "Neutral vore -2 eller 0; strong wish -8 till -12; hard must-have kan satta tak eller exkludera."),
             ("Ett onskemal saknas", "-3", "En icke-kritisk onskad egenskap saknas eller ar obevisad.", "En mjuk miss sanker bara ranking.", "Neutral 0; nice-to-have -3; strong wish -6; saknat must-have filtrerar eller satter tak."),
             ("Oppen verifieringsrisk", "-5", "Fragor aterstar for visning eller maklare.", "Score haller osakerhet synlig.", "Liten risk -2; viktig risk -5; hog risk kan satta tak under strong-fit."),
@@ -1012,6 +1028,9 @@ def _localized(language_code: object = "", *, country_code: object = "", accept_
         base.update(_LOCALIZED_PDF_EXAMPLE_COPY[code])
     if code in _LOCALIZED_WEIGHT_EXPLAINER_COPY:
         base.update(_LOCALIZED_WEIGHT_EXPLAINER_COPY[code])
+    if not base.get("source_sections"):
+        base["source_sections_label"] = _LOCALIZED_WEIGHT_EXPLAINER_COPY["en"]["source_sections_label"]
+        base["source_sections"] = _LOCALIZED_WEIGHT_EXPLAINER_COPY["en"]["source_sections"]
     replacements = _PREFERENCE_TERM_REPLACEMENTS.get(code)
     if replacements:
         for key, value in list(base.items()):
@@ -1111,6 +1130,11 @@ def build_property_score_methodology(
         "weight_ladder_rows": [
             {"level": str(level), "effect": str(effect), "rule": str(rule)}
             for level, effect, rule in list(copy.get("weight_ladder_rows") or [])
+        ],
+        "source_sections_label": str(copy.get("source_sections_label") or "Where the information comes from"),
+        "source_sections": [
+            {"title": str(title), "detail": str(detail)}
+            for title, detail in list(copy.get("source_sections") or [])
         ],
         "candidate_application": {
             "fit_score": fit_score,

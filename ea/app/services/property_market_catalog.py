@@ -2259,6 +2259,15 @@ EVIDENCE_SOURCES: tuple[PropertyEvidenceSourceSpec, ...] = (
         confidence="high",
     ),
     PropertyEvidenceSourceSpec(
+        key="wien_klimaanalyse_ogd_at",
+        label="Wien Klimaanalysekarte OGD",
+        country_code="AT",
+        evidence_family="climate",
+        description="Vienna open-data climate-analysis evidence for urban heat, cool-air context, and heat-resilience checks.",
+        source_type="official_public_data",
+        confidence="high",
+    ),
+    PropertyEvidenceSourceSpec(
         key="uba_luft_at",
         label="Umweltbundesamt Luft",
         country_code="AT",
@@ -3716,6 +3725,9 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["keywords"] = str(payload.get("keywords") or "").strip()
     payload["avoid_keywords"] = str(payload.get("avoid_keywords") or "").strip()
     payload["keyword_preferences"] = _normalize_keyword_preferences(payload.get("keyword_preferences"))
+    heat_preference_state = str(payload["keyword_preferences"].get("klimaerwaermungsfit") or "").strip().lower()
+    if heat_preference_state in {"nice_to_have", "important", "must_have", "hard", "required", "strict"}:
+        payload["prefer_heat_resilient_home"] = True
     if payload["keyword_preferences"]:
         payload["keywords"] = _csv_keep_states(
             payload.get("keywords"),
@@ -3912,6 +3924,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         "require_school_evidence",
         "ganztag_required",
         "prefer_good_air_quality",
+        "prefer_heat_resilient_home",
         "avoid_noise_risk_area",
         "require_energy_certificate",
         "require_operating_cost_statement",

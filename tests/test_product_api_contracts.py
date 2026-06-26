@@ -6248,6 +6248,7 @@ def test_property_search_preferences_enable_new_research_and_source_flags() -> N
             "enable_market_supply_research": "true",
             "enable_location_risk_research": "true",
             "enable_trust_risk_scoring": "true",
+            "prefer_heat_resilient_home": "true",
         }
     )
 
@@ -6261,6 +6262,7 @@ def test_property_search_preferences_enable_new_research_and_source_flags() -> N
     assert normalized["enable_market_supply_research"] is True
     assert normalized["enable_location_risk_research"] is True
     assert normalized["enable_trust_risk_scoring"] is True
+    assert normalized["prefer_heat_resilient_home"] is True
 
 
 def test_property_search_preferences_enable_lifestyle_filters() -> None:
@@ -10868,6 +10870,9 @@ def test_property_official_risk_evidence_for_austria_includes_school_noise_and_b
     }
 
     assert "school_evidence" in risk_keys
+    assert "heat_resilience" in risk_keys
+    assert "traffic_density" in risk_keys
+    assert "green_shade" in risk_keys
     assert "noise_risk" in risk_keys
     assert "broadband_availability" in risk_keys
 
@@ -10896,6 +10901,44 @@ def test_property_austria_preference_adjustment_penalizes_missing_docs_and_wrong
     assert "operating costs missing" in notes
     assert "broadband evidence missing" in notes
     assert "noise evidence missing" in notes
+
+
+def test_property_austria_preference_adjustment_scores_heat_resilience() -> None:
+    weak_adjustment, weak_notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "prefer_heat_resilient_home": True},
+        property_facts={
+            "postal_code": "1070",
+            "postal_name": "1070 Wien Neubau",
+            "dachgeschoss": True,
+            "large_south_windows": True,
+            "official_risk_evidence": {"sources": []},
+        },
+        title="Dachgeschosswohnung mit südseitigen Fenstern",
+        summary="Sehr hell.",
+    )
+    strong_adjustment, strong_notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "prefer_heat_resilient_home": True},
+        property_facts={
+            "postal_code": "1180",
+            "postal_name": "1180 Wien",
+            "altbau": True,
+            "air_conditioning": True,
+            "external_shading": True,
+            "tree_shade_signal": True,
+            "official_risk_evidence": {"sources": [{"risk_key": "heat_resilience"}]},
+        },
+        title="Altbau mit Klimaanlage und Außenjalousien",
+        summary="Bäume vor den Fenstern.",
+    )
+
+    assert weak_adjustment < 0
+    assert "top-floor heat risk" in weak_notes
+    assert "large south-facing window risk" in weak_notes
+    assert "inner-city Vienna heat-island heuristic" in weak_notes
+    assert strong_adjustment > 0
+    assert "cooling present" in strong_notes
+    assert "external shading present" in strong_notes
+    assert "official climate evidence lane attached" in strong_notes
 
 
 def test_property_austria_preference_adjustment_rewards_matching_cooperative_evidence() -> None:

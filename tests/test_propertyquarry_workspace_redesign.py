@@ -2287,7 +2287,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "Neutral by default" in section_html
     assert "Home basics" in section_html
     assert "Daily life" in section_html
-    assert "Risk and evidence" in section_html
+    assert "Check before deciding" in section_html
     assert 'data-what-matters-group="home_basics"' in section_html
     assert 'data-what-matters-group="daily_life"' in section_html
     assert 'data-what-matters-group="risk_evidence"' in section_html
@@ -2297,7 +2297,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
         section_html,
         re.DOTALL,
     )
-    assert risk_evidence_html, "Risk and evidence group should render"
+    assert risk_evidence_html, "Check before deciding group should render"
     assert ">Check it</option>" not in risk_evidence_html.group("section")
     assert ">Must check</option>" not in risk_evidence_html.group("section")
     assert '<select name="keyword_preference__lift"' in section_html
@@ -2306,6 +2306,8 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert '<select name="keyword_preference__library nearby"' in section_html
     assert '<select name="keyword_preference__public pool nearby"' in section_html
     assert '<select name="keyword_preference__medical care nearby"' in section_html
+    assert '<select name="keyword_preference__klimaerwaermungsfit"' in section_html
+    assert "Klimaerwärmungsfit" in section_html
     assert 'data-keyword-display-key="hardware-store"' in section_html
     assert 'data-keyword-display-key="shopping-center"' in section_html
     assert 'data-keyword-display-key="promenade"' in section_html

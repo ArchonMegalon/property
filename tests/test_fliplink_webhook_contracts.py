@@ -245,7 +245,7 @@ def test_score_methodology_pdf_endpoint_uses_requested_language(monkeypatch, tmp
     assert "Wie der PropertyQuarry-Score berechnet" in pdf_text
     assert "62/100" in pdf_text
     assert "Beispielrechnung" in pdf_text
-    assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in pdf_text
+    assert "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58" in pdf_text
     assert "Wo jede Zahl herkommt" in pdf_text
     assert "starker Wunsch etwa +12" in pdf_text
     assert "Wünschenswert etwa -3" in pdf_text

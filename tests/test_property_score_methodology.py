@@ -33,12 +33,14 @@ def test_score_methodology_languages_cover_country_provider_catalog() -> None:
         assert len(payload["examples"]) >= 5
         assert payload["score_bands"][-1] == {"range": "60+", "meaning": payload["score_bands"][-1]["meaning"]}
         assert payload["calculation_title"]
-        assert payload["calculation_rows"][-1]["delta"] == "=62"
-        assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in payload["calculation_rows"][-1]["why"]
+        assert payload["calculation_rows"][-1]["delta"] == "=58"
+        assert "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58" in payload["calculation_rows"][-1]["why"]
         assert payload["calculation_detail_title"]
         assert len(payload["calculation_detail_rows"]) >= 8
         assert payload["weight_ladder_title"]
         assert len(payload["weight_ladder_rows"]) >= 5
+        assert payload["source_sections_label"]
+        assert len(payload["source_sections"]) >= 5
         detail_blob = " ".join(
             " ".join(str(row.get(key) or "") for key in ("label", "delta", "source", "rule", "alternatives"))
             for row in payload["calculation_detail_rows"]
@@ -71,7 +73,7 @@ def test_score_methodology_pdf_source_localizes_demo_signals_for_every_language(
     for language_code in supported_property_score_methodology_languages():
         source = build_property_score_methodology_pdf_source(language_code=language_code)
         assert source["fit_score"] == 62
-        assert source["score_methodology"]["calculation_rows"][-1]["delta"] == "=62"
+        assert source["score_methodology"]["calculation_rows"][-1]["delta"] == "=58"
         if language_code == "en":
             continue
         rendered_values = {
@@ -100,9 +102,9 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
     assert payload["candidate_application"]["band_label"] == "Starke Passung"
     assert payload["candidate_application"]["positive_signals"] == ["Echte 360-Tour vorhanden.", "Betriebskosten sind belegt."]
     assert payload["candidate_application"]["negative_signals"] == ["Heizungsdetail fehlt noch."]
-    assert payload["calculation_title"] == "Beispielrechnung: warum dieses Objekt bei 62 landet"
-    assert payload["calculation_rows"][-1]["delta"] == "=62"
-    assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in payload["calculation_rows"][-1]["why"]
+    assert payload["calculation_title"] == "Beispielrechnung: warum dieses Objekt bei 58 landet"
+    assert payload["calculation_rows"][-1]["delta"] == "=58"
+    assert "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58" in payload["calculation_rows"][-1]["why"]
     assert payload["calculation_detail_title"] == "Wo jede Zahl herkommt"
     assert any(row["label"] == "Harte Regeln bestanden" and row["delta"] == "+8" for row in payload["calculation_detail_rows"])
     assert any("starker Wunsch etwa +12" in row["alternatives"] for row in payload["calculation_detail_rows"])
@@ -151,8 +153,8 @@ def test_score_methodology_survives_redaction_and_renders_in_premium_html() -> N
 
     assert "Wie der PropertyQuarry-Score berechnet wird" in html
     assert "62/100" in html
-    assert "Beispielrechnung: warum dieses Objekt bei 62 landet" in html
-    assert "50 + 8 + 10 + 6 + 4 - 8 - 3 - 5 = 62" in html
+    assert "Beispielrechnung: warum dieses Objekt bei 58 landet" in html
+    assert "50 + 8 + 10 + 6 + 0 - 8 - 3 - 5 = 58" in html
     assert "Wo jede Zahl herkommt" in html
     assert "Harte Regeln bestanden" in html
     assert "starker Wunsch etwa +12" in html

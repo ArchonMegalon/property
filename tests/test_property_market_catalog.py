@@ -503,6 +503,7 @@ def test_austria_official_sources_are_evidence_not_listing_providers() -> None:
     assert any(row["value"] == "uba_luft_at" and row["evidence_family"] == "air_quality" for row in sources)
     assert any(row["value"] == "statatlas_schulen_at" and row["evidence_family"] == "school_evidence" for row in sources)
     assert any(row["value"] == "breitbandatlas_at" and row["evidence_family"] == "broadband" for row in sources)
+    assert any(row["value"] == "wien_klimaanalyse_ogd_at" and row["evidence_family"] == "climate" for row in sources)
     assert all("Austria" in str(row.get("description") or "") for row in sources)
 
 

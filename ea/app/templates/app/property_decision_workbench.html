@@ -8608,6 +8608,7 @@
                 'max_distance_to_shopping_street_m',
                 'max_distance_to_theatre_m',
                 'prefer_good_air_quality',
+                'prefer_heat_resilient_home',
                 'avoid_noise_risk_area',
                 'require_high_speed_internet',
                 'prefer_low_crime_area',
@@ -8728,7 +8729,7 @@
                     {% set keyword_groups = [
                       {'key': 'home_basics', 'label': 'Home basics', 'note': 'Shape, comfort, access, and building signals.'},
                       {'key': 'daily_life', 'label': 'Daily life', 'note': 'Errands, transit, culture, schools, childcare, and family backup.'},
-                      {'key': 'risk_evidence', 'label': 'Risk and evidence', 'note': 'Checks that should affect confidence before deciding.'}
+                      {'key': 'risk_evidence', 'label': 'Check before deciding', 'note': 'Things worth verifying before you fall in love with a place.'}
                     ] %}
                     {% for group in keyword_groups %}
                     {% set group_options = field.options|selectattr('group', 'equalto', group.get('key'))|list %}

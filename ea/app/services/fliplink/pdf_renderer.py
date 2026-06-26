@@ -1488,7 +1488,12 @@ def _visual_pdf(
             for row in list(score_methodology.get("weight_ladder_rows") or [])[:5]
             if isinstance(row, dict)
         ]
-        if detail_rows or weight_rows:
+        source_rows = [
+            dict(row)
+            for row in list(score_methodology.get("source_sections") or [])[:5]
+            if isinstance(row, dict)
+        ]
+        if detail_rows or weight_rows or source_rows:
             ops = _new_page(page_number=2, privacy_mode=privacy_mode)
             detail_title = str(score_methodology.get("calculation_detail_title") or "Where each number comes from").strip()
             detail_note = str(score_methodology.get("calculation_detail_note") or "").strip()
@@ -1534,6 +1539,18 @@ def _visual_pdf(
                     row_y = _draw_wrapped(ops, text, x=x + 10, y=row_y, width_chars=41, size=7.2, leading=8.0)
                     row_y -= 1
                     if row_y < top_y - 78:
+                        break
+            if source_rows:
+                _draw_text(ops, str(score_methodology.get("source_sections_label") or "Where the information comes from"), x=MARGIN_X, y=118, size=10.6, font="F2", fill=(0.15, 0.38, 0.30))
+                source_y = 100
+                for row in source_rows[:3]:
+                    title = str(row.get("title") or "").strip()
+                    detail = str(row.get("detail") or "").strip()
+                    if not (title or detail):
+                        continue
+                    source_y = _draw_wrapped(ops, f"{title}: {detail}" if title else detail, x=MARGIN_X, y=source_y, width_chars=88, size=6.8, leading=7.6)
+                    source_y -= 1
+                    if source_y < 44:
                         break
             pages.append({"ops": ops, "images": []})
         return _build_pdf(pages)
@@ -1828,7 +1845,12 @@ def _visual_pdf(
             for row in list(score_methodology.get("weight_ladder_rows") or [])[:5]
             if isinstance(row, dict)
         ]
-        if detail_rows or weight_rows:
+        source_rows = [
+            dict(row)
+            for row in list(score_methodology.get("source_sections") or [])[:5]
+            if isinstance(row, dict)
+        ]
+        if detail_rows or weight_rows or source_rows:
             ops = _new_page(page_number=page_number, privacy_mode=privacy_mode)
             detail_title = str(score_methodology.get("calculation_detail_title") or "Where each number comes from").strip()
             detail_note = str(score_methodology.get("calculation_detail_note") or "").strip()
@@ -1891,6 +1913,18 @@ def _visual_pdf(
                     row_y = _draw_wrapped(ops, text, x=x + 10, y=row_y, width_chars=41, size=7.4, leading=8.2)
                     row_y -= 1
                     if row_y < top_y - 80:
+                        break
+            if source_rows:
+                _draw_text(ops, str(score_methodology.get("source_sections_label") or "Where the information comes from"), x=MARGIN_X, y=96, size=10.4, font="F2", fill=(0.15, 0.38, 0.30))
+                source_y = 78
+                for row in source_rows[:2]:
+                    title = str(row.get("title") or "").strip()
+                    detail = str(row.get("detail") or "").strip()
+                    if not (title or detail):
+                        continue
+                    source_y = _draw_wrapped(ops, f"{title}: {detail}" if title else detail, x=MARGIN_X, y=source_y, width_chars=88, size=6.9, leading=7.6)
+                    source_y -= 1
+                    if source_y < 42:
                         break
             pages.append({"ops": ops, "images": []})
             page_number += 1

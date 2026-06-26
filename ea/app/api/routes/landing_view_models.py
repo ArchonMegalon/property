@@ -2176,6 +2176,7 @@ def _property_keyword_options_cached() -> tuple[tuple[str, str, str], ...]:
         {"value": "pharmacy nearby", "label": "Pharmacy", "detail": "Healthcare basics"},
         {"value": "underground nearby", "label": "Underground", "detail": "Fast transit access"},
         {"value": "good air quality", "label": "Good air quality", "detail": "Treat air burden as a real quality signal"},
+        {"value": "klimaerwaermungsfit", "label": "Klimaerwärmungsfit", "detail": "Kann die Wohnung auch bei längeren Hitzeperioden kühl bleiben? Malus für Dachgeschoss, große südseitige Fenster und heiße Stadtlagen; Bonus für Klimaanlage, Altbau, Bäume vor den Fenstern und Außenjalousien."},
         {"value": "avoid noise-risk area", "label": "Avoid noise-risk area", "detail": "Treat official noise burden as a genuine location risk"},
         {"value": "high-speed internet", "label": "High-speed internet evidence", "detail": "Broadband evidence matters for the final call"},
         {"value": "low crime area", "label": "Low crime area", "detail": "Treat quarter-level safety burden as a real signal"},
@@ -2212,6 +2213,7 @@ def _property_keyword_options() -> list[dict[str, str]]:
     }
     risk_evidence_keywords = {
         "good air quality",
+        "klimaerwaermungsfit",
         "avoid noise-risk area",
         "high-speed internet",
         "low crime area",
@@ -2319,6 +2321,12 @@ def _property_keyword_options() -> list[dict[str, str]]:
             {"value": "important", "label": "Strong wish"},
             {"value": "must_have", "label": "Must have"},
         ],
+        "klimaerwaermungsfit": [
+            {"value": "any", "label": "Neutral"},
+            {"value": "nice_to_have", "label": "Nice to have"},
+            {"value": "important", "label": "Strong wish"},
+            {"value": "must_have", "label": "Must have"},
+        ],
         "avoid noise-risk area": [
             {"value": "any", "label": "Neutral"},
             {"value": "avoid", "label": "Avoid"},
@@ -2386,12 +2394,26 @@ def _property_keyword_options() -> list[dict[str, str]]:
         "flaniermeile nearby": long_distance_options,
         "theatre nearby": long_distance_options,
     }
+    localized_details = {
+        "klimaerwaermungsfit": {
+            "de": "Kann die Wohnung auch bei längeren Hitzeperioden kühl bleiben? Malus für Dachgeschoss, große südseitige Fenster und heiße Stadtlagen; Bonus für Klimaanlage, Altbau, Bäume vor den Fenstern und Außenjalousien.",
+            "en": "Can the home stay cool during longer heat waves? Penalizes top-floor homes, large south-facing windows, and hotter city areas; rewards air conditioning, thick old-building walls, tree shade, and external blinds.",
+            "es": "Puede mantenerse fresca la vivienda durante olas de calor largas? Penaliza aticos, grandes ventanas al sur y zonas urbanas calientes; premia aire acondicionado, muros gruesos, sombra de arboles y persianas exteriores.",
+            "fr": "Le logement peut-il rester frais pendant de longues periodes de chaleur? Penalise dernier etage, grandes fenetres plein sud et secteurs urbains chauds; valorise climatisation, murs epais, ombre d'arbres et stores exterieurs.",
+            "it": "La casa resta fresca durante lunghe ondate di caldo? Penalizza ultimo piano, grandi finestre a sud e zone urbane calde; premia climatizzazione, muri spessi, ombra degli alberi e schermature esterne.",
+            "nl": "Kan de woning koel blijven tijdens langere hitteperiodes? Straft bovenste verdieping, grote zuidramen en warmere stadsdelen; beloont airco, dikke muren, boomschaduw en buitenzonwering.",
+            "pt": "A casa consegue manter-se fresca em ondas de calor prolongadas? Penaliza ultimo andar, grandes janelas viradas a sul e zonas urbanas quentes; valoriza ar condicionado, paredes espessas, sombra de arvores e estores exteriores.",
+            "pl": "Czy mieszkanie pozostaje chlodne podczas dlugich fal upalu? Karze najwyzsze pietro, duze okna od poludnia i gorace obszary miejskie; nagradza klimatyzacje, grube sciany, cien drzew i zewnetrzne rolety.",
+            "sv": "Kan bostaden halla sig sval under langre varmeperioder? Straffar hogsta vaning, stora soderfonster och varmare stadsdelar; premierar AC, tjocka vaggar, tradskugga och utvandiga solskydd.",
+        }
+    }
     return [
         {
             "value": value,
             "label": label,
             "display_key": re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-"),
             "detail": detail,
+            **({"detail_i18n": localized_details[value]} if value in localized_details else {}),
             "group": "daily_life" if value in daily_life_keywords else ("risk_evidence" if value in risk_evidence_keywords else "home_basics"),
             **({"preference_options": preference_options[value]} if value in preference_options else {}),
             **({"distance_options": distance_options.get(value, default_distance_options)} if value in {"playground nearby", "library nearby", "zoo nearby", "public pool nearby", "medical care nearby", "supermarket nearby", "market nearby", "Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby", "pharmacy nearby", "underground nearby"} else {}),
@@ -3186,6 +3208,9 @@ def app_section_payload(
         elif option_value == "good air quality":
             if state not in {"nice_to_have", "important", "must_have"}:
                 state = "important" if bool(property_preferences.get("prefer_good_air_quality")) else "any"
+        elif option_value == "klimaerwaermungsfit":
+            if state not in {"nice_to_have", "important", "must_have"}:
+                state = "important" if bool(property_preferences.get("prefer_heat_resilient_home")) else "any"
         elif option_value == "avoid noise-risk area":
             if state not in {"avoid", "must_have"}:
                 state = "avoid" if bool(property_preferences.get("avoid_noise_risk_area")) else "any"
@@ -4780,6 +4805,15 @@ def app_section_payload(
                 "value": "true",
                 "checked": bool(property_preferences.get("prefer_good_air_quality")),
                 "tooltip": "Treat poor air quality as a risk signal in deep research and ranking.",
+                "step": "children",
+            },
+            {
+                "type": "checkbox",
+                "name": "prefer_heat_resilient_home",
+                "label": "Klimaerwärmungsfit",
+                "value": "true",
+                "checked": bool(property_preferences.get("prefer_heat_resilient_home")),
+                "tooltip": "Kann die Wohnung auch bei längeren Hitzeperioden kühl bleiben? Nutzt offizielle Klimadaten, Lage, Dachgeschoss-/Fenster-Hinweise, Klimaanlage, Altbau, Schatten, Bäume und Außenjalousien als Score-Signal.",
                 "step": "children",
             },
             {
