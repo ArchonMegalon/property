@@ -133,6 +133,146 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert (bundle_dir / "3dvista" / "runtime" / "app.js").exists()
 
 
+def test_attach_provider_tour_layer_adds_second_matterport_model_and_rejects_lookalike(
+    tmp_path: Path,
+) -> None:
+    slug = "layered-matterport-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["matterport_url"] = "https://my.matterport.com/show/?m=SOURCE123"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    rejected = _run_importer(
+        "attach_provider_tour_layer.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--provider",
+        "matterport",
+        "--layer-id",
+        "lived-in",
+        "--matterport-url",
+        "https://matterport.com.evil.example/show/?m=STAGED123",
+    )
+
+    assert rejected.returncode != 0
+    assert "matterport.com_url_not_allowlisted" in rejected.stderr
+
+    attached = _run_importer(
+        "attach_provider_tour_layer.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--provider",
+        "matterport",
+        "--layer-id",
+        "lived-in",
+        "--label",
+        "Lived-in",
+        "--matterport-url",
+        "https://my.matterport.com/show/?m=STAGED123",
+    )
+
+    assert attached.returncode == 0, attached.stderr
+    body = json.loads(attached.stdout)
+    assert body["control_url"] == f"/tours/{slug}/control/matterport"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["tour_layers"] == [
+        {
+            "id": "lived-in",
+            "label": "Lived-in",
+            "provider": "matterport",
+            "matterport_url": "https://my.matterport.com/show/?m=STAGED123",
+            "disclosure": "Separate staged Matterport model. The original source tour remains unchanged.",
+        }
+    ]
+
+
+def test_attach_provider_tour_layer_adds_3dvista_same_tour_and_second_export_layers(
+    tmp_path: Path,
+) -> None:
+    slug = "layered-3dvista-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    base_export = bundle_dir / "3dvista"
+    staged_export = bundle_dir / "3dvista-staged"
+    placeholder_export = bundle_dir / "3dvista-placeholder"
+    for path in (base_export, staged_export, placeholder_export):
+        path.mkdir()
+    (base_export / "index.htm").write_text("<script src='tdvplayer.js'></script>", encoding="utf-8")
+    (base_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (staged_export / "index.htm").write_text("<script src='tdvplayer.js'></script><div>lived in</div>", encoding="utf-8")
+    (staged_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (placeholder_export / "index.htm").write_text("<title>Coming soon</title>", encoding="utf-8")
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "control_mode": "3dvista",
+            "three_d_vista_entry_relpath": "3dvista/index.htm",
+            "three_d_vista_export_root_relpath": "3dvista",
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    rejected = _run_importer(
+        "attach_provider_tour_layer.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--provider",
+        "3dvista",
+        "--layer-id",
+        "placeholder",
+        "--three-d-vista-entry-relpath",
+        "3dvista-placeholder/index.htm",
+    )
+
+    assert rejected.returncode != 0
+    assert "3dvista_layer_entry_unverified" in rejected.stderr
+
+    same_tour = _run_importer(
+        "attach_provider_tour_layer.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--provider",
+        "3dvista",
+        "--layer-id",
+        "same-tour-lived-in",
+        "--label",
+        "Lived-in",
+        "--same-tour-layer",
+        "--query",
+        "startmedia=lived_in&skin=staged",
+        "--fragment",
+        "scene=living-room",
+    )
+    second_export = _run_importer(
+        "attach_provider_tour_layer.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--provider",
+        "3dvista",
+        "--layer-id",
+        "second-export-lived-in",
+        "--label",
+        "Staged export",
+        "--three-d-vista-entry-relpath",
+        "3dvista-staged/index.htm",
+    )
+
+    assert same_tour.returncode == 0, same_tour.stderr
+    assert second_export.returncode == 0, second_export.stderr
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    layers = {row["id"]: row for row in manifest["tour_layers"]}
+    assert layers["same-tour-lived-in"]["same_tour_layer"] is True
+    assert layers["same-tour-lived-in"]["query"] == "startmedia=lived_in&skin=staged"
+    assert layers["same-tour-lived-in"]["fragment"] == "scene=living-room"
+    assert layers["second-export-lived-in"]["three_d_vista_entry_relpath"] == "3dvista-staged/index.htm"
+
+
 def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(tmp_path: Path) -> None:
     slug = "verified-pano2vr-import"
     bundle_dir = _write_base_tour(tmp_path, slug)

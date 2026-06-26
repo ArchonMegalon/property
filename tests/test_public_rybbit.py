@@ -70,6 +70,37 @@ def test_propertyquarry_rybbit_authenticated_scope_is_explicit_and_anonymous(mon
     assert "email" not in snippet
 
 
+def test_propertyquarry_rybbit_uses_live_dashboard_id_without_private_app_identifiers(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_AUTHENTICATED_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_SITE_ID", "10315")
+    monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_TAG", "propertyquarry")
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_RYBBIT_SKIP_PATTERNS",
+        "/workspace-access/**,/app/api/**,/v1/**,/api/**,/auth/**,/admin/**,/tours/files/**",
+    )
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_RYBBIT_MASK_PATTERNS",
+        "/app/**,/workspace-access/**,/app/handoffs/**,/tours/**,/app/properties/**,/app/research/**",
+    )
+
+    public_snippet = rybbit_head_snippet(_FakeRequest("/"))
+    app_snippet = rybbit_head_snippet(_FakeRequest("/app/search"))
+
+    for snippet in (public_snippet, app_snippet):
+        assert 'src="https://app.rybbit.io/api/script.js"' in snippet
+        assert 'data-site-id="10315"' in snippet
+        assert 'data-tag="propertyquarry"' in snippet
+        assert "/app/**" in snippet
+        assert "/app/research/**" in snippet
+        assert "/tours/files/**" in snippet
+        assert "identify" not in snippet
+        assert "principal" not in snippet
+        assert "email" not in snippet
+        assert "run_id" not in snippet
+        assert "listing" not in snippet
+
+
 def test_propertyquarry_rybbit_snippet_rejects_invalid_base_url(monkeypatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_RYBBIT_SITE_ID", "propertyquarry-site")
