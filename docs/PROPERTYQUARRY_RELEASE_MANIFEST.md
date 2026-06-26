@@ -13,13 +13,27 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `ec9cbdd20c9be0ee667118a2aa3a695598580c73` |
+| Runtime commit SHA | `b7d8b44727839f24a9bb4ffc8cccc1c829d03964` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-26 after `make deploy` for confirmed-distance route-preview copy, zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-26 after `make deploy` for Teable oversized-field sync hardening, confirmed-distance route-preview copy, zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `b7d8b44` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_tool_execution.py -k 'teable_table_sync or request_json_uses_browser_style_headers'` returned `3 passed, 116 deselected`.
+- `python3 -m py_compile ea/app/services/tool_execution_teable_adapter.py`
+- `git diff --check`
+- `make deploy`
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`.
+- Live authenticated `POST /app/api/property/teable-sync?limit=5` as `cf-email:tibor.girschele@gmail.com` returned `status=ready`, `sync_attempted=true`, `sync_result=sent`, `target_ref=teable-sync:propertyquarry:propertyquarry`, `table_count=18`, `created_count=6`, and `updated_count=7`.
+- The Teable adapter now compacts oversized string/JSON fields before writes, preventing one large preferences row from blocking delivery settings and other PropertyQuarry projections.
+- Tibor's WhatsApp notification preference is stored in Postgres and was directly upserted to the configured PropertyQuarry Teable `propertyquarry_delivery_settings` table with last4 `6419`; WhatsApp send remains blocked because the live WhatsApp Web session reports `qr_required`.
+- PropertyQuarry duplicate records were removed from the EA Teable WhatsApp/persona tables after backup receipts; shared EA tables were preserved because they contain non-PropertyQuarry data.
+- Teable base reconciliation remains open: the local app env contains writable configured PropertyQuarry table IDs, but Teable API base enumeration returned no visible bases and did not prove those tables are in the user-visible `propertyquarry.com` base that currently shows only `runners`.
+- Current gold status remains `blocked` because verified 3DVista/Pano2VR export/control evidence is still missing, the Brilliant Directories handoff still needs final local/BD-side verification, and Teable base authority must be reconciled to the visible `propertyquarry.com` base.
 
 The candidate at `ec9cbdd` passed:
 
