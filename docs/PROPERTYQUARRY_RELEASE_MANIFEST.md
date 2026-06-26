@@ -8,7 +8,7 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | --- | --- |
 | Product | PropertyQuarry |
 | Release label | `propertyquarry-gold-board-working-candidate` |
-| Status | `working-candidate-pass-with-3dvista-branding-caveat` |
+| Status | `working-candidate-blocked-on-licensed-3dvista-export` |
 | Repository | `/docker/property` |
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
@@ -21,23 +21,29 @@ This manifest records the last verified runtime candidate for branch/deployment 
 
 ## Latest Verification
 
-The live operator import on 2026-06-26 verified:
+The live operator import and verifier hardening on 2026-06-26 verified:
+
+- Headless 3DVista activation was attempted after backing up trial license state and installing Wine `ntlm_auth` support. The app remained in trial mode and did not create a non-trial license file, so a Telegram operator ask was sent for a licensed 3DVista VT Pro export under `/mnt/pcloud/EA/propertyquarry-3dvista-licensed-export/`.
+- `scripts/verify_property_tour_controls.py` now treats trial-branded local 3DVista exports as not premium-ready even when real `tdvplayer` runtime markers are present.
+- `scripts/discover_property_tour_exports.py` now rejects trial-branded 3DVista export folders with `3dvista_trial_branding_present` so operator tooling no longer reports them as verified exports.
+- `_completion/tours/property-tour-controls-premium-current.json` reports `status=blocked_missing_provider_modes`, provider counts `3dvista=0`, `krpano=2`, `magicfit=8`, `matterport=29`, `pano2vr=1`, and missing provider mode `3dvista`.
+- `_completion/tours/property-tour-vendor-tooling-premium-current.json` reports `status=blocked_missing_verified_exports`, `verified_export_ready_counts={"3dvista":0,"pano2vr":1}`, and missing verified export `3dvista`.
+- `_completion/propertyquarry-gold-status-premium-current.json` reports `status=blocked` with the blocker `verified_tour_provider_modes=["3dvista"]`.
+- `PYTHONPATH=. pytest -q tests/test_property_tour_export_importers.py -k '3dvista_importer_requires_verified_export_markers or 3dvista_trial_branded_export_is_not_premium_ready or discovery_rejects_trial_branded_3dvista_export or batch_tour_export_importer_materializes_verified_3dvista'` returned `4 passed`.
+- `python3 -m py_compile scripts/discover_property_tour_exports.py scripts/verify_property_tour_controls.py scripts/verify_property_tour_vendor_tooling.py` passed.
 
 - 3DVista VT Pro launched under Wine/Xvfb, created a new project, imported the prepared 360 panorama, and published a real Web/Mobile export into `state/wine-3dvista/drive_c/users/tibor/Desktop/propertyquarry-3dvista-export`.
 - The generated 3DVista export contains `index.htm`, `lib/tdvplayer.js`, `lib/tdvplayer.json`, `script.js`, `script_general.js`, and generated WebP panorama tiles under `media/`.
 - The generated 3DVista export was imported inside `propertyquarry-api` with `scripts/import_3dvista_export.py`, producing `/tours/luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557/control/3dvista`.
 - Live HTTP smoke returned `200` for the 3DVista control route, `200` for `/tours/3dvista/.../3dvista/index.htm`, `200` for `/tours/3dvista/.../3dvista/lib/tdvplayer.js`, and `200` for `/tours/3dvista/.../3dvista/script.js`.
-- `_completion/tours/property-tour-controls-after-3dvista-import-current.json` reports `status=pass`, provider counts `3dvista=1`, `krpano=2`, `magicfit=8`, `matterport=29`, and `pano2vr=1`, ready modes `3dvista`, `krpano`, `magicfit`, `matterport`, and `pano2vr`, and no missing provider modes.
-- `_completion/tours/property-tour-vendor-tooling-after-3dvista-import-current.json` reports `status=pass`, verified export counts `3dvista=1` and `pano2vr=1`, and no missing verified exports.
-- `_completion/propertyquarry-gold-status-after-3dvista-import-current.json` reports `status=pass`, no blockers, and no next required actions.
-- Caveat: the current 3DVista `index.htm` still contains 3DVista trial branding. That proves a real generated export, but the premium presentation pass should replace it with a licensed export after 3DVista activation is completed.
+- Historical caveat: the generated 3DVista `index.htm` contains 3DVista trial branding. That still proves a real generated export, but it is no longer accepted as premium/gold evidence.
 
 - Pano2VR 8 Pro was installed under Wine, accepted the local registered license, loaded the prepared 360 panorama, saved a `.p2vr` project, and generated a real Web output containing `index.html`, `pano.xml`, `pano2vr_player.js`, and `gginfo.json`.
 - The generated Pano2VR export was imported into the live public tour volume for `luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557` with `scripts/import_pano2vr_export.py`, producing `/tours/luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557/control/pano2vr`.
 - Live HTTP smoke returned `200` for the Pano2VR control route, `200` for `/tours/pano2vr/.../pano2vr/index.html`, `200` for `/tours/pano2vr/.../pano2vr/pano.xml`, and `200` for `/tours/pano2vr/.../pano2vr/pano2vr_player.js`.
 - `docker exec propertyquarry-api python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours` wrote `_completion/tours/property-tour-controls-after-pano2vr-import-current.json` and reported `provider_counts.pano2vr=1`, ready modes `krpano`, `magicfit`, `matterport`, and `pano2vr`, and missing provider modes narrowed to only `3dvista`.
 - Focused route/import/verifier tests returned `4 passed` for Pano2VR route contracts and `54 passed` for tour control verifier, export importer, and vendor tooling contracts.
-- Current gold-status tooling is pass after the 3DVista import; final product presentation remains open only for replacing the trial-branded 3DVista export with a licensed export.
+- Current gold-status tooling is blocked until a licensed 3DVista export or allowlisted hosted 3DVista tour URL replaces the trial-branded export.
 
 The candidate at `a60f0e6f` passed:
 

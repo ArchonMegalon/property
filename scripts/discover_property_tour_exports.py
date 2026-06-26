@@ -24,6 +24,7 @@ PROVIDER_DROP_LAYOUTS = {
 REJECTION_ACTIONS = {
     "tour_manifest_missing": "create or import the base hosted tour bundle first so tour.json exists under the public tour directory",
     "3dvista_export_entry_unverified": "copy the complete 3DVista export; the entry or bundled runtime must contain tdvplayer, tdvplayerapi, or tourviewer markers",
+    "3dvista_trial_branding_present": "replace the trial-branded 3DVista export with a licensed 3DVista VT Pro export",
     "pano2vr_export_entry_unverified": "copy the complete Pano2VR export; the entry or bundled runtime must contain ggpkg, ggskin, pano.xml, or tour.js markers",
     "krpano_assets_missing": "copy a real 2:1 panorama named panorama.jpg/png/webp or six cube faces named cube-face-1..6",
     "magicfit_video_missing": "copy the playable MagicFit walkthrough as magicfit-walkthrough.mp4/mov/webm or walkthrough.mp4/mov/webm",
@@ -39,6 +40,9 @@ REJECTION_ACTIONS = {
 MARKERS_BY_PROVIDER = {
     "3dvista": ("tdvplayer", "tdvplayerapi", "tourviewer"),
     "pano2vr": ("ggpkg", "ggskin", "pano.xml", "tour.js"),
+}
+FORBIDDEN_MARKERS_BY_PROVIDER = {
+    "3dvista": ("created with the trial of 3dvista", "trial of 3dvista vt pro"),
 }
 ENTRY_NAMES = ("index.html", "index.htm", "tour.html", "virtualtour.html", "output/index.html")
 TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
@@ -125,6 +129,13 @@ def _export_has_provider_markers(export_dir: Path, entry: Path, markers: tuple[s
         if _text_asset_has_markers(candidate, markers):
             return True
     return False
+
+
+def _export_has_forbidden_provider_markers(export_dir: Path, entry: Path, provider: str) -> bool:
+    markers = FORBIDDEN_MARKERS_BY_PROVIDER.get(provider, ())
+    if not markers:
+        return False
+    return _export_has_provider_markers(export_dir, entry, markers)
 
 
 def _verified_entry(export_dir: Path, provider: str) -> tuple[Path | None, str]:
@@ -504,6 +515,9 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
                 export_zip, entry_relpath = _discover_export_zip(export_dir, provider)
             if entry is None and export_zip is None:
                 rejected.append(_rejection_row(slug=slug, provider=provider, reason=f"{provider}_export_entry_unverified", export_dir=export_dir))
+                continue
+            if entry is not None and _export_has_forbidden_provider_markers(export_dir, entry, provider):
+                rejected.append(_rejection_row(slug=slug, provider=provider, reason=f"{provider}_trial_branding_present", export_dir=export_dir))
                 continue
             row = {
                 "slug": slug,

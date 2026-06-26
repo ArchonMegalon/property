@@ -133,6 +133,65 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert (bundle_dir / "3dvista" / "runtime" / "app.js").exists()
 
 
+def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> None:
+    slug = "trial-branded-3dvista-import"
+    _write_base_tour(tmp_path, slug)
+    trial_export = tmp_path / "trial_3dvista"
+    trial_export.mkdir()
+    (trial_export / "index.html").write_text(
+        "\n".join(
+            [
+                "<!doctype html><script src='runtime/app.js'></script>",
+                "<div>3DVista export shell</div>",
+                "<p>created with the trial of 3DVista VT Pro</p>",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (trial_export / "runtime").mkdir()
+    (trial_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+
+    imported = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--export-dir",
+        str(trial_export),
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    verifier = build_property_tour_control_receipt(
+        tour_root=tmp_path / "public_tours",
+        require_all_provider_modes=True,
+    )
+    assert verifier["provider_counts"]["3dvista"] == 0
+    assert "3dvista" in verifier["missing_provider_modes"]
+    blockers = verifier["provider_blockers"]["3dvista"]["reasons"]
+    assert blockers[0]["reason"] == "3dvista_trial_branding_present"
+    assert "licensed 3DVista VT Pro export" in blockers[0]["action"]
+
+
+def test_discovery_rejects_trial_branded_3dvista_export(tmp_path: Path) -> None:
+    slug = "discover-trial-3dvista"
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, slug)
+    drop_dir = tmp_path / "drop"
+    trial_export = drop_dir / slug / "3dvista"
+    trial_export.mkdir(parents=True)
+    (trial_export / "index.htm").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script><p>created with the trial of 3DVista VT Pro</p>",
+        encoding="utf-8",
+    )
+    (trial_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+
+    receipt = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=public_root)
+
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected"][0]["reason"] == "3dvista_trial_branding_present"
+
+
 def test_attach_provider_tour_layer_adds_second_matterport_model_and_rejects_lookalike(
     tmp_path: Path,
 ) -> None:

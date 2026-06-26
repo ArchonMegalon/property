@@ -21,6 +21,10 @@ PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
 MAX_MARKER_SCAN_BYTES = 1_000_000
 MAX_MARKER_SCAN_FILES = 240
+THREE_D_VISTA_FORBIDDEN_PREMIUM_MARKERS = (
+    "created with the trial of 3dvista",
+    "trial of 3dvista vt pro",
+)
 KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 EQUIRECTANGULAR_MIN_RATIO = 1.9
@@ -258,18 +262,15 @@ def _ffprobe_video_markers(target: str | Path) -> dict[str, object]:
     }
 
 
-def _local_html_asset_has_marker(bundle_dir: Path, relpath: str, *, markers: Iterable[str]) -> bool:
+def _local_text_assets_for_html_entry(bundle_dir: Path, relpath: str) -> list[Path]:
     if not relpath:
-        return False
+        return []
     bundle_root = bundle_dir.resolve()
     entry = (bundle_dir / relpath).resolve()
     if bundle_root not in entry.parents or not entry.is_file():
-        return False
+        return []
     if PurePosixPath(relpath).suffix.lower() not in {".html", ".htm"}:
-        return False
-    normalized_markers = tuple(str(marker or "").strip().lower() for marker in markers if str(marker or "").strip())
-    if not normalized_markers:
-        return False
+        return []
     scan_root = entry.parent
     candidates = [entry]
     for candidate in sorted(scan_root.rglob("*")):
@@ -283,7 +284,14 @@ def _local_html_asset_has_marker(bundle_dir: Path, relpath: str, *, markers: Ite
             and resolved not in candidates
         ):
             candidates.append(resolved)
-    for candidate in candidates:
+    return candidates
+
+
+def _local_html_asset_has_marker(bundle_dir: Path, relpath: str, *, markers: Iterable[str]) -> bool:
+    normalized_markers = tuple(str(marker or "").strip().lower() for marker in markers if str(marker or "").strip())
+    if not normalized_markers:
+        return False
+    for candidate in _local_text_assets_for_html_entry(bundle_dir, relpath):
         try:
             if candidate.stat().st_size > MAX_MARKER_SCAN_BYTES:
                 continue
@@ -293,6 +301,10 @@ def _local_html_asset_has_marker(bundle_dir: Path, relpath: str, *, markers: Ite
         if any(marker in body for marker in normalized_markers):
             return True
     return False
+
+
+def _local_html_asset_has_forbidden_marker(bundle_dir: Path, relpath: str, *, markers: Iterable[str]) -> bool:
+    return _local_html_asset_has_marker(bundle_dir, relpath, markers=markers)
 
 
 def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
@@ -385,7 +397,20 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
         three_d_vista_entry,
         markers=("tdvplayer", "tdvplayerapi", "tourviewer"),
     )
-    if not (three_d_vista_url_ready or three_d_vista_entry_ready):
+    three_d_vista_trial_branded = bool(three_d_vista_entry_ready) and _local_html_asset_has_forbidden_marker(
+        bundle_dir,
+        three_d_vista_entry,
+        markers=THREE_D_VISTA_FORBIDDEN_PREMIUM_MARKERS,
+    )
+    if three_d_vista_trial_branded:
+        rows.append(
+            {
+                "provider": "3dvista",
+                "reason": "3dvista_trial_branding_present",
+                "action": "replace the trial-branded 3DVista export with a licensed 3DVista VT Pro export",
+            }
+        )
+    elif not (three_d_vista_url_ready or three_d_vista_entry_ready):
         if three_d_vista_entry:
             reason = "3dvista_entry_missing_or_not_verified"
             action = "import a real 3DVista export whose entry HTML contains 3DVista runtime markers"
@@ -483,7 +508,12 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
         three_d_vista_entry,
         markers=("tdvplayer", "tdvplayerapi", "tourviewer"),
     )
-    if three_d_vista_url or three_d_vista_entry_ready:
+    three_d_vista_trial_branded = bool(three_d_vista_entry_ready) and _local_html_asset_has_forbidden_marker(
+        bundle_dir,
+        three_d_vista_entry,
+        markers=THREE_D_VISTA_FORBIDDEN_PREMIUM_MARKERS,
+    )
+    if three_d_vista_url or (three_d_vista_entry_ready and not three_d_vista_trial_branded):
         rows.append(
             {
                 "provider": "3dvista",
