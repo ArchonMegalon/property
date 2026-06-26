@@ -123,6 +123,41 @@ def test_live_authenticated_smoke_accepts_external_billing_redirect_without_netw
     billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
     assert any(check["name"] == "billing_external_handoff" and check["ok"] is True for check in billing_row["checks"])
     assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is True for check in billing_row["checks"])
+
+
+def test_live_authenticated_smoke_rejects_external_billing_redirect_404_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/account"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=lambda _host, _port: [(object(),)],
+        billing_handoff_checker=lambda _location, _timeout: {"ok": False, "status_code": 404, "error": "handoff_url_http_404"},
+    )
+
+    assert receipt["status"] == "fail"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is False for check in billing_row["checks"])
+    assert billing_row["billing_handoff_probe"]["status_code"] == 404
 
 
 def test_live_authenticated_smoke_rejects_unresolved_external_billing_redirect_without_network(monkeypatch) -> None:

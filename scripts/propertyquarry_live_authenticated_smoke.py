@@ -143,6 +143,34 @@ def _https_redirect_host_resolves(
     return True
 
 
+def _https_handoff_url_usable(location: str, *, timeout_seconds: float = 8.0) -> dict[str, object]:
+    parsed = urllib.parse.urlparse(str(location or "").strip())
+    if parsed.scheme != "https" or not parsed.hostname:
+        return {"ok": False, "status_code": 0, "error": "handoff_url_not_https"}
+    request = urllib.request.Request(
+        str(location),
+        headers={
+            "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
+            "Accept": "text/html,application/json,*/*",
+        },
+    )
+    opener = urllib.request.build_opener(_NoRedirectHandler)
+    try:
+        with opener.open(request, timeout=timeout_seconds) as response:
+            status_code = int(response.status)
+            response.read(1024)
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        exc.read(1024)
+    except Exception as exc:
+        return {"ok": False, "status_code": 0, "error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "ok": 200 <= status_code < 400,
+        "status_code": status_code,
+        "error": "" if 200 <= status_code < 400 else f"handoff_url_http_{status_code}",
+    }
+
+
 def _security_header_checks(*, headers: dict[str, object]) -> list[tuple[str, bool]]:
     csp = _header_value(headers, "Content-Security-Policy")
     permissions = _header_value(headers, "Permissions-Policy")
@@ -282,6 +310,7 @@ def build_live_authenticated_smoke_receipt(
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
     billing_handoff_resolver: Callable[[str, int], object] = socket.getaddrinfo,
     billing_handoff_dns_target: str = "",
+    billing_handoff_checker: Callable[[str, float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     checks: list[dict[str, object]] = []
     failures = 0
@@ -296,6 +325,12 @@ def build_live_authenticated_smoke_receipt(
         )
 
     effective_fetcher = fetcher or _default_fetcher
+    if billing_handoff_checker is not None:
+        effective_billing_handoff_checker = billing_handoff_checker
+    elif fetcher is None:
+        effective_billing_handoff_checker = lambda location, timeout: _https_handoff_url_usable(location, timeout_seconds=timeout)
+    else:
+        effective_billing_handoff_checker = lambda _location, _timeout: {"ok": True, "status_code": 0, "error": "skipped_offline_fetcher"}
     for path in routes:
         url = urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
         attempts: list[dict[str, object]] = []
@@ -315,6 +350,7 @@ def build_live_authenticated_smoke_receipt(
         text = _decode_body(body)
         if path == "/app/billing" and status_code in {303, 307}:
             location = _header_value(headers, "Location")
+            billing_handoff_probe = effective_billing_handoff_checker(location, timeout_seconds)
             route_checks = [
                 ("status_ok", True),
                 *_security_header_checks(headers=headers),
@@ -327,6 +363,7 @@ def build_live_authenticated_smoke_receipt(
                         expected_cname_target=billing_handoff_dns_target,
                     ),
                 ),
+                ("billing_external_handoff_usable", bool(billing_handoff_probe.get("ok"))),
                 ("billing_local_board_deleted", True),
                 ("billing_no_customer_noise", True),
             ]
@@ -361,6 +398,11 @@ def build_live_authenticated_smoke_receipt(
                 "checks": [{"name": name, "ok": passed} for name, passed in route_checks],
                 "snippet": _compact_snippet(text),
                 "error": str(result.get("error") or ""),
+                **(
+                    {"billing_handoff_probe": billing_handoff_probe}
+                    if path == "/app/billing" and status_code in {303, 307}
+                    else {}
+                ),
             }
         )
     return {
