@@ -170,6 +170,46 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
     blockers = verifier["provider_blockers"]["3dvista"]["reasons"]
     assert blockers[0]["reason"] == "3dvista_trial_branding_present"
     assert "licensed 3DVista VT Pro export" in blockers[0]["action"]
+    vista_contract = verifier["delivery_contracts"]["3dvista"]
+    assert vista_contract["schema"] == "propertyquarry.tour_delivery_contract.v1"
+    assert vista_contract["status"] == "blocked"
+    assert vista_contract["blocked_reason"] == "3dvista_trial_branding_present"
+    assert any("verified non-trial 3DVista" in item for item in vista_contract["required_to_send"])
+    assert "PropertyQuarry property tour" in " ".join(vista_contract["required_to_send"])
+    assert "created with the trial" not in json.dumps(vista_contract).lower()
+
+
+def test_tour_delivery_contract_reports_ready_public_safe_payload(tmp_path: Path) -> None:
+    slug = "matterport-contract"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "display_title": "Matterport Contract",
+            "matterport_url": "https://my.matterport.com/show/?m=READY123",
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
+    matterport_contract = verifier["delivery_contracts"]["matterport"]
+    serialized_contract = json.dumps(matterport_contract)
+
+    assert matterport_contract["status"] == "ready"
+    assert matterport_contract["blocked_reason"] == ""
+    assert matterport_contract["required_to_send"] == []
+    assert matterport_contract["ready_payload"]["ready_count"] == 1
+    assert matterport_contract["ready_payload"]["sample_controls"] == [
+        {
+            "slug": slug,
+            "title": "Matterport Contract",
+            "control_path": f"/tours/{slug}/control/matterport",
+            "evidence": "allowlisted_matterport_url",
+        }
+    ]
+    assert "READY123" not in serialized_contract
+    assert "my.matterport.com" not in serialized_contract
 
 
 def test_discovery_rejects_trial_branded_3dvista_export(tmp_path: Path) -> None:

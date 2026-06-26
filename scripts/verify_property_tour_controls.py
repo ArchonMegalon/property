@@ -16,6 +16,33 @@ from typing import Iterable
 
 
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+PROVIDER_DELIVERY_REQUIREMENTS = {
+    "matterport": [
+        "A public Matterport model URL on my.matterport.com or matterport.com",
+        "A PropertyQuarry tour manifest containing the allowlisted Matterport URL",
+        "A hosted PropertyQuarry control route that opens the Matterport model",
+    ],
+    "3dvista": [
+        "A verified non-trial 3DVista VT Pro export or allowlisted hosted 3dvista.com tour URL",
+        "A PropertyQuarry import/control manifest with tdvplayer runtime evidence",
+        "Confirmation that the tour is a PropertyQuarry property tour, not a provider sample or Chummer demo",
+    ],
+    "pano2vr": [
+        "A verified Pano2VR export containing index.html, pano.xml, and pano2vr_player.js",
+        "A PropertyQuarry import/control manifest for the exported tour bundle",
+        "A hosted PropertyQuarry control route that opens the Pano2VR viewer",
+    ],
+    "krpano": [
+        "A configured krpano license environment for the PropertyQuarry domain",
+        "A real walkable_scene backed by equirectangular panorama or cubemap assets",
+        "A hosted PropertyQuarry control route that opens the krpano scene",
+    ],
+    "magicfit": [
+        "A receipt-backed MagicFit walkthrough video for a PropertyQuarry property",
+        "A local playable video asset or live-probed allowlisted hosted video URL",
+        "A PropertyQuarry manifest with provider=magicfit and playback evidence",
+    ],
+}
 PUBLIC_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
@@ -595,6 +622,63 @@ def _summarize_provider_blockers(reason_counts: dict[str, dict[str, dict[str, ob
     return summary
 
 
+def _provider_delivery_contracts(
+    *,
+    tours: list[dict[str, object]],
+    provider_counts: dict[str, int],
+    provider_blockers: dict[str, dict[str, object]],
+    missing_provider_modes: list[str],
+) -> dict[str, dict[str, object]]:
+    missing = set(missing_provider_modes)
+    contracts: dict[str, dict[str, object]] = {}
+    for provider in PROVIDER_MODES:
+        ready_controls: list[dict[str, object]] = []
+        for tour in tours:
+            slug = str(tour.get("slug") or "").strip()
+            title = str(tour.get("title") or slug).strip()
+            for control in list(tour.get("controls") or []):
+                if not isinstance(control, dict):
+                    continue
+                if str(control.get("provider") or "").strip().lower() != provider:
+                    continue
+                if str(control.get("status") or "").strip().lower() != "ready":
+                    continue
+                ready_controls.append(
+                    {
+                        "slug": slug,
+                        "title": title[:160],
+                        "control_path": str(control.get("control_path") or "").strip(),
+                        "evidence": str(control.get("evidence") or "").strip(),
+                    }
+                )
+        blocker = dict(provider_blockers.get(provider) or {})
+        reasons = [dict(row) for row in list(blocker.get("reasons") or []) if isinstance(row, dict)]
+        blocked_reason = (
+            str(reasons[0].get("reason") or "").strip()
+            if reasons
+            else (f"missing_{provider}_evidence" if provider in missing else "")
+        )
+        ready_payload = {
+            "provider": provider,
+            "ready_count": int(provider_counts.get(provider) or 0),
+            "sample_controls": ready_controls[:5],
+            "manifest_url": "",
+        }
+        contracts[provider] = {
+            "schema": "propertyquarry.tour_delivery_contract.v1",
+            "provider": provider,
+            "status": "ready" if provider not in missing and int(provider_counts.get(provider) or 0) > 0 else "blocked",
+            "ready_payload": ready_payload,
+            "blocked_reason": "" if provider not in missing else blocked_reason,
+            "required_to_send": [] if provider not in missing else list(PROVIDER_DELIVERY_REQUIREMENTS[provider]),
+            "notes": [
+                "Public-safe contract only; raw external provider URLs and private listing fields are intentionally omitted.",
+                "The viewer presents tour media only. PropertyQuarry remains source of truth for listing facts, ranking, evidence, pricing, entitlement, and customer decisions.",
+            ],
+        }
+    return contracts
+
+
 def _blocked_control_reason(payload: dict[str, object]) -> str:
     scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
     creation_mode = str(payload.get("creation_mode") or "").strip().lower()
@@ -764,6 +848,7 @@ def build_property_tour_control_receipt(
         )
     ready_provider_modes = sorted(provider for provider, count in provider_counts.items() if count > 0)
     missing_provider_modes = [provider for provider in PROVIDER_MODES if provider not in ready_provider_modes]
+    provider_blockers = _summarize_provider_blockers(provider_blocker_reason_counts)
     status = (
         "blocked_no_tour_manifests"
         if not manifests
@@ -782,7 +867,13 @@ def build_property_tour_control_receipt(
         "tour_count": len(manifests),
         "ready_tour_count": sum(1 for tour in tours if tour.get("status") == "ready"),
         "provider_counts": provider_counts,
-        "provider_blockers": _summarize_provider_blockers(provider_blocker_reason_counts),
+        "provider_blockers": provider_blockers,
+        "delivery_contracts": _provider_delivery_contracts(
+            tours=tours,
+            provider_counts=provider_counts,
+            provider_blockers=provider_blockers,
+            missing_provider_modes=missing_provider_modes,
+        ),
         "magicfit_playback": {
             "playback_ok": provider_counts.get("magicfit", 0) == 0 or magicfit_playback_evidence_count == provider_counts.get("magicfit", 0),
             "playable_count": magicfit_playback_evidence_count,
