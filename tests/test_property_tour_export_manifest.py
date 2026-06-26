@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 from scripts.materialize_property_tour_export_manifest import (
+    _artifact_dir,
+    _incoming_root,
     build_drop_status_rows,
     build_export_manifest,
     prepare_export_drop_dirs,
@@ -51,6 +53,31 @@ def test_materialize_property_tour_export_manifest_writes_operator_drop_paths(tm
     assert {row["missing"][0] for row in manifest["drop_status"]} == {"drop_folder"}
     assert manifest["drop_status_summary"] == {"ready_for_import": 0, "waiting_for_assets": 4, "other": 0}
     assert "import_property_tour_exports.py" in manifest["next_command"]
+
+
+def test_materialize_property_tour_export_manifest_defaults_to_repo_state_incoming_root(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR", raising=False)
+    repo = tmp_path / "property"
+    repo.mkdir()
+    (repo / "docker-compose.property.yml").write_text("services: {}\n", encoding="utf-8")
+    (repo / "state").mkdir()
+    monkeypatch.chdir(repo)
+
+    assert _incoming_root() == (repo / "state" / "incoming_property_tours").resolve()
+
+
+def test_materialize_property_tour_export_manifest_reads_plural_artifacts_env(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.delenv("EA_ARTIFACT_DIR", raising=False)
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(artifact_root))
+
+    assert _artifact_dir() == artifact_root.resolve()
 
 
 def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(tmp_path: Path) -> None:

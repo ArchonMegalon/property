@@ -64,11 +64,17 @@ def _tour_root() -> Path:
 
 
 def _artifact_dir() -> Path:
-    return Path(os.getenv("EA_ARTIFACT_DIR") or "/data/artifacts").expanduser().resolve()
+    return Path(os.getenv("EA_ARTIFACT_DIR") or os.getenv("EA_ARTIFACTS_DIR") or "/data/artifacts").expanduser().resolve()
 
 
 def _incoming_root() -> Path:
-    return Path(os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR") or "/data/incoming_property_tours").expanduser().resolve()
+    configured = str(os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    repo_state = Path.cwd() / "state" / "incoming_property_tours"
+    if Path.cwd().name == "property" and (Path.cwd() / "docker-compose.property.yml").is_file():
+        return repo_state.resolve()
+    return Path("/data/incoming_property_tours").expanduser().resolve()
 
 
 def _provider_target_subdir(provider: str) -> str:

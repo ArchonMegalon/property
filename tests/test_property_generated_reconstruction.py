@@ -1,0 +1,178 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from PIL import Image, ImageDraw
+
+from scripts.verify_property_tour_controls import build_property_tour_control_receipt
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _write_base_tour(tmp_path: Path, slug: str) -> Path:
+    bundle_dir = tmp_path / "public_tours" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": slug, "display_title": "Generated target"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return bundle_dir
+
+
+def _write_floorplan(path: Path) -> None:
+    image = Image.new("RGB", (1200, 800), color=(248, 244, 235))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 80, 1120, 720), outline=(42, 36, 28), width=12)
+    draw.line((620, 80, 620, 720), fill=(42, 36, 28), width=8)
+    draw.line((80, 420, 620, 420), fill=(42, 36, 28), width=8)
+    image.save(path, format="JPEG")
+
+
+def _write_photo(path: Path, color: tuple[int, int, int]) -> None:
+    image = Image.new("RGB", (900, 700), color=color)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 100, 820, 620), outline=(255, 255, 255), width=8)
+    image.save(path, format="JPEG")
+
+
+def _run_generator(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["EA_PUBLIC_TOUR_DIR"] = str(tmp_path / "public_tours")
+    return subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "generate_property_reconstruction.py"), *args],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=40,
+        check=False,
+    )
+
+
+def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthrough(tmp_path: Path) -> None:
+    slug = "generated-reconstruction-target"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    floorplan = tmp_path / "floorplan.jpg"
+    photo_a = tmp_path / "living.jpg"
+    photo_b = tmp_path / "kitchen.jpg"
+    _write_floorplan(floorplan)
+    _write_photo(photo_a, (126, 108, 82))
+    _write_photo(photo_b, (86, 104, 112))
+
+    generated = _run_generator(
+        tmp_path,
+        "--slug",
+        slug,
+        "--floorplan",
+        str(floorplan),
+        "--photo",
+        str(photo_a),
+        "--photo",
+        str(photo_b),
+    )
+
+    assert generated.returncode == 0, generated.stderr
+    body = json.loads(generated.stdout)
+    assert body["status"] == "generated"
+    assert body["provider"] == "propertyquarry_generated_reconstruction"
+    assert body["viewer_url"] == f"/tours/files/{slug}/generated-reconstruction/viewer.html"
+    output_dir = bundle_dir / "generated-reconstruction"
+    for filename in (
+        "source-floorplan.jpg",
+        "photo-01.jpg",
+        "photo-02.jpg",
+        "model.obj",
+        "model.mtl",
+        "viewer.html",
+        "reconstruction.json",
+    ):
+        assert (output_dir / filename).is_file(), filename
+    assert "propertyquarry_generated_room" in (output_dir / "model.obj").read_text(encoding="utf-8")
+    receipt = json.loads((output_dir / "reconstruction.json").read_text(encoding="utf-8"))
+    assert receipt["verified_provider_capture"] is False
+    assert receipt["satisfies_verified_tour_gate"] is False
+    assert receipt["room_dimensions_m"]["width"] == 10.0
+    assert len(receipt["photos"]) == 2
+    assert receipt["walkthrough"]["status"] in {"generated", "failed", "skipped"}
+    if receipt["walkthrough"]["status"] == "generated":
+        assert (output_dir / "generated-walkthrough.mp4").is_file()
+
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    generated_reconstruction = manifest["generated_reconstruction"]
+    assert generated_reconstruction["viewer_relpath"] == "generated-reconstruction/viewer.html"
+    assert generated_reconstruction["verified_provider_capture"] is False
+    assert "control_mode" not in manifest
+    assert "viewer_provider" not in manifest
+    assert "video_provider" not in manifest
+    assert "video_relpath" not in manifest
+    assert "walkable_scene" not in manifest
+
+
+def test_generated_reconstruction_does_not_satisfy_verified_provider_gate(tmp_path: Path, monkeypatch) -> None:
+    slug = "generated-reconstruction-not-provider"
+    _write_base_tour(tmp_path, slug)
+    floorplan = tmp_path / "floorplan.jpg"
+    photo = tmp_path / "photo.jpg"
+    _write_floorplan(floorplan)
+    _write_photo(photo, (108, 92, 74))
+    monkeypatch.setenv("KRPANO_LICENSE_DOMAIN", "propertyquarry.com")
+    monkeypatch.setenv("KRPANO_LICENSE_KEY", "license-key")
+
+    generated = _run_generator(
+        tmp_path,
+        "--slug",
+        slug,
+        "--floorplan",
+        str(floorplan),
+        "--photo",
+        str(photo),
+        "--skip-video",
+    )
+
+    assert generated.returncode == 0, generated.stderr
+    receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path / "public_tours",
+        require_all_provider_modes=True,
+    )
+    assert receipt["status"] == "blocked_missing_provider_modes"
+    assert receipt["provider_counts"]["3dvista"] == 0
+    assert receipt["provider_counts"]["pano2vr"] == 0
+    assert receipt["provider_counts"]["krpano"] == 0
+    assert receipt["provider_counts"]["magicfit"] == 0
+    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "pano2vr", "krpano", "magicfit"}
+
+
+def test_generated_reconstruction_can_disclose_inferred_floorplan_from_photos(tmp_path: Path) -> None:
+    slug = "generated-reconstruction-inferred-floorplan"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    photo_a = tmp_path / "living.jpg"
+    photo_b = tmp_path / "bedroom.jpg"
+    _write_photo(photo_a, (118, 102, 88))
+    _write_photo(photo_b, (92, 108, 118))
+
+    generated = _run_generator(
+        tmp_path,
+        "--slug",
+        slug,
+        "--infer-floorplan-from-photos",
+        "--photo",
+        str(photo_a),
+        "--photo",
+        str(photo_b),
+        "--skip-video",
+    )
+
+    assert generated.returncode == 0, generated.stderr
+    output_dir = bundle_dir / "generated-reconstruction"
+    receipt = json.loads((output_dir / "reconstruction.json").read_text(encoding="utf-8"))
+    assert receipt["floorplan"]["relpath"] == "source-floorplan-inferred.jpg"
+    assert receipt["floorplan"]["inferred"] is True
+    assert receipt["floorplan"]["source_path"] == "generated_from_photo_set"
+    assert (output_dir / "source-floorplan-inferred.jpg").is_file()
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["generated_reconstruction"]["satisfies_verified_tour_gate"] is False
