@@ -33,6 +33,7 @@ COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materiali
 COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py
 COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
 COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py
+COPY scripts/verify_property_tour_vendor_tooling.py /app/scripts/verify_property_tour_vendor_tooling.py
 COPY ea/app /app/app
 COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY LTDs.md /app/LTDs.md
