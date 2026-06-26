@@ -13,13 +13,26 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `ae0750a117c093395898191c64e425f658d198c9` |
+| Runtime commit SHA | `ec9cbdd20c9be0ee667118a2aa3a695598580c73` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
+| Deployment ID | local compose redeploy on 2026-06-26 after `make deploy` for confirmed-distance route-preview copy, zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `ec9cbdd` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py -k 'listing_fact_confirmation or everyday_fit_rows or route_previews_require_values or browser_route_preview_uses_confirmed_distance or missing_rows_respect_confirmed_distance'` returned `7 passed, 392 deselected`.
+- `python3 -m py_compile ea/app/api/routes/landing_property_workspace_helpers.py`
+- `git diff --check`
+- `make deploy`
+- `curl -fsS http://localhost:8097/health/ready` returned `{"status":"ready","reason":"postgres_ready"}`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py --base-url http://localhost:8097 --write _completion/smoke/property-live-public-release-gate.json` returned `status=pass`, `failed_count=0`, and `route_count=22`.
+- `PYTHONPATH=ea EA_API_TOKEN=[redacted] python3 scripts/propertyquarry_live_mobile_surface_smoke.py --base-url http://localhost:8097 --write _completion/smoke/property-live-mobile-release-gate.json` returned `status=pass`, `failed_count=0`, and `route_count=14`.
+- Route previews now suppress invalid/unknown/no-value distance warnings and label unnamed positive-distance evidence as `Nearest confirmed <label>` instead of vague labels such as `Supermarket`.
+- Cloudflare DNS now has `billing.propertyquarry.com` as a DNS-only `CNAME` to `members.brilliantdirectories.com` with TTL `300`; public resolvers returned the CNAME immediately, while the local system resolver had not propagated at verification time.
+- Current gold status remains `blocked` because verified 3DVista/Pano2VR export/control evidence is still missing, and the Brilliant Directories billing handoff still needs local resolver/BD-side custom-domain/SSL verification before `/app/billing` can redirect externally.
 
 The candidate at `ae0750a` passed:
 
