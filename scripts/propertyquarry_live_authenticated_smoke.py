@@ -81,39 +81,47 @@ def _header_value(headers: dict[str, object], name: str) -> str:
     return ""
 
 
-def _public_dns_cname_matches(host: str, expected_target: str) -> bool:
+def _public_dns_host_resolves(host: str, expected_target: str) -> bool:
     normalized_host = str(host or "").strip().lower().rstrip(".")
     normalized_target = str(expected_target or "").strip().lower().rstrip(".")
     if not normalized_host:
         return False
-    matched_any_answer = False
+    matched_cname_answer = False
+    matched_address_answer = False
     for endpoint in BILLING_DNS_OVER_HTTPS_ENDPOINTS:
-        query = urllib.parse.urlencode({"name": normalized_host, "type": "CNAME"})
-        request = urllib.request.Request(
-            f"{endpoint}?{query}",
-            headers={
-                "Accept": "application/dns-json",
-                "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=8) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except Exception:
-            continue
-        for row in payload.get("Answer") or []:
-            if not isinstance(row, dict):
+        for record_type in ("CNAME", "A", "AAAA"):
+            query = urllib.parse.urlencode({"name": normalized_host, "type": record_type})
+            request = urllib.request.Request(
+                f"{endpoint}?{query}",
+                headers={
+                    "Accept": "application/dns-json",
+                    "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
+                },
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=8) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            except Exception:
                 continue
-            if int(row.get("type") or 0) != 5:
-                continue
-            answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
-            answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
-            if answer_name != normalized_host or not answer_data:
-                continue
-            matched_any_answer = True
-            if normalized_target and answer_data == normalized_target:
-                return True
-    return matched_any_answer if not normalized_target else False
+            for row in payload.get("Answer") or []:
+                if not isinstance(row, dict):
+                    continue
+                answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
+                answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
+                if answer_name != normalized_host or not answer_data:
+                    continue
+                row_type = int(row.get("type") or 0)
+                if row_type == 5:
+                    matched_cname_answer = True
+                    if normalized_target and answer_data == normalized_target:
+                        return True
+                elif row_type in {1, 28}:
+                    matched_address_answer = True
+    # Cloudflare-proxied CNAMEs intentionally publish edge A/AAAA records. A
+    # public address answer is enough to prove the HTTPS handoff host resolves.
+    if matched_address_answer:
+        return True
+    return matched_cname_answer if not normalized_target else False
 
 
 def _https_redirect_host_resolves(
@@ -131,7 +139,7 @@ def _https_redirect_host_resolves(
     try:
         resolver(host, 443)
     except OSError:
-        return _public_dns_cname_matches(host, expected_cname_target)
+        return _public_dns_host_resolves(host, expected_cname_target)
     return True
 
 

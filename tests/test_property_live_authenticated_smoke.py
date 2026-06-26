@@ -261,6 +261,69 @@ def test_live_authenticated_smoke_accepts_public_dns_without_expected_target(mon
     assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
 
 
+def test_live_authenticated_smoke_accepts_cloudflare_proxied_billing_host(monkeypatch) -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/account"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    def unresolved(_host: str, _port: int) -> None:
+        raise OSError("stale local dns")
+
+    class _DnsResponse:
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return self._body
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        url = str(getattr(request, "full_url", request))
+        if "type=CNAME" in url:
+            return _DnsResponse(
+                b'{"Status":0,"Answer":[{"name":"billing.propertyquarry.com.",'
+                b'"type":5,"data":"members.brilliantdirectories.com."}]}'
+            )
+        if "type=A" in url:
+            return _DnsResponse(
+                b'{"Status":0,"Answer":[{"name":"billing.propertyquarry.com.",'
+                b'"type":1,"data":"188.114.96.3"}]}'
+            )
+        return _DnsResponse(b'{"Status":0,"Answer":[]}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=unresolved,
+        billing_handoff_dns_target="propertyquarry.directoryup.com",
+    )
+
+    assert receipt["status"] == "pass"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
+
+
 def test_live_authenticated_smoke_rejects_public_dns_target_mismatch(monkeypatch) -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
