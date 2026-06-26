@@ -192,6 +192,32 @@ def test_discovery_rejects_trial_branded_3dvista_export(tmp_path: Path) -> None:
     assert receipt["rejected"][0]["reason"] == "3dvista_trial_branding_present"
 
 
+def test_discovery_rejects_trial_branded_3dvista_zip(tmp_path: Path) -> None:
+    slug = "discover-trial-zip-3dvista"
+    public_root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, slug)
+    zip_src = tmp_path / "trial_zip_src" / "export"
+    zip_src.mkdir(parents=True)
+    (zip_src / "index.htm").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script><p>created with the trial of 3DVista VT Pro</p>",
+        encoding="utf-8",
+    )
+    (zip_src / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    drop_dir = tmp_path / "drop"
+    zip_drop = drop_dir / slug / "3dvista"
+    zip_drop.mkdir(parents=True)
+    with zipfile.ZipFile(zip_drop / "export.zip", "w") as archive:
+        for path in zip_src.rglob("*"):
+            if path.is_file():
+                archive.write(path, path.relative_to(zip_src))
+
+    receipt = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=public_root)
+
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected"][0]["reason"] == "3dvista_trial_branding_present"
+
+
 def test_attach_provider_tour_layer_adds_second_matterport_model_and_rejects_lookalike(
     tmp_path: Path,
 ) -> None:

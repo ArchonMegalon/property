@@ -174,19 +174,21 @@ def _safe_extract_zip(zip_path: Path, target_dir: Path) -> Path:
     return target_dir.resolve()
 
 
-def _verified_zip_entry(zip_path: Path, provider: str) -> tuple[str, str]:
+def _verified_zip_entry(zip_path: Path, provider: str) -> tuple[str, str, str]:
     try:
         with tempfile.TemporaryDirectory(prefix=f"propertyquarry-{provider}-zip-") as tmp:
             export_dir = _safe_extract_zip(zip_path, Path(tmp))
             entry, entry_relpath = _verified_entry(export_dir, provider)
             if entry is None:
-                return "", ""
-            return str(zip_path), entry_relpath
+                return "", "", ""
+            if _export_has_forbidden_provider_markers(export_dir, entry, provider):
+                return "", "", f"{provider}_trial_branding_present"
+            return str(zip_path), entry_relpath, ""
     except Exception:
-        return "", ""
+        return "", "", ""
 
 
-def _discover_export_zip(export_dir: Path, provider: str) -> tuple[Path | None, str]:
+def _discover_export_zip(export_dir: Path, provider: str) -> tuple[Path | None, str, str]:
     preferred = [
         export_dir / f"{provider}.zip",
         export_dir / "export.zip",
@@ -195,11 +197,15 @@ def _discover_export_zip(export_dir: Path, provider: str) -> tuple[Path | None, 
     candidates = [path for path in preferred if path.is_file()] + [
         path for path in sorted(export_dir.glob("*.zip")) if path not in preferred
     ]
+    rejection_reason = ""
     for candidate in candidates:
-        _, entry_relpath = _verified_zip_entry(candidate, provider)
+        _, entry_relpath, rejected_reason = _verified_zip_entry(candidate, provider)
+        if rejected_reason:
+            rejection_reason = rejected_reason
+            continue
         if entry_relpath:
-            return candidate, entry_relpath
-    return None, ""
+            return candidate, entry_relpath, ""
+    return None, "", rejection_reason
 
 
 def _discover_panorama(asset_dir: Path) -> Path | None:
@@ -511,10 +517,18 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
         if provider in {"3dvista", "pano2vr"}:
             entry, entry_relpath = _verified_entry(export_dir, provider)
             export_zip: Path | None = None
+            zip_rejection_reason = ""
             if entry is None:
-                export_zip, entry_relpath = _discover_export_zip(export_dir, provider)
+                export_zip, entry_relpath, zip_rejection_reason = _discover_export_zip(export_dir, provider)
             if entry is None and export_zip is None:
-                rejected.append(_rejection_row(slug=slug, provider=provider, reason=f"{provider}_export_entry_unverified", export_dir=export_dir))
+                rejected.append(
+                    _rejection_row(
+                        slug=slug,
+                        provider=provider,
+                        reason=zip_rejection_reason or f"{provider}_export_entry_unverified",
+                        export_dir=export_dir,
+                    )
+                )
                 continue
             if entry is not None and _export_has_forbidden_provider_markers(export_dir, entry, provider):
                 rejected.append(_rejection_row(slug=slug, provider=provider, reason=f"{provider}_trial_branding_present", export_dir=export_dir))
