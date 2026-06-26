@@ -70,15 +70,21 @@ def _safe_slug(value: object) -> str:
     return raw
 
 
-def _provider_from_text(value: object) -> str:
-    normalized = str(value or "").strip().lower().replace("_", "").replace("-", "")
-    if normalized in {"3dvista", "threedvista", "threevista"}:
+def _provider_from_text(value: object, *, allow_embedded: bool = False) -> str:
+    normalized = "".join(
+        char
+        for char in str(value or "").strip().lower()
+        if char.isalnum()
+    )
+    if normalized in {"3dvista", "threedvista", "threevista"} or (
+        allow_embedded and ("3dvista" in normalized or "threedvista" in normalized)
+    ):
         return "3dvista"
-    if normalized in {"pano2vr", "pano2v"}:
+    if normalized in {"pano2vr", "pano2v"} or (allow_embedded and "pano2vr" in normalized):
         return "pano2vr"
-    if normalized == "krpano":
+    if normalized == "krpano" or (allow_embedded and "krpano" in normalized):
         return "krpano"
-    if normalized == "magicfit":
+    if normalized == "magicfit" or (allow_embedded and "magicfit" in normalized):
         return "magicfit"
     return ""
 
@@ -455,6 +461,8 @@ def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
     if not drop_dir.is_dir():
         return rows
     for slug_dir in sorted(path for path in drop_dir.iterdir() if path.is_dir()):
+        if _provider_from_text(slug_dir.name):
+            continue
         slug = _safe_slug(slug_dir.name)
         if not slug:
             continue
@@ -462,6 +470,10 @@ def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
             provider_dir = slug_dir / provider
             if provider_dir.is_dir():
                 rows.append((slug, provider, provider_dir.resolve()))
+        for export_dir in sorted(path for path in slug_dir.iterdir() if path.is_dir()):
+            provider = _provider_from_text(export_dir.name, allow_embedded=True)
+            if provider:
+                rows.append((slug, provider, export_dir.resolve()))
     for provider_dir in sorted(path for path in drop_dir.iterdir() if path.is_dir()):
         provider = _provider_from_text(provider_dir.name)
         if not provider:

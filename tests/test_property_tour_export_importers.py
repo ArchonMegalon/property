@@ -10,6 +10,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from scripts.discover_property_tour_exports import build_discovery_receipt
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 
 
@@ -180,6 +181,36 @@ def test_pano2vr_importer_materializes_verified_export_and_rejects_placeholders(
     assert manifest["viewer_provider"] == "pano2vr"
     assert manifest["pano2vr_entry_relpath"] == "pano2vr/index.html"
     assert (bundle_dir / "pano2vr" / "assets" / "viewer.js").exists()
+
+
+def test_tour_export_discovery_accepts_vendor_named_export_folders(tmp_path: Path) -> None:
+    slug = "vendor-named-tour-export"
+    _write_base_tour(tmp_path, slug)
+    drop_root = tmp_path / "incoming"
+    tour_drop = drop_root / slug
+    three_dvista_export = tour_drop / "3DVista VT Pro Export"
+    pano2vr_export = tour_drop / "Pano2VR 8 Pro Output"
+    three_dvista_export.mkdir(parents=True)
+    pano2vr_export.mkdir(parents=True)
+    (three_dvista_export / "index.htm").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script>",
+        encoding="utf-8",
+    )
+    (three_dvista_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    (pano2vr_export / "index.html").write_text(
+        "<!doctype html><script src='tour.js'></script>",
+        encoding="utf-8",
+    )
+    (pano2vr_export / "tour.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+
+    receipt = build_discovery_receipt(drop_dir=drop_root, public_tour_dir=tmp_path / "public_tours")
+
+    imports = {(row["provider"], row["slug"]): row for row in receipt["imports"]}
+    assert receipt["status"] == "ready"
+    assert imports[("3dvista", slug)]["export_dir"] == str(three_dvista_export.resolve())
+    assert imports[("3dvista", slug)]["entry"] == "index.htm"
+    assert imports[("pano2vr", slug)]["export_dir"] == str(pano2vr_export.resolve())
+    assert imports[("pano2vr", slug)]["entry"] == "index.html"
 
 
 def test_krpano_importer_requires_real_equirectangular_panorama(tmp_path: Path, monkeypatch) -> None:
