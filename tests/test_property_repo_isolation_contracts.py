@@ -78,6 +78,7 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "tests/e2e/test_propertyquarry_public_tour_browser.py",
         "scripts/check_property_release_hygiene.py",
         "scripts/check_property_public_tour_manifest_contract.py",
+        "scripts/check_property_furniture_style_contract.py",
         "scripts/verify_property_tour_controls.py",
         "scripts/check_property_surface_accessibility.py",
         "scripts/propertyquarry_authenticated_performance_smoke.py",
@@ -86,6 +87,7 @@ def test_property_release_gates_include_phase_and_master_regressions() -> None:
         "scripts/propertyquarry_gold_status.py",
         "_completion/repair/propertyquarry-repair-canary-release-gate.json",
         "_completion/provider_smoke/release-gate-provider-matrix.json",
+        "_completion/furniture_styles/property-furniture-style-contract-release-gate.json",
         "_completion/property_gold_status/release-gate.json",
     ):
         assert required in script

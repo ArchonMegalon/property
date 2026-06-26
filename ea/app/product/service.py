@@ -37419,12 +37419,24 @@ class ProductService:
         *,
         principal_id: str,
         property_ref: str,
+        styling_hint: str = "",
     ) -> dict[str, object]:
         rows = self._property_magic_fit_scene_event_rows(principal_id=principal_id, property_ref=property_ref, limit=400)
         if not rows:
             return {}
-        payload = dict(getattr(rows[0], "payload", None) or {})
-        payload.setdefault("generated_at", str(getattr(rows[0], "created_at", "") or ""))
+        normalized_style = compact_text(str(styling_hint or "").strip(), fallback="", limit=240)
+        candidate_rows = rows
+        if normalized_style:
+            candidate_rows = [
+                row
+                for row in rows
+                if compact_text(str(dict(getattr(row, "payload", None) or {}).get("styling_hint") or "").strip(), fallback="", limit=240)
+                == normalized_style
+            ]
+            if not candidate_rows:
+                return {}
+        payload = dict(getattr(candidate_rows[0], "payload", None) or {})
+        payload.setdefault("generated_at", str(getattr(candidate_rows[0], "created_at", "") or ""))
         payload.setdefault("status", "created")
         return payload
 
@@ -37711,6 +37723,7 @@ class ProductService:
             existing = self.latest_property_magic_fit_scene(
                 principal_id=principal_id,
                 property_ref=property_ref,
+                styling_hint=styling_hint,
             )
             if isinstance(existing, dict) and existing and bool(existing.get("share_with_packet_pdf")):
                 return dict(existing)
@@ -41568,6 +41581,8 @@ class ProductService:
             scene_include_child_reference = True
         if resolved_person_motion_hint:
             scene_styling_hint = f"{scene_styling_hint}; keep any visible resident physically consistent with: {resolved_person_motion_hint}"
+        if normalized_diorama_style_hint:
+            scene_styling_hint = f"{scene_styling_hint}; requested furniture style: {normalized_diorama_style_hint}"
         latest_magic_fit_scene = self._maybe_auto_create_property_magic_fit_scene_for_packet(
             principal_id=principal_id,
             actor=str(actor or "").strip() or "property_scout",

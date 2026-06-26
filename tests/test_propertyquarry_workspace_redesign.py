@@ -7,6 +7,7 @@ import time
 import urllib.parse
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.api.dependencies import RequestContext, get_request_context
 from app.api.routes import landing as landing_routes
@@ -1835,6 +1836,55 @@ def test_propertyquarry_search_route_does_not_use_generic_workspace_search(monke
     assert "Gilded penthouse" in response.text
     assert "Furniture style examples" in response.text
     assert "Search people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs." not in response.text
+
+
+def test_propertyquarry_magicfit_scene_cache_is_furniture_style_aware(monkeypatch) -> None:
+    principal_id = "pq-style-aware-magicfit-cache"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Style Cache Office")
+    service = build_product_service(client.app.state.container)
+    rows = [
+        SimpleNamespace(
+            channel="product",
+            event_type="property_magic_fit_scene_created",
+            created_at="2026-06-26T10:00:00+00:00",
+            payload={
+                "scene_id": "scene-urban",
+                "property_ref": "property-1",
+                "styling_hint": "urban jungle interior with healthy plants",
+                "image_url": "https://cdn.example.com/urban.jpg",
+            },
+        ),
+        SimpleNamespace(
+            channel="product",
+            event_type="property_magic_fit_scene_created",
+            created_at="2026-06-26T11:00:00+00:00",
+            payload={
+                "scene_id": "scene-ikea",
+                "property_ref": "property-1",
+                "styling_hint": "IKEA-inspired practical modular furniture",
+                "image_url": "https://cdn.example.com/ikea.jpg",
+            },
+        ),
+    ]
+
+    monkeypatch.setattr(client.app.state.container.channel_runtime, "list_recent_observations", lambda **_kwargs: rows)
+
+    latest_any = service.latest_property_magic_fit_scene(principal_id=principal_id, property_ref="property-1")
+    latest_urban = service.latest_property_magic_fit_scene(
+        principal_id=principal_id,
+        property_ref="property-1",
+        styling_hint="urban jungle interior with healthy plants",
+    )
+    latest_missing = service.latest_property_magic_fit_scene(
+        principal_id=principal_id,
+        property_ref="property-1",
+        styling_hint="Austrian Landhaus country-home staging",
+    )
+
+    assert latest_any["scene_id"] == "scene-ikea"
+    assert latest_urban["scene_id"] == "scene-urban"
+    assert latest_missing == {}
 
 
 def test_propertyquarry_shortlist_without_run_id_prefers_latest_terminal_run_with_results(monkeypatch) -> None:

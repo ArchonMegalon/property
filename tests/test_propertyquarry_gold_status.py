@@ -183,6 +183,19 @@ def _release_hygiene_payload(*, status: str = "pass") -> dict[str, object]:
     }
 
 
+def _furniture_style_contract_payload(*, status: str = "pass") -> dict[str, object]:
+    failures = [] if status == "pass" else ["furniture style catalog missing value urban_jungle"]
+    return {
+        "schema": "propertyquarry.furniture_style_contract_receipt.v1",
+        "status": status,
+        "style_count": 5 if status == "pass" else 4,
+        "style_values": ["gilded_penthouse", "ikea_practical", "landhaus", "urban_jungle", "warm_scandi"],
+        "plan_caps": {"free": 1, "plus": 3, "agent": 5},
+        "failure_count": len(failures),
+        "failures": failures,
+    }
+
+
 def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass", failed_count: int = 0) -> dict[str, object]:
     route_list = routes or [
         "/app/search",
@@ -699,6 +712,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     )
     security_posture = _write_json(tmp_path / "security-posture.json", _security_posture_payload())
     release_hygiene = _write_json(tmp_path / "release-hygiene.json", _release_hygiene_payload())
+    furniture_style_contract = _write_json(tmp_path / "furniture-style-contract.json", _furniture_style_contract_payload())
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -710,6 +724,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         vendor_tooling_receipt_path=vendor_tooling,
         security_posture_receipt_path=security_posture,
         release_hygiene_receipt_path=release_hygiene,
+        furniture_style_contract_receipt_path=furniture_style_contract,
     )
 
     assert receipt["status"] == "pass"
@@ -737,6 +752,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "self_healing",
         "production_security_posture",
         "release_hygiene",
+        "furniture_style_variants",
         "receipt_freshness",
     }.issubset(pass_areas)
 
@@ -820,6 +836,46 @@ def test_gold_status_blocks_when_release_hygiene_receipt_fails(tmp_path: Path) -
     assert blocker["manifest_runtime_commit"] == "d8426c7"
     assert blocker["head_commit"] == "88cdc13"
     assert "release manifest runtime commit" in blocker["failures"][0]
+
+
+def test_gold_status_blocks_when_furniture_style_contract_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    furniture_style_contract = _write_json(tmp_path / "furniture-style-contract.json", _furniture_style_contract_payload(status="fail"))
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        furniture_style_contract_receipt_path=furniture_style_contract,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "furniture_style_variants")
+    assert receipt["status"] == "blocked"
+    assert receipt["furniture_style_variants"]["status"] == "fail"
+    assert blocker["style_count"] == 4
+    assert "five visible style choices" in blocker["action"]
 
 
 def test_gold_status_blocks_when_public_sign_in_account_creation_smoke_is_missing(tmp_path: Path) -> None:
