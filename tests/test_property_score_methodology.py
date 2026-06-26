@@ -8,6 +8,7 @@ from app.product.property_score_methodology import (
     build_property_score_methodology_for_supported_languages,
     supported_property_score_methodology_languages,
 )
+from scripts.check_property_bts_methodology_contract import build_bts_methodology_contract_receipt
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.fliplink.privacy import redact_property_packet
 from app.services.premium_dossier.compiler import compile_premium_dossier
@@ -117,6 +118,16 @@ def test_score_methodology_applies_candidate_signals_and_band() -> None:
     assert any(row["level"] == "Starker Wunsch" for row in payload["weight_ladder_rows"])
     assert "persönliche Passung" in payload["subtitle"]
     assert "präferenz" in payload["weight_ladder_title"].lower()
+
+
+def test_bts_methodology_contract_proves_sources_and_no_district_reward() -> None:
+    receipt = build_bts_methodology_contract_receipt()
+
+    assert receipt["status"] == "pass"
+    assert receipt["source_section_count"] >= 5
+    assert {"en", "de"}.issubset(set(receipt["languages"]))
+    assert "data.gv.at" in receipt["required_source_tokens"]
+    assert any("district reward" in token for token in receipt["required_district_policy_tokens"])
 
 
 def test_score_methodology_survives_redaction_and_renders_in_premium_html() -> None:
