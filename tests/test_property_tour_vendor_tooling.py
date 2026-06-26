@@ -138,3 +138,29 @@ def test_vendor_tooling_default_installer_roots_do_not_scan_tmp() -> None:
     roots = _installer_search_roots([])
 
     assert Path("/tmp") not in roots
+
+
+def test_vendor_tooling_runtime_only_skips_desktop_export_tooling_noise(tmp_path: Path) -> None:
+    tour_root = tmp_path / "public_tours"
+    drop_dir = tmp_path / "incoming"
+    wine_prefix = tmp_path / "wine"
+    _write_base_tour(tour_root, "ready-runtime")
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=drop_dir,
+        tour_root=tour_root,
+        wine_prefix=wine_prefix,
+        installer_roots=[],
+        runtime_container="",
+        runtime_only=True,
+    )
+    action_areas = {str(row["area"]) for row in receipt["next_actions"]}
+
+    assert receipt["mode"] == "runtime"
+    assert receipt["host_ready"] is None
+    assert receipt["installer_counts"] == {"3dvista": 0, "pano2vr": 0}
+    assert receipt["installed_app_counts"] == {"3dvista": 0, "pano2vr": 0}
+    assert "host_tooling" not in action_areas
+    assert "vendor_installers" not in action_areas
+    assert "vendor_desktop_apps" not in action_areas
+    assert {row["provider"] for row in receipt["next_actions"] if row["area"] == "verified_export"} == {"3dvista", "pano2vr"}

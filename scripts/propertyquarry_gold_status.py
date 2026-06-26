@@ -1140,7 +1140,8 @@ def build_gold_status_receipt(
         },
         "vendor_tooling": {
             "status": vendor_tooling.get("status") or ("not_configured" if vendor_tooling_receipt_path is None else "missing"),
-            "host_ready": bool(vendor_tooling.get("host_ready")) if vendor_tooling_receipt_path is not None else None,
+            "mode": str(vendor_tooling.get("mode") or "") if vendor_tooling_receipt_path is not None else "",
+            "host_ready": vendor_tooling.get("host_ready") if vendor_tooling_receipt_path is not None else None,
             "generated_tour_ready": bool(vendor_tooling.get("generated_tour_ready")) if vendor_tooling_receipt_path is not None else None,
             "generated_tour_tools": vendor_tooling.get("generated_tour_tools") or {},
             "runtime_generated_tour_ready": vendor_tooling.get("runtime_generated_tour_ready") if vendor_tooling_receipt_path is not None else None,

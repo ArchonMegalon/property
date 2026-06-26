@@ -64,7 +64,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_teable_portability.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_search_storage_schema.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_public_tour_manifest_contract.py
-mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/smoke _completion/property_gold_status _completion/repair _completion/provider_smoke
+mkdir -p _completion/property_tour_controls _completion/property_tour_exports _completion/tours _completion/smoke _completion/property_gold_status _completion/repair _completion/provider_smoke
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --require-all-provider-modes \
   --write _completion/property_tour_controls/release-gate.json \
@@ -91,6 +91,15 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     --write /data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json
   docker cp "${property_api_container}:/data/artifacts/property-tour-export-import-manifest-release-gate-live-container.json" \
     _completion/property_tour_exports/release-gate-import-manifest.json
+  docker exec "${property_api_container}" python /app/scripts/verify_property_tour_vendor_tooling.py \
+    --drop-dir /data/incoming_property_tours \
+    --tour-root /data/public_property_tours \
+    --runtime-only \
+    --runtime-container "" \
+    --write /data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json \
+    > /dev/null
+  docker cp "${property_api_container}:/data/artifacts/property-tour-vendor-tooling-release-gate-live-container.json" \
+    _completion/tours/property-tour-vendor-tooling-current.json
 else
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/discover_property_tour_exports.py \
     --drop-dir "${tour_export_incoming_dir}" \
@@ -101,6 +110,11 @@ else
     --incoming-root "${tour_export_incoming_dir}" \
     --prepare-dirs \
     --write _completion/property_tour_exports/release-gate-import-manifest.json
+  PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_vendor_tooling.py \
+    --drop-dir "${tour_export_incoming_dir}" \
+    --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
+    --write _completion/tours/property-tour-vendor-tooling-current.json \
+    > /dev/null
 fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_brilliant_directories_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
@@ -169,6 +183,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --public-smoke-receipt _completion/smoke/property-live-public-release-gate.json \
   --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-release-gate.json \
   --tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json \
+  --vendor-tooling-receipt _completion/tours/property-tour-vendor-tooling-current.json \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \

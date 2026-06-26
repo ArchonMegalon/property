@@ -139,6 +139,20 @@ def _container_python_import_available(container: str, module: str) -> dict[str,
     }
 
 
+def _python_module_available(module: str) -> bool:
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", f"import {module}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception:
+        return False
+    return completed.returncode == 0
+
+
 def _installer_search_roots(extra_roots: list[str]) -> list[Path]:
     roots = [
         _repo_root() / "state" / "vendor_installers",
@@ -283,17 +297,18 @@ def build_vendor_tooling_receipt(
     installer_roots: list[Path],
     installed_app_roots: list[Path] | None = None,
     runtime_container: str = "",
+    runtime_only: bool = False,
 ) -> dict[str, Any]:
     discovery = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=tour_root)
     provider_ready_counts = _provider_ready_counts(discovery)
-    installers = _find_installers(installer_roots)
-    installed_apps = _find_installed_apps(installed_app_roots if installed_app_roots is not None else _installed_app_search_roots(wine_prefix))
+    installers = [] if runtime_only else _find_installers(installer_roots)
+    installed_apps = [] if runtime_only else _find_installed_apps(installed_app_roots if installed_app_roots is not None else _installed_app_search_roots(wine_prefix))
     installer_counts = _provider_counts(installers, ("3dvista", "pano2vr"))
     installed_app_counts = _provider_counts(installed_apps, ("3dvista", "pano2vr"))
-    wine = _command_version("wine", "--version")
-    wine64 = _command_version("wine64", "--version")
-    xvfb = _command_version("xvfb-run", "--help")
-    winetricks = _command_version("winetricks", "--version")
+    wine = {"available": False, "path": "", "version": "", "skipped": "runtime_only"} if runtime_only else _command_version("wine", "--version")
+    wine64 = {"available": False, "path": "", "version": "", "skipped": "runtime_only"} if runtime_only else _command_version("wine64", "--version")
+    xvfb = {"available": False, "path": "", "version": "", "skipped": "runtime_only"} if runtime_only else _command_version("xvfb-run", "--help")
+    winetricks = {"available": False, "path": "", "version": "", "skipped": "runtime_only"} if runtime_only else _command_version("winetricks", "--version")
     krpano = _command_version("krpanotools", "version")
     blender = _command_version("blender", "--version")
     colmap = _command_version("colmap", "-h")
@@ -303,10 +318,10 @@ def build_vendor_tooling_receipt(
     imagemagick = _command_version("magick", "-version")
     if not imagemagick.get("available"):
         imagemagick = _command_version("convert", "-version")
-    wine_prefix_ready = wine_prefix.is_dir() and (wine_prefix / "system.reg").is_file()
+    wine_prefix_ready = False if runtime_only else wine_prefix.is_dir() and (wine_prefix / "system.reg").is_file()
     wine_runtime_ready = bool(wine.get("available")) or bool(wine64.get("available"))
-    host_ready = wine_runtime_ready and bool(xvfb.get("available")) and wine_prefix_ready
-    generated_tour_tools = {
+    host_ready = None if runtime_only else wine_runtime_ready and bool(xvfb.get("available")) and wine_prefix_ready
+    host_generated_tour_tools = {
         "krpanotools": krpano,
         "blender": blender,
         "colmap": colmap,
@@ -315,14 +330,25 @@ def build_vendor_tooling_receipt(
         "exiftool": exiftool,
         "imagemagick": imagemagick,
     }
+    runtime_local_tools = {
+        "ffmpeg": ffmpeg,
+        "blender": blender,
+        "colmap": colmap,
+        "exiftool": exiftool,
+        "convert": imagemagick,
+        "python:numpy": {"available": _python_module_available("numpy"), "path": "python", "version": ""},
+    }
+    generated_tour_tools = runtime_local_tools if runtime_only else host_generated_tour_tools
     generated_tour_ready = all(bool(row.get("available")) for row in generated_tour_tools.values())
     runtime_required_tools = ("ffmpeg", "blender", "colmap", "exiftool", "convert")
     runtime_generated_tour_tools = {
         command: _container_command_available(runtime_container, command)
         for command in runtime_required_tools
-    } if runtime_container else {}
+    } if runtime_container and not runtime_only else {}
     if runtime_container:
         runtime_generated_tour_tools["python:numpy"] = _container_python_import_available(runtime_container, "numpy")
+    if runtime_only:
+        runtime_generated_tour_tools = runtime_local_tools
     runtime_generated_tour_ready = (
         all(bool(row.get("available")) for row in runtime_generated_tour_tools.values())
         if runtime_generated_tour_tools
@@ -334,7 +360,7 @@ def build_vendor_tooling_receipt(
         if provider_ready_counts.get(provider, 0) <= 0
     ]
     next_actions: list[dict[str, object]] = []
-    if not host_ready:
+    if not runtime_only and not host_ready:
         next_actions.append(
             {
                 "area": "host_tooling",
@@ -345,12 +371,12 @@ def build_vendor_tooling_receipt(
         missing_tools = [name for name, row in generated_tour_tools.items() if not row.get("available")]
         next_actions.append(
             {
-                "area": "generated_tour_tooling",
+                "area": "runtime_generated_tour_tooling" if runtime_only else "generated_tour_tooling",
                 "missing_tools": missing_tools,
-                "action": "install the missing local generation tools before claiming floorplan/photos-to-tour readiness",
+                "action": "install the missing runtime generation tools before claiming floorplan/photos-to-tour readiness" if runtime_only else "install the missing local generation tools before claiming floorplan/photos-to-tour readiness",
             }
         )
-    if runtime_generated_tour_ready is False:
+    if runtime_generated_tour_ready is False and not runtime_only:
         missing_runtime_tools = [name for name, row in runtime_generated_tour_tools.items() if not row.get("available")]
         next_actions.append(
             {
@@ -363,7 +389,7 @@ def build_vendor_tooling_receipt(
     missing_installers = [
         provider
         for provider in ("3dvista", "pano2vr")
-        if installer_counts.get(provider, 0) <= 0 and provider_ready_counts.get(provider, 0) <= 0
+        if not runtime_only and installer_counts.get(provider, 0) <= 0 and provider_ready_counts.get(provider, 0) <= 0
     ]
     if missing_installers:
         next_actions.append(
@@ -377,7 +403,8 @@ def build_vendor_tooling_receipt(
     missing_installed_apps = [
         provider
         for provider in ("3dvista", "pano2vr")
-        if installer_counts.get(provider, 0) > 0
+        if not runtime_only
+        and installer_counts.get(provider, 0) > 0
         and installed_app_counts.get(provider, 0) <= 0
         and provider_ready_counts.get(provider, 0) <= 0
     ]
@@ -404,7 +431,8 @@ def build_vendor_tooling_receipt(
         )
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "status": "pass" if host_ready and not missing_exports else "blocked_missing_verified_exports",
+        "mode": "runtime" if runtime_only else "operator_host",
+        "status": "pass" if (runtime_only or host_ready) and generated_tour_ready and not missing_exports else "blocked_missing_verified_exports",
         "host_ready": host_ready,
         "generated_tour_ready": generated_tour_ready,
         "generated_tour_tools": generated_tour_tools,
@@ -445,6 +473,7 @@ def main() -> int:
     parser.add_argument("--wine-prefix", default=str(_default_wine_prefix()))
     parser.add_argument("--installer-root", action="append", default=[])
     parser.add_argument("--runtime-container", default=os.getenv("PROPERTYQUARRY_API_CONTAINER_NAME") or "propertyquarry-api")
+    parser.add_argument("--runtime-only", action="store_true", help="Validate the current runtime container/process lane; skip desktop Wine/installers/apps.")
     parser.add_argument("--write", default="_completion/tours/property-tour-vendor-tooling-current.json")
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
@@ -455,6 +484,7 @@ def main() -> int:
         wine_prefix=Path(args.wine_prefix).expanduser(),
         installer_roots=_installer_search_roots(args.installer_root),
         runtime_container=str(args.runtime_container or "").strip(),
+        runtime_only=bool(args.runtime_only),
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:

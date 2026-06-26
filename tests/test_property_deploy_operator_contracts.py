@@ -163,12 +163,17 @@ def test_property_release_gate_wires_tour_import_manifest_into_gold_status() -> 
     assert "docker exec --user root \"${property_api_container}\" python /app/scripts/materialize_property_tour_export_manifest.py" in release_gate
     assert "--incoming-root /data/incoming_property_tours" in release_gate
     assert "property-tour-export-import-manifest-release-gate-live-container.json" in release_gate
+    assert "docker exec \"${property_api_container}\" python /app/scripts/verify_property_tour_vendor_tooling.py" in release_gate
+    assert "--runtime-only" in release_gate
+    assert "property-tour-vendor-tooling-release-gate-live-container.json" in release_gate
+    assert "_completion/tours/property-tour-vendor-tooling-current.json" in release_gate
     assert "--drop-dir \"${tour_export_incoming_dir}\"" in release_gate
     assert "--public-tour-dir \"${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}\"" in release_gate
     assert "--tour-root \"${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}\"" in release_gate
     assert "--incoming-root \"${tour_export_incoming_dir}\"" in release_gate
     assert "_completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
     assert "--import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json" in release_gate
+    assert "--vendor-tooling-receipt _completion/tours/property-tour-vendor-tooling-current.json" in release_gate
 
 
 def test_property_release_gate_mentions_live_mobile_surface_smoke() -> None:
