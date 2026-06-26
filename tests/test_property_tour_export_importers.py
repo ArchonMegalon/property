@@ -131,6 +131,8 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert manifest["viewer_provider"] == "3dvista_vt_pro"
     assert manifest["three_d_vista_entry_relpath"] == "3dvista/index.html"
     assert manifest["three_d_vista_export_root_relpath"] == "3dvista"
+    assert manifest["three_d_vista_white_label_proof"]["non_trial_export_verified"] is True
+    assert manifest["three_d_vista_white_label_proof"]["trial_branding_present"] is False
     assert (bundle_dir / "3dvista" / "runtime" / "app.js").exists()
 
 
@@ -162,6 +164,11 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
     )
 
     assert imported.returncode == 0, imported.stderr
+    manifest = json.loads((tmp_path / "public_tours" / slug / "tour.json").read_text(encoding="utf-8"))
+    proof = manifest["three_d_vista_white_label_proof"]
+    assert proof["non_trial_export_verified"] is False
+    assert proof["trial_branding_present"] is True
+    assert proof["trial_branding_checked"] is True
     verifier = build_property_tour_control_receipt(
         tour_root=tmp_path / "public_tours",
         require_all_provider_modes=True,

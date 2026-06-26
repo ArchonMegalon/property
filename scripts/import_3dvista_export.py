@@ -12,6 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
+_3DVISTA_TRIAL_MARKERS = (
+    "created with the trial of 3dvista",
+    "trial of 3dvista vt pro",
+)
 _TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
 _MAX_MARKER_SCAN_BYTES = 1_000_000
 _MAX_MARKER_SCAN_FILES = 240
@@ -75,6 +79,28 @@ def _entry_has_3dvista_markers(export_dir: Path, entry: Path) -> bool:
         if export_root not in candidate.parents and candidate != export_root:
             continue
         if _text_asset_has_markers(candidate, _3DVISTA_EXPORT_MARKERS):
+            return True
+    return False
+
+
+def _export_has_trial_branding(export_dir: Path, entry: Path) -> bool:
+    export_root = export_dir.resolve()
+    candidates = [entry.resolve()]
+    for candidate in sorted(export_root.rglob("*")):
+        if len(candidates) >= _MAX_MARKER_SCAN_FILES:
+            break
+        if candidate.is_file() and candidate.suffix.lower() in _TEXT_RUNTIME_SUFFIXES and candidate.resolve() not in candidates:
+            candidates.append(candidate.resolve())
+    for candidate in candidates:
+        if export_root not in candidate.parents and candidate != export_root:
+            continue
+        try:
+            if candidate.stat().st_size > _MAX_MARKER_SCAN_BYTES:
+                continue
+            body = candidate.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            continue
+        if any(marker in body for marker in _3DVISTA_TRIAL_MARKERS):
             return True
     return False
 
@@ -154,6 +180,7 @@ def main() -> int:
         entry = _find_entry(export_dir, args.entry)
         if not _entry_has_3dvista_markers(export_dir, entry):
             raise SystemExit("3dvista_export_entry_unverified")
+        trial_branding_present = _export_has_trial_branding(export_dir, entry)
         _copy_export(export_dir, target_dir)
         entry_rel_to_export = entry.relative_to(export_dir).as_posix()
 
@@ -175,7 +202,8 @@ def main() -> int:
         "source_project": source_project,
         "source": "3dvista_import_script",
         "proof_kind": "local_vt_pro_export",
-        "non_trial_export_verified": True,
+        "non_trial_export_verified": not trial_branding_present,
+        "trial_branding_present": trial_branding_present,
         "propertyquarry_tour_metadata": propertyquarry_source,
         "trial_branding_checked": True,
         "imported_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
