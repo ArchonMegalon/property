@@ -160,6 +160,23 @@ _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES = frozenset(
         "virtual_tour_entry",
     }
 )
+_PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES = frozenset(
+    {
+        "generated_reconstruction_public",
+        "public_generated_reconstruction",
+    }
+)
+_PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES = frozenset(
+    {
+        "generated_reconstruction_viewer",
+    }
+)
+_PUBLIC_TOUR_GENERATED_RECONSTRUCTION_MODEL_ROLES = frozenset(
+    {
+        "generated_reconstruction_model",
+        "generated_reconstruction_material",
+    }
+)
 _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS = frozenset(
     {
         ".conf",
@@ -393,8 +410,19 @@ def public_tour_asset_path_is_public(
     normalized_role = str(role or "").strip().lower().replace("-", "_")
     if suffix in {".htm", ".html"}:
         return (
-            normalized_privacy in _PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES
-            and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
+            (
+                normalized_privacy in _PUBLIC_TOUR_PANO2VR_PUBLIC_PRIVACY_CLASSES
+                and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
+            )
+            or (
+                normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
+                and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES
+            )
+        )
+    if suffix in {".obj", ".mtl"}:
+        return (
+            normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
+            and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_MODEL_ROLES
         )
     if suffix in _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS:
         return False
@@ -436,6 +464,29 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             privacy_class="pano2vr_export_public",
             role="pano2vr_entry",
             mime_type="text/html",
+        )
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if isinstance(generated_reconstruction, dict):
+        _add(
+            generated_reconstruction.get("viewer_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_viewer",
+            mime_type="text/html",
+        )
+        _add(
+            generated_reconstruction.get("model_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_model",
+        )
+        _add(
+            generated_reconstruction.get("material_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_material",
+        )
+        _add(
+            generated_reconstruction.get("walkthrough_video_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="video",
         )
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
@@ -506,6 +557,29 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
             privacy_class="pano2vr_export_public",
             role="pano2vr_entry",
             mime_type="text/html",
+        )
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if isinstance(generated_reconstruction, dict):
+        _record(
+            generated_reconstruction.get("viewer_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_viewer",
+            mime_type="text/html",
+        )
+        _record(
+            generated_reconstruction.get("model_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_model",
+        )
+        _record(
+            generated_reconstruction.get("material_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="generated_reconstruction_material",
+        )
+        _record(
+            generated_reconstruction.get("walkthrough_video_relpath"),
+            privacy_class="generated_reconstruction_public",
+            role="video",
         )
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):

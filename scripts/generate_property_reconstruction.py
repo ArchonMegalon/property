@@ -218,7 +218,7 @@ def _viewer_html(*, manifest: dict[str, object]) -> str:
       <div class="photos">{photo_items}</div>
     </section>
     <section class="card">
-      <p><a href="model.obj">Download OBJ</a> · <a href="reconstruction.json">Open receipt</a></p>
+      <p><a href="model.obj">Download OBJ</a> · receipt stored with operator artifacts</p>
     </section>
   </aside>
 </main>
@@ -417,6 +417,7 @@ def main() -> int:
         "generated_at": generated_at,
         "viewer_relpath": f"{base_relpath}/viewer.html",
         "model_relpath": f"{base_relpath}/model.obj",
+        "material_relpath": f"{base_relpath}/model.mtl",
         "manifest_relpath": f"{base_relpath}/reconstruction.json",
         "verified_provider_capture": False,
         "satisfies_verified_tour_gate": False,

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from app.api.routes.public_tour_payloads import public_tour_allowed_asset_paths
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 
 
@@ -105,6 +106,8 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     generated_reconstruction = manifest["generated_reconstruction"]
     assert generated_reconstruction["viewer_relpath"] == "generated-reconstruction/viewer.html"
+    assert generated_reconstruction["model_relpath"] == "generated-reconstruction/model.obj"
+    assert generated_reconstruction["material_relpath"] == "generated-reconstruction/model.mtl"
     assert generated_reconstruction["verified_provider_capture"] is False
     assert "control_mode" not in manifest
     assert "viewer_provider" not in manifest
@@ -176,3 +179,27 @@ def test_generated_reconstruction_can_disclose_inferred_floorplan_from_photos(tm
     assert (output_dir / "source-floorplan-inferred.jpg").is_file()
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert manifest["generated_reconstruction"]["satisfies_verified_tour_gate"] is False
+
+
+def test_generated_reconstruction_public_allowlist_exposes_viewer_model_and_video_not_receipt() -> None:
+    payload = {
+        "slug": "generated-public-assets",
+        "generated_reconstruction": {
+            "viewer_relpath": "generated-reconstruction/viewer.html",
+            "model_relpath": "generated-reconstruction/model.obj",
+            "material_relpath": "generated-reconstruction/model.mtl",
+            "manifest_relpath": "generated-reconstruction/reconstruction.json",
+            "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+        },
+    }
+
+    allowed = public_tour_allowed_asset_paths(payload)
+
+    assert "generated-reconstruction/viewer.html" in allowed
+    assert "generated-reconstruction/model.obj" in allowed
+    assert "generated-reconstruction/model.mtl" in allowed
+    assert "generated-reconstruction/generated-walkthrough.mp4" in allowed
+    assert "generated-reconstruction/reconstruction.json" not in allowed
+    assert "generated-reconstruction/private-debug.html" not in public_tour_allowed_asset_paths(
+        {"public_assets": [{"relpath": "generated-reconstruction/private-debug.html"}]}
+    )
