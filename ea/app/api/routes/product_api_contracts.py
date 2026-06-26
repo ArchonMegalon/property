@@ -1501,6 +1501,7 @@ class WillhabenPropertyTourIn(BaseModel):
     candidate_ref: str = ""
     auto_deliver: bool = False
     allow_floorplan_only: bool = False
+    diorama_style_hint: str = Field(default="", max_length=240)
 
 
 class WillhabenPropertyTourOut(BaseModel):
@@ -1513,6 +1514,7 @@ class WillhabenPropertyTourOut(BaseModel):
     artifact_id: str = ""
     execution_session_id: str = ""
     connector_binding_id: str = ""
+    diorama_style_hint: str = ""
     tour_url: str = ""
     vendor_tour_url: str = ""
     source_virtual_tour_url: str = ""

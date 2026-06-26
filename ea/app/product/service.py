@@ -14070,6 +14070,7 @@ def _default_magicfit_property_flythrough_prompt(
     room_visit_plan: list[str] | tuple[str, ...] = (),
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
+    diorama_style_hint: str = "",
     include_final_turn_directive: bool = True,
 ) -> str:
     facts = dict(property_facts or {})
@@ -14095,6 +14096,7 @@ def _default_magicfit_property_flythrough_prompt(
     descriptor_clause = f" of a {descriptor}" if descriptor else ""
     title_text = compact_text(str(title or "modern apartment").strip(), fallback="modern apartment", limit=140)
     motion_hint_text = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
+    style_hint_text = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
     daylight_context = _magicfit_property_daylight_context(property_facts=property_facts)
     location_easter_egg = _magicfit_property_location_easter_egg(title=title, property_facts=property_facts)
     visit_directive = (
@@ -14137,6 +14139,7 @@ def _default_magicfit_property_flythrough_prompt(
         f"{final_turn_text} "
         f"{birthday_directive}"
         f"{movement_directive}"
+        f"{('Furniture and staging style: ' + style_hint_text + '. ') if style_hint_text else ''}"
         f"{daylight_context} "
         f"{location_easter_egg}"
         "This is a photoreal staging render, not a Blender preview, not a game engine, not CGI, and not a synthetic showroom. "
@@ -14157,6 +14160,7 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     actor: str = "",
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
+    diorama_style_hint: str = "",
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -14211,6 +14215,7 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         room_visit_plan=room_visit_plan,
         birthday_party_request=bool(birthday_party_request),
         person_motion_hint=person_motion_hint,
+        diorama_style_hint=diorama_style_hint,
         include_final_turn_directive=False,
     )
     render_log: dict[str, object] = {
@@ -14538,6 +14543,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
     actor: str = "",
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
+    diorama_style_hint: str = "",
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
@@ -14574,6 +14580,7 @@ def _render_onemin_property_flythrough_into_hosted_tour(
         room_visit_plan=room_visit_plan,
         birthday_party_request=bool(birthday_party_request),
         person_motion_hint=person_motion_hint,
+        diorama_style_hint=diorama_style_hint,
     )
     render_log: dict[str, object] = {
         "status": "pending",
@@ -14807,6 +14814,7 @@ def _render_property_flythrough_into_hosted_tour(
     actor: str = "",
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
+    diorama_style_hint: str = "",
 ) -> dict[str, object]:
     def _magicfit_fallback_allowed(rendered: dict[str, object]) -> bool:
         reason = str(rendered.get("reason") or "").strip().lower()
@@ -14850,6 +14858,7 @@ def _render_property_flythrough_into_hosted_tour(
             actor=actor,
             birthday_party_request=birthday_party_request,
             person_motion_hint=person_motion_hint,
+            diorama_style_hint=diorama_style_hint,
         )
         return {**route_payload, **dict(rendered or {})}
     if route.provider_key == "magicfit":
@@ -14860,6 +14869,7 @@ def _render_property_flythrough_into_hosted_tour(
             actor=actor,
             birthday_party_request=birthday_party_request,
             person_motion_hint=person_motion_hint,
+            diorama_style_hint=diorama_style_hint,
         )
         rendered_payload = dict(rendered or {})
         if str(rendered_payload.get("status") or "").strip().lower() == "rendered" or not _magicfit_fallback_allowed(rendered_payload):
@@ -14871,6 +14881,7 @@ def _render_property_flythrough_into_hosted_tour(
             actor=actor,
             birthday_party_request=birthday_party_request,
             person_motion_hint=person_motion_hint,
+            diorama_style_hint=diorama_style_hint,
         )
         fallback_payload = dict(fallback or {})
         fallback_payload["primary_provider_status"] = rendered_payload
@@ -25109,8 +25120,10 @@ class ProductService:
         run_id: str = "",
         candidate_ref: str = "",
         allow_floorplan_only: bool = False,
+        diorama_style_hint: str = "",
     ) -> HumanTask:
         normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_style_hint = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
         existing = self._existing_property_tour_followup(
             principal_id=principal_id,
             property_url=property_url,
@@ -25162,6 +25175,7 @@ class ProductService:
                 "run_id": str(run_id or "").strip(),
                 "candidate_ref": str(candidate_ref or "").strip(),
                 "allow_floorplan_only": bool(allow_floorplan_only),
+                "diorama_style_hint": normalized_style_hint,
             },
             desired_output_json={
                 "status": "completed",
@@ -30753,6 +30767,7 @@ class ProductService:
             recipient_email = str(task_input.get("recipient_email") or "").strip().lower()
             blocked_reason = str(task_input.get("blocked_reason") or "").strip()
             allow_floorplan_only = bool(task_input.get("allow_floorplan_only"))
+            diorama_style_hint = _compact_diorama_style_hint(str(task_input.get("diorama_style_hint") or ""), max_length=180)
             if not property_url:
                 self.complete_handoff(
                     principal_id=normalized_principal,
@@ -30915,6 +30930,7 @@ class ProductService:
                     actor=actor,
                     queue_async_request=False,
                     suppress_human_followup=True,
+                    diorama_style_hint=diorama_style_hint,
                 )
             except Exception as exc:
                 blocked_reason = self._property_tour_execution_error_reason(exc)
@@ -31060,10 +31076,12 @@ class ProductService:
         actor: str = "",
         queue_async_request: bool = True,
         suppress_human_followup: bool = False,
+        diorama_style_hint: str = "",
     ) -> dict[str, object]:
         normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
+        resolved_style_hint = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
         if not normalized_property_url:
             raise ValueError("property_tour_url_missing")
         has_workbench_context = any(
@@ -31106,6 +31124,7 @@ class ProductService:
                     run_id=str(run_id or "").strip(),
                     candidate_ref=str(candidate_ref or "").strip(),
                     allow_floorplan_only=effective_allow_floorplan_only,
+                    diorama_style_hint=resolved_style_hint,
                 )
                 human_task_id = f"human_task:{followup.human_task_id}"
             except Exception:
@@ -31138,6 +31157,7 @@ class ProductService:
                 "flythrough_status_updated_at": request_opened_at if normalized_kind == "flythrough" else "",
                 "flythrough_progress_pct": str(_property_visual_progress_pct(request_kind="flythrough", status="queued", requested_at=(persisted_requested_at if normalized_kind == "flythrough" else str(existing_visual_state.get("flythrough_requested_at") or "").strip()), status_updated_at=request_opened_at)) if normalized_kind == "flythrough" else "",
                 "blocked_reason": "",
+                "diorama_style_hint": resolved_style_hint,
             }
             self._persist_property_search_visual_state(
                 principal_id=principal_id,
@@ -31179,6 +31199,7 @@ class ProductService:
                 "poll_after_seconds": 10,
                 "tour_media_mode": "queued_user_request",
                 "personal_fit_assessment": {},
+                "diorama_style_hint": resolved_style_hint,
             }
             self._record_product_event(
                 principal_id=principal_id,
@@ -31212,6 +31233,7 @@ class ProductService:
         payload["run_id"] = str(run_id or "").strip()
         payload["candidate_ref"] = str(candidate_ref or "").strip()
         payload["source_ref"] = normalized_source_ref
+        payload["diorama_style_hint"] = resolved_style_hint
         verified_tour_url = _hosted_property_tour_verified_open_url(payload.get("tour_url"))
         if verified_tour_url:
             payload["verified_tour_url"] = verified_tour_url
@@ -31249,6 +31271,7 @@ class ProductService:
                     property_facts={},
                     fit_score=100.0,
                     allow_below_threshold=True,
+                    diorama_style_hint=resolved_style_hint,
                 ) or {})
                 flythrough_result = _normalize_property_flythrough_result(raw_flythrough_result)
                 flythrough_url = _hosted_property_tour_walkthrough_asset_url(payload.get("tour_url")) or _published_walkthrough_asset_url(
@@ -31404,6 +31427,7 @@ class ProductService:
                 ),
                 "flythrough_reason": str(payload.get("flythrough_reason") or "").strip(),
                 "blocked_reason": str(payload.get("blocked_reason") or "").strip(),
+                "diorama_style_hint": resolved_style_hint,
             },
         )
         return payload
@@ -40166,6 +40190,7 @@ class ProductService:
         property_facts: dict[str, object] | None,
         fit_score: float,
         allow_below_threshold: bool = False,
+        diorama_style_hint: str = "",
     ) -> dict[str, object]:
         if not allow_below_threshold and float(fit_score or 0.0) <= _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE:
             return {"status": "skipped", "reason": "fit_below_threshold", "video_url": ""}
@@ -40202,6 +40227,7 @@ class ProductService:
                 title=title,
                 property_facts=facts,
                 actor=actor,
+                diorama_style_hint=diorama_style_hint,
             )
         except Exception as exc:
             rendered = {

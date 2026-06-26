@@ -13709,10 +13709,12 @@ def test_request_property_visual_asset_keeps_explicit_workbench_floorplan(monkey
         auto_deliver=False,
         queue_async_request=False,
         allow_floorplan_only=True,
+        diorama_style_hint="playful gilded penthouse staging",
     )
 
     assert result["status"] == "created"
     assert captured["allow_floorplan_only"] is True
+    assert result["diorama_style_hint"] == "playful gilded penthouse staging"
 
 
 def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> None:
@@ -14535,6 +14537,7 @@ def test_property_tour_followup_tasks_auto_process_user_visual_requests(monkeypa
         run_id="run-process-1",
         candidate_ref="candidate-process-1",
         allow_floorplan_only=True,
+        diorama_style_hint="urban jungle staging with plants",
     )
 
     result = service.process_property_tour_followup_tasks(
@@ -14553,6 +14556,7 @@ def test_property_tour_followup_tasks_auto_process_user_visual_requests(monkeypa
     assert observed["binding_id"] == "binding-1"
     assert observed["run_id"] == "run-process-1"
     assert observed["candidate_ref"] == "candidate-process-1"
+    assert observed["diorama_style_hint"] == "urban jungle staging with plants"
 
     updated_task = client.app.state.container.orchestrator.fetch_human_task(
         task.human_task_id,

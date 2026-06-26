@@ -69,6 +69,11 @@ def property_worker_cap(plan_key: object) -> int:
     return {"free": 1, "plus": 2, "agent": 4}.get(normalized, 1)
 
 
+def property_furniture_style_cap(plan_key: object) -> int:
+    normalized = normalize_property_plan_key(plan_key)
+    return {"free": 1, "plus": 3, "agent": 5}.get(normalized, 1)
+
+
 @dataclass(frozen=True)
 class PropertyPlanSpec:
     plan_key: str
@@ -82,6 +87,7 @@ class PropertyPlanSpec:
     max_match_score: int
     research_depth: str
     investment_research_level: str
+    furniture_style_limit: int
     magic_fit_scene_limit: int
     magic_fit_video_limit: int
     magic_fit_scene_period: str
@@ -102,6 +108,7 @@ _FREE_PLAN = PropertyPlanSpec(
     max_match_score=35,
     research_depth="standard",
     investment_research_level="none",
+    furniture_style_limit=1,
     magic_fit_scene_limit=1,
     magic_fit_video_limit=1,
     magic_fit_scene_period="week",
@@ -129,6 +136,7 @@ _PAID_PLANS = {
         max_match_score=45,
         research_depth="deep",
         investment_research_level="preview",
+        furniture_style_limit=3,
         magic_fit_scene_limit=5,
         magic_fit_video_limit=3,
         magic_fit_scene_period="day",
@@ -154,6 +162,7 @@ _PAID_PLANS = {
         max_match_score=60,
         research_depth="deep",
         investment_research_level="full",
+        furniture_style_limit=5,
         magic_fit_scene_limit=0,
         magic_fit_video_limit=0,
         magic_fit_scene_period="none",
@@ -673,6 +682,7 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
         "max_results_per_source": current_plan.max_results_per_source,
         "search_agent_limit": current_plan.search_agent_limit,
         "max_match_score": current_plan.max_match_score,
+        "furniture_style_limit": current_plan.furniture_style_limit,
         "magic_fit_scene_limit": current_plan.magic_fit_scene_limit,
         "magic_fit_video_limit": current_plan.magic_fit_video_limit,
         "magic_fit_scene_period": current_plan.magic_fit_scene_period,
@@ -693,6 +703,7 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
                 "max_results_per_source": spec.max_results_per_source,
                 "search_agent_limit": spec.search_agent_limit,
                 "max_match_score": spec.max_match_score,
+                "furniture_style_limit": spec.furniture_style_limit,
                 "research_depth": spec.research_depth,
                 "investment_research_level": spec.investment_research_level,
                 "magic_fit_scene_limit": spec.magic_fit_scene_limit,

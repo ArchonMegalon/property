@@ -601,6 +601,7 @@ def create_willhaben_property_tour(
             candidate_ref=body.candidate_ref,
             auto_deliver=body.auto_deliver,
             allow_floorplan_only=body.allow_floorplan_only,
+            diorama_style_hint=body.diorama_style_hint,
             actor=actor,
         )
     except ValueError as exc:

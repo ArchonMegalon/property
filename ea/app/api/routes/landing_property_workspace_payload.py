@@ -560,6 +560,7 @@ def property_workspace_payload(
             "listing_mode",
             "property_type",
             "property_types",
+            "furniture_style",
             "search_goal",
             "investment_strategy",
             "keywords",

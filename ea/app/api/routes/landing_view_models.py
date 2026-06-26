@@ -54,9 +54,75 @@ from app.api.routes.landing_property_surface_contracts import (
 
 _PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
 _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
+
+
+PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
+    {
+        "value": "warm_scandi",
+        "label": "Warm Scandinavian",
+        "detail": "The default: calm, bright, natural wood, realistic family-home staging.",
+        "prompt": "warm Scandinavian staging, bright neutral textiles, light oak, clean storage, realistic family-home warmth",
+        "example_tone": "linear-gradient(135deg, #f5efe3 0%, #d9c6a4 48%, #b7c4bd 100%)",
+        "example_caption": "Light oak, linen, calm family warmth.",
+    },
+    {
+        "value": "ikea_practical",
+        "label": "IKEA practical",
+        "detail": "Affordable modular storage, simple lines, rental-friendly, tidy and believable.",
+        "prompt": "IKEA-inspired practical modular furniture, bright storage, simple rental-friendly pieces, realistic affordable staging",
+        "example_tone": "linear-gradient(135deg, #f7f4e8 0%, #2f6fb3 54%, #f4c542 100%)",
+        "example_caption": "Modular storage, bright, practical, clean.",
+    },
+    {
+        "value": "urban_jungle",
+        "label": "Urban jungle",
+        "detail": "Plants, tactile natural materials, softer light, lived-in but not cluttered.",
+        "prompt": "urban jungle interior with healthy plants, rattan, warm wood, linen, soft daylight, lived-in but uncluttered",
+        "example_tone": "linear-gradient(135deg, #e7dcc5 0%, #4d7c59 52%, #1f3d2b 100%)",
+        "example_caption": "Plants, rattan, warm wood, soft daylight.",
+    },
+    {
+        "value": "landhaus",
+        "label": "Landhaus",
+        "detail": "Classic country-house warmth, wood, linen, ceramics, softer traditional details.",
+        "prompt": "Austrian Landhaus country-home staging, warm timber, linen, ceramics, classic comfortable furniture, premium realistic finish",
+        "example_tone": "linear-gradient(135deg, #ead8bd 0%, #9b6b43 50%, #6d7f52 100%)",
+        "example_caption": "Austrian country warmth, timber, ceramics.",
+    },
+    {
+        "value": "gilded_penthouse",
+        "label": "Gilded penthouse",
+        "detail": "A deliberately over-the-top gold, marble, brass, penthouse look.",
+        "prompt": "playful gilded penthouse staging with polished marble, brass, gold accents, oversized classical details, glossy luxury hotel lighting, photorealistic but tasteful",
+        "example_tone": "linear-gradient(135deg, #fff4bd 0%, #c79a31 43%, #2a2117 100%)",
+        "example_caption": "Gold, marble, brass, maximal penthouse drama.",
+    },
+)
+
+
+def _property_furniture_style_options(*, plan_key: object, selected_value: object) -> list[dict[str, object]]:
+    cap = property_furniture_style_cap(plan_key)
+    normalized_selected = str(selected_value or "").strip()
+    allowed_values = {row["value"] for row in PROPERTY_FURNITURE_STYLE_CATALOG[:cap]}
+    if normalized_selected not in allowed_values:
+        normalized_selected = PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"]
+    rows: list[dict[str, object]] = []
+    for index, row in enumerate(PROPERTY_FURNITURE_STYLE_CATALOG):
+        unlocked = index < cap
+        rows.append(
+            {
+                **row,
+                "disabled": not unlocked,
+                "locked": not unlocked,
+                "upgrade_hint": "" if unlocked else ("Plus render slot" if cap < 3 else "Agent render slot"),
+                "selected": normalized_selected == row["value"],
+            }
+        )
+    return rows
 from app.api.routes.landing_property_workspace_payload import (
     property_workspace_payload as build_property_workspace_payload,
 )
+from app.services.property_billing import property_furniture_style_cap
 from app.api.routes.landing_property_workspace_helpers import (
     _artifact_receipt_rows,
     _candidate_detail_sections,
@@ -3413,6 +3479,14 @@ def app_section_payload(
         property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 35)))
     except Exception:
         property_plan_max_match_score = 35
+    property_furniture_style_options = _property_furniture_style_options(
+        plan_key=property_current_plan_key,
+        selected_value=property_preferences.get("furniture_style"),
+    )
+    property_furniture_style_value = next(
+        (str(option.get("value") or "") for option in property_furniture_style_options if option.get("selected")),
+        PROPERTY_FURNITURE_STYLE_CATALOG[0]["value"],
+    )
 
     def _property_upgrade_hint(metric_key: str, current_cap: int, visible_cap: int) -> str:
         if current_cap >= visible_cap:
@@ -3576,6 +3650,15 @@ def app_section_payload(
                 "label": "Property type",
                 "values": selected_property_type_values,
                 "options": property_type_options,
+                "step": "what",
+            },
+            {
+                "type": "select",
+                "name": "furniture_style",
+                "label": "Furniture style",
+                "value": property_furniture_style_value,
+                "options": property_furniture_style_options,
+                "tooltip": "Used for generated lifestyle previews, furnished 3D-tour variants, and walkthrough staging. Locked styles stay visible so plan differences are clear.",
                 "step": "what",
             },
             {
@@ -4979,6 +5062,7 @@ def app_section_payload(
             "location_catalog_by_country_region": location_catalog_by_country_region,
             "supports_full_region_scope": True,
             "commercial": dict(property_state.get("commercial") or {}),
+            "furniture_style_catalog": [dict(row) for row in PROPERTY_FURNITURE_STYLE_CATALOG],
             "billing_checkout_enabled": bool(property_state.get("billing_checkout_enabled")),
             "billing_checkout_enabled_plans": list(property_state.get("billing_checkout_enabled_plans") or []),
             "billing_order_endpoint": str(property_state.get("billing_order_endpoint") or ""),

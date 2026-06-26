@@ -285,6 +285,13 @@
       const normalized = Array.isArray(rows) ? rows : [];
       return hasUnlimitedProviderResults() ? normalized.slice() : normalized.slice(0, limit);
     };
+    const furnitureStyleCatalog = Array.isArray(meta?.furniture_style_catalog) ? meta.furniture_style_catalog : [];
+    const selectedFurnitureStyle = () => String(briefPreferences.furniture_style || 'warm_scandi').trim() || 'warm_scandi';
+    const selectedFurnitureStylePrompt = () => {
+      const selected = selectedFurnitureStyle();
+      const match = furnitureStyleCatalog.find((row) => String(row?.value || '').trim() === selected);
+      return String(match?.prompt || selected).trim();
+    };
     const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
     const propertyDecisionSaveEndpoint = () => '/app/api/property/decisions';
     const propertyDecisionStateEndpoint = (propertyRef) => `/app/api/property/decisions?property_ref=${encodeURIComponent(String(propertyRef || '').trim())}`;
@@ -902,6 +909,7 @@
             candidate_ref: String(candidate.candidate_ref || '').trim(),
             auto_deliver: false,
             allow_floorplan_only: true,
+            diorama_style_hint: selectedFurnitureStylePrompt(),
           }),
         });
         const payload = await response.json().catch(() => ({}));

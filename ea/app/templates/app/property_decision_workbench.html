@@ -4391,6 +4391,44 @@
       color: var(--pq-ink);
       padding: 0 10px;
     }
+    .pqx-style-examples {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pqx-style-example {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--pq-line);
+      border-radius: 14px;
+      padding: 8px;
+      background: rgba(255, 254, 250, 0.86);
+    }
+    .pqx-style-example.is-locked {
+      opacity: 0.62;
+    }
+    .pqx-style-example-swatch {
+      width: 64px;
+      height: 48px;
+      border-radius: 12px;
+      box-shadow: inset 0 0 0 1px rgba(31, 26, 19, 0.16);
+    }
+    .pqx-style-example-copy {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+    .pqx-style-example-copy strong {
+      color: var(--pq-ink);
+      font-size: 12px;
+    }
+    .pqx-style-example-copy span {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
     .pqx-running {
       min-height: calc(100vh - 132px);
       display: grid;
@@ -8928,9 +8966,26 @@
                   {% if field.type == 'select' %}
                   <select name="{{ field.name }}">
                     {% for option in field.options or [] %}
-                    <option value="{{ option.value }}" {% if (field.value or '') == (option.value or '') %}selected{% endif %}>{{ option.label }}</option>
+                    {% set option_value = option.get('value') if option.get is defined else option.value %}
+                    {% set option_label = option.get('label') if option.get is defined else option.label %}
+                    {% set option_disabled = option.get('disabled') if option.get is defined else false %}
+                    {% set option_upgrade = option.get('upgrade_hint') if option.get is defined else '' %}
+                    <option value="{{ option_value }}" {% if (field.value or '') == (option_value or '') %}selected{% endif %}{% if option_disabled %} disabled{% endif %}>{{ option_label }}{% if option_disabled and option_upgrade %} - {{ option_upgrade }}{% endif %}</option>
                     {% endfor %}
                   </select>
+                  {% if field.name == 'furniture_style' %}
+                  <div class="pqx-style-examples" aria-label="Furniture style examples">
+                    {% for option in field.options or [] %}
+                    <div class="pqx-style-example{% if option.get('disabled') %} is-locked{% endif %}">
+                      <span class="pqx-style-example-swatch" style="background: {{ option.get('example_tone') or 'linear-gradient(135deg, #f5efe3, #c7bca4)' }}"></span>
+                      <span class="pqx-style-example-copy">
+                        <strong>{{ option.get('label') }}{% if option.get('disabled') and option.get('upgrade_hint') %} · {{ option.get('upgrade_hint') }}{% endif %}</strong>
+                        <span>{{ option.get('example_caption') or option.get('detail') }}</span>
+                      </span>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
                   {% elif field.type == 'number' %}
                   <input type="number" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.min %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %}>
                   {% else %}

@@ -1830,6 +1830,10 @@ def test_propertyquarry_search_route_does_not_use_generic_workspace_search(monke
     response = client.get("/app/search", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     assert 'data-property-decision-workbench' in response.text
+    assert 'name="furniture_style"' in response.text
+    assert "Warm Scandinavian" in response.text
+    assert "Gilded penthouse" in response.text
+    assert "Furniture style examples" in response.text
     assert "Search people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs." not in response.text
 
 
@@ -13634,6 +13638,7 @@ def test_propertyquarry_account_does_not_embed_full_raw_preference_payload() -> 
         "listing_mode",
         "property_type",
         "property_types",
+        "furniture_style",
         "search_goal",
         "investment_strategy",
         "keywords",
