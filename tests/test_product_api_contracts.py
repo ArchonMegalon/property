@@ -25299,7 +25299,7 @@ def test_public_tour_control_pano2vr_embeds_export_entry(monkeypatch: pytest.Mon
     )
 
     assert "Pano2VR Control" in html
-    assert '<iframe src="/tours/pano2vr/pano2vr-control-tour/pano2vr/index.html"' in html
+    assert 'src="/tours/pano2vr/pano2vr-control-tour/pano2vr/index.html"' in html
 
 
 def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

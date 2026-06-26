@@ -21,6 +21,15 @@ This manifest records the last verified runtime candidate for branch/deployment 
 
 ## Latest Verification
 
+The live operator import on 2026-06-26 verified:
+
+- Pano2VR 8 Pro was installed under Wine, accepted the local registered license, loaded the prepared 360 panorama, saved a `.p2vr` project, and generated a real Web output containing `index.html`, `pano.xml`, `pano2vr_player.js`, and `gginfo.json`.
+- The generated Pano2VR export was imported into the live public tour volume for `luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557` with `scripts/import_pano2vr_export.py`, producing `/tours/luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557/control/pano2vr`.
+- Live HTTP smoke returned `200` for the Pano2VR control route, `200` for `/tours/pano2vr/.../pano2vr/index.html`, `200` for `/tours/pano2vr/.../pano2vr/pano.xml`, and `200` for `/tours/pano2vr/.../pano2vr/pano2vr_player.js`.
+- `docker exec propertyquarry-api python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours` wrote `_completion/tours/property-tour-controls-after-pano2vr-import-current.json` and reported `provider_counts.pano2vr=1`, ready modes `krpano`, `magicfit`, `matterport`, and `pano2vr`, and missing provider modes narrowed to only `3dvista`.
+- Focused route/import/verifier tests returned `4 passed` for Pano2VR route contracts and `54 passed` for tour control verifier, export importer, and vendor tooling contracts.
+- Current gold status remains `blocked` because verified 3DVista export/control evidence is still missing.
+
 The candidate at `a60f0e6f` passed:
 
 - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_renders_what_matters_as_comboboxes tests/test_product_api_contracts.py::test_property_search_preferences_enable_new_research_and_source_flags tests/test_product_api_contracts.py::test_property_official_risk_evidence_for_austria_includes_school_noise_and_broadband tests/test_product_api_contracts.py::test_property_austria_preference_adjustment_scores_heat_resilience tests/test_property_score_methodology.py tests/test_fliplink_webhook_contracts.py::test_score_methodology_pdf_endpoint_uses_requested_language tests/test_property_market_catalog.py::test_austria_official_sources_are_evidence_not_listing_providers` returned `12 passed`.
