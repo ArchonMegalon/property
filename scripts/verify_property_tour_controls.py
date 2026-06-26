@@ -43,6 +43,29 @@ PROVIDER_DELIVERY_REQUIREMENTS = {
         "A PropertyQuarry manifest with provider=magicfit and playback evidence",
     ],
 }
+PROVIDER_WHITE_LABEL_REQUIREMENTS = {
+    "3dvista": [
+        "A delivered 3DVista Private Viewer bundle for propertyquarry.com, or",
+        "A verified non-trial VT Pro export/control URL with no trial branding and PropertyQuarry-owned tour metadata",
+        "A receipt that proves the viewer target is a PropertyQuarry property tour, not a Chummer RunSite/Horizon demo",
+    ],
+    "matterport": [
+        "A PropertyQuarry-hosted control route wrapping the allowlisted Matterport model",
+        "Public-safe metadata that does not leak the raw Matterport model ID in receipts",
+    ],
+    "pano2vr": [
+        "A PropertyQuarry-hosted Pano2VR export bundle with local control route",
+        "No vendor-trial or sample-tour markers in the exported viewer shell",
+    ],
+    "krpano": [
+        "A configured PropertyQuarry-domain krpano license",
+        "A PropertyQuarry-hosted scene/control route for real panorama assets",
+    ],
+    "magicfit": [
+        "A PropertyQuarry-hosted playback/control route for the receipt-backed walkthrough",
+        "Public-safe manifest metadata for generated walkthrough media",
+    ],
+}
 PUBLIC_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
@@ -664,6 +687,9 @@ def _provider_delivery_contracts(
             "sample_controls": ready_controls[:5],
             "manifest_url": "",
         }
+        white_label_status = "ready" if ready_controls and provider not in missing else "blocked"
+        if provider == "3dvista" and ready_controls:
+            white_label_status = "review_required"
         contracts[provider] = {
             "schema": "propertyquarry.tour_delivery_contract.v1",
             "provider": provider,
@@ -671,6 +697,18 @@ def _provider_delivery_contracts(
             "ready_payload": ready_payload,
             "blocked_reason": "" if provider not in missing else blocked_reason,
             "required_to_send": [] if provider not in missing else list(PROVIDER_DELIVERY_REQUIREMENTS[provider]),
+            "white_label_contract": {
+                "schema": "propertyquarry.tour_white_label_contract.v1",
+                "provider": provider,
+                "status": white_label_status,
+                "required_to_white_label": [] if white_label_status == "ready" else list(PROVIDER_WHITE_LABEL_REQUIREMENTS[provider]),
+                "source_project": "propertyquarry",
+                "cross_project_warning": (
+                    "Chummer RunSite/Horizon white-label readiness is reusable process evidence only; it is not PropertyQuarry tour proof."
+                    if provider == "3dvista"
+                    else ""
+                ),
+            },
             "notes": [
                 "Public-safe contract only; raw external provider URLs and private listing fields are intentionally omitted.",
                 "The viewer presents tour media only. PropertyQuarry remains source of truth for listing facts, ranking, evidence, pricing, entitlement, and customer decisions.",

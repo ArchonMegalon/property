@@ -176,6 +176,10 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
     assert vista_contract["blocked_reason"] == "3dvista_trial_branding_present"
     assert any("verified non-trial 3DVista" in item for item in vista_contract["required_to_send"])
     assert "PropertyQuarry property tour" in " ".join(vista_contract["required_to_send"])
+    assert vista_contract["white_label_contract"]["schema"] == "propertyquarry.tour_white_label_contract.v1"
+    assert vista_contract["white_label_contract"]["status"] == "blocked"
+    assert any("Private Viewer" in item for item in vista_contract["white_label_contract"]["required_to_white_label"])
+    assert "Chummer RunSite/Horizon" in vista_contract["white_label_contract"]["cross_project_warning"]
     assert "created with the trial" not in json.dumps(vista_contract).lower()
 
 
@@ -199,6 +203,8 @@ def test_tour_delivery_contract_reports_ready_public_safe_payload(tmp_path: Path
     assert matterport_contract["status"] == "ready"
     assert matterport_contract["blocked_reason"] == ""
     assert matterport_contract["required_to_send"] == []
+    assert matterport_contract["white_label_contract"]["status"] == "ready"
+    assert matterport_contract["white_label_contract"]["required_to_white_label"] == []
     assert matterport_contract["ready_payload"]["ready_count"] == 1
     assert matterport_contract["ready_payload"]["sample_controls"] == [
         {
