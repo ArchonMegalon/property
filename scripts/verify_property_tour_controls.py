@@ -25,10 +25,35 @@ KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery
 KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 EQUIRECTANGULAR_MIN_RATIO = 1.9
 EQUIRECTANGULAR_MAX_RATIO = 2.1
+CLI_ENV_KEYS = {"KRPANO_LICENSE_DOMAIN", "KRPANO_LICENSE_KEY"}
 
 
 def _tour_root() -> Path:
     return Path(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours").expanduser().resolve()
+
+
+def _load_cli_env_defaults() -> None:
+    candidate_paths = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parents[1] / ".env",
+    ]
+    for env_path in candidate_paths:
+        if not env_path.is_file():
+            continue
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            if key not in CLI_ENV_KEYS or os.getenv(key):
+                continue
+            os.environ[key] = value.strip().strip('"').strip("'")
+        break
 
 
 def _safe_asset_relpath(value: object) -> str:
@@ -784,6 +809,7 @@ def _receipt_summary(receipt: dict[str, object]) -> dict[str, object]:
 
 
 def main() -> int:
+    _load_cli_env_defaults()
     parser = argparse.ArgumentParser(description="Verify PropertyQuarry hosted 3D tour and walkthrough control readiness.")
     parser.add_argument("--tour-root", default="", help="Tour root. Defaults to EA_PUBLIC_TOUR_DIR or state/public_property_tours.")
     parser.add_argument("--base-url", default=os.getenv("PROPERTYQUARRY_TOUR_CONTROL_BASE_URL") or "http://localhost:8097")

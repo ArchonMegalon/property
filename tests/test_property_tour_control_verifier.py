@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 from PIL import Image
 
 from app.api.routes.public_tours import _tour_control_external_iframe_html
-from scripts.verify_property_tour_controls import _receipt_summary, build_property_tour_control_receipt, main
+from scripts.verify_property_tour_controls import _load_cli_env_defaults, _receipt_summary, build_property_tour_control_receipt, main
 
 
 def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[str, str | bytes] | None = None) -> None:
@@ -110,6 +111,24 @@ def test_property_tour_control_verifier_accepts_private_receipt_matterport_witho
     assert receipt["provider_counts"]["matterport"] == 1
     assert receipt["ready_provider_modes"] == ["matterport"]
     assert "PRIVATE123" not in json.dumps(receipt)
+
+
+def test_property_tour_control_verifier_cli_loads_krpano_license_defaults(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("KRPANO_LICENSE_DOMAIN", raising=False)
+    monkeypatch.delenv("KRPANO_LICENSE_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "KRPANO_LICENSE_DOMAIN=propertyquarry.com\nKRPANO_LICENSE_KEY=licensed-from-env-file\n",
+        encoding="utf-8",
+    )
+
+    _load_cli_env_defaults()
+
+    assert os.environ["KRPANO_LICENSE_DOMAIN"] == "propertyquarry.com"
+    assert os.environ["KRPANO_LICENSE_KEY"] == "licensed-from-env-file"
 
 
 def test_property_tour_control_verifier_accepts_private_receipt_3dvista_without_url_leak(tmp_path: Path) -> None:
