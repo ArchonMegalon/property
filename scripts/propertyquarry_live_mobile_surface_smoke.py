@@ -206,6 +206,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "research_detail_media_stage", "ok": bool(metrics.get("research_detail_media_stage"))},
                 {"name": "research_detail_visual_controls", "ok": bool(metrics.get("research_detail_visual_controls"))},
                 {"name": "research_detail_no_fake_visual_ready", "ok": not bool(metrics.get("research_detail_fake_visual_ready"))},
+                {"name": "research_detail_generated_reconstruction_honest", "ok": bool(metrics.get("research_detail_generated_reconstruction_honest"))},
             )
         )
     return checks
@@ -274,6 +275,12 @@ def _collect_metrics_script() -> str:
       const mediaStage = document.querySelector('[data-object-media-stage]');
       const visualControls = visibleNodes('[data-pw-visual-request], [data-object-magicfit-generate], [data-object-magicfit-toggle]');
       const bodyText = String(document.body?.textContent || '').toLowerCase();
+      const generatedReconstructionCard = document.querySelector('[data-prd-visual-card="generated_reconstruction"]');
+      const generatedReconstructionHonest = !generatedReconstructionCard || (
+        bodyText.includes('not a verified provider capture')
+        && bodyText.includes('build verified 3d tour')
+        && Boolean(document.querySelector('[data-pw-visual-request="tour"]'))
+      );
       return {
         body_width: document.documentElement.scrollWidth,
         viewport_width: window.innerWidth,
@@ -297,6 +304,7 @@ def _collect_metrics_script() -> str:
         research_detail_media_stage: visible(mediaStage),
         research_detail_visual_controls: visualControls.length > 0,
         research_detail_fake_visual_ready: bodyText.includes('fake 3d') || bodyText.includes('fake tour') || bodyText.includes('placeholder 3d') || bodyText.includes('placeholder tour'),
+        research_detail_generated_reconstruction_honest: generatedReconstructionHonest,
       };
     }
     """

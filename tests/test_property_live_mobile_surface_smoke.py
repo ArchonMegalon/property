@@ -35,6 +35,7 @@ def _base_metrics() -> dict[str, object]:
         "research_detail_media_stage": True,
         "research_detail_visual_controls": True,
         "research_detail_fake_visual_ready": False,
+        "research_detail_generated_reconstruction_honest": True,
     }
 
 
@@ -117,6 +118,7 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
             "research_detail_media_stage": False,
             "research_detail_visual_controls": False,
             "research_detail_fake_visual_ready": True,
+            "research_detail_generated_reconstruction_honest": False,
         }
     )
 
@@ -126,6 +128,16 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
         "research_detail_media_stage",
         "research_detail_visual_controls",
         "research_detail_no_fake_visual_ready",
+        "research_detail_generated_reconstruction_honest",
+    }
+
+
+def test_live_mobile_smoke_rejects_generated_reconstruction_without_verified_tour_path() -> None:
+    metrics = _base_metrics()
+    metrics["research_detail_generated_reconstruction_honest"] = False
+
+    assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
+        "research_detail_generated_reconstruction_honest",
     }
 
 
