@@ -476,11 +476,11 @@ def _authenticated_account_notification_checks(authenticated_smoke: dict[str, An
 
 
 def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
-    normalized_route = str(route or "").strip().rstrip("/")
+    normalized_route = str(route or "").split("?", 1)[0].strip().rstrip("/")
     normalized_prefix = str(required_prefix or "").strip().rstrip("/")
     if not normalized_route or not normalized_prefix:
         return False
-    return normalized_route == normalized_prefix or normalized_route.startswith(f"{normalized_prefix}/")
+    return normalized_route.startswith(f"{normalized_prefix}/")
 
 
 def _host_readme_path(readme_path_text: str) -> Path:

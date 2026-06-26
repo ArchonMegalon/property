@@ -1271,10 +1271,10 @@ def test_gold_status_blocks_when_live_mobile_surface_coverage_is_old_or_narrow(t
     assert receipt["status"] == "blocked"
     assert receipt["live_mobile_surfaces"]["required_route_count"] == 14
     assert "/app/settings/access" in receipt["live_mobile_surfaces"]["missing_routes"]
-    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == []
+    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == ["/app/research/"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
     assert "/app/settings/invitations" in blocker["missing_routes"]
-    assert blocker["missing_detail_routes"] == []
+    assert blocker["missing_detail_routes"] == ["/app/research/"]
 
 
 def test_gold_status_blocks_when_live_mobile_research_surface_is_missing(tmp_path: Path) -> None:
@@ -1326,6 +1326,64 @@ def test_gold_status_blocks_when_live_mobile_research_surface_is_missing(tmp_pat
 
     assert receipt["status"] == "blocked"
     assert "/app/research" in receipt["live_mobile_surfaces"]["missing_routes"]
+    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == ["/app/research/"]
+
+
+def test_gold_status_requires_live_mobile_research_detail_not_index_only(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    live_mobile = _write_json(
+        tmp_path / "live-mobile.json",
+        _live_mobile_payload(
+            routes=[
+                "/app/search",
+                "/app/shortlist",
+                "/app/agents",
+                "/app/alerts",
+                "/app/account",
+                "/app/billing",
+                "/app/settings/google",
+                "/app/settings/access",
+                "/app/settings/usage",
+                "/app/settings/support",
+                "/app/settings/trust",
+                "/app/settings/invitations",
+                "/app/research",
+                "/app/properties/packets",
+            ]
+        ),
+    )
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["live_mobile_surfaces"]["missing_routes"] == []
     assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == ["/app/research/"]
 
 
