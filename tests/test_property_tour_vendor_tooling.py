@@ -7,6 +7,7 @@ from PIL import Image
 
 from scripts.verify_property_tour_vendor_tooling import (
     _find_installers,
+    _find_installed_apps,
     _installer_search_roots,
     build_vendor_tooling_receipt,
 )
@@ -67,6 +68,41 @@ def test_vendor_tooling_detects_local_desktop_installers(tmp_path: Path) -> None
     assert [row["provider"] for row in installers].count("3dvista") == 2
     assert [row["provider"] for row in installers].count("pano2vr") == 1
     assert all(row["size_bytes"] == 2 for row in installers)
+
+
+def test_vendor_tooling_distinguishes_cached_installer_from_installed_app(tmp_path: Path) -> None:
+    installer_root = tmp_path / "installers"
+    installer_root.mkdir()
+    (installer_root / "3DVVirtualTour_x64.exe").write_bytes(b"MZ")
+    wine_prefix = tmp_path / "wine-3dvista"
+    installed_root = wine_prefix / "drive_c" / "Program Files" / "3DVista" / "3DVista Virtual Tour"
+    installed_root.mkdir(parents=True)
+
+    receipt_without_app = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=wine_prefix,
+        installer_roots=[installer_root],
+        runtime_container="",
+    )
+
+    assert receipt_without_app["installer_counts"]["3dvista"] == 1
+    assert receipt_without_app["installed_app_counts"]["3dvista"] == 0
+    assert any(row["area"] == "vendor_desktop_apps" and "3dvista" in row["missing_providers"] for row in receipt_without_app["next_actions"])
+
+    (installed_root / "3DVista Virtual Tour.exe").write_bytes(b"MZ")
+    installed_apps = _find_installed_apps([wine_prefix])
+    receipt_with_app = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=wine_prefix,
+        installer_roots=[installer_root],
+        runtime_container="",
+    )
+
+    assert [row["provider"] for row in installed_apps] == ["3dvista"]
+    assert receipt_with_app["installed_app_counts"]["3dvista"] == 1
+    assert not any(row["area"] == "vendor_desktop_apps" and "3dvista" in row.get("missing_providers", []) for row in receipt_with_app["next_actions"])
 
 
 def test_vendor_tooling_default_installer_roots_do_not_scan_tmp() -> None:

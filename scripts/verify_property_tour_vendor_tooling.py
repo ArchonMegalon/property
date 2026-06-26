@@ -163,6 +163,59 @@ def _find_installers(roots: list[Path]) -> list[dict[str, object]]:
     return rows
 
 
+def _installed_app_search_roots(wine_prefix: Path) -> list[Path]:
+    roots = [
+        _repo_root() / "state" / "wine-3dvista",
+        _repo_root() / "state" / "wine-pano2vr",
+        wine_prefix,
+    ]
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root)
+        if key not in seen:
+            deduped.append(root)
+            seen.add(key)
+    return deduped
+
+
+def _find_installed_apps(roots: list[Path]) -> list[dict[str, object]]:
+    provider_patterns = {
+        "pano2vr": ("Pano2VR*.exe", "pano2vr*.exe"),
+        "3dvista": ("3DVista*.exe", "VirtualTour*.exe", "3DVVirtualTour*.exe"),
+    }
+    rows: list[dict[str, object]] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for program_root_name in ("Program Files", "Program Files (x86)"):
+            program_root = root / "drive_c" / program_root_name
+            if not program_root.is_dir():
+                continue
+            for provider, patterns in provider_patterns.items():
+                for pattern in patterns:
+                    for path in sorted(program_root.rglob(pattern)):
+                        if not path.is_file():
+                            continue
+                        rows.append(
+                            {
+                                "provider": provider,
+                                "path": str(path.resolve()),
+                                "size_bytes": path.stat().st_size,
+                            }
+                        )
+    return rows
+
+
+def _provider_counts(rows: list[dict[str, object]], providers: tuple[str, ...]) -> dict[str, int]:
+    counts = {provider: 0 for provider in providers}
+    for row in rows:
+        provider = str(row.get("provider") or "").strip().lower()
+        if provider in counts:
+            counts[provider] += 1
+    return counts
+
+
 def _provider_ready_counts(discovery: dict[str, Any]) -> dict[str, int]:
     counts = {"3dvista": 0, "pano2vr": 0}
     for row in list(discovery.get("imports") or []):
@@ -185,6 +238,9 @@ def build_vendor_tooling_receipt(
     discovery = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=tour_root)
     provider_ready_counts = _provider_ready_counts(discovery)
     installers = _find_installers(installer_roots)
+    installed_apps = _find_installed_apps(_installed_app_search_roots(wine_prefix))
+    installer_counts = _provider_counts(installers, ("3dvista", "pano2vr"))
+    installed_app_counts = _provider_counts(installed_apps, ("3dvista", "pano2vr"))
     wine = _command_version("wine", "--version")
     wine64 = _command_version("wine64", "--version")
     xvfb = _command_version("xvfb-run", "--help")
@@ -255,11 +311,32 @@ def build_vendor_tooling_receipt(
                 "action": "install missing runtime tools or route reconstruction generation to the prepared operator host lane",
             }
         )
-    if not installers:
+    missing_installers = [
+        provider
+        for provider in ("3dvista", "pano2vr")
+        if installer_counts.get(provider, 0) <= 0 and provider_ready_counts.get(provider, 0) <= 0
+    ]
+    if missing_installers:
         next_actions.append(
             {
                 "area": "vendor_installers",
-                "action": "download official Pano2VR/3DVista desktop installers into state/vendor_installers or provide complete verified exports",
+                "missing_providers": missing_installers,
+                "action": "download official desktop installers into state/vendor_installers or provide complete verified exports",
+            }
+        )
+    missing_installed_apps = [
+        provider
+        for provider in ("3dvista", "pano2vr")
+        if installer_counts.get(provider, 0) > 0
+        and installed_app_counts.get(provider, 0) <= 0
+        and provider_ready_counts.get(provider, 0) <= 0
+    ]
+    if missing_installed_apps:
+        next_actions.append(
+            {
+                "area": "vendor_desktop_apps",
+                "missing_providers": missing_installed_apps,
+                "action": "install the cached official desktop app under Wine or provide a complete verified export",
             }
         )
     for provider in missing_exports:
@@ -289,6 +366,10 @@ def build_vendor_tooling_receipt(
         },
         "installer_count": len(installers),
         "installers": installers[:20],
+        "installer_counts": installer_counts,
+        "installed_app_count": len(installed_apps),
+        "installed_apps": installed_apps[:20],
+        "installed_app_counts": installed_app_counts,
         "drop_dir": str(drop_dir.resolve()),
         "tour_root": str(tour_root.resolve()),
         "verified_export_ready_counts": provider_ready_counts,
