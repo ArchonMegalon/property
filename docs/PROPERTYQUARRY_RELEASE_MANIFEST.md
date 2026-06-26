@@ -13,13 +13,24 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `1c7352b81bf07c5e0832dada31b8452fd7eacec6` |
+| Runtime commit SHA | `67875b372cfe8a218b2c8df4c7bf180a0756d858` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | local compose redeploy on 2026-06-26 after `make deploy` for Teable oversized-field sync hardening, confirmed-distance route-preview copy, zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `67875b37` passed:
+
+- `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_does_not_use_generic_workspace_search tests/test_product_api_contracts.py::test_property_tour_followup_tasks_auto_process_user_visual_requests tests/test_product_api_contracts.py::test_request_property_visual_asset_keeps_explicit_workbench_floorplan` returned `3 passed`.
+- `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_account_does_not_embed_full_raw_preference_payload tests/test_product_api_contracts.py::test_property_tour_followup_tasks_auto_process_user_visual_requests tests/test_product_api_contracts.py::test_request_property_visual_asset_keeps_explicit_workbench_floorplan tests/test_product_api_contracts.py::test_request_property_visual_asset_rejects_workbench_floorplan_default` returned `4 passed`.
+- `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_does_not_use_generic_workspace_search tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_renders_what_matters_as_comboboxes tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_skips_first_paint_side_effects` returned `3 passed`.
+- `python3 -m py_compile ea/app/api/routes/landing_view_models.py ea/app/api/routes/product_api_contracts.py ea/app/api/routes/product_api_delivery.py ea/app/product/service.py`
+- `git diff --check`
+- Furniture-style preferences now expose five render-style choices with examples: Warm Scandinavian, IKEA practical, Urban jungle, Landhaus, and Gilded penthouse.
+- Plan limits are explicit: Free can preference one generated style, Plus three, Agent five. Already-rendered style assets remain viewer-accessible independent of plan.
+- Visual requests and queued property-tour follow-up tasks preserve `diorama_style_hint`, so generated tours and walkthroughs use the selected style instead of dropping back to the generic prompt.
 
 The candidate at `1c7352b8` passed:
 
