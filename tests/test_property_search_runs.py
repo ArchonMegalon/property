@@ -442,6 +442,30 @@ def test_ranked_candidates_prefer_explicit_ranking_score_when_present() -> None:
     assert [row["source_ref"] for row in ranked[:2]] == ["b", "a"]
 
 
+def test_ranked_candidates_can_return_all_agent_tier_rows_without_global_slice() -> None:
+    candidates = [
+        {
+            "source_ref": f"home-{index:02d}",
+            "fit_score": 100 - index,
+            "ranking_score": 100 - index,
+            "title": f"Ranked home {index:02d}",
+        }
+        for index in range(75)
+    ]
+
+    default_ranked = product_service._property_search_ranked_candidates_from_sources(
+        [{"source_label": "Source A", "research_candidates": candidates}]
+    )
+    unlimited_ranked = product_service._property_search_ranked_candidates_from_sources(
+        [{"source_label": "Source A", "research_candidates": candidates}],
+        limit=None,
+    )
+
+    assert len(default_ranked) == 50
+    assert len(unlimited_ranked) == 75
+    assert unlimited_ranked[-1]["rank"] == 75
+
+
 def test_ranked_candidates_exclude_false_positive_and_repair_only_rows() -> None:
     ranked = product_service._property_search_ranked_candidates_from_sources(
         [

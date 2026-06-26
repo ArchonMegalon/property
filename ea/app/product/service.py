@@ -7474,7 +7474,7 @@ def _property_candidate_search_page_display(candidate: dict[str, object]) -> dic
     return row
 
 
-def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int = 50) -> list[dict[str, object]]:
+def _property_search_ranked_candidates_from_sources(sources: object, *, limit: int | None = 50) -> list[dict[str, object]]:
     rows_by_key: dict[str, dict[str, object]] = {}
     order_keys: list[str] = []
 
@@ -7650,6 +7650,8 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
     rows.sort(key=lambda item: float(item.get("ranking_score") or item.get("investment_score") or item.get("fit_score") or 0.0), reverse=True)
     for index, row in enumerate(rows, start=1):
         row["rank"] = index
+    if limit is None:
+        return rows
     return rows[: max(1, min(int(limit or 50), 200))]
 
 
@@ -37098,7 +37100,10 @@ class ProductService:
             request_preferences=request_preferences,
             payload=payload,
         )
-        payload["ranked_candidates"] = _property_search_ranked_candidates_from_sources(source_summaries)
+        payload["ranked_candidates"] = _property_search_ranked_candidates_from_sources(
+            source_summaries,
+            limit=None if unlimited_provider_results else 50,
+        )
         research_tasks = _property_research_tasks_from_result(payload)
         payload.update(_property_research_task_counts(research_tasks))
         payload["research_tasks"] = research_tasks[:50]
