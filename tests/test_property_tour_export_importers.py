@@ -184,6 +184,83 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
     assert "created with the trial" not in json.dumps(vista_contract).lower()
 
 
+def test_3dvista_white_label_contract_becomes_ready_for_propertyquarry_source_project(tmp_path: Path) -> None:
+    slug = "propertyquarry-ready-3dvista-white-label"
+    _write_base_tour(tmp_path, slug)
+    verified_export = tmp_path / "verified_3dvista_ready"
+    verified_export.mkdir()
+    (verified_export / "index.html").write_text(
+        "<!doctype html><script src='runtime/app.js'></script><div>3DVista export shell</div>",
+        encoding="utf-8",
+    )
+    (verified_export / "runtime").mkdir()
+    (verified_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+
+    imported = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--export-dir",
+        str(verified_export),
+        "--source-project",
+        "propertyquarry",
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    verifier = build_property_tour_control_receipt(
+        tour_root=tmp_path / "public_tours",
+        require_all_provider_modes=True,
+    )
+    vista_contract = verifier["delivery_contracts"]["3dvista"]
+    assert verifier["provider_counts"]["3dvista"] == 1
+    assert vista_contract["white_label_contract"]["status"] == "ready"
+    assert vista_contract["white_label_contract"]["cross_project_warning"] == ""
+    proof_basis = vista_contract["white_label_contract"]["proof_basis"]
+    assert proof_basis["source_projects"] == ["propertyquarry"]
+    assert proof_basis["ready_basis"] == ["propertyquarry_non_trial_vt_pro_export"]
+    assert proof_basis["non_trial_export_verified"] is True
+    assert proof_basis["propertyquarry_tour_metadata"] is True
+
+
+def test_3dvista_white_label_contract_requires_review_for_non_propertyquarry_source_project(tmp_path: Path) -> None:
+    slug = "chummer-runsite-3dvista-white-label"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "display_title": "Chummer runsite 3DVista",
+            "three_d_vista_entry_relpath": "3dvista/index.html",
+            "three_d_vista_import": {
+                "source": "3dvista_horizon_runsite_export",
+                "source_project": "chummer-runsite-horizon",
+            },
+            "three_d_vista_white_label_proof": {
+                "source_project": "chummer-runsite-horizon",
+                "source": "runsite_export",
+            },
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    (bundle_dir / "3dvista").mkdir(exist_ok=True)
+    (bundle_dir / "3dvista" / "index.html").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script><div>3DVista export shell</div>",
+        encoding="utf-8",
+    )
+
+    verifier = build_property_tour_control_receipt(
+        tour_root=tmp_path / "public_tours",
+        require_all_provider_modes=True,
+    )
+    vista_contract = verifier["delivery_contracts"]["3dvista"]
+    assert vista_contract["white_label_contract"]["status"] == "review_required"
+    assert "Chummer RunSite/Horizon" in vista_contract["white_label_contract"]["cross_project_warning"]
+    proof_basis = vista_contract["white_label_contract"]["proof_basis"]
+    assert proof_basis["source_projects"] == ["chummer-runsite-horizon"]
+    assert proof_basis["ready_basis"] == []
+
+
 def test_tour_delivery_contract_reports_ready_public_safe_payload(tmp_path: Path) -> None:
     slug = "matterport-contract"
     bundle_dir = _write_base_tour(tmp_path, slug)
@@ -306,6 +383,60 @@ def test_tour_delivery_contract_checker_rejects_matterport_url_leak(tmp_path: Pa
 
     assert receipt["status"] == "fail"
     assert any("my.matterport.com/show" in failure for failure in receipt["failures"])
+
+
+def test_tour_delivery_contract_checker_rejects_3dvista_ready_without_propertyquarry_proof_basis(tmp_path: Path) -> None:
+    receipt_path = tmp_path / "tour-control.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "ready_provider_modes": ["matterport", "3dvista"],
+                "missing_provider_modes": ["pano2vr", "krpano", "magicfit"],
+                "delivery_contracts": {
+                    provider: {
+                        "schema": "propertyquarry.tour_delivery_contract.v1",
+                        "provider": provider,
+                        "status": "ready" if provider in {"matterport", "3dvista"} else "blocked",
+                        "ready_payload": {
+                            "provider": provider,
+                            "ready_count": 1 if provider in {"matterport", "3dvista"} else 0,
+                            "sample_controls": [
+                                {
+                                    "slug": f"{provider}-tour",
+                                    "title": f"{provider} tour",
+                                    "control_path": f"/tours/{provider}-tour/control/{provider}",
+                                    "evidence": f"local_{provider}_control",
+                                }
+                            ]
+                            if provider in {"matterport", "3dvista"}
+                            else [],
+                        },
+                        "blocked_reason": "" if provider in {"matterport", "3dvista"} else f"missing_{provider}",
+                        "required_to_send": [] if provider in {"matterport", "3dvista"} else ["attach verified evidence"],
+                        "white_label_contract": {
+                            "schema": "propertyquarry.tour_white_label_contract.v1",
+                            "provider": provider,
+                            "status": "ready" if provider in {"matterport", "3dvista"} else "blocked",
+                            "required_to_white_label": [] if provider in {"matterport", "3dvista"} else ["attach verified evidence"],
+                            "source_project": "propertyquarry",
+                            "cross_project_warning": "",
+                            "proof_basis": {} if provider == "3dvista" else {},
+                        },
+                        "notes": [
+                            "The viewer presents tour media only. PropertyQuarry remains source of truth for listing facts, ranking, evidence, pricing, entitlement, and customer decisions."
+                        ],
+                    }
+                    for provider in ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    receipt = build_tour_delivery_contract_receipt(receipt_path)
+
+    assert receipt["status"] == "fail"
+    assert any("3dvista ready white_label_contract must prove PropertyQuarry" in failure for failure in receipt["failures"])
 
 
 def test_discovery_rejects_trial_branded_3dvista_export(tmp_path: Path) -> None:

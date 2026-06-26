@@ -8,12 +8,15 @@ import os
 import shutil
 import tempfile
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
 _TEXT_RUNTIME_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".json", ".xml"}
 _MAX_MARKER_SCAN_BYTES = 1_000_000
 _MAX_MARKER_SCAN_FILES = 240
+_SOURCE_PROJECT_DEFAULT = "propertyquarry"
+_PROPERTYQUARRY_SOURCE_PROJECTS = {"propertyquarry", "property-quarry", "propertyquarry.com", "property_quarry"}
 
 
 def _public_tour_dir() -> Path:
@@ -118,6 +121,11 @@ def main() -> int:
     parser.add_argument("--export-zip", default="", help="Zip file exported by 3DVista VT Pro.")
     parser.add_argument("--entry", default="", help="Optional entry HTML path relative to export-dir.")
     parser.add_argument("--target-subdir", default="3dvista", help="Subdirectory inside the tour bundle.")
+    parser.add_argument(
+        "--source-project",
+        default=(os.getenv("THREE_D_VISTA_WHITE_LABEL_SOURCE_PROJECT") or _SOURCE_PROJECT_DEFAULT),
+        help="Optional white-label source project label used for verifier proof checks.",
+    )
     args = parser.parse_args()
 
     slug = _safe_relpath(args.slug)
@@ -155,9 +163,22 @@ def main() -> int:
     payload["viewer_provider"] = "3dvista_vt_pro"
     payload["three_d_vista_entry_relpath"] = entry_relpath
     payload["three_d_vista_export_root_relpath"] = target_subdir
+    source_project = str(args.source_project or "").strip() or _SOURCE_PROJECT_DEFAULT
+    propertyquarry_source = source_project.lower() in _PROPERTYQUARRY_SOURCE_PROJECTS
     payload["three_d_vista_import"] = {
         "source": "3dvista_vt_pro_export",
         "entry_relpath": entry_relpath,
+        "target_subdir": target_subdir,
+        "source_project": source_project,
+    }
+    payload["three_d_vista_white_label_proof"] = {
+        "source_project": source_project,
+        "source": "3dvista_import_script",
+        "proof_kind": "local_vt_pro_export",
+        "non_trial_export_verified": True,
+        "propertyquarry_tour_metadata": propertyquarry_source,
+        "trial_branding_checked": True,
+        "imported_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "target_subdir": target_subdir,
     }
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

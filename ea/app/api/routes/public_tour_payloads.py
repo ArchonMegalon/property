@@ -29,6 +29,8 @@ class PrivateTourReceipt:
     source_virtual_tour_url: str = ""
     source_virtual_tour_origin: str = ""
     panorama_source: str = ""
+    three_d_vista_import: dict[str, object] = field(default_factory=dict)
+    three_d_vista_white_label_proof: dict[str, object] = field(default_factory=dict)
     three_d_vista_url: str = ""
     matterport_url: str = ""
 
@@ -46,6 +48,12 @@ class PrivateTourReceipt:
             source_virtual_tour_url=str(source.get("source_virtual_tour_url") or "").strip(),
             source_virtual_tour_origin=str(source.get("source_virtual_tour_origin") or "").strip(),
             panorama_source=str(source.get("panorama_source") or "").strip(),
+            three_d_vista_import=dict(source.get("three_d_vista_import") or {})
+            if isinstance(source.get("three_d_vista_import"), dict)
+            else {},
+            three_d_vista_white_label_proof=dict(source.get("three_d_vista_white_label_proof") or {})
+            if isinstance(source.get("three_d_vista_white_label_proof"), dict)
+            else {},
             three_d_vista_url=str(source.get("three_d_vista_url") or "").strip(),
             matterport_url=str(source.get("matterport_url") or "").strip(),
         )
@@ -62,6 +70,8 @@ class PrivateTourReceipt:
             "source_virtual_tour_url": self.source_virtual_tour_url,
             "source_virtual_tour_origin": self.source_virtual_tour_origin,
             "panorama_source": self.panorama_source,
+            "three_d_vista_import": self.three_d_vista_import,
+            "three_d_vista_white_label_proof": self.three_d_vista_white_label_proof,
             "three_d_vista_url": self.three_d_vista_url,
             "matterport_url": self.matterport_url,
         }

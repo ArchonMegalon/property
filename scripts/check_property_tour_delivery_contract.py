@@ -81,12 +81,34 @@ def _check_white_label_contract(provider: str, contract: dict[str, Any], failure
     if status not in {"ready", "blocked", "review_required"}:
         failures.append(f"{provider} white_label_contract status must be ready, blocked, or review_required")
     requirements = list(white_label.get("required_to_white_label") or [])
-    if status == "ready" and requirements:
-        failures.append(f"{provider} ready white_label_contract must not require extra white-label actions")
+    warning = str(white_label.get("cross_project_warning") or "")
+    if status == "ready":
+        if requirements:
+            failures.append(f"{provider} ready white_label_contract must not require extra white-label actions")
+        if warning:
+            failures.append(f"{provider} ready white_label_contract should not include cross-project warning")
+    elif status in {"blocked", "review_required"}:
+        # keep requirements non-empty for blocked/review states
+        pass
     if status != "ready" and not requirements:
         failures.append(f"{provider} blocked/review white_label_contract must explain required white-label actions")
-    if provider == "3dvista" and "Chummer RunSite/Horizon" not in str(white_label.get("cross_project_warning") or ""):
-        failures.append("3dvista white_label_contract must preserve Chummer RunSite/Horizon separation warning")
+    if provider == "3dvista" and status != "ready" and "Chummer RunSite/Horizon" not in warning:
+        failures.append("3dvista white_label_contract should preserve Chummer RunSite/Horizon separation warning for non-ready mode")
+    if provider == "3dvista" and status == "ready":
+        proof_basis = white_label.get("proof_basis")
+        if not isinstance(proof_basis, dict):
+            failures.append("3dvista ready white_label_contract must expose proof_basis")
+            return
+        ready_basis = {
+            str(item or "").strip()
+            for item in list(proof_basis.get("ready_basis") or [])
+            if str(item or "").strip()
+        }
+        if not ready_basis.intersection({"propertyquarry_private_viewer", "propertyquarry_non_trial_vt_pro_export"}):
+            failures.append("3dvista ready white_label_contract must prove PropertyQuarry private viewer or non-trial VT Pro export basis")
+        source_projects = set(str(item or "").strip() for item in list(proof_basis.get("source_projects") or []))
+        if "propertyquarry" not in source_projects:
+            failures.append("3dvista ready white_label_contract proof_basis must include source project propertyquarry")
 
 
 def _check_ready_contract(provider: str, contract: dict[str, Any], failures: list[str]) -> None:

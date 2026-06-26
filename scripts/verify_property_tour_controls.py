@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -80,6 +81,8 @@ KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gall
 EQUIRECTANGULAR_MIN_RATIO = 1.9
 EQUIRECTANGULAR_MAX_RATIO = 2.1
 CLI_ENV_KEYS = {"KRPANO_LICENSE_DOMAIN", "KRPANO_LICENSE_KEY"}
+THREE_D_VISTA_WHITE_LABEL_SOURCE_PROJECT_TOKENS = ("propertyquarry", "property-quarry", "propertyquarry.com", "property_quarry")
+THREE_D_VISTA_CHUMMER_SOURCE_TOKENS = ("chummer", "horizon", "runsite")
 
 
 def _tour_root() -> Path:
@@ -137,6 +140,151 @@ def _safe_http_url(value: object, *, allowed_hosts: Iterable[str]) -> str:
 
 def _has_key(payload: dict[str, object], *keys: str) -> bool:
     return any(key in payload for key in keys)
+
+
+def _normalize_three_d_vista_source_project(raw: object) -> str:
+    candidate = str(raw or "").strip().lower()
+    if not candidate:
+        return ""
+    normalized = re.sub(r"[^a-z0-9]+", "-", candidate).strip("-")
+    if any(token in normalized for token in THREE_D_VISTA_WHITE_LABEL_SOURCE_PROJECT_TOKENS):
+        return "propertyquarry"
+    if any(token in normalized for token in THREE_D_VISTA_CHUMMER_SOURCE_TOKENS):
+        return "chummer-runsite-horizon"
+    return normalized
+
+
+def _three_d_vista_white_label_proof_project(payload: dict[str, object]) -> str:
+    raw_payload = payload.get("three_d_vista_white_label_proof")
+    if isinstance(raw_payload, dict):
+        for candidate in (
+            raw_payload.get("source_project"),
+            raw_payload.get("project"),
+            raw_payload.get("tenant"),
+            raw_payload.get("project_id"),
+            raw_payload.get("source"),
+            raw_payload.get("workspace"),
+        ):
+            normalized = _normalize_three_d_vista_source_project(candidate)
+            if normalized:
+                return normalized
+        nested = raw_payload.get("white_label")
+        if isinstance(nested, dict):
+            for candidate in (
+                nested.get("source_project"),
+                nested.get("project"),
+                nested.get("tenant"),
+                nested.get("project_id"),
+                nested.get("source"),
+                nested.get("workspace"),
+            ):
+                normalized = _normalize_three_d_vista_source_project(candidate)
+                if normalized:
+                    return normalized
+
+    import_payload = payload.get("three_d_vista_import")
+    if isinstance(import_payload, dict):
+        for candidate in (
+            import_payload.get("source_project"),
+            import_payload.get("tenant"),
+            import_payload.get("project"),
+            import_payload.get("source"),
+        ):
+            normalized = _normalize_three_d_vista_source_project(candidate)
+            if normalized:
+                return normalized
+    return ""
+
+
+def _truthy(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "verified", "ready", "pass"}
+
+
+def _three_d_vista_white_label_evidence(payload: dict[str, object]) -> dict[str, object]:
+    raw_payload = payload.get("three_d_vista_white_label_proof")
+    proof_payload = raw_payload if isinstance(raw_payload, dict) else {}
+    source_project = _three_d_vista_white_label_proof_project(payload)
+    proof_kind = str(proof_payload.get("proof_kind") or proof_payload.get("kind") or "").strip().lower()
+    private_viewer_verified = _truthy(
+        proof_payload.get("private_viewer_verified")
+        or proof_payload.get("private_viewer_delivered")
+        or proof_payload.get("propertyquarry_private_viewer_verified")
+    )
+    non_trial_export_verified = _truthy(
+        proof_payload.get("non_trial_export_verified")
+        or proof_payload.get("licensed_export_verified")
+        or proof_payload.get("vt_pro_export_verified")
+    )
+    propertyquarry_tour_metadata = _truthy(
+        proof_payload.get("propertyquarry_tour_metadata")
+        or proof_payload.get("propertyquarry_owned_tour_metadata")
+        or proof_payload.get("property_tour_metadata_verified")
+    )
+    trial_branding_checked = _truthy(proof_payload.get("trial_branding_checked"))
+    ready_basis = ""
+    if source_project == "propertyquarry" and private_viewer_verified:
+        ready_basis = "propertyquarry_private_viewer"
+    elif (
+        source_project == "propertyquarry"
+        and non_trial_export_verified
+        and propertyquarry_tour_metadata
+    ):
+        ready_basis = "propertyquarry_non_trial_vt_pro_export"
+    return {
+        "source_project": source_project,
+        "proof_kind": proof_kind,
+        "private_viewer_verified": private_viewer_verified,
+        "non_trial_export_verified": non_trial_export_verified,
+        "propertyquarry_tour_metadata": propertyquarry_tour_metadata,
+        "trial_branding_checked": trial_branding_checked,
+        "ready_basis": ready_basis,
+    }
+
+
+def _three_d_vista_cross_project_warning(source_projects: set[str]) -> str:
+    non_property_projects = sorted(
+        project for project in source_projects if project and project != "propertyquarry"
+    )
+    base_warning = (
+        "Chummer RunSite/Horizon white-label readiness is reusable process evidence only; it is not PropertyQuarry tour proof."
+    )
+    if non_property_projects:
+        return f"{base_warning} Observed white-label sources: {', '.join(non_property_projects)}."
+    return f"{base_warning} A PropertyQuarry-owned white-label proof is still required."
+
+
+def _provider_3d_white_label_status(
+    *,
+    provider: str,
+    provider_counts: dict[str, int],
+    missing: list[str],
+    evidence_rows: list[dict[str, object]],
+) -> tuple[str, list[str], str, dict[str, object]]:
+    if provider != "3dvista":
+        status = "ready" if provider not in missing and provider_counts.get(provider, 0) > 0 else "blocked"
+        return status, (list(PROVIDER_WHITE_LABEL_REQUIREMENTS[provider]) if status == "blocked" else []), "", {}
+
+    source_projects = {
+        str(row.get("source_project") or "").strip()
+        for row in evidence_rows
+        if str(row.get("source_project") or "").strip()
+    }
+    ready_rows = [row for row in evidence_rows if str(row.get("ready_basis") or "").strip()]
+    proof_basis = {
+        "source_projects": sorted(source_projects),
+        "ready_basis": sorted({str(row.get("ready_basis") or "").strip() for row in ready_rows if str(row.get("ready_basis") or "").strip()}),
+        "private_viewer_verified": any(bool(row.get("private_viewer_verified")) for row in evidence_rows),
+        "non_trial_export_verified": any(bool(row.get("non_trial_export_verified")) for row in evidence_rows),
+        "propertyquarry_tour_metadata": any(bool(row.get("propertyquarry_tour_metadata")) for row in evidence_rows),
+        "trial_branding_checked": any(bool(row.get("trial_branding_checked")) for row in evidence_rows),
+    }
+    if provider in missing:
+        return "blocked", list(PROVIDER_WHITE_LABEL_REQUIREMENTS[provider]), _three_d_vista_cross_project_warning(source_projects), proof_basis
+    if ready_rows:
+        return "ready", [], "", proof_basis
+    return "review_required", list(PROVIDER_WHITE_LABEL_REQUIREMENTS[provider]), _three_d_vista_cross_project_warning(source_projects), proof_basis
 
 
 def _pano2vr_entry_relpath(payload: dict[str, object]) -> str:
@@ -405,7 +553,10 @@ def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
         "pano2vr_root_relpath",
         "source_virtual_tour_url",
         "source_virtual_tour_origin",
+        "three_d_vista_import",
+        "three_d_vista_white_label_proof",
         "three_d_vista_url",
+        "threedvista_url",
         "matterport_url",
     }
     return {key: receipt.get(key) for key in allowed_keys if str(receipt.get(key) or "").strip()}
@@ -651,29 +802,13 @@ def _provider_delivery_contracts(
     provider_counts: dict[str, int],
     provider_blockers: dict[str, dict[str, object]],
     missing_provider_modes: list[str],
+    provider_ready_controls: dict[str, list[dict[str, object]]],
+    three_d_vista_white_label_evidence: list[dict[str, object]],
 ) -> dict[str, dict[str, object]]:
     missing = set(missing_provider_modes)
     contracts: dict[str, dict[str, object]] = {}
     for provider in PROVIDER_MODES:
-        ready_controls: list[dict[str, object]] = []
-        for tour in tours:
-            slug = str(tour.get("slug") or "").strip()
-            title = str(tour.get("title") or slug).strip()
-            for control in list(tour.get("controls") or []):
-                if not isinstance(control, dict):
-                    continue
-                if str(control.get("provider") or "").strip().lower() != provider:
-                    continue
-                if str(control.get("status") or "").strip().lower() != "ready":
-                    continue
-                ready_controls.append(
-                    {
-                        "slug": slug,
-                        "title": title[:160],
-                        "control_path": str(control.get("control_path") or "").strip(),
-                        "evidence": str(control.get("evidence") or "").strip(),
-                    }
-                )
+        ready_controls = list(provider_ready_controls.get(provider) or [])
         blocker = dict(provider_blockers.get(provider) or {})
         reasons = [dict(row) for row in list(blocker.get("reasons") or []) if isinstance(row, dict)]
         blocked_reason = (
@@ -681,15 +816,23 @@ def _provider_delivery_contracts(
             if reasons
             else (f"missing_{provider}_evidence" if provider in missing else "")
         )
+        (
+            white_label_status,
+            white_label_required_to_white_label,
+            white_label_warning,
+            white_label_proof_basis,
+        ) = _provider_3d_white_label_status(
+            provider=provider,
+            provider_counts=provider_counts,
+            missing=missing_provider_modes,
+            evidence_rows=three_d_vista_white_label_evidence if provider == "3dvista" else [],
+        )
         ready_payload = {
             "provider": provider,
             "ready_count": int(provider_counts.get(provider) or 0),
             "sample_controls": ready_controls[:5],
             "manifest_url": "",
         }
-        white_label_status = "ready" if ready_controls and provider not in missing else "blocked"
-        if provider == "3dvista" and ready_controls:
-            white_label_status = "review_required"
         contracts[provider] = {
             "schema": "propertyquarry.tour_delivery_contract.v1",
             "provider": provider,
@@ -701,13 +844,10 @@ def _provider_delivery_contracts(
                 "schema": "propertyquarry.tour_white_label_contract.v1",
                 "provider": provider,
                 "status": white_label_status,
-                "required_to_white_label": [] if white_label_status == "ready" else list(PROVIDER_WHITE_LABEL_REQUIREMENTS[provider]),
+                "required_to_white_label": white_label_required_to_white_label,
                 "source_project": "propertyquarry",
-                "cross_project_warning": (
-                    "Chummer RunSite/Horizon white-label readiness is reusable process evidence only; it is not PropertyQuarry tour proof."
-                    if provider == "3dvista"
-                    else ""
-                ),
+                "cross_project_warning": white_label_warning if provider == "3dvista" else "",
+                "proof_basis": white_label_proof_basis if provider == "3dvista" else {},
             },
             "notes": [
                 "Public-safe contract only; raw external provider URLs and private listing fields are intentionally omitted.",
@@ -789,6 +929,8 @@ def build_property_tour_control_receipt(
     provider_counts = {provider: 0 for provider in PROVIDER_MODES}
     action_counts = {provider: 0 for provider in PROVIDER_MODES}
     provider_blocker_reason_counts: dict[str, dict[str, dict[str, object]]] = {provider: {} for provider in PROVIDER_MODES}
+    provider_ready_controls: dict[str, list[dict[str, object]]] = {provider: [] for provider in PROVIDER_MODES}
+    three_d_vista_white_label_evidence: list[dict[str, object]] = []
     magicfit_playback_evidence_count = 0
     magicfit_playback_evidence: list[dict[str, object]] = []
     failed_probes = 0
@@ -806,6 +948,7 @@ def build_property_tour_control_receipt(
             continue
         payload = _payload_with_private_provider_receipt(bundle_dir, payload)
         slug = str(payload.get("slug") or manifest_path.parent.name).strip()
+        three_d_vista_white_label_evidence_row = _three_d_vista_white_label_evidence(payload)
         controls = _control_candidates(slug=slug, bundle_dir=bundle_dir, payload=payload)
         for control in controls:
             provider = str(control.get("provider") or "").strip().lower()
@@ -828,6 +971,16 @@ def build_property_tour_control_receipt(
                     control["evidence"] = "live_probed_magicfit_video_url"
             if provider in provider_counts and str(control.get("status") or "").strip().lower() == "ready":
                 provider_counts[provider] += 1
+                provider_ready_controls[provider].append(
+                    {
+                        "slug": slug,
+                        "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
+                        "control_path": str(control.get("control_path") or "").strip(),
+                        "evidence": str(control.get("evidence") or "").strip(),
+                    }
+                )
+                if provider == "3dvista":
+                    three_d_vista_white_label_evidence.append(three_d_vista_white_label_evidence_row)
                 if provider == "magicfit" and str(control.get("evidence") or "").strip() in {
                     "local_magicfit_playable_video",
                     "live_probed_magicfit_video_url",
@@ -879,7 +1032,15 @@ def build_property_tour_control_receipt(
                 "title": str(payload.get("display_title") or payload.get("title") or slug).strip()[:160],
                 "status": "ready" if ready_controls else "blocked_missing_verified_controls",
                 "blocked_reason": "" if ready_controls else _blocked_control_reason(payload),
-                "controls": controls,
+                "controls": [
+                    {
+                        "provider": str(control.get("provider") or "").strip(),
+                        "status": str(control.get("status") or "").strip(),
+                        "control_path": str(control.get("control_path") or "").strip(),
+                        "evidence": str(control.get("evidence") or "").strip(),
+                    }
+                    for control in controls
+                ],
                 "missing_evidence": missing_public_evidence,
                 "missing_provider_modes": tour_missing_provider_modes,
             }
@@ -911,6 +1072,8 @@ def build_property_tour_control_receipt(
             provider_counts=provider_counts,
             provider_blockers=provider_blockers,
             missing_provider_modes=missing_provider_modes,
+            provider_ready_controls=provider_ready_controls,
+            three_d_vista_white_label_evidence=three_d_vista_white_label_evidence,
         ),
         "magicfit_playback": {
             "playback_ok": provider_counts.get("magicfit", 0) == 0 or magicfit_playback_evidence_count == provider_counts.get("magicfit", 0),
