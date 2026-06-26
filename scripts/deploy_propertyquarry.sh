@@ -424,6 +424,19 @@ fi
 mkdir -p _completion/smoke
 cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticated-latest.json
 
+market_scope_smoke_receipt="/tmp/propertyquarry_deploy_market_scope_smoke.json"
+market_scope_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8}"
+if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_market_scope_smoke.py \
+  --base-url "${base_url}" \
+  --principal-id "${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+  --timeout-seconds "${market_scope_smoke_timeout_seconds}" \
+  --write "${market_scope_smoke_receipt}" >/dev/null; then
+  echo "PropertyQuarry market-scope smoke failed." >&2
+  cat "${market_scope_smoke_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+cp "${market_scope_smoke_receipt}" _completion/smoke/property-live-market-scope-latest.json
+
 provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
 provider_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SMOKE_TIMEOUT_SECONDS:-20}"
 if ! EA_API_TOKEN="${api_token}" \
