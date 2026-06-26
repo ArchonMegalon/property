@@ -29,6 +29,20 @@ INSTALLER_PATTERNS = (
     "VirtualTour*.exe",
     "VirtualTour*.msi",
 )
+OFFICIAL_INSTALLER_SOURCES = {
+    "3dvista": {
+        "product": "3DVista VT Pro",
+        "download_page": "https://www.3dvista.com/en/download/",
+        "account_page": "https://cloud.3dvista.com",
+        "operator_note": "Use the owned 3DVista account to download/export; keep private credentials out of tracked receipts.",
+    },
+    "pano2vr": {
+        "product": "Pano2VR 8 Pro",
+        "download_page": "https://ggnome.com/pano2vr-download/",
+        "account_page": "https://ggnome.com/account/",
+        "operator_note": "The Garden Gnome download may be Cloudflare-challenged for headless curl; download with a browser if the host fetch returns 403.",
+    },
+}
 
 
 def _repo_root() -> Path:
@@ -232,6 +246,24 @@ def _provider_counts(rows: list[dict[str, object]], providers: tuple[str, ...]) 
     return counts
 
 
+def _installer_source_rows(providers: list[str]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for provider in providers:
+        source = OFFICIAL_INSTALLER_SOURCES.get(provider)
+        if not source:
+            continue
+        rows.append(
+            {
+                "provider": provider,
+                "product": str(source["product"]),
+                "download_page": str(source["download_page"]),
+                "account_page": str(source["account_page"]),
+                "operator_note": str(source["operator_note"]),
+            }
+        )
+    return rows
+
+
 def _provider_ready_counts(discovery: dict[str, Any]) -> dict[str, int]:
     counts = {"3dvista": 0, "pano2vr": 0}
     for row in list(discovery.get("imports") or []):
@@ -339,6 +371,7 @@ def build_vendor_tooling_receipt(
                 "area": "vendor_installers",
                 "missing_providers": missing_installers,
                 "action": "download official desktop installers into state/vendor_installers or provide complete verified exports",
+                "official_sources": _installer_source_rows(missing_installers),
             }
         )
     missing_installed_apps = [
@@ -362,6 +395,11 @@ def build_vendor_tooling_receipt(
                 "area": "verified_export",
                 "provider": provider,
                 "action": f"place a complete verified {provider} export folder or zip into the prepared PropertyQuarry drop directory",
+                "accepted_layouts": [
+                    f"<drop>/<slug>/{provider}/",
+                    f"<drop>/{provider}/<slug>/",
+                    "or a zip file inside either folder",
+                ],
             }
         )
     return {
@@ -384,6 +422,7 @@ def build_vendor_tooling_receipt(
         "installer_count": len(installers),
         "installers": installers[:20],
         "installer_counts": installer_counts,
+        "official_installer_sources": _installer_source_rows(["3dvista", "pano2vr"]),
         "installed_app_count": len(installed_apps),
         "installed_apps": installed_apps[:20],
         "installed_app_counts": installed_app_counts,

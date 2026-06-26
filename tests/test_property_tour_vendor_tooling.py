@@ -51,6 +51,15 @@ def test_vendor_tooling_receipt_reports_missing_3dvista_and_pano2vr_exports(tmp_
     assert receipt["runtime_generated_tour_tools"] == {}
     assert receipt["verified_export_ready_counts"] == {"3dvista": 0, "pano2vr": 0}
     assert receipt["missing_verified_exports"] == ["3dvista", "pano2vr"]
+    assert {row["provider"] for row in receipt["official_installer_sources"]} == {"3dvista", "pano2vr"}
+    assert any(
+        row["area"] == "vendor_installers"
+        and {source["provider"] for source in row["official_sources"]} == {"3dvista", "pano2vr"}
+        for row in receipt["next_actions"]
+    )
+    export_actions = [row for row in receipt["next_actions"] if row["area"] == "verified_export"]
+    assert {row["provider"] for row in export_actions} == {"3dvista", "pano2vr"}
+    assert all("or a zip file inside either folder" in row["accepted_layouts"] for row in export_actions)
     assert "password" not in serialized
     assert "license_key" not in serialized
     assert "reset" not in serialized
