@@ -165,6 +165,8 @@ def _find_installers(roots: list[Path]) -> list[dict[str, object]]:
 
 def _installed_app_search_roots(wine_prefix: Path) -> list[Path]:
     roots = [
+        _repo_root() / "state" / "vendor_apps" / "3dvista",
+        _repo_root() / "state" / "vendor_apps" / "pano2vr",
         _repo_root() / "state" / "wine-3dvista",
         _repo_root() / "state" / "wine-pano2vr",
         wine_prefix,
@@ -188,6 +190,19 @@ def _find_installed_apps(roots: list[Path]) -> list[dict[str, object]]:
     for root in roots:
         if not root.is_dir():
             continue
+        for provider, patterns in provider_patterns.items():
+            for pattern in patterns:
+                for path in sorted(root.glob(pattern)):
+                    if not path.is_file():
+                        continue
+                    rows.append(
+                        {
+                            "provider": provider,
+                            "path": str(path.resolve()),
+                            "size_bytes": path.stat().st_size,
+                            "layout": "portable_extract",
+                        }
+                    )
         for program_root_name in ("Program Files", "Program Files (x86)"):
             program_root = root / "drive_c" / program_root_name
             if not program_root.is_dir():
@@ -202,6 +217,7 @@ def _find_installed_apps(roots: list[Path]) -> list[dict[str, object]]:
                                 "provider": provider,
                                 "path": str(path.resolve()),
                                 "size_bytes": path.stat().st_size,
+                                "layout": "wine_program_files",
                             }
                         )
     return rows
@@ -233,12 +249,13 @@ def build_vendor_tooling_receipt(
     tour_root: Path,
     wine_prefix: Path,
     installer_roots: list[Path],
+    installed_app_roots: list[Path] | None = None,
     runtime_container: str = "",
 ) -> dict[str, Any]:
     discovery = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=tour_root)
     provider_ready_counts = _provider_ready_counts(discovery)
     installers = _find_installers(installer_roots)
-    installed_apps = _find_installed_apps(_installed_app_search_roots(wine_prefix))
+    installed_apps = _find_installed_apps(installed_app_roots if installed_app_roots is not None else _installed_app_search_roots(wine_prefix))
     installer_counts = _provider_counts(installers, ("3dvista", "pano2vr"))
     installed_app_counts = _provider_counts(installed_apps, ("3dvista", "pano2vr"))
     wine = _command_version("wine", "--version")

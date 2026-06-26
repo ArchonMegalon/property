@@ -83,6 +83,7 @@ def test_vendor_tooling_distinguishes_cached_installer_from_installed_app(tmp_pa
         tour_root=tmp_path / "public_tours",
         wine_prefix=wine_prefix,
         installer_roots=[installer_root],
+        installed_app_roots=[wine_prefix],
         runtime_container="",
     )
 
@@ -97,12 +98,31 @@ def test_vendor_tooling_distinguishes_cached_installer_from_installed_app(tmp_pa
         tour_root=tmp_path / "public_tours",
         wine_prefix=wine_prefix,
         installer_roots=[installer_root],
+        installed_app_roots=[wine_prefix],
         runtime_container="",
     )
 
     assert [row["provider"] for row in installed_apps] == ["3dvista"]
     assert receipt_with_app["installed_app_counts"]["3dvista"] == 1
     assert not any(row["area"] == "vendor_desktop_apps" and "3dvista" in row.get("missing_providers", []) for row in receipt_with_app["next_actions"])
+
+
+def test_vendor_tooling_detects_portable_extracted_3dvista_app(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    portable_root = tmp_path / "state" / "vendor_apps" / "3dvista"
+    portable_root.mkdir(parents=True)
+    (portable_root / "3DVista Virtual Tour.exe").write_bytes(b"MZ")
+
+    installed_apps = _find_installed_apps([portable_root])
+
+    assert installed_apps == [
+        {
+            "provider": "3dvista",
+            "path": str((portable_root / "3DVista Virtual Tour.exe").resolve()),
+            "size_bytes": 2,
+            "layout": "portable_extract",
+        }
+    ]
 
 
 def test_vendor_tooling_default_installer_roots_do_not_scan_tmp() -> None:
