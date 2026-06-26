@@ -34,6 +34,7 @@ COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_
 COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
 COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py
 COPY scripts/verify_property_tour_vendor_tooling.py /app/scripts/verify_property_tour_vendor_tooling.py
+COPY scripts/intake_3dvista_gold_artifact.py /app/scripts/intake_3dvista_gold_artifact.py
 COPY ea/app /app/app
 COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY LTDs.md /app/LTDs.md
