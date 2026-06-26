@@ -13,13 +13,24 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `43b78088514637f6f8f1e2bfd4b8e2ce675431ee` |
+| Runtime commit SHA | `0e3c364d9d030b8c3c1b301b55aa4f274b977da1` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | local compose redeploy on 2026-06-25 after `make deploy` for zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, and current gold-status blocker reconciliation |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The candidate at `0e3c364` passed:
+
+- `PYTHONPATH=ea python3 -m pytest -q tests/test_ltd_critical_entries_gate.py tests/test_ltd_flagship_subset_gate.py tests/test_ltd_inventory_markdown.py`
+- `PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py`
+- Pano2VR ownership is now receipt-verified in `LTDs.md` from Garden Gnome order `#38984` dated 2026-06-24 for Product `pano2vr-8x-pro`, ID `nferpd44`, paid by PayPal for EUR 598.80 including VAT.
+- The normalized local `.env` Pano2VR license key was checked against the receipt without printing it; tracked files intentionally store only receipt metadata, not the key.
+- 3DVista ownership is now receipt-verified in `LTDs.md` from 2026-06-10 order emails for `3DVista VT Pro` and `Branded Pack`; invoice IDs `60076` and `60074` are recorded without storing passwords, reset tokens, invoice signatures, or private invoice links in tracked files.
+- The local ignored `.env` contains 3DVista control-panel credentials for later login/export verification; tracked files intentionally store only receipt metadata.
+- Current gold status remains `blocked` because ownership proof does not replace the required verified 3DVista/Pano2VR export/control evidence. The remaining blockers are still missing verified `3dvista` and `pano2vr` tour evidence/export drops and unresolved `billing.propertyquarry.com` DNS.
+- No app runtime redeploy was required for this candidate because the change was non-secret LTD receipt metadata.
 
 The candidate at `43b7808` passed:
 
