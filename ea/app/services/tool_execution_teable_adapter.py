@@ -12,12 +12,54 @@ from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocat
 from app.services.tool_execution_common import ToolExecutionError
 
 
+TEABLE_RECORD_FIELDS_SAFE_MAX_BYTES = 900_000
+
+
 def _jsonable_field_value(value: object) -> object:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, (list, tuple, dict)):
         return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
     return str(value)
+
+
+def _field_payload_size(fields: dict[str, Any]) -> int:
+    return len(json.dumps(fields, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _compact_oversized_fields(fields: dict[str, Any], *, max_bytes: int = TEABLE_RECORD_FIELDS_SAFE_MAX_BYTES) -> dict[str, Any]:
+    if _field_payload_size(fields) <= max_bytes:
+        return fields
+    compacted = dict(fields)
+    candidates = sorted(
+        (
+            (len(str(value).encode("utf-8")), key)
+            for key, value in compacted.items()
+            if isinstance(value, str) and key != "projection_id"
+        ),
+        reverse=True,
+    )
+    for _size, key in candidates:
+        value = str(compacted.get(key) or "")
+        if len(value.encode("utf-8")) <= 2048:
+            continue
+        digest = uuid.uuid5(uuid.NAMESPACE_URL, value).hex[:16]
+        compacted[key] = json.dumps(
+            {
+                "truncated": True,
+                "reason": "teable_record_fields_max_bytes",
+                "sha16": digest,
+                "original_bytes": len(value.encode("utf-8")),
+                "preview": value[:1200],
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        if _field_payload_size(compacted) <= max_bytes:
+            return compacted
+    if _field_payload_size(compacted) > max_bytes:
+        raise ToolExecutionError("teable_record_fields_max_bytes")
+    return compacted
 
 
 class TeableToolAdapter:
@@ -214,6 +256,7 @@ class TeableToolAdapter:
                     for field_name, field_value in dict(row or {}).items()
                     if str(field_name or "").strip()
                 }
+                normalized_fields = _compact_oversized_fields(normalized_fields)
                 projection_id = str(normalized_fields.get(key_field) or "").strip()
                 if not projection_id:
                     raise ToolExecutionError(f"teable_projection_key_missing:{table_name}:{key_field}")

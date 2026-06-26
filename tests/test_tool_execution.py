@@ -494,6 +494,72 @@ def test_tool_execution_service_executes_teable_table_sync(monkeypatch: pytest.M
     assert isinstance(observed[1][2]["records"][0]["fields"]["editable_fields_allowlist"], str)
 
 
+def test_teable_table_sync_compacts_oversized_json_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+    monkeypatch.setenv(
+        "TEABLE_TABLE_SYNC_CONFIG_JSON",
+        json.dumps(
+            {
+                "propertyquarry_preferences": {
+                    "table_id": "tbl_propertyquarry_preferences",
+                    "key_field": "projection_id",
+                    "field_key_type": "name",
+                }
+            }
+        ),
+    )
+    observed: list[dict[str, object]] = []
+
+    def _request_json(self, *, method: str, url: str, api_key: str, body: dict[str, object] | None = None) -> dict[str, object]:
+        if method == "GET":
+            return {"records": []}
+        if method == "POST":
+            observed.append(dict(body or {}))
+            return {"records": [{"id": "rec_preferences_1"}]}
+        raise AssertionError(f"unexpected method {method}")
+
+    monkeypatch.setattr(TeableToolAdapter, "_request_json", _request_json)
+
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-teable-sync-large",
+            step_id="step-teable-sync-large",
+            tool_name="provider.teable.table_sync",
+            action_kind="table.sync",
+            payload_json={
+                "projection_scope": "propertyquarry",
+                "person_id": "propertyquarry",
+                "tables_json": {
+                    "propertyquarry_preferences": [
+                        {
+                            "projection_id": "preferences:propertyquarry:cf-email:tibor.girschele@gmail.com:self",
+                            "preferences_json": {"source_payload": "x" * 1_200_000},
+                        }
+                    ]
+                },
+            },
+            context_json={"principal_id": "cf-email:tibor.girschele@gmail.com"},
+        )
+    )
+
+    fields = observed[0]["records"][0]["fields"]
+    compacted = json.loads(fields["preferences_json"])
+    assert result.output_json["created_count"] == 1
+    assert fields["projection_id"] == "preferences:propertyquarry:cf-email:tibor.girschele@gmail.com:self"
+    assert compacted["truncated"] is True
+    assert compacted["reason"] == "teable_record_fields_max_bytes"
+    assert compacted["original_bytes"] > 1_000_000
+
+
 def test_teable_tool_adapter_request_json_uses_browser_style_headers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
     adapter = TeableToolAdapter()
