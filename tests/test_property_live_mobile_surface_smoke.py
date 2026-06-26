@@ -148,6 +148,7 @@ def test_live_mobile_smoke_rejects_generated_reconstruction_without_verified_tou
 
 def test_live_mobile_smoke_default_routes_cover_settings_surfaces() -> None:
     assert {
+        "/app/properties",
         "/app/settings/google",
         "/app/settings/access",
         "/app/settings/usage",
@@ -184,20 +185,49 @@ def test_live_mobile_smoke_can_require_current_research_detail_route() -> None:
     assert route_is_research_detail("/app/research/current-result?run_id=run-gold") is True
 
     missing = build_mobile_coverage_checks(DEFAULT_ROUTES, require_research_detail=True)
-    assert missing == [
-        {
-            "name": "research_detail_route_configured",
-            "ok": False,
-            "required_route_prefix": "/app/research/",
-            "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
-        }
-    ]
+    assert missing[0] == {
+        "name": "research_detail_route_configured",
+        "ok": False,
+        "required_route_prefix": "/app/research/",
+        "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+    }
+    registry_check = missing[1]
+    assert registry_check["name"] == "registry_mobile_customer_surfaces_covered"
+    assert registry_check["ok"] is False
+    assert set(registry_check["missing_surface_keys"]) == {
+        "property_research_detail",
+        "floorplan_and_tour_control",
+        "video_walkthrough",
+    }
 
     covered = build_mobile_coverage_checks(
         (*DEFAULT_ROUTES, "/app/research/current-result?run_id=run-gold"),
         require_research_detail=True,
     )
-    assert covered[0]["ok"] is True
+    assert covered == [
+        {
+            "name": "research_detail_route_configured",
+            "ok": True,
+            "required_route_prefix": "/app/research/",
+            "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+        },
+        {
+            "name": "registry_mobile_customer_surfaces_covered",
+            "ok": True,
+            "covered_surface_count": 18,
+            "missing_surface_keys": [],
+            "reason": "Live mobile smoke routes must cover every customer-visible /app surface declared in the PropertyQuarry surface registry.",
+        },
+    ]
+
+def test_live_mobile_smoke_rejects_missing_registry_mobile_surface() -> None:
+    routes_without_run_home = tuple(route for route in DEFAULT_ROUTES if route != "/app/properties")
+
+    checks = build_mobile_coverage_checks(routes_without_run_home, require_research_detail=False)
+    registry_check = next(check for check in checks if check["name"] == "registry_mobile_customer_surfaces_covered")
+
+    assert registry_check["ok"] is False
+    assert registry_check["missing_surface_keys"] == ["run_home", "fleet_repair"]
 
 
 def test_live_mobile_smoke_seeded_research_detail_payload_is_valid_detail_fixture() -> None:

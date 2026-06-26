@@ -34,6 +34,7 @@ REQUIRED_RYBBIT_PERFORMANCE_CHECKS = (
     "rybbit_no_private_payload",
 )
 REQUIRED_LIVE_MOBILE_ROUTES = (
+    "/app/properties",
     "/app/search",
     "/app/shortlist",
     "/app/agents",
@@ -50,6 +51,10 @@ REQUIRED_LIVE_MOBILE_ROUTES = (
     "/app/properties/packets",
 )
 REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES = ("/app/research/",)
+REQUIRED_LIVE_MOBILE_COVERAGE_CHECKS = (
+    "research_detail_route_configured",
+    "registry_mobile_customer_surfaces_covered",
+)
 REQUIRED_PUBLIC_AUTH_CHECKS = (
     "sign_in_minimal_copy",
     "sign_in_provider_creates_account",
@@ -392,16 +397,30 @@ def _covered_live_mobile_routes(live_mobile: dict[str, Any]) -> set[str]:
 
 def _failed_live_mobile_coverage_checks(live_mobile: dict[str, Any]) -> list[dict[str, Any]]:
     failed: list[dict[str, Any]] = []
+    observed_names: set[str] = set()
     for row in list(live_mobile.get("coverage_checks") or []):
-        if not isinstance(row, dict) or row.get("ok") is True:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "unnamed_coverage_check")
+        observed_names.add(name)
+        if row.get("ok") is True:
             continue
         failed.append(
             {
-                "name": str(row.get("name") or "unnamed_coverage_check"),
+                "name": name,
                 "required_route_prefix": str(row.get("required_route_prefix") or ""),
                 "reason": str(row.get("reason") or ""),
             }
         )
+    for required_name in REQUIRED_LIVE_MOBILE_COVERAGE_CHECKS:
+        if required_name not in observed_names:
+            failed.append(
+                {
+                    "name": required_name,
+                    "required_route_prefix": "/app/research/" if required_name == "research_detail_route_configured" else "",
+                    "reason": "Live mobile receipt predates the required all-surface coverage contract.",
+                }
+            )
     return failed
 
 

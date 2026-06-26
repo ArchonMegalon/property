@@ -12,6 +12,7 @@ from typing import Any
 
 
 DEFAULT_ROUTES = (
+    "/app/properties",
     "/app/search",
     "/app/shortlist",
     "/app/agents",
@@ -132,14 +133,82 @@ def build_mobile_coverage_checks(
     *,
     require_research_detail: bool = False,
 ) -> list[dict[str, Any]]:
-    if not require_research_detail:
-        return []
+    normalized_routes = {_normalize_route_for_coverage(route) for route in routes}
+    checks: list[dict[str, Any]] = []
+    if require_research_detail:
+        checks.append(
+            {
+                "name": "research_detail_route_configured",
+                "ok": any(route_is_research_detail(route) for route in routes),
+                "required_route_prefix": "/app/research/",
+                "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+            }
+        )
+    checks.extend(_registry_mobile_surface_coverage_checks(routes=routes, normalized_routes=normalized_routes, require_research_detail=require_research_detail))
+    return checks
+
+
+def _normalize_route_for_coverage(route: str) -> str:
+    normalized = str(route or "").strip().split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return normalized or "/"
+
+
+def _route_pattern_is_mobile_app_surface(route_pattern: str) -> bool:
+    normalized = str(route_pattern or "").strip()
+    if normalized.startswith("/app/api/"):
+        return False
+    return normalized.startswith("/app/") or normalized == "/app"
+
+
+def _route_pattern_is_covered(route_pattern: str, routes: tuple[str, ...], normalized_routes: set[str]) -> bool:
+    normalized_pattern = _normalize_route_for_coverage(route_pattern)
+    if not _route_pattern_is_mobile_app_surface(normalized_pattern):
+        return False
+    if ":" not in normalized_pattern:
+        return normalized_pattern in normalized_routes
+    if normalized_pattern.startswith("/app/research/:candidate_ref"):
+        return any(route_is_research_detail(route) for route in routes)
+    return False
+
+
+def _registry_mobile_surface_coverage_checks(
+    *,
+    routes: tuple[str, ...],
+    normalized_routes: set[str],
+    require_research_detail: bool,
+) -> list[dict[str, Any]]:
+    try:
+        from app.product.property_surface_registry import all_property_surfaces
+    except Exception as exc:  # pragma: no cover - protects standalone use without PYTHONPATH.
+        return [
+            {
+                "name": "registry_mobile_surface_coverage",
+                "ok": False,
+                "reason": f"Could not import PropertyQuarry surface registry: {type(exc).__name__}",
+            }
+        ]
+    missing: list[str] = []
+    covered: list[str] = []
+    for surface in all_property_surfaces():
+        if not bool(getattr(surface, "customer_visible", True)):
+            continue
+        route_patterns = tuple(str(route or "") for route in getattr(surface, "routes", ()) if _route_pattern_is_mobile_app_surface(str(route or "")))
+        if not route_patterns:
+            continue
+        has_dynamic_research_route = any(_normalize_route_for_coverage(pattern).startswith("/app/research/:candidate_ref") for pattern in route_patterns)
+        if has_dynamic_research_route and not require_research_detail:
+            continue
+        if any(_route_pattern_is_covered(pattern, routes, normalized_routes) for pattern in route_patterns):
+            covered.append(str(getattr(surface, "key", "")))
+        else:
+            missing.append(str(getattr(surface, "key", "")))
     return [
         {
-            "name": "research_detail_route_configured",
-            "ok": any(route_is_research_detail(route) for route in routes),
-            "required_route_prefix": "/app/research/",
-            "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+            "name": "registry_mobile_customer_surfaces_covered",
+            "ok": not missing,
+            "covered_surface_count": len([key for key in covered if key]),
+            "missing_surface_keys": [key for key in missing if key],
+            "reason": "Live mobile smoke routes must cover every customer-visible /app surface declared in the PropertyQuarry surface registry.",
         }
     ]
 

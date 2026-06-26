@@ -225,6 +225,7 @@ def _tour_delivery_contract_payload(*, status: str = "pass") -> dict[str, object
 
 def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass", failed_count: int = 0) -> dict[str, object]:
     route_list = routes or [
+        "/app/properties",
         "/app/search",
         "/app/shortlist",
         "/app/agents",
@@ -246,6 +247,21 @@ def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass
         "failed_count": failed_count,
         "route_count": len(route_list),
         "viewport": {"width": 390, "height": 844},
+        "coverage_checks": [
+            {
+                "name": "research_detail_route_configured",
+                "ok": any(str(route).split("?", 1)[0].startswith("/app/research/") for route in route_list),
+                "required_route_prefix": "/app/research/",
+                "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+            },
+            {
+                "name": "registry_mobile_customer_surfaces_covered",
+                "ok": True,
+                "covered_surface_count": 18,
+                "missing_surface_keys": [],
+                "reason": "Live mobile smoke routes must cover every customer-visible /app surface declared in the PropertyQuarry surface registry.",
+            },
+        ],
         "routes": [{"route": route, "ok": True, "checks": []} for route in route_list],
     }
 
@@ -1558,7 +1574,7 @@ def test_gold_status_blocks_when_live_mobile_surface_coverage_is_old_or_narrow(t
     )
 
     assert receipt["status"] == "blocked"
-    assert receipt["live_mobile_surfaces"]["required_route_count"] == 14
+    assert receipt["live_mobile_surfaces"]["required_route_count"] == 15
     assert "/app/settings/access" in receipt["live_mobile_surfaces"]["missing_routes"]
     assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == ["/app/research/"]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
@@ -1623,9 +1639,10 @@ def test_gold_status_requires_live_mobile_research_detail_not_index_only(tmp_pat
     live_mobile = _write_json(
         tmp_path / "live-mobile.json",
         _live_mobile_payload(
-            routes=[
-                "/app/search",
-                "/app/shortlist",
+                routes=[
+                    "/app/properties",
+                    "/app/search",
+                    "/app/shortlist",
                 "/app/agents",
                 "/app/alerts",
                 "/app/account",
@@ -1726,6 +1743,11 @@ def test_gold_status_blocks_when_live_mobile_coverage_check_fails(tmp_path: Path
             "name": "research_detail_route_configured",
             "required_route_prefix": "/app/research/",
             "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+        },
+        {
+            "name": "registry_mobile_customer_surfaces_covered",
+            "required_route_prefix": "",
+            "reason": "Live mobile receipt predates the required all-surface coverage contract.",
         }
     ]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
