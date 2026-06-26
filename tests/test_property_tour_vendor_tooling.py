@@ -60,10 +60,12 @@ def test_vendor_tooling_detects_local_desktop_installers(tmp_path: Path) -> None
     installer_root.mkdir()
     (installer_root / "Pano2VR-8.0.4-x64.exe").write_bytes(b"MZ")
     (installer_root / "3DVista-VTPro.exe").write_bytes(b"MZ")
+    (installer_root / "3DVVirtualTour_x64.exe").write_bytes(b"MZ")
 
     installers = _find_installers([installer_root])
 
-    assert {row["provider"] for row in installers} == {"pano2vr", "3dvista"}
+    assert [row["provider"] for row in installers].count("3dvista") == 2
+    assert [row["provider"] for row in installers].count("pano2vr") == 1
     assert all(row["size_bytes"] == 2 for row in installers)
 
 

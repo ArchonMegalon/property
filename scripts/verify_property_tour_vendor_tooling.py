@@ -24,6 +24,8 @@ INSTALLER_PATTERNS = (
     "3DVista*.exe",
     "3DVista*.msi",
     "3DVista*.dmg",
+    "3DVVirtualTour*.exe",
+    "3DVVirtualTour*.msi",
     "VirtualTour*.exe",
     "VirtualTour*.msi",
 )
@@ -149,7 +151,8 @@ def _find_installers(roots: list[Path]) -> list[dict[str, object]]:
             for path in sorted(root.rglob(pattern)):
                 if not path.is_file():
                     continue
-                provider = "pano2vr" if "pano2vr" in path.name.lower() else "3dvista"
+                lowered_name = path.name.lower()
+                provider = "pano2vr" if "pano2vr" in lowered_name else "3dvista"
                 rows.append(
                     {
                         "provider": provider,
