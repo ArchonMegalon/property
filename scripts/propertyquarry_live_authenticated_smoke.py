@@ -84,8 +84,9 @@ def _header_value(headers: dict[str, object], name: str) -> str:
 def _public_dns_cname_matches(host: str, expected_target: str) -> bool:
     normalized_host = str(host or "").strip().lower().rstrip(".")
     normalized_target = str(expected_target or "").strip().lower().rstrip(".")
-    if not normalized_host or not normalized_target:
+    if not normalized_host:
         return False
+    matched_any_answer = False
     for endpoint in BILLING_DNS_OVER_HTTPS_ENDPOINTS:
         query = urllib.parse.urlencode({"name": normalized_host, "type": "CNAME"})
         request = urllib.request.Request(
@@ -107,9 +108,12 @@ def _public_dns_cname_matches(host: str, expected_target: str) -> bool:
                 continue
             answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
             answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
-            if answer_name == normalized_host and answer_data == normalized_target:
+            if answer_name != normalized_host or not answer_data:
+                continue
+            matched_any_answer = True
+            if normalized_target and answer_data == normalized_target:
                 return True
-    return False
+    return matched_any_answer if not normalized_target else False
 
 
 def _https_redirect_host_resolves(
