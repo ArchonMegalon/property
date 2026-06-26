@@ -24,6 +24,7 @@ This manifest records the last verified runtime candidate for branch/deployment 
 The live operator import and verifier hardening on 2026-06-26 verified:
 
 - Headless 3DVista activation was attempted after backing up trial license state and installing Wine `ntlm_auth` support. The app remained in trial mode and did not create a non-trial license file, so a Telegram operator ask was sent for a licensed 3DVista VT Pro export under `/mnt/pcloud/EA/propertyquarry-3dvista-licensed-export/`.
+- The 3DVista Private Viewer request form was completed for the branded account with `https://propertyquarry.com` as the name/text target URL. Vendor delivery is pending; no Private Viewer bundle, allowlisted hosted private-viewer URL, or licensed desktop export has been received yet.
 - `scripts/verify_property_tour_controls.py` now treats trial-branded local 3DVista exports as not premium-ready even when real `tdvplayer` runtime markers are present.
 - `scripts/discover_property_tour_exports.py` now rejects trial-branded 3DVista export folders with `3dvista_trial_branding_present` so operator tooling no longer reports them as verified exports.
 - `_completion/tours/property-tour-controls-premium-after-deploy.json` reports `status=blocked_missing_provider_modes`, provider counts `3dvista=0`, `krpano=2`, `magicfit=8`, `matterport=29`, `pano2vr=1`, and missing provider mode `3dvista`.
