@@ -29,6 +29,7 @@ COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable
 COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py
 COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py
 COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py
+COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py
 COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
 COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py
 COPY ea/app /app/app

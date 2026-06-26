@@ -105,7 +105,8 @@ def test_property_tour_export_scripts_share_container_incoming_path() -> None:
     manifest = _read("scripts/materialize_property_tour_export_manifest.py")
 
     assert 'or "/data/incoming_property_tours"' in discovery
-    assert 'or "/data/incoming_property_tours"' in manifest
+    assert 'Path("/data/incoming_property_tours")' in manifest
+    assert '"state" / "incoming_property_tours"' in manifest
     assert "/data/property_tour_export_drop" not in discovery
 
 
@@ -254,6 +255,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable_scene.py" in dockerfile
     assert "COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py" in dockerfile
     assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
+    assert "COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py" in dockerfile
     assert "COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py" in dockerfile
     assert "COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py" in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
@@ -278,6 +280,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "import_property_tour_exports.py",
         "discover_property_tour_exports.py",
         "materialize_property_tour_export_manifest.py",
+        "generate_property_reconstruction.py",
         "import_magicfit_walkthrough.py",
         "verify_property_tour_controls.py",
     ]
