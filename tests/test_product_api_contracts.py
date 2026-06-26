@@ -25724,6 +25724,55 @@ def test_hosted_property_tour_walkthrough_asset_url_requires_verified_published_
     ) == f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
 
 
+def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_from_verified_provider(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "generated-reconstruction").mkdir()
+    (bundle_dir / "generated-reconstruction" / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (bundle_dir / "generated-reconstruction" / "model.obj").write_text("o room\n", encoding="utf-8")
+    (bundle_dir / "generated-reconstruction" / "walkthrough.mp4").write_bytes(b"video")
+    (bundle_dir / "generated-reconstruction" / "reconstruction.json").write_text("{}", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "walkthrough_video_relpath": "generated-reconstruction/walkthrough.mp4",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    tour_url = f"https://propertyquarry.com/tours/{slug}"
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == ""
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url) == (
+        f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/viewer.html"
+    )
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+        tour_url,
+        asset_key="model_relpath",
+    ) == f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/model.obj"
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+        tour_url,
+        asset_key="walkthrough_video_relpath",
+    ) == f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/walkthrough.mp4"
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+        tour_url,
+        asset_key="manifest_relpath",
+    ) == ""
+
+
 def test_normalize_property_flythrough_result_requires_published_video_asset(monkeypatch, tmp_path: Path) -> None:
     slug = "published-flythrough"
     bundle_dir = tmp_path / slug

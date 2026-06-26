@@ -5993,6 +5993,33 @@ def test_property_research_media_uses_krpano_label_for_verified_controls(monkeyp
     assert payload["status_detail"] == "krpano control is live inside the hosted PropertyQuarry tour."
 
 
+def test_property_research_media_exposes_generated_reconstruction_without_marking_verified(monkeypatch) -> None:
+    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_asset_url",
+        lambda _url, *, asset_key="viewer_relpath": {
+            "viewer_relpath": "https://propertyquarry.com/tours/files/generated-tour/generated-reconstruction/viewer.html",
+            "walkthrough_video_relpath": "https://propertyquarry.com/tours/files/generated-tour/generated-reconstruction/generated-walkthrough.mp4",
+        }.get(asset_key, ""),
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_url": "https://propertyquarry.com/tours/generated-tour",
+            "property_url": "https://example.test/listing",
+        }
+    )
+
+    assert payload["hosted_ready"] is False
+    assert payload["has_live_viewer"] is False
+    assert payload["embed_href"] == ""
+    assert payload["generated_reconstruction_href"].endswith("/generated-reconstruction/viewer.html")
+    assert payload["generated_reconstruction_walkthrough_href"].endswith("/generated-reconstruction/generated-walkthrough.mp4")
+    assert payload["generated_reconstruction_label"] == "Generated model"
+    assert "not a verified provider capture" in payload["generated_reconstruction_status_detail"]
+
+
 def test_property_research_media_uses_provider_specific_vendor_360_copy(monkeypatch) -> None:
     payload = landing_property_research._property_tour_media_payload(
         {
@@ -12763,6 +12790,84 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert 'data-prd-visual-card="tour"' in packet.text
     assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
     assert 'data-pw-visual-request="tour"' not in rendered_html
+
+
+def test_property_research_packet_shows_generated_reconstruction_as_unverified_visual_option(monkeypatch) -> None:
+    principal_id = "pq-research-packet-generated-reconstruction"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    candidate = {
+        "title": "Generated reconstruction loft",
+        "summary": "EUR 1,950 · 76 m² · 1020 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-loft",
+        "source_ref": "willhaben:generated-reconstruction-loft",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-loft",
+        "property_facts": {
+            "price_eur": 1950.0,
+            "area_m2": 76.0,
+            "postal_name": "1020 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_asset_url",
+        lambda _url, *, asset_key="viewer_relpath": {
+            "viewer_relpath": "https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/viewer.html",
+            "walkthrough_video_relpath": "https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/generated-walkthrough.mp4",
+        }.get(asset_key, ""),
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+        }
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-generated-reconstruction"},
+        headers={"host": "propertyquarry.com"},
+    )
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert 'data-prd-visual-card="generated_reconstruction"' in packet.text
+    assert 'href="https://propertyquarry.com/tours/files/generated-reconstruction-loft/generated-reconstruction/viewer.html"' in rendered_html
+    assert ">Open generated model</a>" in rendered_html
+    assert ">Build verified 3D tour</button>" in rendered_html
+    assert 'data-pw-visual-request="tour"' in rendered_html
+    assert "Evidence: generated from listing photos or floorplan inputs, not a verified provider capture." in rendered_html
+    assert 'data-prd-visual-card="tour"' in packet.text
+    assert "Evidence needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control." in rendered_html
 
 
 def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(monkeypatch) -> None:

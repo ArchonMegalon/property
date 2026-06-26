@@ -614,6 +614,43 @@ def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
 
 
+def _hosted_property_tour_generated_reconstruction_asset_url(tour_url: object, *, asset_key: str = "viewer_relpath") -> str:
+    normalized_url = str(tour_url or "").strip()
+    normalized_key = str(asset_key or "viewer_relpath").strip()
+    if not normalized_url or normalized_key not in {
+        "viewer_relpath",
+        "model_relpath",
+        "material_relpath",
+        "walkthrough_video_relpath",
+    }:
+        return ""
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if not slug:
+        return ""
+    bundle_dir = _public_tour_dir() / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    payload = _load_hosted_property_tour_payload(bundle_dir)
+    if not payload or not isinstance(payload, dict):
+        return ""
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return ""
+    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+    if provider != "propertyquarry_generated_reconstruction":
+        return ""
+    if bool(generated_reconstruction.get("verified_provider_capture")):
+        return ""
+    relpath = str(generated_reconstruction.get(normalized_key) or "").strip().lstrip("/")
+    if not relpath:
+        return ""
+    asset_path = (bundle_dir / relpath).resolve()
+    if bundle_dir.resolve() not in asset_path.parents or not asset_path.exists() or not asset_path.is_file():
+        return ""
+    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=relpath)
+
+
 def _published_walkthrough_asset_url(value: object) -> str:
     normalized = str(value or "").strip()
     if not normalized:

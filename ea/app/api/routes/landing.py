@@ -3980,8 +3980,23 @@ def property_research_packet(
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
+    generated_reconstruction_href = str(research_media.get("generated_reconstruction_href") or "").strip()
+    generated_reconstruction_walkthrough_href = str(research_media.get("generated_reconstruction_walkthrough_href") or "").strip()
     if hosted_tour_ready and tour_action_href:
         hero_actions.append({"href": tour_action_href, "label": str(research_media.get("primary_label") or "Open 3D tour").strip(), "external": False})
+    elif generated_reconstruction_href:
+        hero_actions.append(
+            {
+                "kind": "generated_reconstruction",
+                "href": generated_reconstruction_href,
+                "label": "Open generated model",
+                "external": False,
+                "state": "ready",
+                "status_detail": str(research_media.get("generated_reconstruction_status_detail") or "").strip(),
+            }
+        )
+        if property_url:
+            hero_actions.append({"kind": "tour", "label": "Build verified 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Generate a provider-verified Matterport, 3DVista, Pano2VR, or licensed krpano control."})
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Rebuild 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Hosted viewer unavailable. Rebuild it here."})
     elif tour_status in {"queued", "pending"} and property_url:
@@ -3994,6 +4009,17 @@ def property_research_packet(
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Build from source material."})
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open walkthrough", "external": False})
+    elif generated_reconstruction_walkthrough_href:
+        hero_actions.append(
+            {
+                "kind": "generated_reconstruction_walkthrough",
+                "href": generated_reconstruction_walkthrough_href,
+                "label": "Open generated walkthrough",
+                "external": False,
+                "state": "ready",
+                "status_detail": "Generated walkthrough is playable, but not a receipt-backed MagicFit render.",
+            }
+        )
     elif flythrough_status in {"queued", "pending"} and property_url:
         hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": "Still queued. Taking longer than usual." if flythrough_eta_label.startswith("delayed") else "Queued. This page updates automatically."})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:

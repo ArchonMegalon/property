@@ -659,6 +659,17 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
     verified_tour_provider_label = _property_visual_provider_label(verified_tour_provider) if verified_tour_provider else ""
     embed_href = verified_tour_href if hosted_tour_ready else ""
+    generated_reconstruction_href = ""
+    generated_reconstruction_walkthrough_href = ""
+    if tour_url:
+        generated_reconstruction_href = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+            tour_url,
+            asset_key="viewer_relpath",
+        )
+        generated_reconstruction_walkthrough_href = property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
+            tour_url,
+            asset_key="walkthrough_video_relpath",
+        )
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) or property_tour_hosting._published_walkthrough_asset_url(
         candidate.get("flythrough_url")
     )
@@ -723,6 +734,14 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "has_live_viewer": bool(embed_href),
         "hosted_ready": hosted_tour_ready,
         "show_status_line": bool(hosted_tour_ready or tour_url or vendor_tour_url or status in {"queued", "pending", "processing", "running", "in_progress", "started"}),
+        "generated_reconstruction_href": generated_reconstruction_href if not hosted_tour_ready else "",
+        "generated_reconstruction_walkthrough_href": generated_reconstruction_walkthrough_href if not hosted_tour_ready else "",
+        "generated_reconstruction_label": "Generated model",
+        "generated_reconstruction_status_detail": (
+            "Generated reconstruction is available from listing photos and floorplan evidence. It is not a verified provider capture."
+            if generated_reconstruction_href and not hosted_tour_ready
+            else ""
+        ),
         "primary_href": verified_tour_href if hosted_tour_ready else (vendor_tour_url or review_url),
         "primary_label": (
             (f"Open {verified_tour_provider_label}" if verified_tour_provider_label else "Open 3D tour")

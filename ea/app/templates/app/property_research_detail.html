@@ -2241,7 +2241,7 @@
     {% set visual_actions = namespace(items=[]) %}
     {% for action in research_actions %}
       {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough'] or 'matterport' in action_label or '3dvista' in action_label or 'source 360' in action_label %}
+      {% if action.get('kind') or action_label in ['open 3d tour', 'open walkthrough', 'open generated model', 'open generated walkthrough'] or 'matterport' in action_label or '3dvista' in action_label or 'source 360' in action_label %}
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
@@ -2250,8 +2250,10 @@
       {% set action_label = (action.get('label') or '')|lower %}
       {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'source 360' in action_label %}
         {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': research_media.get('provider_label') or 'Hosted viewer', 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open the verified tour or rebuild it from this page.', 'action': action}] %}
+      {% elif action.get('kind') == 'generated_reconstruction' or 'generated model' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'generated_reconstruction', 'eyebrow': 'Generated model', 'title': 'Generated reconstruction', 'copy': action.get('status_detail') or research_media.get('generated_reconstruction_status_detail') or 'Open the generated reconstruction while the verified provider tour is still missing.', 'action': action}] %}
       {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': research_media.get('walkthrough_provider_label') or 'Rendered walkthrough', 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': research_media.get('walkthrough_provider_label') or ('Generated walkthrough' if action.get('kind') == 'generated_reconstruction_walkthrough' else 'Rendered walkthrough'), 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open the guided walkthrough from this page when it is ready.', 'action': action}] %}
       {% endif %}
     {% endfor %}
     {% set visual_status = namespace(active=None) %}
@@ -2272,7 +2274,7 @@
       {% set headline_actions = namespace(items=[]) %}
       {% for action in research_actions %}
         {% set action_label = (action.get('label') or '')|lower %}
-        {% if action.get('copy') or (action.get('href') and action_label not in ['open 3d tour', 'open walkthrough']) %}
+        {% if action.get('copy') or (action.get('href') and action_label not in ['open 3d tour', 'open walkthrough', 'open generated model', 'open generated walkthrough']) %}
           {% set headline_actions.items = headline_actions.items + [action] %}
         {% endif %}
       {% endfor %}
@@ -2403,9 +2405,15 @@
             Evidence needed: verified Matterport, 3DVista, Pano2VR, or licensed krpano control.
             {% endif %}
           </p>
+          {% elif visual_card.get('key') == 'generated_reconstruction' %}
+          <p class="prd-visual-evidence" data-prd-visual-evidence="generated-reconstruction">
+            Evidence: generated from listing photos or floorplan inputs, not a verified provider capture.
+          </p>
           {% elif visual_card.get('key') == 'walkthrough' %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="walkthrough">
-            {% if action.get('href') %}
+            {% if action.get('kind') == 'generated_reconstruction_walkthrough' %}
+            Evidence: playable generated walkthrough, not a receipt-backed MagicFit render.
+            {% elif action.get('href') %}
             Evidence: playable {{ research_media.get('walkthrough_provider_label') or 'rendered' }} walkthrough video.
             {% else %}
             Evidence needed: playable MagicFit rendered walkthrough video.
@@ -2724,7 +2732,7 @@
       <h3>Next step</h3>
       <div class="object-actions">
         <button class="console-action" type="button" data-object-decision-state="viewing_requested">Viewing requested</button>
-        <button class="console-action" type="button" data-object-decision-state="documents_requested">Request documents</button>
+        <button class="console-action" type="button" data-object-decision-state="documents_requested">Request missing documents</button>
         <button class="console-action" type="button" data-object-decision-state="offer_candidate">Offer candidate</button>
         <button class="console-action" type="button" data-object-decision-state="archived">Archived</button>
       </div>
