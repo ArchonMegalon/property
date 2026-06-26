@@ -204,7 +204,8 @@ def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
         return {"available": False, "status": "unavailable"}
     if not hosted_url:
         return {"available": False, "status": "disabled"}
-    if str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_CHECK") or "").strip().lower() in {"1", "true", "yes", "on"}:
+    runtime_dns_check = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_CHECK") or "1").strip().lower()
+    if runtime_dns_check not in {"0", "false", "no", "off", "disabled"}:
         receipt = brilliant_directories_service.build_brilliant_directories_verification_receipt()
         handoff_receipt = receipt.get("billing_handoff") if isinstance(receipt.get("billing_handoff"), dict) else {}
         if not bool(handoff_receipt.get("host_resolves")):

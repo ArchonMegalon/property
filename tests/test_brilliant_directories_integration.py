@@ -416,7 +416,6 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_host_doe
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
-    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_CHECK", "1")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,billing.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
