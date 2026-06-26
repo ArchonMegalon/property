@@ -11901,8 +11901,8 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
         "crezlo_property_tour_not_configured",
     }:
         if normalized_kind == "flythrough":
-            return "More source material is still needed before this walkthrough can be built."
-        return "More source material is still needed before this 3D tour can be built."
+            return "No playable walkthrough is published yet. A verified rendered video is still needed."
+        return "No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed."
     return str(reason or "").strip()
 
 
@@ -31379,7 +31379,7 @@ class ProductService:
             elif tour_status in {"blocked", "failed", "skipped"}:
                 payload["flythrough_status"] = "blocked"
                 status_label = "Walkthrough blocked"
-                status_detail = "More source material is needed first."
+                status_detail = "No playable walkthrough is published yet. A verified rendered video is still needed."
             else:
                 payload["flythrough_status"] = "pending"
                 status_label = "Walkthrough queued"
@@ -31404,7 +31404,7 @@ class ProductService:
                 status_detail = "Rendering now. Opens here when ready."
             elif payload["tour_status"] in {"blocked", "failed", "skipped"}:
                 status_label = "3D tour blocked"
-                status_detail = "More source material is needed first."
+                status_detail = "No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed."
             else:
                 payload["tour_status"] = "pending"
                 status_label = "3D tour queued"

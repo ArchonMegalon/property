@@ -1018,7 +1018,7 @@ def property_workspace_payload(
             return "3D tour not ready yet. This listing still needs a floorplan or usable 360 source."
         if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
             return "3D tour not ready yet. More usable room media is still needed."
-        return "3D tour not ready yet. More source material is still needed before it can be built."
+        return "3D tour not ready yet. A verified Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed."
 
     def _candidate_fact_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}

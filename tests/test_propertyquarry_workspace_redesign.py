@@ -12770,7 +12770,7 @@ def test_property_research_packet_terminal_walkthrough_reason_is_not_rendered_as
 
     assert "Walkthrough queued" not in rendered_html
     assert "Walkthrough unavailable" in rendered_html
-    assert "More source material is still needed before this walkthrough can be built." in rendered_html
+    assert "No playable walkthrough is published yet. A verified rendered video is still needed." in rendered_html
     assert 'data-pw-visual-state="skipped"' in rendered_html
     assert 'disabled aria-disabled="true"' in rendered_html
     assert "fit_below_threshold" not in rendered_html

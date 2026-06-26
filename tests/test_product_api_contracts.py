@@ -14348,7 +14348,7 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
 
     assert response["status"] == "skipped"
     assert response["status_label"] == "Walkthrough unavailable"
-    assert response["status_detail"] == "More source material is still needed before this walkthrough can be built."
+    assert response["status_detail"] == "No playable walkthrough is published yet. A verified rendered video is still needed."
     assert response["blocked_reason"] == ""
     assert persisted_visual_states
     assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
@@ -14437,6 +14437,7 @@ def test_property_visual_status_terminal_resolution_clears_stale_repair_markers(
 
     assert response["status"] == "blocked"
     assert response["status_label"] == "3D tour unavailable"
+    assert response["status_detail"] == "No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed."
     assert persisted_visual_states
     terminal_state = persisted_visual_states[-1]
     assert terminal_state["tour_status"] == "blocked"
