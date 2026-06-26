@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.request
+
 from scripts.propertyquarry_live_authenticated_smoke import build_live_authenticated_smoke_receipt
 
 
@@ -154,6 +156,101 @@ def test_live_authenticated_smoke_rejects_unresolved_external_billing_redirect_w
     assert receipt["status"] == "fail"
     billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
     assert any(check["name"] == "billing_external_handoff" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is False for check in billing_row["checks"])
+
+
+def test_live_authenticated_smoke_accepts_public_dns_for_stale_local_billing_resolver(monkeypatch) -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/account"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    def unresolved(_host: str, _port: int) -> None:
+        raise OSError("stale local dns")
+
+    class _DnsResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b'{"Status":0,"Answer":[{"name":"billing.propertyquarry.com.",'
+                b'"type":5,"data":"members.brilliantdirectories.com."}]}'
+            )
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0: _DnsResponse())
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=unresolved,
+        billing_handoff_dns_target="members.brilliantdirectories.com",
+    )
+
+    assert receipt["status"] == "pass"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
+
+
+def test_live_authenticated_smoke_rejects_public_dns_target_mismatch(monkeypatch) -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/account"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    def unresolved(_host: str, _port: int) -> None:
+        raise OSError("stale local dns")
+
+    class _DnsResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"Status":0,"Answer":[{"name":"billing.propertyquarry.com.","type":5,"data":"wrong.example.com."}]}'
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=0: _DnsResponse())
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=unresolved,
+        billing_handoff_dns_target="members.brilliantdirectories.com",
+    )
+
+    assert receipt["status"] == "fail"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
     assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is False for check in billing_row["checks"])
 
 

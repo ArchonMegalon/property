@@ -44,6 +44,10 @@ BILLING_LOCAL_BOARD_MARKERS = (
     "current commercial state",
     "plan posture",
 )
+BILLING_DNS_OVER_HTTPS_ENDPOINTS = (
+    "https://cloudflare-dns.com/dns-query",
+    "https://dns.google/resolve",
+)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -77,7 +81,43 @@ def _header_value(headers: dict[str, object], name: str) -> str:
     return ""
 
 
-def _https_redirect_host_resolves(location: str, resolver: Callable[[str, int], object]) -> bool:
+def _public_dns_cname_matches(host: str, expected_target: str) -> bool:
+    normalized_host = str(host or "").strip().lower().rstrip(".")
+    normalized_target = str(expected_target or "").strip().lower().rstrip(".")
+    if not normalized_host or not normalized_target:
+        return False
+    for endpoint in BILLING_DNS_OVER_HTTPS_ENDPOINTS:
+        query = urllib.parse.urlencode({"name": normalized_host, "type": "CNAME"})
+        request = urllib.request.Request(
+            f"{endpoint}?{query}",
+            headers={
+                "Accept": "application/dns-json",
+                "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            continue
+        for row in payload.get("Answer") or []:
+            if not isinstance(row, dict):
+                continue
+            if int(row.get("type") or 0) != 5:
+                continue
+            answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
+            answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
+            if answer_name == normalized_host and answer_data == normalized_target:
+                return True
+    return False
+
+
+def _https_redirect_host_resolves(
+    location: str,
+    resolver: Callable[[str, int], object],
+    *,
+    expected_cname_target: str = "",
+) -> bool:
     parsed = urllib.parse.urlparse(str(location or "").strip())
     if parsed.scheme != "https":
         return False
@@ -87,7 +127,7 @@ def _https_redirect_host_resolves(location: str, resolver: Callable[[str, int], 
     try:
         resolver(host, 443)
     except OSError:
-        return False
+        return _public_dns_cname_matches(host, expected_cname_target)
     return True
 
 
@@ -229,6 +269,7 @@ def build_live_authenticated_smoke_receipt(
     routes: tuple[str, ...] = DEFAULT_ROUTES,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
     billing_handoff_resolver: Callable[[str, int], object] = socket.getaddrinfo,
+    billing_handoff_dns_target: str = "",
 ) -> dict[str, object]:
     checks: list[dict[str, object]] = []
     failures = 0
@@ -266,7 +307,14 @@ def build_live_authenticated_smoke_receipt(
                 ("status_ok", True),
                 *_security_header_checks(headers=headers),
                 ("billing_external_handoff", location.startswith("https://") and "/app/billing" not in location),
-                ("billing_external_handoff_resolves", _https_redirect_host_resolves(location, billing_handoff_resolver)),
+                (
+                    "billing_external_handoff_resolves",
+                    _https_redirect_host_resolves(
+                        location,
+                        billing_handoff_resolver,
+                        expected_cname_target=billing_handoff_dns_target,
+                    ),
+                ),
                 ("billing_local_board_deleted", True),
                 ("billing_no_customer_noise", True),
             ]
@@ -338,6 +386,10 @@ def main() -> int:
     parser.add_argument("--retry-count", type=int, default=2)
     parser.add_argument("--retry-backoff-seconds", type=float, default=0.75)
     parser.add_argument("--write", default="", help="Optional JSON receipt output path.")
+    parser.add_argument(
+        "--billing-handoff-dns-target",
+        default=_env_value("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET"),
+    )
     args = parser.parse_args()
 
     if not str(args.api_token or "").strip():
@@ -352,6 +404,7 @@ def main() -> int:
         timeout_seconds=float(args.timeout_seconds),
         retry_count=int(args.retry_count),
         retry_backoff_seconds=float(args.retry_backoff_seconds),
+        billing_handoff_dns_target=str(args.billing_handoff_dns_target),
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
