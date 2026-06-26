@@ -248,6 +248,21 @@ def _find_installed_apps(roots: list[Path]) -> list[dict[str, object]]:
                                 "layout": "wine_program_files",
                             }
                         )
+        direct_drive_c = root / "drive_c"
+        if direct_drive_c.is_dir():
+            for provider, patterns in provider_patterns.items():
+                for pattern in patterns:
+                    for path in sorted(direct_drive_c.glob(f"*/{pattern}")):
+                        if not path.is_file():
+                            continue
+                        rows.append(
+                            {
+                                "provider": provider,
+                                "path": str(path.resolve()),
+                                "size_bytes": path.stat().st_size,
+                                "layout": "wine_drive_c_app",
+                            }
+                        )
     return rows
 
 

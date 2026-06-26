@@ -134,6 +134,24 @@ def test_vendor_tooling_detects_portable_extracted_3dvista_app(tmp_path: Path, m
     ]
 
 
+def test_vendor_tooling_detects_direct_drive_c_pano2vr_install(tmp_path: Path) -> None:
+    wine_prefix = tmp_path / "wine-pano2vr"
+    installed_root = wine_prefix / "drive_c" / "Pano2VR8"
+    installed_root.mkdir(parents=True)
+    (installed_root / "pano2vr.exe").write_bytes(b"MZ")
+
+    installed_apps = _find_installed_apps([wine_prefix])
+
+    assert installed_apps == [
+        {
+            "provider": "pano2vr",
+            "path": str((installed_root / "pano2vr.exe").resolve()),
+            "size_bytes": 2,
+            "layout": "wine_drive_c_app",
+        }
+    ]
+
+
 def test_vendor_tooling_default_installer_roots_do_not_scan_tmp() -> None:
     roots = _installer_search_roots([])
 
