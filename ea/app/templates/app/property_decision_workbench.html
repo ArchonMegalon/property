@@ -4086,32 +4086,31 @@
         gap: 6px;
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel {
-        position: fixed;
-        inset: calc(58px + env(safe-area-inset-top, 0px)) 6px calc(64px + env(safe-area-inset-bottom, 0px)) 6px;
-        z-index: 80;
+        position: static;
+        inset: auto;
+        z-index: auto;
         display: grid;
         grid-template-rows: auto minmax(0, 1fr);
         max-height: none;
-        overflow: hidden;
-        padding: 8px;
-        border-radius: 22px;
+        overflow: visible;
+        padding: 0;
+        border-radius: 16px;
         background: linear-gradient(180deg, rgba(255, 253, 248, 0.99), rgba(246, 242, 234, 0.98));
-        box-shadow: 0 30px 90px rgba(34, 31, 24, 0.34);
+        box-shadow: none;
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel .pqx-what-matters-head {
         position: sticky;
         top: 0;
         z-index: 2;
-        margin: -8px -8px 0;
+        margin: 0;
         padding: 10px 10px 8px;
         background: linear-gradient(180deg, rgba(255, 253, 248, 0.995), rgba(248, 244, 236, 0.98));
       }
       .pqx-surface-search .pqx-form[data-property-active-step="children"] .pqx-what-matters-panel .pqx-advanced-panel-grid {
         min-height: 0;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-        -webkit-overflow-scrolling: touch;
+        overflow: visible;
+        overscroll-behavior: auto;
+        padding-bottom: 8px;
       }
       .pqx-what-matters-head .pqx-button {
         min-height: 36px;
@@ -4171,23 +4170,22 @@
         max-width: 100%;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list {
-        max-height: min(28svh, 230px);
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        padding-right: 2px;
-        scroll-padding-bottom: 8px;
-        -webkit-overflow-scrolling: touch;
+        max-height: none;
+        overflow: visible;
+        overscroll-behavior: auto;
+        padding-right: 0;
+        scroll-padding-bottom: 0;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open][data-active-distance-rows="true"] .pqx-pref-list {
         max-height: none;
         overflow: visible;
-        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-        scroll-padding-bottom: 28px;
+        padding-bottom: 8px;
+        scroll-padding-bottom: 0;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][data-mobile-distance-control-active="true"] .pqx-pref-list {
         max-height: none;
         overflow: visible;
-        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: 8px;
         scroll-padding-bottom: 0;
       }
       .pqx-what-matters-panel .pqx-choice-groupbox[data-what-matters-group][open] .pqx-pref-list::-webkit-scrollbar {
@@ -7580,6 +7578,9 @@
         grid-template-columns: minmax(0, 1fr);
         background: transparent;
         box-shadow: none;
+        max-height: none;
+        overflow: visible;
+        overscroll-behavior: auto;
       }
       .pqx-shell[data-pqx-surface="search"] .pqx-brief-drawer-panel > .pqx-section-head {
         display: grid;

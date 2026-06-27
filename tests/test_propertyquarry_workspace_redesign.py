@@ -2648,7 +2648,7 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "max-width: 150px;" in html
     assert 'grid-template-columns: minmax(0, 1fr) minmax(104px, 110px) minmax(96px, 100px);' in html
     assert '.pqx-what-matters-panel .pqx-keyword-priority-row[data-keyword-distance-enabled="true"] > div' in html
-    assert 'padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));' in html
+    assert 'padding-bottom: 8px;' in html
     assert "overflow-wrap: break-word;" in html
     assert ".pqx-what-matters-panel .pqx-school-priority-row {" in html
     template_source = (
@@ -6002,6 +6002,18 @@ def test_property_workbench_step_triggers_prevent_default_and_use_semantic_hidde
 def test_property_workbench_treats_krpano_control_as_direct_hosted_tour() -> None:
     body = _read_workbench_bundle()
     assert "matterport|3dvista|pano2vr|krpano" in body
+
+
+def test_property_workbench_restores_district_map_scroll_lock_synchronously() -> None:
+    body = _read_workbench_bundle()
+    touch_restore = "body.style.touchAction = locationMapPreviousBodyTouchAction;"
+    immediate_restore = "window.scrollTo(0, restoreScrollY);"
+    frame_restore = "window.requestAnimationFrame(() => {"
+    assert touch_restore in body
+    assert immediate_restore in body
+    assert frame_restore in body
+    restore_block = body[body.index(touch_restore):]
+    assert restore_block.index(immediate_restore) < restore_block.index(frame_restore)
 
 
 def test_property_research_detail_uses_user_facing_visual_and_decision_copy() -> None:
@@ -10466,6 +10478,30 @@ def test_propertyquarry_mobile_top_nav_uses_core_loop_instead_of_noisy_tab_strip
 def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     body = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    what_matters_panel_match = re.search(
+        r'@media \(max-width: 760px\).*?'
+        r'\.pqx-surface-search \.pqx-form\[data-property-active-step="children"\] '
+        r'\.pqx-what-matters-panel\s*\{(?P<body>.*?)\}',
+        body,
+        re.S,
+    )
+    assert what_matters_panel_match is not None
+    what_matters_panel_block = what_matters_panel_match.group("body")
+    assert "position: static;" in what_matters_panel_block
+    assert "overflow: visible;" in what_matters_panel_block
+    assert "padding: 0;" in what_matters_panel_block
+    assert "position: fixed;" not in what_matters_panel_block
+
+    brief_panel_match = re.search(
+        r'@media \(max-width: 760px\).*?'
+        r'\.pqx-shell\[data-pqx-surface="search"\] \.pqx-brief-drawer-panel\s*\{(?P<body>.*?)\}',
+        body,
+        re.S,
+    )
+    assert brief_panel_match is not None
+    brief_panel_block = brief_panel_match.group("body")
+    assert "max-height: none;" in brief_panel_block
+    assert "overflow: visible;" in brief_panel_block
 
     active_group_match = re.search(
         r'@media \(max-width: 760px\).*?'
@@ -10483,6 +10519,19 @@ def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> N
     assert "contain: none;" in active_group_block
     assert "padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));" in active_group_block
 
+    open_list_match = re.search(
+        r'@media \(max-width: 760px\).*?'
+        r'\.pqx-what-matters-panel \.pqx-choice-groupbox'
+        r'\[data-what-matters-group\]\[open\] \.pqx-pref-list\s*\{(?P<body>.*?)\}',
+        body,
+        re.S,
+    )
+    assert open_list_match is not None
+    open_list_block = open_list_match.group("body")
+    assert "max-height: none;" in open_list_block
+    assert "overflow: visible;" in open_list_block
+    assert "padding-right: 0;" in open_list_block
+
     active_list_match = re.search(
         r'@media \(max-width: 760px\).*?'
         r'\.pqx-what-matters-panel \.pqx-choice-groupbox'
@@ -10495,6 +10544,7 @@ def test_propertyquarry_mobile_what_matters_distance_rows_are_not_clipped() -> N
     active_list_block = active_list_match.group("body")
     assert "max-height: none;" in active_list_block
     assert "overflow: visible;" in active_list_block
+    assert "padding-bottom: 8px;" in active_list_block
     mobile_block_end = body.find("@keyframes pqx-soft-reveal", active_list_match.end())
     assert mobile_block_end > active_list_match.end()
     mobile_block = body[active_list_match.end():mobile_block_end]

@@ -38,6 +38,7 @@ def _base_metrics() -> dict[str, object]:
         "district_map_pinch_zoom_changed": True,
         "district_map_close_restored_scroll": True,
         "mobile_what_matters_single_open": True,
+        "mobile_what_matters_page_scroll": True,
         "account_logout_strip_visible": True,
         "logout_button_count": 1,
         "account_menu_present": True,
@@ -446,6 +447,13 @@ def test_live_mobile_smoke_requires_single_open_what_matters_group() -> None:
     metrics.update({"mobile_what_matters_single_open": False})
 
     assert _failed_names("/app/search", metrics) == {"mobile_what_matters_single_open_section"}
+
+
+def test_live_mobile_smoke_requires_page_scrolling_what_matters_surface() -> None:
+    metrics = _base_metrics()
+    metrics.update({"mobile_what_matters_page_scroll": False})
+
+    assert _failed_names("/app/search", metrics) == {"mobile_what_matters_page_scroll"}
 
 
 def test_live_mobile_smoke_requires_single_account_logout() -> None:

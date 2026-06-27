@@ -288,6 +288,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "district_map_pinch_zoom_changes_scale", "ok": bool(metrics.get("district_map_pinch_zoom_changed"))},
                 {"name": "district_map_close_restores_scroll", "ok": bool(metrics.get("district_map_close_restored_scroll"))},
                 {"name": "mobile_what_matters_single_open_section", "ok": bool(metrics.get("mobile_what_matters_single_open"))},
+                {"name": "mobile_what_matters_page_scroll", "ok": bool(metrics.get("mobile_what_matters_page_scroll"))},
             )
         )
     if expectations.get("needs_single_logout"):
@@ -417,6 +418,7 @@ def _collect_metrics_script() -> str:
         && Math.abs(pageScrollAfterClose - pageScrollBeforeMap) <= 2;
       const whatMatters = document.querySelector('[data-property-what-matters-panel]');
       const whatMatterGroups = Array.from(whatMatters?.querySelectorAll('details[data-what-matters-group]') || []);
+      const whatMattersStyle = whatMatters ? window.getComputedStyle(whatMatters) : null;
       let singleOpen = true;
       if (whatMatterGroups.length >= 2) {
         whatMatterGroups[0].open = true;
@@ -425,6 +427,11 @@ def _collect_metrics_script() -> str:
         whatMatterGroups[1].dispatchEvent(new Event('toggle'));
         singleOpen = whatMatterGroups.filter((node) => node.open).length === 1 && whatMatterGroups[1].open;
       }
+      const whatMattersPageScroll = Boolean(
+        whatMatters
+        && whatMattersStyle?.position !== 'fixed'
+        && document.documentElement.scrollHeight > window.innerHeight + 40
+      );
       const logoutButtons = visibleNodes('button, a').filter((node) => String(node.textContent || '').trim() === 'Log out');
       const accountMenu = document.querySelector('.account-menu, .pqx-account-menu');
       const accountSummary = accountMenu?.querySelector('summary') || null;
@@ -499,6 +506,7 @@ def _collect_metrics_script() -> str:
         district_map_close_restored_scroll: Boolean(!dialog || modalClosed),
         district_map_lock_open: htmlOverflowOpen === 'hidden' && bodyOverflowOpen === 'hidden' && bodyPositionOpen === 'fixed' && bodyTopOpen.startsWith('-'),
         mobile_what_matters_single_open: singleOpen,
+        mobile_what_matters_page_scroll: whatMattersPageScroll,
         account_logout_strip_visible: visible(document.querySelector('.pqx-account-logout-strip')),
         logout_button_count: logoutButtons.length,
         account_menu_present: Boolean(accountMenu),

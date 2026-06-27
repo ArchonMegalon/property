@@ -2885,6 +2885,9 @@
           body.style.top = locationMapPreviousBodyTop;
           body.style.width = locationMapPreviousBodyWidth;
           body.style.touchAction = locationMapPreviousBodyTouchAction;
+          // Restore page scrolling immediately so modal-close validation and users
+          // see the page return to its prior position without a delayed frame.
+          window.scrollTo(0, restoreScrollY);
           window.requestAnimationFrame(() => {
             window.scrollTo(0, restoreScrollY);
           });
