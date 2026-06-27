@@ -22,7 +22,9 @@ if str(EA_ROOT) not in sys.path:
 
 from app.services.property_market_catalog import (
     COUNTRIES,
+    CUSTOMER_SEARCH_COUNTRY_ORDER,
     default_platforms_for_country,
+    is_customer_search_country_code,
     provider_options,
     selectable_property_platform_keys,
 )
@@ -109,14 +111,23 @@ def _execute_search_matrix_enabled() -> bool:
     }
 
 
+def _effective_search_run_timeout_seconds(timeout_seconds: float, *, enabled: bool, dry_run: bool) -> float:
+    normalized_timeout = max(float(timeout_seconds or 0), 0.0)
+    if normalized_timeout <= 0:
+        return 0.0
+    if enabled and not dry_run:
+        return max(normalized_timeout, 25.0)
+    return normalized_timeout
+
+
 def _all_search_ready_country_codes() -> tuple[str, ...]:
     countries: list[str] = []
-    for country in COUNTRIES:
-        code = str(country.code or "").strip().upper()
-        if not code:
+    for code in CUSTOMER_SEARCH_COUNTRY_ORDER:
+        normalized = str(code or "").strip().upper()
+        if not normalized or not is_customer_search_country_code(normalized):
             continue
-        if _search_ready_provider_options(code):
-            countries.append(code)
+        if _search_ready_provider_options(normalized):
+            countries.append(normalized)
     return tuple(dict.fromkeys(countries))
 
 
@@ -795,6 +806,11 @@ def build_live_provider_smoke_receipt(
     enabled = _enabled()
     dry_run = _dry_run()
     should_execute_search_matrix = _execute_search_matrix_enabled() if execute_search_matrix is None else bool(execute_search_matrix)
+    search_run_timeout_seconds = _effective_search_run_timeout_seconds(
+        timeout_seconds,
+        enabled=enabled,
+        dry_run=dry_run,
+    )
     checks: list[dict[str, object]] = []
     effective_fetcher = fetcher or (lambda country, timeout: _fetch_provider_payload(base_url=base_url, country_code=country, timeout_seconds=timeout))
     for country in normalized_countries:
@@ -932,7 +948,7 @@ def build_live_provider_smoke_receipt(
         enabled=enabled,
         dry_run=dry_run,
         execute=should_execute_search_matrix,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=search_run_timeout_seconds,
         search_executor=search_executor,
         status_fetcher=status_fetcher,
         checkpoint_writer=_write_checkpoint if should_execute_search_matrix and enabled and not dry_run else None,
@@ -943,7 +959,7 @@ def build_live_provider_smoke_receipt(
         base_url=base_url,
         enabled=enabled,
         dry_run=dry_run,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=search_run_timeout_seconds,
         search_executor=search_executor,
     )
     search_matrix_summary = _targeted_search_matrix_summary(
@@ -975,6 +991,8 @@ def build_live_provider_smoke_receipt(
         "enabled": enabled,
         "dry_run": dry_run,
         "base_url": base_url,
+        "provider_catalog_timeout_seconds": timeout_seconds,
+        "search_run_timeout_seconds": search_run_timeout_seconds,
         "resume_source": resume_source,
         "country_scope": "all_search_ready" if all_search_ready_scope else "explicit",
         "checks": checks,
@@ -1012,8 +1030,9 @@ def build_live_provider_smoke_receipt(
             "When the targeted matrix is executed, each accepted dispatch must also return a readable search-run status receipt.",
             "The cross-country sanitization probe deliberately submits a foreign provider with a local provider and expects the runtime to remove the foreign provider before dispatch.",
             "Use --resume-from with a checkpoint/final receipt to reuse passed targeted search rows and rerun only missing or failed cases.",
-            "Set PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES=1 or pass --all-search-ready-countries to expand the matrix to every country with search-ready providers.",
+            "Set PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES=1 or pass --all-search-ready-countries to expand the matrix to every customer-search country with search-ready providers.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 with live mode to execute the targeted search matrix against /app/api/property/search-runs.",
+            "Search-run dispatch and status-readback probes use a longer live timeout budget than provider-catalog reads because runtime acceptance can be slower than catalog rendering.",
         ],
     }
 
@@ -1058,7 +1077,7 @@ def main() -> int:
         if args.all_search_ready_countries and not args.country:
             os.environ["PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES"] = "1"
         receipt = build_live_provider_smoke_receipt(
-            countries=tuple(args.country or (() if args.all_search_ready_countries else ("AT", "CR"))),
+            countries=tuple(args.country or (() if args.all_search_ready_countries else CUSTOMER_SEARCH_COUNTRY_ORDER)),
             base_url=str(args.base_url),
             timeout_seconds=float(args.timeout_seconds),
             execute_search_matrix=execute_search_matrix,

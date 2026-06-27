@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from scripts.verify_property_tour_vendor_tooling import (
+    _default_tour_root,
     _find_installers,
     _find_installed_apps,
     _installer_search_roots,
@@ -158,6 +159,26 @@ def test_vendor_tooling_default_installer_roots_do_not_scan_tmp() -> None:
     assert Path("/tmp") not in roots
 
 
+def test_vendor_tooling_default_tour_root_prefers_runtime_snapshot(monkeypatch, tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    sparse_root = repo_root / "state" / "public_property_tours"
+    runtime_root = tmp_path / "runtime-public-tours"
+    (sparse_root / "only-one").mkdir(parents=True)
+    (runtime_root / "one").mkdir(parents=True)
+    (runtime_root / "two").mkdir(parents=True)
+    (sparse_root / "only-one" / "tour.json").write_text("{}", encoding="utf-8")
+    (runtime_root / "one" / "tour.json").write_text("{}", encoding="utf-8")
+    (runtime_root / "two" / "tour.json").write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._repo_root", lambda: repo_root)
+    monkeypatch.setattr(
+        "scripts.verify_property_tour_vendor_tooling.preferred_public_tour_root",
+        lambda **kwargs: runtime_root.resolve(),
+    )
+
+    assert _default_tour_root() == runtime_root.resolve()
+
+
 def test_vendor_tooling_runtime_only_skips_desktop_export_tooling_noise(tmp_path: Path) -> None:
     tour_root = tmp_path / "public_tours"
     drop_dir = tmp_path / "incoming"
@@ -182,3 +203,50 @@ def test_vendor_tooling_runtime_only_skips_desktop_export_tooling_noise(tmp_path
     assert "vendor_installers" not in action_areas
     assert "vendor_desktop_apps" not in action_areas
     assert {row["provider"] for row in receipt["next_actions"] if row["area"] == "verified_export"} == {"3dvista", "pano2vr"}
+
+
+def test_vendor_tooling_counts_verified_imported_live_bundles(tmp_path: Path) -> None:
+    tour_root = tmp_path / "public_tours"
+    drop_dir = tmp_path / "incoming"
+    wine_prefix = tmp_path / "wine"
+    slug = "verified-live-bundle"
+    bundle = tour_root / slug
+    (bundle / "3dvista" / "lib").mkdir(parents=True)
+    (bundle / "pano2vr" / "output").mkdir(parents=True)
+    (bundle / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": slug,
+                "three_d_vista_export_root_relpath": "3dvista",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "trial_branding_present": False,
+                },
+                "pano2vr_entry_relpath": "pano2vr/output/index.html",
+                "pano2vr_import": {"source_project": "propertyquarry"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "3dvista" / "index.htm").write_text("<script src='lib/tdvplayer.js'></script>", encoding="utf-8")
+    (bundle / "3dvista" / "lib" / "tdvplayer.js").write_text("window.TDVPlayer={};", encoding="utf-8")
+    (bundle / "pano2vr" / "output" / "index.html").write_text("<html></html>", encoding="utf-8")
+    (bundle / "pano2vr" / "output" / "pano.xml").write_text("<pano />", encoding="utf-8")
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=drop_dir,
+        tour_root=tour_root,
+        wine_prefix=wine_prefix,
+        installer_roots=[],
+        runtime_container="",
+    )
+
+    assert receipt["discovery_verified_export_ready_counts"] == {"3dvista": 0, "pano2vr": 0}
+    assert receipt["live_bundle_verified_export_ready_counts"] == {"3dvista": 1, "pano2vr": 1}
+    assert receipt["verified_export_ready_counts"] == {"3dvista": 1, "pano2vr": 1}
+    assert receipt["missing_verified_exports"] == []
+    assert not any(row["area"] == "verified_export" for row in receipt["next_actions"])

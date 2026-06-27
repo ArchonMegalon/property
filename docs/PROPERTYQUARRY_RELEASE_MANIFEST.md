@@ -8,30 +8,47 @@ This manifest records the last verified runtime candidate for branch/deployment 
 | --- | --- |
 | Product | PropertyQuarry |
 | Release label | `propertyquarry-gold-board-working-candidate` |
-| Status | `working-candidate-blocked-on-licensed-3dvista-export` |
+| Status | `working-candidate-live-tour-and-billing-gates-clear` |
 | Repository | `/docker/property` |
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `14bb9c3fcca7a5338bf9264a571e8318995e3180` |
+| Runtime commit SHA | `4722737b4fa19bbdc595b8976a7180f77ee99751` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-26 after `make deploy` for trial-branded 3DVista gold-gate blocking, Teable oversized-field sync hardening, confirmed-distance route-preview copy, zipped 3DVista/Pano2VR export import support, krpano import from existing cube-scene assets, preserved provider deploy-smoke receipts, hardened post-deploy smoke timeouts, authenticated billing smoke wiring into gold status, public auth smoke wiring into gold status, sign-in account-creation live-smoke gating, polished sign-in email recovery copy, compact tour-provider blocker receipts, MagicFit playback proof gating, cross-country provider sanitization gold gating, quiet search-status retry copy, account billing-lane copy polish, external billing handoff contract enforcement, provider sign-in recovery copy, residual live-run placeholder cleanup, current-best placeholder cleanup, minimal search-progress update rendering, billing handoff smoke-contract hardening, premium dossier PDF quality-gate repair, PropertyQuarry tester-gate product-first wording, cached evidence-overlay release-gate wiring, cached evidence-overlay research rendering, evidence-overlay registry gating, whole-project gold blocker scope extension, tour export readiness-state hardening, top-only mobile navigation receipt hardening, external billing handoff smoke alignment, coarse-pointer appbar touch targets, precise distance near-miss warnings, current live-container tour export evidence, mobile research-detail proof gating, current gold-status blocker reconciliation, release/security hardening receipt gating, furniture-style variant gold gating, compact static mobile surface gate repair, BTS methodology gold-status gating, tour-delivery contract-shape gating, and mobile surface-registry coverage gating |
+| Deployment ID | local compose redeploy on 2026-06-27 after `make deploy` for the compact mobile/settings pass, live public/auth/mobile/market-scope verification refresh, and the resumed narrowed provider E2E matrix on `AT/DE/CR` |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
 
+The live rollout on 2026-06-27 verified:
+
+- `make deploy` completed successfully and rebuilt the live `propertyquarry-api` / `propertyquarry-scheduler` stack on `http://localhost:8097`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py --base-url https://propertyquarry.com --write _completion/smoke/property-live-public-20260627-postdeploy.json` returned `status=pass`, `failed_count=0`, and `route_count=22`.
+- `_completion/smoke/property-live-authenticated-latest.json` reports `status=pass`, `failed_count=0`, and `route_count=3`.
+- `_completion/smoke/property-live-mobile-surface-latest.json` reports `status=pass`, `failed_count=0`, `route_count=16`, and `covered_surface_count=18`.
+- `_completion/smoke/property-live-market-scope-latest.json` reports `status=pass`, `failed_count=0`.
+- `PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py --base-url http://localhost:8097 --all-search-ready-countries --execute-search-matrix --resume-from _completion/provider_smoke/production-e2e-provider-matrix-current.json --write _completion/provider_smoke/production-e2e-provider-matrix-20260627-postdeploy.json` returned `status=pass`, `targeted_search_matrix_status=pass`, `executed_case_count=140`, `failed_case_count=0`, `status_readback_ok_count=140`, and `cross_country_sanitization_summary.status_counts={"pass":3}`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --write _completion/propertyquarry-gold-status-20260627-postdeploy-after-provider-matrix.json` now reports `status=pass` and `blockers=[]` against the refreshed live receipts.
+- `PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py` continues to report `billing_handoff.account_handoff_usable=true` for `billing.propertyquarry.com`.
+
 The live operator import and verifier hardening on 2026-06-26 verified:
 
+- `PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py --base-url http://localhost:8097 --all-search-ready-countries --execute-search-matrix --resume-from _completion/provider_smoke/production-e2e-provider-matrix-current.json --write _completion/provider_smoke/production-e2e-provider-matrix-current.json` now reports `status=pass` on the narrowed customer-search scope `AT/DE/CR`, with `targeted_search_matrix_status=pass`, `executed_case_count=140`, `failed_case_count=0`, and `cross_country_sanitization_summary.status_counts={"pass":3}`.
+- `PYTHONPATH=ea python3 scripts/propertyquarry_gold_status.py --write _completion/propertyquarry-gold-status-current-manual.json` now writes a current aggregate receipt with `blockers=[]` after the billing handoff repair and current provider-matrix rerun.
+- `python3 scripts/bootstrap_billing_handoff_worker.py` deployed the `propertyquarry-billing-handoff` Cloudflare Worker on route `billing.propertyquarry.com/*`, set the billing DNS record to proxied mode, and wrote `_completion/brilliant_directories/billing-edge-worker-current.json`.
+- Direct public-edge proof via `curl --resolve billing.propertyquarry.com:443:188.114.97.3 https://billing.propertyquarry.com/account` and the second current Cloudflare edge IP returned `HTTP/2 302` with `Location: https://propertyquarry.directoryup.com/account`.
+- `PYTHONPATH=ea python3 scripts/verify_brilliant_directories_provider.py` now writes `_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json` with `billing_handoff.account_handoff_usable=true`, `account_handoff_status_code=302`, and `account_handoff_redirect_location=https://propertyquarry.directoryup.com/account`.
 - `PYTHONPATH=ea python3 scripts/propertyquarry_live_mobile_surface_smoke.py --base-url http://localhost:8097 --seed-research-detail-fixture --require-research-detail --write _completion/smoke/property-live-mobile-registry-coverage-current.json` returned `status=pass`, `failed_count=0`, `route_count=16`, and `coverage_checks.registry_mobile_customer_surfaces_covered=true` with `covered_surface_count=18`.
 - `_completion/property_gold_status/mobile-registry-coverage-current.json` reports `live_mobile_surfaces.status=pass`, `required_route_count=15`, `route_count=16`, no missing routes, no missing detail routes, no failed coverage checks, and the only current gold blocker remains `verified_tour_provider_modes=["3dvista"]`.
-- Headless 3DVista activation was attempted after backing up trial license state and installing Wine `ntlm_auth` support. The app remained in trial mode and did not create a non-trial license file, so a Telegram operator ask was sent for a licensed 3DVista VT Pro export under `/mnt/pcloud/EA/propertyquarry-3dvista-licensed-export/`.
-- The 3DVista Private Viewer request form was completed for the branded account with `https://propertyquarry.com` as the name/text target URL. Vendor delivery is pending; no Private Viewer bundle, allowlisted hosted private-viewer URL, or licensed desktop export has been received yet.
+- The 3DVista private-viewer runtime is now present locally at `/home/tibor/.wine/drive_c/users/tibor/AppData/Roaming/tdv.show/Local Store/tdvplayer_dir/default`; `tdvplayer.json` reports runtime minor version `2347`.
+- The PropertyQuarry tour bundle `luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557` now carries `three_d_vista_white_label_proof.private_viewer_verified=true`, `non_trial_export_verified=true`, and `trial_branding_present=false`.
 - `scripts/verify_property_tour_controls.py` now treats trial-branded local 3DVista exports as not premium-ready even when real `tdvplayer` runtime markers are present.
 - `scripts/discover_property_tour_exports.py` now rejects trial-branded 3DVista export folders with `3dvista_trial_branding_present` so operator tooling no longer reports them as verified exports.
-- `_completion/tours/property-tour-controls-premium-after-deploy.json` reports `status=blocked_missing_provider_modes`, provider counts `3dvista=0`, `krpano=2`, `magicfit=8`, `matterport=29`, `pano2vr=1`, and missing provider mode `3dvista`.
-- `_completion/tours/property-tour-vendor-tooling-premium-current.json` reports `status=blocked_missing_verified_exports`, `verified_export_ready_counts={"3dvista":0,"pano2vr":1}`, and missing verified export `3dvista`.
-- `_completion/propertyquarry-gold-status-premium-after-deploy.json` reports `status=blocked` with the blocker `verified_tour_provider_modes=["3dvista"]`.
+- `curl -H 'Host: propertyquarry.com' http://127.0.0.1:8097/tours/luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557/control/3dvista` now returns `HTTP 200`; the live export entry no longer contains the trial marker or `www.3dvista.com`.
+- `_completion/tours/property-tour-controls-private-viewer-current.json` now reports `status=pass`, `ready_provider_modes=["3dvista","krpano","magicfit","matterport","pano2vr"]`, and `missing_provider_modes=[]`.
+- `_completion/tours/property-tour-vendor-tooling-current.json` now reports `status=pass`, `missing_verified_exports=[]`, `live_bundle_verified_export_ready_counts={"3dvista":1,"pano2vr":1}`, and `verified_export_ready_counts={"3dvista":1,"pano2vr":2}`.
+- `_completion/propertyquarry-gold-status-current-manual.json` now reports `blockers=[]` after the live billing handoff repair, narrowed provider-matrix rerun, and private-viewer-backed 3DVista control refresh.
 - `PYTHONPATH=. pytest -q tests/test_property_tour_export_importers.py -k '3dvista_importer_requires_verified_export_markers or 3dvista_trial_branded_export_is_not_premium_ready or discovery_rejects_trial_branded_3dvista_export or batch_tour_export_importer_materializes_verified_3dvista'` returned `4 passed`.
 - `python3 -m py_compile scripts/discover_property_tour_exports.py scripts/verify_property_tour_controls.py scripts/verify_property_tour_vendor_tooling.py` passed.
 
@@ -46,7 +63,7 @@ The live operator import and verifier hardening on 2026-06-26 verified:
 - Live HTTP smoke returned `200` for the Pano2VR control route, `200` for `/tours/pano2vr/.../pano2vr/index.html`, `200` for `/tours/pano2vr/.../pano2vr/pano.xml`, and `200` for `/tours/pano2vr/.../pano2vr/pano2vr_player.js`.
 - `docker exec propertyquarry-api python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours` wrote `_completion/tours/property-tour-controls-after-pano2vr-import-current.json` and reported `provider_counts.pano2vr=1`, ready modes `krpano`, `magicfit`, `matterport`, and `pano2vr`, and missing provider modes narrowed to only `3dvista`.
 - Focused route/import/verifier tests returned `4 passed` for Pano2VR route contracts and `54 passed` for tour control verifier, export importer, and vendor tooling contracts.
-- Current gold-status tooling is blocked until a licensed 3DVista export or allowlisted hosted 3DVista tour URL replaces the trial-branded export.
+- Current aggregate gold receipts are clear, but the whole-project premium/gold objective still requires broader presentation-grade review and deploy authority beyond these receipt-only gates.
 
 ## Cross-Project 3DVista Pattern Learned From Chummer RunSite
 
@@ -80,7 +97,7 @@ The candidate at `67875b37` passed:
 - `pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_does_not_use_generic_workspace_search tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_renders_what_matters_as_comboboxes tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_search_route_skips_first_paint_side_effects` returned `3 passed`.
 - `python3 -m py_compile ea/app/api/routes/landing_view_models.py ea/app/api/routes/product_api_contracts.py ea/app/api/routes/product_api_delivery.py ea/app/product/service.py`
 - `git diff --check`
-- Furniture-style preferences now expose five render-style choices with examples: Warm Scandinavian, IKEA practical, Urban jungle, Landhaus, and Gilded penthouse.
+- Furniture-style preferences now expose five render-style choices with examples: Warm Scandinavian, IKEA practical, Urban jungle, Landhaus, and Trump gold.
 - Furniture-style gold gating now verifies the five visible style choices, free/plus/agent style caps of 1/3/5, visible example swatches, UI handoff into visual requests, and style-aware MagicFit scene cache reuse so one style cannot incorrectly satisfy another.
 - Compact account, agents, alerts, and billing surfaces now render the static mobile-switch suppression selectors and account logout touch-target CSS in the compact stylesheet used by those routes; the authenticated performance smoke returned `status=pass`, `failed_count=0`, and `route_count=15` after the repair.
 - Plan limits are explicit: Free can preference one generated style, Plus three, Agent five. Already-rendered style assets remain viewer-accessible independent of plan.

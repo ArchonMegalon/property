@@ -49,6 +49,8 @@ from app.product.property_surface_state import (
     effective_property_listing_mode,
     normalized_property_search_goal,
     property_mode_visibility_label,
+    property_run_customer_safe_status_detail,
+    property_run_customer_visible_events,
 )
 from app.product.property_score_methodology import build_property_score_methodology
 from app.product.property_delivery_governance import property_delivery_governance_rows
@@ -573,10 +575,16 @@ def property_workspace_payload(
         }
     run_health = dict(property_state.get("run_health") or {})
     packet_recovery = dict(property_state.get("packet_recovery") or {})
-    run_events = list(run_payload.get("events") or [])
+    route_recovery = dict(property_state.get("route_recovery") or {})
+    run_events = property_run_customer_visible_events(run_payload=run_payload)
     raw_run_summary = dict(run_payload.get("summary") or {})
     run_summary = _property_customer_run_summary(raw_run_summary)
-    run_payload = {**run_payload, "summary": run_summary}
+    run_payload = {
+        **run_payload,
+        "summary": run_summary,
+        "message": str(run_health.get("message") or run_payload.get("message") or "").strip(),
+        "events": run_events,
+    }
 
     def _management_safe_run_summary(summary: dict[str, object]) -> dict[str, object]:
         safe_summary = dict(summary)
@@ -941,6 +949,7 @@ def property_workspace_payload(
             selected={},
             empty_outcome={},
             packet_recovery=packet_recovery,
+            route_recovery=route_recovery,
             show_brief_default=True,
         )
         return PropertySurfacePayloadContract(
@@ -1482,11 +1491,32 @@ def property_workspace_payload(
 
     def _tour_payload(candidate: dict[str, object]) -> dict[str, object]:
         tour_url = str(candidate.get("tour_url") or "").strip()
+        property_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        if not tour_url:
+            try:
+                from app.product import property_tour_hosting
+
+                tour_url = str(
+                    property_tour_hosting._existing_hosted_property_tour_url_for_identity(  # type: ignore[attr-defined]
+                        property_url=candidate.get("property_url"),
+                        source_ref=candidate.get("source_ref"),
+                        external_id=(
+                            candidate.get("external_id")
+                            or candidate.get("listing_id")
+                            or property_facts.get("external_id")
+                            or property_facts.get("listing_id")
+                            or ""
+                        ),
+                    )
+                    or ""
+                ).strip()
+            except Exception:
+                tour_url = ""
         provider_tour_url = str(
             candidate.get("source_virtual_tour_url")
             or (
-                dict(candidate.get("property_facts") or {}).get("source_virtual_tour_url")
-                if isinstance(candidate.get("property_facts"), dict)
+                property_facts.get("source_virtual_tour_url")
+                if property_facts
                 else ""
             )
             or ""
@@ -3598,7 +3628,15 @@ def property_workspace_payload(
         recent_packets=[
             {
                 "title": str(item.get("title") or item.get("label") or "Property page").strip(),
-                "detail": str(item.get("detail") or "").strip(),
+                "detail": (
+                    property_run_customer_safe_status_detail(
+                        str(item.get("tag") or item.get("title") or "").strip().lower().replace(" ", "_"),
+                        str(item.get("detail") or "").strip(),
+                        summary=raw_run_summary,
+                        prefer_repair_step=True,
+                    )
+                    or str(item.get("detail") or "").strip()
+                ),
                 "tag": str(item.get("tag") or "Packet").strip(),
                 "url": str(item.get("action_href") or "").strip(),
             }
@@ -3632,6 +3670,7 @@ def property_workspace_payload(
             suppression_rows=suppression_rows,
         ),
         packet_recovery=packet_recovery,
+        route_recovery=route_recovery,
         show_brief_default=not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(shortlist_snapshot.get("has_results")))),
     )
     payload["billing_handoff"] = billing_handoff

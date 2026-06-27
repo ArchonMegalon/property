@@ -55,6 +55,10 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _no_proxy_opener(*handlers: object) -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), *handlers)
+
+
 def _env_value(name: str) -> str:
     return str(os.environ.get(name) or "").strip()
 
@@ -154,20 +158,45 @@ def _https_handoff_url_usable(location: str, *, timeout_seconds: float = 8.0) ->
             "Accept": "text/html,application/json,*/*",
         },
     )
-    opener = urllib.request.build_opener(_NoRedirectHandler)
+    opener = _no_proxy_opener(_NoRedirectHandler)
+    response_headers: dict[str, object] = {}
     try:
         with opener.open(request, timeout=timeout_seconds) as response:
             status_code = int(response.status)
-            response.read(1024)
+            response_headers = dict(response.headers.items())
+            redirect_location = ""
+            body = response.read(16_384).decode("utf-8", errors="replace").lower()
     except urllib.error.HTTPError as exc:
         status_code = int(exc.code)
-        exc.read(1024)
+        response_headers = dict(exc.headers.items())
+        redirect_location = _header_value(dict(exc.headers or {}), "Location")
+        body = exc.read(16_384).decode("utf-8", errors="replace").lower()
     except Exception as exc:
         return {"ok": False, "status_code": 0, "error": f"{type(exc).__name__}: {exc}"}
+    login_target = str(redirect_location or urllib.parse.urlparse(str(location or "")).path or "").lower()
+    body_is_login = "<title" in body and "login" in body and ("email" in body or "password" in body)
+    requires_login = "/login" in login_target or "login_direct_url" in login_target or body_is_login
+    server_header = str(response_headers.get("server") or response_headers.get("Server") or "").strip().lower()
+    cloudflare_error_code_match = (
+        re.search(r"error code:\s*(\d{3,4})", body, flags=re.IGNORECASE)
+        if status_code == 403 and "cloudflare" in server_header and not requires_login
+        else None
+    )
+    cloudflare_error_code = str(cloudflare_error_code_match.group(1) or "").strip() if cloudflare_error_code_match else ""
+    usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
     return {
-        "ok": 200 <= status_code < 400,
+        "ok": usable,
         "status_code": status_code,
-        "error": "" if 200 <= status_code < 400 else f"handoff_url_http_{status_code}",
+        "redirect_location": redirect_location,
+        "error": (
+            ""
+            if usable
+            else (
+                "handoff_url_requires_separate_login"
+                if requires_login
+                else (f"handoff_url_cloudflare_error_{cloudflare_error_code}" if cloudflare_error_code else f"handoff_url_http_{status_code}")
+            )
+        ),
     }
 
 
@@ -201,7 +230,7 @@ def fetch_url(
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
     request = urllib.request.Request(url, headers=headers)
-    opener = urllib.request.build_opener(_NoRedirectHandler)
+    opener = _no_proxy_opener(_NoRedirectHandler)
     started = datetime.now(timezone.utc)
     try:
         with opener.open(request, timeout=timeout_seconds) as response:

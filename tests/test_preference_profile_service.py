@@ -249,6 +249,54 @@ def test_preference_profile_service_builds_teable_projection_rows() -> None:
     assert projection["preference_review_queue"][0]["domain"] == "willhaben"
 
 
+def test_preference_profile_service_uses_factual_neutral_copy_for_midrange_distance_and_lease_signals() -> None:
+    service = _service()
+    service.ensure_profile(
+        principal_id="pref-principal",
+        person_id="self",
+        consent_mode="behavioral_learning",
+        learning_enabled=True,
+    )
+    for key in (
+        "prefer_subway_nearby",
+        "prefer_supermarket_nearby",
+        "prefer_pharmacy_nearby",
+        "prefer_unlimited_lease",
+    ):
+        service.upsert_preference_node(
+            principal_id="pref-principal",
+            person_id="self",
+            domain="willhaben",
+            category="soft_preference",
+            key=key,
+            value_json=True,
+            confidence=1.0,
+        )
+
+    assessment = service.assess_candidate(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        object_type="listing",
+        object_id="listing-neutral-facts",
+        object_payload={
+            "nearest_subway_m": 900.0,
+            "nearest_supermarket_m": 850.0,
+            "nearest_pharmacy_m": 900.0,
+            "lease_term_years_max": 7.0,
+        },
+        persist=False,
+        require_existing_profile=True,
+    )
+
+    assert assessment is not None
+    assert "Underground access is about 900 m away." in assessment["unknowns_json"]
+    assert "Supermarket access is about 850 m away." in assessment["unknowns_json"]
+    assert "Pharmacy access is about 900 m away." in assessment["unknowns_json"]
+    assert "The lease runs about 7 years." in assessment["unknowns_json"]
+    assert not any("needs verification" in item for item in assessment["unknowns_json"])
+
+
 def test_preference_profile_service_partial_profile_update_keeps_existing_flags() -> None:
     service = _service()
 

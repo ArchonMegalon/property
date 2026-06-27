@@ -37,6 +37,7 @@ DEFAULT_ROUTES = (
     "/app/properties/packets",
 )
 SEEDED_RESEARCH_DETAIL_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
+SEED_FIXTURE_USER_AGENT = "PropertyQuarry-live-mobile-surface-smoke/1.0"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -111,17 +112,33 @@ def seeded_research_detail_payload() -> dict[str, Any]:
     }
 
 
-def seed_research_detail_fixture(*, base_url: str, api_token: str, principal_id: str, host_header: str = "") -> str:
+def _seed_research_detail_headers(*, base_url: str, api_token: str, principal_id: str, host_header: str = "") -> dict[str, str]:
+    parsed_base = urllib.parse.urlparse(str(base_url or "").strip())
+    origin = urllib.parse.urlunparse((parsed_base.scheme or "https", parsed_base.netloc, "", "", "", "")).rstrip("/")
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
+        "User-Agent": SEED_FIXTURE_USER_AGENT,
         "X-EA-Principal-ID": principal_id,
     }
+    if origin:
+        headers["Origin"] = origin
+        headers["Referer"] = f"{origin}/app/search"
     if host_header:
         headers["Host"] = host_header
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
+    return headers
+
+
+def seed_research_detail_fixture(*, base_url: str, api_token: str, principal_id: str, host_header: str = "") -> str:
+    headers = _seed_research_detail_headers(
+        base_url=base_url,
+        api_token=api_token,
+        principal_id=principal_id,
+        host_header=host_header,
+    )
     request = urllib.request.Request(
         base_url.rstrip("/") + "/v1/onboarding/property-search/preferences",
         data=json.dumps(seeded_research_detail_payload()).encode("utf-8"),
@@ -268,6 +285,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "district_map_modal_opens", "ok": bool(metrics.get("district_map_modal_opened"))},
                 {"name": "district_map_click_selects_shape", "ok": bool(metrics.get("district_map_click_selected"))},
                 {"name": "district_map_zoom_toggle_changes_scale", "ok": bool(metrics.get("district_map_zoom_changed"))},
+                {"name": "district_map_pinch_zoom_changes_scale", "ok": bool(metrics.get("district_map_pinch_zoom_changed"))},
                 {"name": "district_map_close_restores_scroll", "ok": bool(metrics.get("district_map_close_restored_scroll"))},
                 {"name": "mobile_what_matters_single_open_section", "ok": bool(metrics.get("mobile_what_matters_single_open"))},
             )
@@ -295,6 +313,9 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "research_detail_verified_tour_evidence_copy", "ok": bool(metrics.get("research_detail_verified_tour_evidence_copy"))},
                 {"name": "research_detail_walkthrough_evidence_copy", "ok": bool(metrics.get("research_detail_walkthrough_evidence_copy"))},
                 {"name": "research_detail_no_vague_visual_copy", "ok": bool(metrics.get("research_detail_no_vague_visual_copy"))},
+                {"name": "research_detail_walkthrough_magicfit_only", "ok": bool(metrics.get("research_detail_walkthrough_magicfit_only"))},
+                {"name": "research_detail_no_walkthrough_provider_chooser", "ok": bool(metrics.get("research_detail_no_walkthrough_provider_chooser"))},
+                {"name": "research_detail_no_legacy_walkthrough_providers", "ok": bool(metrics.get("research_detail_no_legacy_walkthrough_providers"))},
             )
         )
     return checks
@@ -318,6 +339,10 @@ def _collect_metrics_script() -> str:
       const cardNodes = visibleNodes('.pqx-card, .pqx-panel, .pqx-result, .pqx-account-action-card, .pqx-billing-card, .pqx-billing-summary-card, .pqx-automation-card, .prd-panel, .prd-band');
       const heavyShadowNodes = cardNodes.filter((node) => window.getComputedStyle(node).boxShadow !== 'none');
       const locationField = document.querySelector('[data-property-field-name="location_query"]');
+      const availableScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const requestedScrollY = Math.min(220, availableScrollY);
+      window.scrollTo(0, requestedScrollY);
+      const pageScrollBeforeMap = Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
       const mapButton = locationField?.querySelector('[data-location-mode-button="map"]') || null;
       if (mapButton) mapButton.click();
       const locationGrid = locationField?.querySelector('[data-pqx-check-grid="location_query"]') || null;
@@ -343,10 +368,53 @@ def _collect_metrics_script() -> str:
       const zoomToggle = dialog?.querySelector('[data-location-map-zoom="reset"]') || null;
       if (zoomToggle) zoomToggle.click();
       const zoomedTransform = String(mapLayer?.getAttribute('transform') || '');
+      if (zoomToggle) zoomToggle.click();
+      const parseScale = (transform) => {
+        const match = String(transform || '').match(/scale\\(([^)]+)\\)/i);
+        const value = match ? Number(match[1]) : 0;
+        return Number.isFinite(value) ? value : 0;
+      };
+      let pinchZoomChanged = false;
+      const mapViewport = dialog?.querySelector('[data-location-map-viewport]') || null;
+      if (mapViewport && mapLayer && typeof PointerEvent === 'function') {
+        const viewportRect = mapViewport.getBoundingClientRect();
+        const centerX = viewportRect.left + (viewportRect.width / 2);
+        const centerY = viewportRect.top + (viewportRect.height / 2);
+        const beforePinch = String(mapLayer.getAttribute('transform') || '');
+        const dispatchPinchPointer = (type, pointerId, clientX, clientY, isPrimary) => {
+          mapViewport.dispatchEvent(new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            pointerId,
+            pointerType: 'touch',
+            isPrimary,
+            clientX,
+            clientY,
+          }));
+        };
+        dispatchPinchPointer('pointerdown', 1, centerX - 26, centerY, true);
+        dispatchPinchPointer('pointerdown', 2, centerX + 26, centerY, false);
+        dispatchPinchPointer('pointermove', 1, centerX - 58, centerY, true);
+        dispatchPinchPointer('pointermove', 2, centerX + 58, centerY, false);
+        dispatchPinchPointer('pointerup', 1, centerX - 58, centerY, true);
+        dispatchPinchPointer('pointerup', 2, centerX + 58, centerY, false);
+        const afterPinch = String(mapLayer.getAttribute('transform') || '');
+        pinchZoomChanged = parseScale(afterPinch) > parseScale(beforePinch) + 0.08;
+      }
       const closeButton = dialog?.querySelector('[data-location-map-close]') || null;
       const modalOpened = Boolean(dialog?.open) || document.documentElement.dataset.pqxLocationMapOpen === 'true';
+      const htmlOverflowOpen = document.documentElement.style.overflow || '';
+      const bodyOverflowOpen = document.body.style.overflow || '';
+      const bodyPositionOpen = document.body.style.position || '';
+      const bodyTopOpen = document.body.style.top || '';
       if (closeButton) closeButton.click();
-      const modalClosed = !(dialog?.open) && document.documentElement.dataset.pqxLocationMapOpen !== 'true' && document.body.style.overflow !== 'hidden';
+      const pageScrollAfterClose = Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
+      const modalClosed = !(dialog?.open)
+        && document.documentElement.dataset.pqxLocationMapOpen !== 'true'
+        && document.documentElement.style.overflow !== 'hidden'
+        && document.body.style.overflow !== 'hidden'
+        && Math.abs(pageScrollAfterClose - pageScrollBeforeMap) <= 2;
       const whatMatters = document.querySelector('[data-property-what-matters-panel]');
       const whatMatterGroups = Array.from(whatMatters?.querySelectorAll('details[data-what-matters-group]') || []);
       let singleOpen = true;
@@ -370,6 +438,12 @@ def _collect_metrics_script() -> str:
       const mediaStage = document.querySelector('[data-object-media-stage]');
       const visualControls = visibleNodes('[data-pw-visual-request], [data-object-magicfit-generate], [data-object-magicfit-toggle]');
       const bodyText = String(document.body?.textContent || '').toLowerCase();
+      const pageHtml = String(document.documentElement?.innerHTML || '').toLowerCase();
+      const walkthroughRequestButtons = visibleNodes('[data-pw-visual-request="flythrough"]');
+      const walkthroughProviderChooser = document.querySelector('[data-pw-walkthrough-provider-select]');
+      const walkthroughMagicfitOnly = walkthroughRequestButtons.length > 0 && walkthroughRequestButtons.every((node) => (
+        String(node.getAttribute('data-pw-walkthrough-provider') || '').trim().toLowerCase() === 'magicfit'
+      ));
       const generatedReconstructionCard = document.querySelector('[data-prd-visual-card="generated_reconstruction"]');
       const generatedReconstructionHonest = !generatedReconstructionCard || (
         bodyText.includes('not a verified provider capture')
@@ -411,7 +485,9 @@ def _collect_metrics_script() -> str:
         district_map_modal_opened: modalOpened,
         district_map_click_selected: Boolean(firstDistrict && firstInput && districtIsChecked !== districtWasChecked),
         district_map_zoom_changed: Boolean(zoomToggle && mapLayer && zoomedTransform !== initialTransform && zoomedTransform.includes('scale(')),
+        district_map_pinch_zoom_changed: pinchZoomChanged,
         district_map_close_restored_scroll: Boolean(!dialog || modalClosed),
+        district_map_lock_open: htmlOverflowOpen === 'hidden' && bodyOverflowOpen === 'hidden' && bodyPositionOpen === 'fixed' && bodyTopOpen.startsWith('-'),
         mobile_what_matters_single_open: singleOpen,
         account_logout_strip_visible: visible(document.querySelector('.pqx-account-logout-strip')),
         logout_button_count: logoutButtons.length,
@@ -427,6 +503,9 @@ def _collect_metrics_script() -> str:
         research_detail_verified_tour_evidence_copy: verifiedTourEvidenceCopy,
         research_detail_walkthrough_evidence_copy: walkthroughEvidenceCopy,
         research_detail_no_vague_visual_copy: !vagueVisualCopy,
+        research_detail_walkthrough_magicfit_only: walkthroughMagicfitOnly,
+        research_detail_no_walkthrough_provider_chooser: !walkthroughProviderChooser && !pageHtml.includes('data-pw-walkthrough-provider-select'),
+        research_detail_no_legacy_walkthrough_providers: !pageHtml.includes('mootion') && !pageHtml.includes('omagic'),
       };
     }
     """

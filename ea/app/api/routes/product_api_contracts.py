@@ -112,6 +112,9 @@ class CommitmentOut(BaseModel):
     merged_from_refs: list[str] = []
 
 
+WalkthroughProviderChoice = Literal["", "mootion", "magicfit", "omagic", "magic"]
+
+
 class CommitmentCandidateOut(BaseModel):
     candidate_id: str = ""
     title: str
@@ -1502,6 +1505,10 @@ class WillhabenPropertyTourIn(BaseModel):
     auto_deliver: bool = False
     allow_floorplan_only: bool = False
     diorama_style_hint: str = Field(default="", max_length=240)
+    walkthrough_provider_key: WalkthroughProviderChoice = Field(
+        default="",
+        description="Preferred walkthrough provider lane. `mootion`, `magicfit`, and `omagic` are choosable; `magic` is its alias.",
+    )
 
 
 class WillhabenPropertyTourOut(BaseModel):

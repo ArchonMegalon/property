@@ -14,6 +14,7 @@ import pytest
 
 from app.services.brilliant_directories import (
     BrilliantDirectoriesApiError,
+    _billing_handoff_account_probe,
     build_brilliant_directories_api_request,
     build_brilliant_directories_member_profile_request,
     build_brilliant_directories_member_search_request,
@@ -23,6 +24,7 @@ from app.services.brilliant_directories import (
     build_brilliant_directories_verification_receipt,
     build_directory_profile_projection,
     brilliant_directories_billing_handoff_url,
+    brilliant_directories_billing_handoff_urls,
     execute_brilliant_directories_api_request,
     fetch_brilliant_directories_member_profile_projection_packet,
     fetch_brilliant_directories_member_projection_packet,
@@ -182,6 +184,27 @@ def test_brilliant_directories_billing_handoff_allows_url_only_white_label(monke
     assert brilliant_directories_billing_handoff_url(config) == "https://billing.propertyquarry.com/account"
 
 
+def test_brilliant_directories_billing_handoff_urls_include_safe_fallbacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
+        "billing.propertyquarry.com,propertyquarry.directoryup.com,billing.brilliantdirectories.com",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS",
+        "https://propertyquarry.directoryup.com/account,https://billing.brilliantdirectories.com/account",
+    )
+
+    config = load_brilliant_directories_config()
+
+    assert brilliant_directories_billing_handoff_urls(config) == (
+        "https://billing.propertyquarry.com/account",
+        "https://propertyquarry.directoryup.com/account",
+    )
+    assert brilliant_directories_billing_handoff_url(config) == "https://billing.propertyquarry.com/account"
+
+
 def test_brilliant_directories_verifier_blocks_unresolved_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
@@ -211,6 +234,15 @@ def test_brilliant_directories_verifier_accepts_resolving_billing_handoff(monkey
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "billing.propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setattr(
+        brilliant_directories_service,
+        "_billing_handoff_account_probe",
+        lambda _url: {
+            "account_handoff_usable": True,
+            "account_handoff_status_code": 200,
+            "account_handoff_error": "",
+        },
+    )
 
     def resolved(_host: str, _port: int) -> list[tuple[object, ...]]:
         return [(object(),)]
@@ -279,6 +311,15 @@ def test_brilliant_directories_verifier_accepts_public_dns_when_local_resolver_i
 
     monkeypatch.setattr(urllib.request, "urlopen", dns_response)
     monkeypatch.setattr(brilliant_directories_service.socket, "getaddrinfo", stale_local_resolver)
+    monkeypatch.setattr(
+        brilliant_directories_service,
+        "_billing_handoff_account_probe",
+        lambda _url: {
+            "account_handoff_usable": True,
+            "account_handoff_status_code": 200,
+            "account_handoff_error": "",
+        },
+    )
 
     receipt = build_brilliant_directories_verification_receipt()
 
@@ -391,16 +432,15 @@ def test_property_billing_route_redirects_to_allowlisted_brilliant_directories_a
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
     monkeypatch.setattr(
-        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_verification_receipt",
-        lambda: {
-            "status": "dry_verified_configured",
-            "billing_handoff": {
-                "configured": True,
-                "url": "https://billing.propertyquarry.com/account",
-                "host": "billing.propertyquarry.com",
-                "host_resolves": True,
-                "error": "",
-            },
+        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_billing_handoff_receipt",
+        lambda _handoff_url: {
+            "configured": True,
+            "url": "https://billing.propertyquarry.com/account",
+            "host": "billing.propertyquarry.com",
+            "host_resolves": True,
+            "account_handoff_usable": True,
+            "account_handoff_error": "",
+            "error": "",
         },
     )
     client = build_property_client(principal_id="exec-bd-billing-direct")
@@ -412,6 +452,89 @@ def test_property_billing_route_redirects_to_allowlisted_brilliant_directories_a
     assert response.headers["location"] == "https://billing.propertyquarry.com/account"
 
 
+def test_property_billing_route_falls_back_to_secondary_allowlisted_account_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
+        "directory.propertyquarry.com,billing.propertyquarry.com,propertyquarry.directoryup.com",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS",
+        "https://propertyquarry.directoryup.com/account",
+    )
+
+    def fake_receipt(handoff_url: str, *, resolver=None):  # noqa: ANN001
+        if handoff_url == "https://billing.propertyquarry.com/account":
+            return {
+                "configured": True,
+                "url": handoff_url,
+                "host": "billing.propertyquarry.com",
+                "host_resolves": True,
+                "account_handoff_usable": False,
+                "account_handoff_error": "billing_handoff_http_404",
+                "error": "billing_handoff_http_404",
+            }
+        if handoff_url == "https://propertyquarry.directoryup.com/account":
+            return {
+                "configured": True,
+                "url": handoff_url,
+                "host": "propertyquarry.directoryup.com",
+                "host_resolves": True,
+                "account_handoff_usable": True,
+                "account_handoff_error": "",
+                "error": "",
+            }
+        raise AssertionError(handoff_url)
+
+    monkeypatch.setattr(
+        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_billing_handoff_receipt",
+        fake_receipt,
+    )
+    client = build_property_client(principal_id="exec-bd-billing-fallback")
+    start_workspace(client, mode="personal", workspace_name="BD Billing Fallback Office")
+
+    response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "https://propertyquarry.directoryup.com/account"
+
+
+def test_property_billing_route_fails_closed_when_billing_handoff_has_cloudflare_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,billing.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+    monkeypatch.setattr(
+        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_billing_handoff_receipt",
+        lambda _handoff_url: {
+            "configured": True,
+            "url": "https://billing.propertyquarry.com/account",
+            "host": "billing.propertyquarry.com",
+            "host_resolves": True,
+            "account_handoff_usable": False,
+            "account_handoff_warning": "",
+            "account_handoff_error": "billing_handoff_cloudflare_error_1014",
+            "error": "billing_handoff_cloudflare_error_1014",
+        },
+    )
+    client = build_property_client(principal_id="exec-bd-billing-direct-warning")
+    start_workspace(client, mode="personal", workspace_name="BD Billing Warning")
+
+    response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+
+    assert response.status_code == 503
+    assert "Billing handoff unavailable" in response.text
+    assert "billing.propertyquarry.com/account" not in response.text
+
+
 def test_property_billing_route_fails_closed_when_brilliant_directories_host_does_not_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
@@ -421,17 +544,13 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_host_doe
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
     monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
     monkeypatch.setattr(
-        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_verification_receipt",
-        lambda: {
-            "status": "blocked",
+        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_billing_handoff_receipt",
+        lambda _handoff_url: {
+            "configured": True,
+            "url": "https://billing.propertyquarry.com/account",
+            "host": "billing.propertyquarry.com",
+            "host_resolves": False,
             "error": "billing_handoff_host_unresolved:gaierror",
-            "billing_handoff": {
-                "configured": True,
-                "url": "https://billing.propertyquarry.com/account",
-                "host": "billing.propertyquarry.com",
-                "host_resolves": False,
-                "error": "billing_handoff_host_unresolved:gaierror",
-            },
         },
     )
     client = build_property_client(principal_id="exec-bd-billing-unresolved")
@@ -442,6 +561,68 @@ def test_property_billing_route_fails_closed_when_brilliant_directories_host_doe
     assert response.status_code == 503
     assert "Billing handoff unavailable" in response.text
     assert "billing.propertyquarry.com/account" not in response.text
+
+
+def test_property_billing_route_fails_closed_when_brilliant_directories_requires_second_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL", "https://directory.propertyquarry.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS", "directory.propertyquarry.com,propertyquarry.directoryup.com")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY", "bd-secret-token")
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://propertyquarry.directoryup.com/account")
+    monkeypatch.setattr(
+        "app.api.routes.landing.brilliant_directories_service.build_brilliant_directories_billing_handoff_receipt",
+        lambda _handoff_url: {
+            "configured": True,
+            "url": "https://propertyquarry.directoryup.com/account",
+            "host": "propertyquarry.directoryup.com",
+            "host_resolves": True,
+            "account_handoff_usable": False,
+            "account_handoff_error": "billing_handoff_requires_separate_login",
+            "error": "billing_handoff_requires_separate_login",
+        },
+    )
+    client = build_property_client(principal_id="exec-bd-billing-login-required")
+    start_workspace(client, mode="personal", workspace_name="BD Billing Login Required")
+
+    response = client.get("/app/billing", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+
+    assert response.status_code == 503
+    assert "Billing handoff unavailable" in response.text
+    assert "propertyquarry.directoryup.com/account" not in response.text
+
+
+def test_brilliant_directories_billing_handoff_rejects_cloudflare_error_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL", "https://billing.propertyquarry.com/account")
+
+    class _ExplodingOpener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            raise RuntimeError("network path intentionally blocked")
+
+    monkeypatch.setattr(brilliant_directories_service.urllib.request, "build_opener", lambda *args, **kwargs: _ExplodingOpener())
+    monkeypatch.setattr(brilliant_directories_service, "_resolve_host_with_public_dns", lambda _name: ["188.114.96.3"])
+    monkeypatch.setattr(
+        brilliant_directories_service,
+        "_http_request_via_public_address",
+        lambda _url, timeout_seconds, public_addresses: {
+            "status_code": 403,
+            "redirect_location": "",
+            "requires_login": False,
+            "cloudflare_transport_error": True,
+            "body": "error code: 1014",
+            "used_public_address": public_addresses[0],
+            "raw_host": "billing.propertyquarry.com",
+            "raw_status_line_address": public_addresses[0],
+        },
+    )
+
+    probe = _billing_handoff_account_probe("https://billing.propertyquarry.com/account")
+
+    assert probe["account_handoff_usable"] is False
+    assert probe["account_handoff_status_code"] == 403
+    assert probe["account_handoff_error"] == "billing_handoff_cloudflare_error_1014"
+    assert probe["account_handoff_warning"] == ""
 
 
 def test_brilliant_directories_receipt_records_billing_as_advisory_white_label_handoff(

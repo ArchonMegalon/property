@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import urllib.request
 
+import scripts.propertyquarry_live_authenticated_smoke as authenticated_smoke
 from scripts.propertyquarry_live_authenticated_smoke import build_live_authenticated_smoke_receipt
 
 
@@ -158,6 +159,81 @@ def test_live_authenticated_smoke_rejects_external_billing_redirect_404_without_
     assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
     assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is False for check in billing_row["checks"])
     assert billing_row["billing_handoff_probe"]["status_code"] == 404
+
+
+def test_live_authenticated_smoke_rejects_cloudflare_error_page_billing_handoff() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://billing.propertyquarry.com/account"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=lambda _host, _port: [(object(),)],
+        billing_handoff_checker=lambda _location, _timeout: {
+            "ok": False,
+            "status_code": 403,
+            "error": "handoff_url_cloudflare_error_1014",
+        },
+    )
+
+    assert receipt["status"] == "fail"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is False for check in billing_row["checks"])
+    assert billing_row["billing_handoff_probe"]["error"] == "handoff_url_cloudflare_error_1014"
+
+
+def test_live_authenticated_smoke_rejects_billing_handoff_that_requires_second_login() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "https://propertyquarry.directoryup.com/account"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+        billing_handoff_resolver=lambda _host, _port: [(object(),)],
+        billing_handoff_checker=lambda _location, _timeout: {
+            "ok": False,
+            "status_code": 302,
+            "redirect_location": "/login?login_direct_url=/account",
+            "error": "handoff_url_requires_separate_login",
+        },
+    )
+
+    assert receipt["status"] == "fail"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is False for check in billing_row["checks"])
+    assert billing_row["billing_handoff_probe"]["error"] == "handoff_url_requires_separate_login"
 
 
 def test_live_authenticated_smoke_rejects_unresolved_external_billing_redirect_without_network(monkeypatch) -> None:
@@ -582,6 +658,54 @@ def test_live_authenticated_smoke_retries_transient_transport_failures_without_n
     assert receipt["status"] == "pass"
     account_row = next(row for row in receipt["checks"] if row["path"] == "/app/account")
     assert account_row["attempt_count"] == 2
+
+
+def test_live_authenticated_smoke_fetcher_uses_no_proxy_opener(monkeypatch) -> None:
+    seen_handlers: list[tuple[object, ...]] = []
+
+    class _FakeResponse:
+        status = 200
+        headers = {"Content-Type": "text/html; charset=utf-8", **SECURITY_HEADERS}
+
+        def __init__(self, url: str) -> None:
+            self._url = url
+
+        def geturl(self) -> str:
+            return self._url
+
+        def read(self, _limit: int | None = None) -> bytes:
+            return ACCOUNT_AGENT_BODY.encode("utf-8")
+
+        def __enter__(self) -> "_FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    class _FakeOpener:
+        def open(self, request, timeout=0):  # type: ignore[no-untyped-def]
+            return _FakeResponse(request.full_url)
+
+    def _fake_build_opener(*handlers):  # type: ignore[no-untyped-def]
+        seen_handlers.append(tuple(handlers))
+        return _FakeOpener()
+
+    monkeypatch.setattr(authenticated_smoke.urllib.request, "build_opener", _fake_build_opener)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="http://localhost:8097",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        routes=("/app/account",),
+    )
+
+    assert receipt["status"] == "pass"
+    assert seen_handlers
+    proxy_handler = next(
+        handler for handler in seen_handlers[0] if isinstance(handler, urllib.request.ProxyHandler)
+    )
+    assert proxy_handler.proxies == {}
 
 
 def test_live_authenticated_smoke_rejects_local_billing_board_without_network() -> None:

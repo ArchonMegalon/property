@@ -39,17 +39,49 @@ def test_poppy_ai_is_only_a_research_board_lane_until_verified() -> None:
 def test_magicfit_is_final_continuity_publisher() -> None:
     still_route = route_property_media_task(MediaRequirement(task="interior_still"))
     final_route = route_property_media_task(
-        MediaRequirement(
-            task="walkthrough_video",
-            first_frame_continuity=True,
-            constant_speed=True,
-            must_be_magicfit=True,
-        )
+        MediaRequirement(task="walkthrough_video", first_frame_continuity=True, constant_speed=True)
     )
 
     assert still_route.provider_key == "magicfit"
     assert final_route.ok
     assert final_route.provider_key == "magicfit"
+
+
+def test_walkthrough_provider_aliases_select_onemin_i2v_lane() -> None:
+    for provider_key in ("magic", "omagic"):
+        route = route_property_media_task(MediaRequirement(task="walkthrough_video", preferred_provider_key=provider_key))
+
+        assert route.ok
+        assert route.provider_key == "onemin_i2v"
+
+
+def test_walkthrough_provider_mootion_preference_stays_mootion() -> None:
+    route = route_property_media_task(MediaRequirement(task="walkthrough_video", preferred_provider_key="mootion"))
+
+    assert route.ok
+    assert route.provider_key == "mootion"
+
+
+def test_legacy_onemin_aliases_select_internal_i2v_lane() -> None:
+    for provider_key in ("onemin", "onemin_i2v"):
+        route = route_property_media_task(MediaRequirement(task="walkthrough_video", preferred_provider_key=provider_key))
+
+        assert route.ok
+        assert route.provider_key == "onemin_i2v"
+
+
+def test_magicfit_preference_stays_magicfit() -> None:
+    route = route_property_media_task(MediaRequirement(task="walkthrough_video", preferred_provider_key="magicfit"))
+
+    assert route.ok
+    assert route.provider_key == "magicfit"
+
+
+def test_unknown_walkthrough_provider_is_rejected() -> None:
+    route = route_property_media_task(MediaRequirement(task="walkthrough_video", preferred_provider_key="does_not_exist"))
+
+    assert not route.ok
+    assert route.reason == "no_candidate_matches_preferred_provider"
 
 
 def test_lived_in_staging_routes_to_photoreal_magicfit_not_local_geometry() -> None:
@@ -58,7 +90,6 @@ def test_lived_in_staging_routes_to_photoreal_magicfit_not_local_geometry() -> N
             task="staged_lived_in_tour",
             first_frame_continuity=True,
             constant_speed=True,
-            must_be_magicfit=True,
         )
     )
     geometry_route = route_property_media_task(MediaRequirement(task="geometry_reference"))

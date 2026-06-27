@@ -16,7 +16,7 @@ REQUIRED_STYLES = {
     "ikea_practical": ("IKEA practical", "IKEA-inspired practical modular furniture"),
     "urban_jungle": ("Urban jungle", "urban jungle interior"),
     "landhaus": ("Landhaus", "Austrian Landhaus"),
-    "gilded_penthouse": ("Gilded penthouse", "playful gilded penthouse"),
+    "gilded_penthouse": ("Trump gold", "Trump-style gold maximalist penthouse staging"),
 }
 
 

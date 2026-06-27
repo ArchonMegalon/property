@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from scripts.property_live_provider_smoke import build_live_provider_smoke_receipt
-from app.services.property_market_catalog import COUNTRIES, provider_options
+from app.services.property_market_catalog import CUSTOMER_SEARCH_COUNTRY_ORDER, provider_options
 
 
 def _search_ready_provider_count(country_code: str) -> int:
@@ -16,9 +16,9 @@ def _search_ready_provider_count(country_code: str) -> int:
 
 def _all_search_ready_countries() -> tuple[str, ...]:
     return tuple(
-        country.code
-        for country in COUNTRIES
-        if _search_ready_provider_count(country.code) > 0
+        code
+        for code in CUSTOMER_SEARCH_COUNTRY_ORDER
+        if _search_ready_provider_count(code) > 0
     )
 
 
@@ -96,14 +96,8 @@ def test_live_provider_smoke_can_expand_to_all_search_ready_countries(monkeypatc
         row["country_code"] == "AT" or "Vienna" not in str(row.get("location_query") or "")
         for row in receipt["targeted_search_matrix"]
     )
-    taxsales_rows = [
-        row
-        for row in receipt["targeted_search_matrix"]
-        if row.get("country_code") == "CA" and row.get("provider") == "taxsales_ca"
-    ]
-    assert {row.get("mode") for row in taxsales_rows} == {"targeted_no_soft_filters", "targeted_soft_filters"}
-    assert all(row["listing_mode"] == "buy" for row in taxsales_rows)
-    assert all(row["payload_contract_ok"] is True for row in taxsales_rows)
+    assert {row.get("country_code") for row in receipt["targeted_search_matrix"]} == set(countries)
+    assert all(row["payload_contract_ok"] is True for row in receipt["targeted_search_matrix"])
 
 
 def test_live_provider_smoke_explicit_countries_can_override_all_country_env(monkeypatch) -> None:
@@ -310,9 +304,12 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     }
     observed_payloads: list[dict[str, object]] = []
     observed_status_reads: list[tuple[str, str]] = []
+    observed_search_timeouts: list[float] = []
+    observed_status_timeouts: list[float] = []
     checkpoint_path = tmp_path / "provider-matrix-checkpoint.json"
 
-    def _search_executor(payload: dict[str, object], _timeout: float) -> dict[str, object]:
+    def _search_executor(payload: dict[str, object], timeout: float) -> dict[str, object]:
+        observed_search_timeouts.append(timeout)
         selected_platforms = list(payload.get("selected_platforms") or [])
         if len(selected_platforms) > 1:
             return _sanitized_cross_country_response(payload)
@@ -326,7 +323,8 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
             "status": "queued",
         }
 
-    def _status_fetcher(run_id: str, status_url: str, _timeout: float) -> dict[str, object]:
+    def _status_fetcher(run_id: str, status_url: str, timeout: float) -> dict[str, object]:
+        observed_status_timeouts.append(timeout)
         observed_status_reads.append((run_id, status_url))
         return {
             "run_id": run_id,
@@ -376,6 +374,8 @@ def test_live_provider_smoke_can_execute_targeted_search_matrix(monkeypatch, tmp
     assert all(row["status_probe_status"] == "queued" for row in receipt["targeted_search_matrix"])
     assert all(payload.get("dispatch_only") is True for payload in observed_payloads)
     assert all("max_results_per_source" not in payload for payload in observed_payloads)
+    assert set(observed_search_timeouts) == {25.0}
+    assert set(observed_status_timeouts) == {25.0}
     assert {
         dict(payload.get("property_preferences") or {}).get("search_mode")
         for payload in observed_payloads

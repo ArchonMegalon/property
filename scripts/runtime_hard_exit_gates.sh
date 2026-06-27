@@ -26,10 +26,11 @@ deeper task-contract state and is not a live-deploy-safe probe.
 
 Optional PropertyQuarry runtime lane:
   Set PROPERTYQUARRY_RUNTIME_GATES=1 to additionally run the deployed runtime
-  public/authenticated/provider smokes against PROPERTYQUARRY_LIVE_SMOKE_BASE_URL
+  public/authenticated/mobile/provider smokes against PROPERTYQUARRY_LIVE_SMOKE_BASE_URL
   (default http://localhost:8097). Authenticated/provider probes require
   EA_API_TOKEN and use PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL,
-  PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE, and
+  PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE,
+  PROPERTYQUARRY_LIVE_MOBILE_SMOKE_PRINCIPAL_ID, and
   PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID when provided. In this mode,
   verify_pocket_audio_archive remains informative but will warn instead of
   failing the PropertyQuarry-specific runtime lane.
@@ -59,8 +60,11 @@ else
 fi
 
 if [[ "${propertyquarry_runtime_gates_enabled}" == "1" ]]; then
+  mkdir -p _completion/smoke
+
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_public_smoke.py \
     --base-url "${propertyquarry_base_url}" \
+    --write _completion/smoke/property-live-public-latest.json \
     --timeout-seconds 8
 
   if [[ -n "${EA_API_TOKEN:-}" ]]; then
@@ -69,15 +73,25 @@ if [[ "${propertyquarry_runtime_gates_enabled}" == "1" ]]; then
       --principal-id "${propertyquarry_principal_id}" \
       --expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Agent}" \
       --country-code "${PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE:-AT}" \
+      --write _completion/smoke/property-live-authenticated-latest.json \
       --timeout-seconds 8
+
+    PYTHONPATH=ea EA_API_TOKEN="${EA_API_TOKEN}" "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.py \
+      --base-url "${propertyquarry_base_url}" \
+      --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
+      --api-token "${EA_API_TOKEN}" \
+      --principal-id "${PROPERTYQUARRY_LIVE_MOBILE_SMOKE_PRINCIPAL_ID:-pq-live-mobile-smoke}" \
+      --seed-research-detail-fixture \
+      --write _completion/smoke/property-live-mobile-surface-latest.json
 
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
       PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
       PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${propertyquarry_principal_id}" \
       PYTHONPATH=ea EA_API_TOKEN="${EA_API_TOKEN}" "${PYTHON_BIN}" scripts/property_live_provider_smoke.py \
       --base-url "${propertyquarry_base_url}" \
+      --write _completion/smoke/property-live-provider-latest.json \
       --timeout-seconds 8
   else
-    echo "PROPERTYQUARRY_RUNTIME_GATES=1 requested but EA_API_TOKEN is not set; skipping authenticated/provider PropertyQuarry runtime smokes." >&2
+    echo "PROPERTYQUARRY_RUNTIME_GATES=1 requested but EA_API_TOKEN is not set; skipping authenticated/mobile/provider PropertyQuarry runtime smokes." >&2
   fi
 fi

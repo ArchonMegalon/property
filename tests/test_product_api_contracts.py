@@ -13426,6 +13426,39 @@ def test_existing_hosted_property_tour_url_deep_links_live_360_when_manifest_has
     )
 
 
+def test_existing_hosted_property_tour_url_for_identity_matches_private_manifest_fields(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    slug = "identity-match-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"real-asset")
+    property_tour_hosting._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-match-tour#top",
+            "listing_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-match-tour",
+            "source_ref": "willhaben:identity-match-tour",
+            "external_id": "identity-match-tour",
+            "matterport_url": "https://my.matterport.com/show/?m=IDENTITY1",
+            "scenes": [{"asset_relpath": "scene-01.jpg"}],
+        },
+    )
+
+    assert property_tour_hosting._existing_hosted_property_tour_url_for_identity(
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-match-tour",
+    ) == "https://myexternalbrain.com/tours/identity-match-tour"
+    assert property_tour_hosting._existing_hosted_property_tour_url_for_identity(
+        source_ref="willhaben:identity-match-tour"
+    ) == "https://myexternalbrain.com/tours/identity-match-tour"
+    assert property_tour_hosting._existing_hosted_property_tour_url_for_identity(
+        external_id="identity-match-tour"
+    ) == "https://myexternalbrain.com/tours/identity-match-tour"
+
+
 def test_willhaben_property_packet_script_path_supports_container_layout(monkeypatch, tmp_path: Path) -> None:
     container_root = tmp_path / "app"
     service_path = container_root / "app" / "product" / "service.py"
@@ -13752,12 +13785,12 @@ def test_request_property_visual_asset_keeps_explicit_workbench_floorplan(monkey
         auto_deliver=False,
         queue_async_request=False,
         allow_floorplan_only=True,
-        diorama_style_hint="playful gilded penthouse staging",
+        diorama_style_hint="playful Trump-style gold maximalist penthouse staging",
     )
 
     assert result["status"] == "created"
     assert captured["allow_floorplan_only"] is True
-    assert result["diorama_style_hint"] == "playful gilded penthouse staging"
+    assert result["diorama_style_hint"] == "playful Trump-style gold maximalist penthouse staging"
 
 
 def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> None:
@@ -14014,6 +14047,65 @@ def test_current_property_search_visual_state_returns_ready_urls(monkeypatch) ->
     assert state["flythrough_url"] == "https://propertyquarry.com/tours/ready-visuals-1?pane=flythrough-pane&autoplay=1"
     assert state["tour_status"] == "created"
     assert state["flythrough_status"] == "existing"
+
+
+def test_current_property_search_visual_state_recovers_hosted_tour_from_identity(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+    slug = "identity-recovered-visuals"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"real-asset")
+    property_tour_hosting._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
+            "listing_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
+            "source_ref": "willhaben:identity-recovered-visuals",
+            "external_id": "identity-recovered-visuals",
+            "matterport_url": "https://my.matterport.com/show/?m=IDENTITY2",
+            "scenes": [{"asset_relpath": "scene-01.jpg"}],
+        },
+    )
+
+    principal_id = "property-visual-state-identity-recovery"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    def _fake_snapshot(self, *, run_id: str, principal_id: str):  # type: ignore[no-untyped-def]
+        assert run_id == "run-identity-42"
+        assert principal_id == "property-visual-state-identity-recovery"
+        return {
+            "run_id": run_id,
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "title": "Recovered visuals apartment",
+                        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
+                        "source_ref": "willhaben:identity-recovered-visuals",
+                        "tour_status": "created",
+                    }
+                ],
+                "sources": [],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
+
+    state = service._current_property_search_visual_state(
+        principal_id=principal_id,
+        run_id="run-identity-42",
+        source_ref="willhaben:identity-recovered-visuals",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
+    )
+
+    assert state["tour_url"] == "https://propertyquarry.com/tours/identity-recovered-visuals"
+    assert state["vendor_tour_url"] == "https://propertyquarry.com/tours/identity-recovered-visuals/control/matterport"
+    assert state["tour_status"] == "created"
 
 
 def test_property_tour_followup_tasks_return_ready_visual_when_snapshot_already_has_url(monkeypatch) -> None:

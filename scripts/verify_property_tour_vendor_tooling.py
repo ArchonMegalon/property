@@ -14,6 +14,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.discover_property_tour_exports import build_discovery_receipt
+from scripts.property_tour_runtime_paths import preferred_public_tour_root
 
 
 INSTALLER_PATTERNS = (
@@ -58,7 +59,12 @@ def _default_drop_dir() -> Path:
 
 
 def _default_tour_root() -> Path:
-    return Path(os.getenv("EA_PUBLIC_TOUR_DIR") or _repo_root() / "state" / "public_property_tours").expanduser()
+    return preferred_public_tour_root(
+        configured_root=os.getenv("EA_PUBLIC_TOUR_DIR") or "",
+        repo_root=_repo_root(),
+        fallback_root=_repo_root() / "state" / "public_property_tours",
+        runtime_container=os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "",
+    )
 
 
 def _default_wine_prefix() -> Path:
@@ -304,6 +310,79 @@ def _provider_ready_counts(discovery: dict[str, Any]) -> dict[str, int]:
     return counts
 
 
+def _safe_bundle_relpath(value: object, default: str = "") -> str:
+    relpath = str(value or default).strip().replace("\\", "/")
+    while relpath.startswith("./"):
+        relpath = relpath[2:]
+    return relpath.strip("/")
+
+
+def _resolve_under(root: Path, relpath: str) -> Path | None:
+    if not relpath:
+        return None
+    candidate = (root / relpath).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
+def _live_bundle_verified_export_counts(tour_root: Path) -> dict[str, int]:
+    counts = {"3dvista": 0, "pano2vr": 0}
+    if not tour_root.is_dir():
+        return counts
+    for bundle_dir in sorted(tour_root.iterdir()):
+        if not bundle_dir.is_dir():
+            continue
+        manifest_path = bundle_dir / "tour.json"
+        if not manifest_path.is_file():
+            continue
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        three_d_vista_proof = payload.get("three_d_vista_white_label_proof")
+        if isinstance(three_d_vista_proof, dict):
+            export_root = _resolve_under(
+                bundle_dir,
+                _safe_bundle_relpath(payload.get("three_d_vista_export_root_relpath"), "3dvista"),
+            )
+            entry_path = _resolve_under(
+                bundle_dir,
+                _safe_bundle_relpath(payload.get("three_d_vista_entry_relpath")),
+            )
+            if (
+                export_root
+                and export_root.is_dir()
+                and entry_path
+                and entry_path.is_file()
+                and bool(three_d_vista_proof.get("private_viewer_verified"))
+                and bool(three_d_vista_proof.get("non_trial_export_verified"))
+                and not bool(three_d_vista_proof.get("trial_branding_present"))
+            ):
+                counts["3dvista"] += 1
+
+        pano2vr_import = payload.get("pano2vr_import")
+        if isinstance(pano2vr_import, dict):
+            entry_path = _resolve_under(
+                bundle_dir,
+                _safe_bundle_relpath(payload.get("pano2vr_entry_relpath")),
+            )
+            export_root = entry_path.parent if entry_path is not None else _resolve_under(bundle_dir, "pano2vr")
+            runtime_markers = ("pano.xml", "pano2vr_player.js", "gginfo.json", "tour.js")
+            if (
+                export_root
+                and export_root.is_dir()
+                and entry_path
+                and entry_path.is_file()
+                and any((export_root / marker).is_file() for marker in runtime_markers)
+            ):
+                counts["pano2vr"] += 1
+    return counts
+
+
 def build_vendor_tooling_receipt(
     *,
     drop_dir: Path,
@@ -315,7 +394,12 @@ def build_vendor_tooling_receipt(
     runtime_only: bool = False,
 ) -> dict[str, Any]:
     discovery = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=tour_root)
-    provider_ready_counts = _provider_ready_counts(discovery)
+    discovery_provider_ready_counts = _provider_ready_counts(discovery)
+    live_bundle_provider_ready_counts = _live_bundle_verified_export_counts(tour_root)
+    provider_ready_counts = {
+        provider: discovery_provider_ready_counts.get(provider, 0) + live_bundle_provider_ready_counts.get(provider, 0)
+        for provider in ("3dvista", "pano2vr")
+    }
     installers = [] if runtime_only else _find_installers(installer_roots)
     installed_apps = [] if runtime_only else _find_installed_apps(installed_app_roots if installed_app_roots is not None else _installed_app_search_roots(wine_prefix))
     installer_counts = _provider_counts(installers, ("3dvista", "pano2vr"))
@@ -471,6 +555,8 @@ def build_vendor_tooling_receipt(
         "installed_app_counts": installed_app_counts,
         "drop_dir": str(drop_dir.resolve()),
         "tour_root": str(tour_root.resolve()),
+        "discovery_verified_export_ready_counts": discovery_provider_ready_counts,
+        "live_bundle_verified_export_ready_counts": live_bundle_provider_ready_counts,
         "verified_export_ready_counts": provider_ready_counts,
         "missing_verified_exports": missing_exports,
         "discovery_status": str(discovery.get("status") or ""),

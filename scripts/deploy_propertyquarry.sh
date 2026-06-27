@@ -32,6 +32,10 @@ Environment:
   PROPERTYQUARRY_*_CONTAINER_NAME Optional container names for isolated deploys.
   EA_HOST_PORT                    Host port for the API, default 8090.
   PROPERTYQUARRY_DEPLOY_BASE_URL  Probe URL, default http://localhost:${EA_HOST_PORT}.
+  PROPERTYQUARRY_DEPLOY_PROVIDER_E2E
+                                  1 enables the full all-search-ready provider matrix with strict and
+                                  soft-filter dispatch/readback checks after deploy. Default 0 keeps the
+                                  lighter provider-catalog smoke.
 EOF
 }
 
@@ -408,6 +412,8 @@ if ! PYTHONPATH=ea python3 scripts/propertyquarry_live_public_smoke.py \
   cat "${public_smoke_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
+mkdir -p _completion/smoke
+cp "${public_smoke_receipt}" _completion/smoke/property-live-public-latest.json
 
 authenticated_smoke_receipt="/tmp/propertyquarry_deploy_authenticated_smoke.json"
 authenticated_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECONDS:-20}"
@@ -421,8 +427,24 @@ if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_li
   cat "${authenticated_smoke_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
-mkdir -p _completion/smoke
 cp "${authenticated_smoke_receipt}" _completion/smoke/property-live-authenticated-latest.json
+
+mobile_smoke_receipt="/tmp/propertyquarry_deploy_mobile_smoke.json"
+mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
+mobile_smoke_principal_id="${PROPERTYQUARRY_LIVE_MOBILE_SMOKE_PRINCIPAL_ID:-pq-live-mobile-smoke}"
+if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea python3 scripts/propertyquarry_live_mobile_surface_smoke.py \
+  --base-url "${base_url}" \
+  --host-header "propertyquarry.com" \
+  --api-token "${api_token}" \
+  --principal-id "${mobile_smoke_principal_id}" \
+  --seed-research-detail-fixture \
+  --timeout-ms "${mobile_smoke_timeout_ms}" \
+  --write "${mobile_smoke_receipt}" >/dev/null; then
+  echo "PropertyQuarry mobile surface smoke failed." >&2
+  cat "${mobile_smoke_receipt}" >&2 2>/dev/null || true
+  exit 1
+fi
+cp "${mobile_smoke_receipt}" _completion/smoke/property-live-mobile-surface-latest.json
 
 market_scope_smoke_receipt="/tmp/propertyquarry_deploy_market_scope_smoke.json"
 market_scope_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MARKET_SCOPE_SMOKE_TIMEOUT_SECONDS:-8}"
@@ -439,18 +461,42 @@ cp "${market_scope_smoke_receipt}" _completion/smoke/property-live-market-scope-
 
 provider_smoke_receipt="/tmp/propertyquarry_deploy_provider_smoke.json"
 provider_smoke_timeout_seconds="${PROPERTYQUARRY_DEPLOY_PROVIDER_SMOKE_TIMEOUT_SECONDS:-20}"
-if ! EA_API_TOKEN="${api_token}" \
-  PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
-  PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
-  PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
-  PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
-  --base-url "${base_url}" \
-  --timeout-seconds "${provider_smoke_timeout_seconds}" \
-  --write "${provider_smoke_receipt}" >/dev/null; then
-  echo "PropertyQuarry provider catalog smoke failed." >&2
-  cat "${provider_smoke_receipt}" >&2 2>/dev/null || true
-  exit 1
+provider_e2e_receipt="_completion/provider_smoke/production-e2e-provider-matrix-current.json"
+provider_smoke_mode="catalog"
+if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"; then
+  provider_smoke_mode="e2e"
+  mkdir -p _completion/provider_smoke
+  if ! EA_API_TOKEN="${api_token}" \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
+    PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+    PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
+    --base-url "${base_url}" \
+    --all-search-ready-countries \
+    --execute-search-matrix \
+    --resume-from "${provider_e2e_receipt}" \
+    --timeout-seconds "${provider_smoke_timeout_seconds}" \
+    --write "${provider_smoke_receipt}" >/dev/null; then
+    echo "PropertyQuarry provider E2E matrix failed." >&2
+    cat "${provider_smoke_receipt}" >&2 2>/dev/null || true
+    exit 1
+  fi
+  cp "${provider_smoke_receipt}" "${provider_e2e_receipt}"
+else
+  if ! EA_API_TOKEN="${api_token}" \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE=1 \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN=0 \
+    PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}" \
+    PYTHONPATH=ea python3 scripts/property_live_provider_smoke.py \
+    --base-url "${base_url}" \
+    --timeout-seconds "${provider_smoke_timeout_seconds}" \
+    --write "${provider_smoke_receipt}" >/dev/null; then
+    echo "PropertyQuarry provider catalog smoke failed." >&2
+    cat "${provider_smoke_receipt}" >&2 2>/dev/null || true
+    exit 1
+  fi
 fi
 cp "${provider_smoke_receipt}" _completion/smoke/property-live-provider-latest.json
 
-echo "ok: PropertyQuarry deployed at ${base_url}"
+echo "ok: PropertyQuarry deployed at ${base_url} (${provider_smoke_mode} provider verification)"

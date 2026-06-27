@@ -58,7 +58,7 @@ PROPERTYQUARRY_LIVE_SMOKE_BASE_URL=http://localhost:8097 \
 make runtime-hard-exit-gates
 ```
 
-That optional branch runs the public runtime smoke plus the authenticated and provider-catalog smokes against the deployed PropertyQuarry service.
+That optional branch runs the public runtime smoke plus the authenticated, seeded all-surface mobile, and provider-catalog smokes against the deployed PropertyQuarry service.
 
 ## Run it
 
@@ -73,11 +73,20 @@ That topology starts only `propertyquarry-api`, `propertyquarry-scheduler`, and 
 It builds `ea/Dockerfile.property`, which omits Docker CLI tooling and runs the app process as the non-root `ea` user.
 
 `make deploy` uses `scripts/deploy_propertyquarry.sh`, which preflights the required prod credentials, checks `EA_HOST_PORT` before rebuilding, starts `docker-compose.property.yml`, waits for the API, scheduler, and DB containers, and probes readiness plus the authenticated app boundary.
-It also runs the public route smoke, authenticated route smoke, and the authenticated provider-catalog smoke against the deployed runtime before reporting success.
+It also runs the public route smoke, authenticated route smoke, seeded all-surface mobile smoke with a live research-detail route, and the authenticated provider-catalog smoke against the deployed runtime before reporting success.
+Set `PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1` when the deploy itself should also run the full all-search-ready provider matrix with strict and soft-filter dispatch/readback checks.
 If `8090` is already occupied, set another host port before deploying:
 
 ```bash
 EA_HOST_PORT=8097 make deploy
+```
+
+For a presentation-grade rollout that should include the full narrowed `AT/DE/CR` provider E2E matrix in the deploy path:
+
+```bash
+PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1 \
+EA_HOST_PORT=8097 \
+make deploy
 ```
 
 For blue/green or recovery deploys on a host with stale containers, keep the service names stable and override only the project/container names plus host port:

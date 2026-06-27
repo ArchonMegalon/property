@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import io
+import json
+from urllib.error import HTTPError
+
 from scripts.propertyquarry_live_mobile_surface_smoke import (
     DEFAULT_ROUTES,
     SEEDED_RESEARCH_DETAIL_ROUTE,
+    SEED_FIXTURE_USER_AGENT,
+    _seed_research_detail_headers,
     build_live_mobile_surface_receipt,
     build_mobile_coverage_checks,
     evaluate_mobile_metrics,
     route_is_research_detail,
+    seed_research_detail_fixture,
     routes_require_api_auth,
     seeded_research_detail_payload,
 )
@@ -28,6 +35,7 @@ def _base_metrics() -> dict[str, object]:
         "district_map_modal_opened": True,
         "district_map_click_selected": True,
         "district_map_zoom_changed": True,
+        "district_map_pinch_zoom_changed": True,
         "district_map_close_restored_scroll": True,
         "mobile_what_matters_single_open": True,
         "account_logout_strip_visible": True,
@@ -44,6 +52,9 @@ def _base_metrics() -> dict[str, object]:
         "research_detail_verified_tour_evidence_copy": True,
         "research_detail_walkthrough_evidence_copy": True,
         "research_detail_no_vague_visual_copy": True,
+        "research_detail_walkthrough_magicfit_only": True,
+        "research_detail_no_walkthrough_provider_chooser": True,
+        "research_detail_no_legacy_walkthrough_providers": True,
     }
 
 
@@ -130,6 +141,9 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
             "research_detail_verified_tour_evidence_copy": False,
             "research_detail_walkthrough_evidence_copy": False,
             "research_detail_no_vague_visual_copy": False,
+            "research_detail_walkthrough_magicfit_only": False,
+            "research_detail_no_walkthrough_provider_chooser": False,
+            "research_detail_no_legacy_walkthrough_providers": False,
         }
     )
 
@@ -143,6 +157,9 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
         "research_detail_verified_tour_evidence_copy",
         "research_detail_walkthrough_evidence_copy",
         "research_detail_no_vague_visual_copy",
+        "research_detail_walkthrough_magicfit_only",
+        "research_detail_no_walkthrough_provider_chooser",
+        "research_detail_no_legacy_walkthrough_providers",
     }
 
 
@@ -161,6 +178,30 @@ def test_live_mobile_smoke_rejects_vague_research_detail_visual_copy() -> None:
 
     assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
         "research_detail_no_vague_visual_copy",
+    }
+
+
+def test_live_mobile_smoke_requires_magicfit_only_walkthrough_controls() -> None:
+    metrics = _base_metrics()
+    metrics["research_detail_walkthrough_magicfit_only"] = False
+
+    assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
+        "research_detail_walkthrough_magicfit_only",
+    }
+
+
+def test_live_mobile_smoke_rejects_walkthrough_provider_chooser_and_legacy_provider_noise() -> None:
+    metrics = _base_metrics()
+    metrics.update(
+        {
+            "research_detail_no_walkthrough_provider_chooser": False,
+            "research_detail_no_legacy_walkthrough_providers": False,
+        }
+    )
+
+    assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
+        "research_detail_no_walkthrough_provider_chooser",
+        "research_detail_no_legacy_walkthrough_providers",
     }
 
 
@@ -261,6 +302,103 @@ def test_live_mobile_smoke_seeded_research_detail_payload_is_valid_detail_fixtur
     assert dict(candidate["property_facts"])["listing_fact_confirmation"]["status"] == "confirmed"
 
 
+def test_live_mobile_smoke_seed_headers_include_public_edge_safe_metadata() -> None:
+    headers = _seed_research_detail_headers(
+        base_url="https://propertyquarry.com",
+        api_token="secret-token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        host_header="propertyquarry.com",
+    )
+
+    assert headers == {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": SEED_FIXTURE_USER_AGENT,
+        "X-EA-Principal-ID": "cf-email:tibor.girschele@gmail.com",
+        "Origin": "https://propertyquarry.com",
+        "Referer": "https://propertyquarry.com/app/search",
+        "Host": "propertyquarry.com",
+        "Authorization": "Bearer secret-token",
+        "X-EA-API-Token": "secret-token",
+    }
+
+
+def test_live_mobile_smoke_seed_fixture_posts_with_browser_like_headers(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _Response:
+        status = 200
+
+        def read(self, _size: int = -1) -> bytes:
+            return b'{"ok":true}'
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def fake_urlopen(request, timeout: int = 0):
+        captured["timeout"] = timeout
+        captured["url"] = request.full_url
+        captured["method"] = request.get_method()
+        captured["headers"] = {key.title(): value for key, value in request.header_items()}
+        captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    route = seed_research_detail_fixture(
+        base_url="https://propertyquarry.com",
+        api_token="secret-token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        host_header="propertyquarry.com",
+    )
+
+    assert route == SEEDED_RESEARCH_DETAIL_ROUTE
+    assert captured["timeout"] == 20
+    assert captured["url"] == "https://propertyquarry.com/v1/onboarding/property-search/preferences"
+    assert captured["method"] == "POST"
+    assert captured["headers"] == {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": SEED_FIXTURE_USER_AGENT,
+        "X-Ea-Principal-Id": "cf-email:tibor.girschele@gmail.com",
+        "Origin": "https://propertyquarry.com",
+        "Referer": "https://propertyquarry.com/app/search",
+        "Host": "propertyquarry.com",
+        "Authorization": "Bearer secret-token",
+        "X-Ea-Api-Token": "secret-token",
+    }
+    candidate = dict(captured["body"]["saved_shortlist_candidates"][0])
+    assert candidate["candidate_ref"] == "perf-candidate-1020"
+
+
+def test_live_mobile_smoke_seed_fixture_raises_for_http_error(monkeypatch) -> None:
+    def fake_urlopen(request, timeout: int = 0):
+        raise HTTPError(
+            url=request.full_url,
+            code=403,
+            msg="Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(b"forbidden"),
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    try:
+        seed_research_detail_fixture(
+            base_url="https://propertyquarry.com",
+            api_token="secret-token",
+            principal_id="cf-email:tibor.girschele@gmail.com",
+            host_header="propertyquarry.com",
+        )
+    except HTTPError as exc:
+        assert exc.code == 403
+    else:  # pragma: no cover - guard against silently swallowing live seeding failures.
+        raise AssertionError("expected HTTPError")
+
+
 def test_live_mobile_smoke_rejects_horizontal_overflow_and_noisy_chrome() -> None:
     metrics = _base_metrics()
     metrics.update({"body_width": 420, "topbar_height": 140, "heavy_shadow_count": 5})
@@ -289,6 +427,7 @@ def test_live_mobile_smoke_requires_interactive_search_district_map() -> None:
             "district_map_modal_opened": False,
             "district_map_click_selected": False,
             "district_map_zoom_changed": False,
+            "district_map_pinch_zoom_changed": False,
             "district_map_close_restored_scroll": False,
         }
     )
@@ -297,6 +436,7 @@ def test_live_mobile_smoke_requires_interactive_search_district_map() -> None:
         "district_map_modal_opens",
         "district_map_click_selects_shape",
         "district_map_zoom_toggle_changes_scale",
+        "district_map_pinch_zoom_changes_scale",
         "district_map_close_restores_scroll",
     }
 

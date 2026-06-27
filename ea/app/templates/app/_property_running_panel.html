@@ -43,8 +43,8 @@
         {% set provisional_title = provisional_title_raw if provisional_title_raw and not (provisional_title_lower.startswith('http://') or provisional_title_lower.startswith('https://') or provisional_title_lower.startswith('www.')) else (provisional_location or 'Property candidate') %}
         <div class="pqx-section-head">
           <div>
-            <h2>Current best so far</h2>
-            <div class="pqx-note">This can still change before the run finishes.</div>
+            <h2>Current lead</h2>
+            <div class="pqx-note">Still provisional while the run is finishing.</div>
           </div>
           {% if provisional.get('fit_score') %}
           <span class="pqx-pill">{{ provisional.get('fit_score')|int }}/100</span>
@@ -65,7 +65,7 @@
             {% set provisional_price_display = provisional_price_text or ((provisional_price_currency ~ ' ' ~ '{:,.0f}'.format(provisional_price_numeric|float)) if provisional_price_numeric else '') %}
             {% if provisional_price_display %}<div><strong>Price</strong><small>{{ provisional_price_display }}</small></div>{% endif %}
             {% if provisional.get('layout_display') %}<div><strong>Layout</strong><small>{{ provisional.get('layout_display') }}</small></div>{% endif %}
-            <div><strong>Area</strong><small>{{ provisional_location }}</small></div>
+            <div><strong>Location</strong><small>{{ provisional_location }}</small></div>
           </div>
         </div>
         <div class="pqx-actions">

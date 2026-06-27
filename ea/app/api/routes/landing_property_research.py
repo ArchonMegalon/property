@@ -1086,6 +1086,46 @@ def _property_packet_missing_rows(
     preferences: dict[str, object],
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+
+    def _open_check_detail(*, title: str, primary_key: str) -> str:
+        normalized_key = str(primary_key or "").strip().lower()
+        explicit = {
+            "address": "No exact address confirmed yet.",
+            "heating_type": "No verified heating type yet.",
+            "has_lift": "No verified lift status yet.",
+            "nearest_supermarket_m": "No confirmed supermarket distance yet.",
+            "distance_supermarket_m": "No confirmed supermarket distance yet.",
+            "nearest_playground_m": "No confirmed playground distance yet.",
+            "distance_playground_m": "No confirmed playground distance yet.",
+            "nearest_library_m": "No confirmed library distance yet.",
+            "nearest_zoo_m": "No confirmed zoo distance yet.",
+            "nearest_pharmacy_m": "No confirmed pharmacy distance yet.",
+            "distance_pharmacy_m": "No confirmed pharmacy distance yet.",
+            "nearest_medical_care_m": "No confirmed doctor or hospital distance yet.",
+            "nearest_market_m": "No confirmed market distance yet.",
+            "nearest_hardware_store_m": "No confirmed Baumarkt distance yet.",
+            "nearest_shopping_center_m": "No confirmed shopping-center distance yet.",
+            "nearest_shopping_street_m": "No confirmed promenade distance yet.",
+            "nearest_theatre_m": "No confirmed theatre distance yet.",
+            "nearest_public_pool_m": "No confirmed public-pool distance yet.",
+            "nearest_subway_m": "No confirmed underground distance yet.",
+            "nearest_transit_m": "No confirmed underground distance yet.",
+            "distance_underground_m": "No confirmed underground distance yet.",
+            "air_quality_risk": "No verified air-quality read yet.",
+            "crime_risk": "No verified safety read yet.",
+            "parking_pressure_risk": "No verified parking-pressure read yet.",
+            "drinking_water_risk": "No verified water-source read yet.",
+            "cesspit_risk": "No verified septic read yet.",
+            "winter_access_risk": "No verified winter-access read yet.",
+            "flood_risk": "No verified flood read yet.",
+        }
+        if normalized_key in explicit:
+            return explicit[normalized_key]
+        normalized_title = str(title or "").strip().lower()
+        if not normalized_title:
+            return "No confirmed evidence yet."
+        return f"No confirmed {normalized_title} yet."
+
     def _has_any_fact_value(keys: str | tuple[str, ...]) -> bool:
         key_group = (keys,) if isinstance(keys, str) else tuple(keys)
         return any(facts.get(key) not in (None, "", []) for key in key_group)
@@ -1143,7 +1183,7 @@ def _property_packet_missing_rows(
         if primary_key == "flood_risk" and not bool(preferences.get("avoid_flood_risk_area")):
             continue
         severity = "Critical" if primary_key in {"address", "heating_type", "has_lift"} else "Important"
-        rows.append(_object_detail_row(title, detail, severity))
+        rows.append(_object_detail_row(title, _open_check_detail(title=title, primary_key=primary_key), severity))
     for item in _property_missing_fact_items(facts):
         if str(item.get("status") or "").strip().lower() == "filled":
             continue

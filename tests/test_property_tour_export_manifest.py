@@ -9,6 +9,7 @@ from pathlib import Path
 from scripts.materialize_property_tour_export_manifest import (
     _artifact_dir,
     _incoming_root,
+    _tour_root,
     build_drop_status_rows,
     build_export_manifest,
     prepare_export_drop_dirs,
@@ -78,6 +79,38 @@ def test_materialize_property_tour_export_manifest_reads_plural_artifacts_env(
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(artifact_root))
 
     assert _artifact_dir() == artifact_root.resolve()
+
+
+def test_materialize_property_tour_export_manifest_defaults_artifacts_to_repo_completion(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("EA_ARTIFACT_DIR", raising=False)
+    monkeypatch.delenv("EA_ARTIFACTS_DIR", raising=False)
+    repo = tmp_path / "property"
+    repo.mkdir()
+    (repo / "docker-compose.property.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+
+    assert _artifact_dir() == (repo / "_completion" / "property_tour_exports").resolve()
+
+
+def test_materialize_property_tour_export_manifest_tour_root_prefers_runtime_snapshot(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime-public-tours"
+    runtime_root.mkdir()
+    repo = tmp_path / "property"
+    repo.mkdir()
+    (repo / "docker-compose.property.yml").write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(
+        "scripts.materialize_property_tour_export_manifest.preferred_public_tour_root",
+        lambda **kwargs: runtime_root.resolve(),
+    )
+
+    assert _tour_root() == runtime_root.resolve()
 
 
 def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(tmp_path: Path) -> None:

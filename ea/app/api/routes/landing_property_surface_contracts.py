@@ -113,6 +113,7 @@ class PropertyDecisionWorkbenchContract:
     selected: dict[str, object] = field(default_factory=dict)
     empty_outcome: dict[str, str] = field(default_factory=dict)
     packet_recovery: dict[str, object] = field(default_factory=dict)
+    route_recovery: dict[str, object] = field(default_factory=dict)
     show_brief_default: bool = True
 
 

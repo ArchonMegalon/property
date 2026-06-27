@@ -15,6 +15,21 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
+try:
+    from scripts.property_tour_runtime_paths import (
+        best_tour_root as _best_tour_root,
+        manifest_count as _manifest_count,
+        preferred_public_tour_root,
+        running_container_public_tour_dir as _running_container_public_tour_dir,
+    )
+except ModuleNotFoundError:
+    from property_tour_runtime_paths import (  # type: ignore[no-redef]
+        best_tour_root as _best_tour_root,
+        manifest_count as _manifest_count,
+        preferred_public_tour_root,
+        running_container_public_tour_dir as _running_container_public_tour_dir,
+    )
+
 
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
 PROVIDER_DELIVERY_REQUIREMENTS = {
@@ -86,7 +101,12 @@ THREE_D_VISTA_CHUMMER_SOURCE_TOKENS = ("chummer", "horizon", "runsite")
 
 
 def _tour_root() -> Path:
-    return Path(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours").expanduser().resolve()
+    return preferred_public_tour_root(
+        configured_root=os.getenv("EA_PUBLIC_TOUR_DIR") or "",
+        repo_root=Path(__file__).resolve().parents[1],
+        fallback_root="/docker/property/state/public_property_tours",
+        runtime_container=os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "",
+    )
 
 
 def _load_cli_env_defaults() -> None:

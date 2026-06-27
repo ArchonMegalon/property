@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from scripts import propertyquarry_gold_status as gold_status
 from scripts.propertyquarry_gold_status import _latest_receipt_path, build_gold_status_receipt
 
 
@@ -20,8 +21,10 @@ def test_gold_status_cli_keeps_live_container_tour_receipt_as_fallback() -> None
     source = (ROOT / "scripts/propertyquarry_gold_status.py").read_text(encoding="utf-8")
 
     assert "_completion/tours/property-tour-controls-live-container-current.json" in source
+    assert "_completion/smoke/property-live-mobile-surface-latest.json" in source
     assert "_completion/smoke/property-live-public-latest.json" in source
     assert "_completion/smoke/property-live-authenticated-latest.json" in source
+    assert "_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json" not in source
     assert "_completion/tours/property-tour-controls-after-monotonic-counters.json" not in source
 
 
@@ -44,6 +47,35 @@ def test_gold_status_defaults_pick_newest_matching_receipt(tmp_path: Path, monke
     assert selected == newer
 
 
+def test_gold_status_defaults_prefer_complete_receipt_over_newer_running_checkpoint(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    complete_receipt = _write_json(
+        tmp_path / "_completion" / "provider_smoke" / "production-e2e-provider-matrix-current.json",
+        {
+            "generated_at": "2026-06-26T19:15:15+00:00",
+            "status": "pass",
+            "complete": True,
+            "checkpoint": False,
+        },
+    )
+    _write_json(
+        tmp_path / "_completion" / "provider_smoke" / "goal-continuation-provider-matrix.json",
+        {
+            "generated_at": "2026-06-26T19:16:15+00:00",
+            "status": "running",
+            "complete": False,
+            "checkpoint": True,
+        },
+    )
+
+    selected = _latest_receipt_path(
+        ("_completion/provider_smoke/*.json",),
+        fallback=str(complete_receipt),
+    )
+
+    assert selected == complete_receipt
+
+
 def test_gold_status_provider_matrix_default_finds_live_e2e_receipts(tmp_path: Path, monkeypatch) -> None:
     from scripts.propertyquarry_gold_status import _default_receipt_path
 
@@ -56,12 +88,67 @@ def test_gold_status_provider_matrix_default_finds_live_e2e_receipts(tmp_path: P
         tmp_path / "_completion" / "smoke" / "property-provider-e2e-at-de-cr-latest.json",
         {"generated_at": "2026-06-26T11:07:15+00:00", "status": "pass"},
     )
-    deploy_receipt = _write_json(
+    _write_json(
         tmp_path / "_completion" / "smoke" / "property-live-provider-latest.json",
         {"generated_at": "2026-06-26T12:10:00+00:00", "status": "blocked_targeted_search_matrix_not_executed"},
     )
+    deploy_receipt = _write_json(
+        tmp_path / "_completion" / "provider_smoke" / "production-e2e-provider-matrix-current.json",
+        {
+            "generated_at": "2026-06-26T19:19:23+00:00",
+            "status": "pass",
+            "complete": True,
+            "checkpoint": False,
+        },
+    )
 
     assert _default_receipt_path("provider_matrix") == deploy_receipt.resolve()
+
+
+def test_gold_status_provider_matrix_default_prefers_executed_pass_over_newer_planned_wrapper(tmp_path: Path, monkeypatch) -> None:
+    from scripts.propertyquarry_gold_status import _default_receipt_path
+
+    monkeypatch.chdir(tmp_path)
+    deploy_receipt = _write_json(
+        tmp_path / "_completion" / "provider_smoke" / "production-e2e-provider-matrix-current.json",
+        {
+            "generated_at": "2026-06-26T19:28:32.892417+00:00",
+            "status": "pass",
+            "country_scope": "all_search_ready",
+            "targeted_search_matrix_status": "pass",
+            "targeted_search_matrix_executed": True,
+            "targeted_search_matrix_summary": {
+                "executed": True,
+                "all_search_ready_providers_covered": True,
+            },
+        },
+    )
+    _write_json(
+        tmp_path / "_completion" / "smoke" / "property-live-provider-latest.json",
+        {
+            "generated_at": "2026-06-26T20:35:20.798671+00:00",
+            "status": "blocked_targeted_search_matrix_not_executed",
+            "country_scope": "all_search_ready",
+            "targeted_search_matrix_status": "planned",
+            "targeted_search_matrix_executed": False,
+            "targeted_search_matrix_summary": {
+                "executed": False,
+                "all_search_ready_providers_covered": False,
+            },
+        },
+    )
+
+    assert _default_receipt_path("provider_matrix") == deploy_receipt.resolve()
+
+
+def test_gold_status_provider_ownership_default_finds_release_gate_receipt(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    expected = _write_json(
+        tmp_path / "_completion" / "property_tour_ownership" / "release-gate.json",
+        _tour_provider_ownership_payload(),
+    )
+
+    assert gold_status._default_receipt_path("tour_provider_ownership") == expected.resolve()
 
 
 def _provider_matrix_payload(*, status: str = "pass", executed: bool = True) -> dict[str, object]:
@@ -628,6 +715,7 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
     pano_sample = next(row for row in aggregate_action["rejected_sample"] if row["provider"] == "pano2vr")
     assert pano_sample["present_sample"] == ["index.html"]
     assert pano_sample["missing_markers"] == ["ggpkg", "ggskin", "pano.xml", "tour.js"]
+    assert receipt["notes"][0] == "Gold remains blocked until every failing gate below is repaired."
     missing_note = receipt["notes"][-1]
     assert "MagicFit" not in missing_note
     assert "Matterport" not in missing_note
@@ -810,6 +898,11 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["vendor_tooling"]["installed_app_counts"] == {"3dvista": 1, "pano2vr": 0}
     assert receipt["vendor_tooling"]["installed_apps"][0]["layout"] == "portable_extract"
     assert receipt["blockers"] == []
+    assert receipt["notes"][0] == "Current gold gate is green on the active proof set."
+    assert receipt["notes"][1].startswith("Provider E2E is current:")
+    assert "wrong-country selections sanitized before dispatch" in receipt["notes"][1]
+    assert "Self-healing canary is current" in receipt["notes"][2]
+    assert "Gold is not claimable" not in " ".join(receipt["notes"])
     pass_areas = {str(row["area"]) for row in receipt["pass_areas"]}
     assert {
         "performance",

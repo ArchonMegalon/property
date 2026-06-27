@@ -2,6 +2,7 @@
 {% block content %}
 {% set object_run_id = request.query_params.get('run_id') if request is defined and request.query_params is defined else '' %}
 {% set object_query_suffix = ('?run_id=' ~ (object_run_id|urlencode)) if object_run_id else '' %}
+{% set settings_surface = request.url.path.startswith('/app/settings/') if request is defined and request.url is defined else false %}
 <style>
   .object-grid,
   .object-media-grid,
@@ -295,6 +296,34 @@
     color: var(--text-soft);
     font-size: 12px;
   }
+  .object-disclosure {
+    overflow: hidden;
+  }
+  .object-disclosure-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    list-style: none;
+  }
+  .object-disclosure-summary::-webkit-details-marker {
+    display: none;
+  }
+  .object-disclosure-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .object-disclosure-copy strong {
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.15;
+  }
+  .object-disclosure-body {
+    display: grid;
+    gap: 14px;
+  }
   .object-table-scroll {
     overflow-x: auto;
   }
@@ -469,10 +498,76 @@
     .object-tag {
       align-self: flex-start;
     }
+    .object-grid.is-settings-surface .object-panel,
+    .object-grid.is-settings-surface .object-section,
+    .object-grid.is-settings-surface .object-meta-card {
+      padding: 14px;
+      border-radius: 16px;
+      box-shadow: none;
+    }
+    .object-grid.is-settings-surface .object-panel h1 {
+      font-size: clamp(1.35rem, 7vw, 2rem);
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+    }
+    .object-grid.is-settings-surface .object-panel h2,
+    .object-grid.is-settings-surface .object-section h2,
+    .object-grid.is-settings-surface .object-disclosure-copy strong {
+      font-size: 1rem;
+      line-height: 1.12;
+    }
+    .object-grid.is-settings-surface .object-panel > .object-copy,
+    .object-grid.is-settings-surface .object-sidebar-copy {
+      font-size: 13px;
+      line-height: 1.42;
+    }
+    .object-grid.is-settings-surface .object-meta-card span {
+      margin-bottom: 4px;
+    }
+    .object-grid.is-settings-surface .object-meta-card strong {
+      font-size: 0.98rem;
+      line-height: 1.15;
+    }
+    .object-grid.is-settings-surface .object-row {
+      gap: 8px;
+      padding-bottom: 8px;
+    }
+    .object-grid.is-settings-surface .object-row strong {
+      margin-bottom: 2px;
+      font-size: 0.95rem;
+    }
+    .object-grid.is-settings-surface .object-row small {
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .object-grid.is-settings-surface .object-tag {
+      font-size: 11px;
+    }
+    .object-grid.is-settings-surface .object-disclosure {
+      padding: 0;
+    }
+    .object-grid.is-settings-surface .object-disclosure-summary {
+      padding: 14px;
+    }
+    .object-grid.is-settings-surface .object-disclosure[open] .object-disclosure-summary {
+      border-bottom: 1px solid var(--line);
+    }
+    .object-grid.is-settings-surface .object-disclosure-body {
+      padding: 0 14px 14px;
+    }
+    .object-grid.is-settings-surface .object-form-disclosure .object-copy {
+      margin: 0 0 4px;
+    }
   }
   @media (max-width: 520px) {
     .object-meta {
       grid-template-columns: 1fr;
+    }
+    .object-grid.is-settings-surface .object-meta {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .object-grid.is-settings-surface .object-meta-card:last-child:nth-child(odd) {
+      grid-column: 1 / -1;
     }
     .object-media-frame-inner {
       min-height: 320px;
@@ -516,7 +611,7 @@
 </section>
 {% endif %}
 
-<section class="object-grid">
+<section class="object-grid{% if settings_surface %} is-settings-surface{% endif %}">
   <section class="object-panel">
     <div class="object-kicker">{{ object_kind }}</div>
     <h1>{{ object_title }}</h1>
@@ -567,7 +662,7 @@
     {% if sidebar_link_state.has_links %}
     <div class="object-kicker">{{ object_sidebar_kicker or 'Open this home' }}</div>
     <h2>{{ object_sidebar_title }}</h2>
-    {% if object_sidebar_copy %}<p class="object-copy">{{ object_sidebar_copy }}</p>{% endif %}
+    {% if object_sidebar_copy %}<p class="object-copy object-sidebar-copy">{{ object_sidebar_copy }}</p>{% endif %}
     <div class="object-list">
       {% for item in object_sidebar_rows %}
       {% set href = item.get('href') or '' %}
@@ -642,6 +737,51 @@
     </div>
     {% endif %}
     {% if object_sidebar_form %}
+    {% if settings_surface %}
+    <details class="object-section object-disclosure object-form-disclosure"{% if object_sidebar_form.get('open') %} open{% endif %}>
+      <summary class="object-disclosure-summary">
+        <span class="object-disclosure-copy">
+          <span class="object-kicker">{{ object_sidebar_form.get('eyebrow') or 'Update' }}</span>
+          <strong>{{ object_sidebar_form.get('title') or 'Update details' }}</strong>
+        </span>
+        <span class="object-tag">{{ object_sidebar_form.get('submit_label') or 'Save' }}</span>
+      </summary>
+      <div class="object-disclosure-body">
+        {% if object_sidebar_form.get('copy') %}<p class="object-copy">{{ object_sidebar_form.get('copy') }}</p>{% endif %}
+        <form class="object-form" method="{{ object_sidebar_form.get('method') or 'post' }}" action="{{ object_sidebar_form.get('action') or '' }}">
+          {% for field in object_sidebar_form.get('fields') or [] %}
+          {% if field.type == 'hidden' %}
+          <input type="hidden" name="{{ field.name }}" value="{{ field.value or '' }}">
+          {% endif %}
+          {% endfor %}
+          {% set visible_fields = (object_sidebar_form.get('fields') or []) | rejectattr('type', 'equalto', 'hidden') | list %}
+          {% for field in visible_fields %}
+          {% if field.type == 'textarea' %}
+          <label class="object-field">
+            <span>{{ field.label }}</span>
+            <textarea name="{{ field.name }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>{{ field.value or '' }}</textarea>
+          </label>
+          {% elif field.type == 'select' %}
+          <label class="object-field">
+            <span>{{ field.label }}</span>
+            <select name="{{ field.name }}">
+              {% for option in field.options or [] %}
+              <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% else %}
+          <label class="object-field">
+            <span>{{ field.label }}</span>
+            <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
+          </label>
+          {% endif %}
+          {% endfor %}
+          <button class="console-action" type="submit">{{ object_sidebar_form.get('submit_label') or 'Save' }}</button>
+        </form>
+      </div>
+    </details>
+    {% else %}
     <div class="object-kicker" style="margin-top: 18px;">{{ object_sidebar_form.get('eyebrow') or 'Update' }}</div>
     <h2>{{ object_sidebar_form.get('title') or 'Update details' }}</h2>
     {% if object_sidebar_form.get('copy') %}<p class="object-copy">{{ object_sidebar_form.get('copy') }}</p>{% endif %}
@@ -676,7 +816,8 @@
       {% endfor %}
       <button class="console-action" type="submit">{{ object_sidebar_form.get('submit_label') or 'Save' }}</button>
 	    </form>
-	    {% endif %}
+    {% endif %}
+    {% endif %}
 	    {% if object_feedback %}
 	    <section class="object-feedback" data-object-feedback data-object-feedback-payload='{{ object_feedback|tojson|safe }}'>
 	      <div class="object-kicker">Record the outcome</div>
@@ -860,11 +1001,25 @@
 	  </aside>
 	</section>
 
-<section class="object-sections">
+<section class="object-sections{% if settings_surface %} is-settings-surface{% endif %}">
   {% for section in object_sections %}
+  {% if settings_surface %}
+  <details class="object-section object-disclosure"{% if section.get('open') or loop.first %} open{% endif %}>
+    <summary class="object-disclosure-summary">
+      <span class="object-disclosure-copy">
+        <span class="object-kicker">{{ section["eyebrow"] }}</span>
+        <strong>{{ section["title"] }}</strong>
+      </span>
+      {% if section.get('items') %}
+      <span class="object-tag">{{ (section.get('items') or [])|length }} item{% if ((section.get('items') or [])|length) != 1 %}s{% endif %}</span>
+      {% endif %}
+    </summary>
+    <div class="object-disclosure-body">
+  {% else %}
   <section class="object-section">
     <div class="object-kicker">{{ section["eyebrow"] }}</div>
     <h2>{{ section["title"] }}</h2>
+  {% endif %}
     {% if section.get('table_headers') and section.get('table_rows') %}
     <div class="object-table-wrap">
       <div class="object-table-scroll">
@@ -972,7 +1127,12 @@
       </div>
       {% endfor %}
     </div>
+    {% if settings_surface %}
+    </div>
+    </details>
+    {% else %}
   </section>
+    {% endif %}
   {% endfor %}
 </section>
 {% if object_feedback %}

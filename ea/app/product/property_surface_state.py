@@ -32,6 +32,40 @@ _GENERIC_SOURCE_FAMILIES = {
     "developer projects",
 }
 
+_INTERNAL_RUN_STATUS_NOISE_TOKENS = (
+    "could not load property search status",
+    "checking run status",
+    "suppressed_generic_listing_page",
+)
+
+_RAW_PROVIDER_FAILURE_TOKENS = (
+    "provider returned ",
+    " while fetching ",
+    "worker interrupted",
+    "temporary fetch failed",
+    "fetch failed",
+    "timed out",
+    "timeout",
+    "traceback",
+    "exception",
+    " 401",
+    " 403",
+    " 404",
+    " 429",
+    " 500",
+    " 502",
+    " 503",
+)
+
+_CUSTOMER_SAFE_FAILURE_PREFIXES = (
+    "search paused",
+    "search stopped before",
+    "a replacement search run is now checking the saved brief",
+    "repair is retrying",
+    "retrying ",
+    "no source completed cleanly enough",
+)
+
 
 def _positive_int(value: object, *, default: int = 0) -> int:
     try:
@@ -148,22 +182,158 @@ def normalize_property_search_run_snapshot(raw_run: dict[str, object]) -> dict[s
 def property_run_status_copy(status_value: object, message_value: object = "") -> tuple[str, str]:
     status = str(status_value or "").strip().lower()
     message = str(message_value or "").strip()
+    safe_message = property_run_customer_safe_status_detail(status, message)
     if status in {"processed", "completed"}:
         return ("Finished", "")
     if status == "completed_partial":
-        return ("Finished with partial coverage", message or "The shortlist is ready, but one or more sources finished degraded.")
+        return ("Finished with partial coverage", safe_message or "The shortlist is ready, but one or more sources finished degraded.")
     if status == "failed":
-        return ("Search failed", message or "The search failed before ranking finished.")
+        return ("Search failed", safe_message or "The search failed before ranking finished.")
     if status == "cancelled":
-        return ("Stopped", message or "This search was stopped before it finished.")
+        return ("Stopped", safe_message or "This search was stopped before it finished.")
     if status == "noop":
-        return ("No changes", message or "The search finished without anything new to rank.")
+        return ("No changes", safe_message or "The search finished without anything new to rank.")
     if status in {"queued", "starting"}:
-        return ("Queued", message)
+        return ("Queued", safe_message)
     if status in {"running", "in_progress", "processing", "scanning"}:
-        return ("Running", message)
+        return ("Running", safe_message)
     label = status.replace("_", " ").title() if status else "Queued"
-    return (label, message)
+    return (label, safe_message)
+
+
+def property_run_customer_safe_status_detail(
+    status_value: object,
+    message_value: object = "",
+    *,
+    summary: dict[str, object] | None = None,
+    prefer_repair_step: bool = False,
+) -> str:
+    status = str(status_value or "").strip().lower()
+    summary_dict = dict(summary or {})
+    message = str(message_value or "").strip()
+    lowered = message.lower()
+    customer_status = str(summary_dict.get("customer_status_message") or "").strip()
+    replacement_run_id = str(summary_dict.get("repair_replacement_run_id") or "").strip()
+    repair_step = str(summary_dict.get("repair_step_label") or "").strip()
+    repair_status = str(summary_dict.get("repair_status_label") or summary_dict.get("repair_status") or "").strip()
+
+    if replacement_run_id:
+        return "A replacement search run is now checking the saved brief."
+    if any(token in lowered for token in _INTERNAL_RUN_STATUS_NOISE_TOKENS):
+        return customer_status
+    if status == "failed" and lowered.startswith(_CUSTOMER_SAFE_FAILURE_PREFIXES):
+        return message
+
+    raw_failure_like = (
+        status in {"failed", "error"}
+        and (
+            not message
+            or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
+        )
+    ) or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
+
+    if repair_step and raw_failure_like and prefer_repair_step:
+        return repair_step if repair_step.endswith((".", "!", "?")) else f"{repair_step}."
+    if customer_status and (status in {"failed", "completed_partial"} or raw_failure_like):
+        return customer_status
+    if repair_step and raw_failure_like:
+        return "Repair is retrying the interrupted provider checks."
+    if raw_failure_like and repair_status:
+        return f"Repair status: {repair_status}."
+    if status == "failed" and raw_failure_like:
+        return "Search paused before a stable shortlist was ready."
+    return customer_status or message
+
+
+def property_run_event_is_internal_noise(event: dict[str, object]) -> bool:
+    step = str(event.get("step") or "").strip().lower()
+    message = str(event.get("message") or "").strip().lower()
+    resolution = str(event.get("resolution") or "").strip().lower()
+    if step == "repair_receipt" and (
+        "suppressed_generic_listing_page" in message
+        or resolution == "suppressed_generic_listing_page"
+    ):
+        return True
+    if step == "status_refresh" and (
+        "could not load property search status" in message
+        or "checking run status" in message
+    ):
+        return True
+    return False
+
+
+def property_run_customer_visible_events(
+    *,
+    run_payload: dict[str, object] | None = None,
+) -> list[dict[str, object]]:
+    payload = dict(run_payload or {})
+    summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    status = str(payload.get("status") or summary.get("status") or "in_progress").strip() or "in_progress"
+
+    def _current_progress_event() -> dict[str, object]:
+        step = str(payload.get("current_step") or summary.get("current_step") or "status_refresh").strip() or "status_refresh"
+        message = property_run_customer_safe_status_detail(
+            status,
+            payload.get("message") or summary.get("message") or summary.get("status_note") or "",
+            summary=summary,
+            prefer_repair_step=True,
+        )
+        if not message:
+            reviewed = summary.get("reviewed_listing_total") or summary.get("listing_total") or 0
+            provider_total = summary.get("provider_total") or summary.get("source_variant_total") or 0
+            provider_label = f"{provider_total} provider checks" if provider_total else "selected providers"
+            message = f"Search is still running across {provider_label}; {reviewed} homes reviewed so far."
+        return {
+            "step": step,
+            "status": status,
+            "message": message,
+            "created_at": str(payload.get("updated_at") or payload.get("generated_at") or ""),
+        }
+
+    existing_events = [dict(item) for item in list(payload.get("events") or []) if isinstance(item, dict)]
+    if existing_events:
+        visible_events: list[dict[str, object]] = []
+        for event in existing_events:
+            if property_run_event_is_internal_noise(event):
+                continue
+            row = dict(event)
+            row["message"] = property_run_customer_safe_status_detail(
+                row.get("status") or row.get("step") or status,
+                row.get("message") or "",
+                summary=summary,
+                prefer_repair_step=True,
+            ) or str(row.get("message") or "").strip()
+            visible_events.append(row)
+        if visible_events:
+            return visible_events
+    if status not in {"failed", "completed_partial"}:
+        return [_current_progress_event()]
+    synthesized_events: list[dict[str, object]] = []
+    repair_label = str(summary.get("repair_status_label") or summary.get("repair_status") or "").strip()
+    repair_step = str(summary.get("repair_step_label") or "").strip()
+    if repair_label or repair_step:
+        synthesized_events.append(
+            {
+                "step": "repair_status",
+                "status": str(summary.get("repair_status") or "repairing").strip() or "repairing",
+                "message": repair_step or f"Repair status: {repair_label}.",
+                "created_at": str(summary.get("repair_last_updated_at") or payload.get("updated_at") or payload.get("generated_at") or ""),
+            }
+        )
+    for receipt in [dict(item) for item in list(summary.get("repair_receipts") or []) if isinstance(item, dict)][-3:]:
+        source_label = str(receipt.get("source_label") or "Provider").strip()
+        resolution = str(receipt.get("resolution") or receipt.get("reason") or "repair updated").strip()
+        if resolution.strip().lower() == "suppressed_generic_listing_page":
+            continue
+        synthesized_events.append(
+            {
+                "step": "repair_receipt",
+                "status": "repaired",
+                "message": f"{source_label}: {resolution}.",
+                "created_at": str(receipt.get("at") or payload.get("updated_at") or payload.get("generated_at") or ""),
+            }
+        )
+    return synthesized_events or [_current_progress_event()]
 
 
 def build_property_run_health_snapshot(
@@ -179,7 +349,10 @@ def build_property_run_health_snapshot(
     )
     status = str(payload.get("status") or summary.get("status") or "not_started").strip().lower() or "not_started"
     raw_message = str(payload.get("message") or summary.get("message") or "").strip()
-    status_label, status_note = property_run_status_copy(status, raw_message)
+    status_label, status_note = property_run_status_copy(
+        status,
+        property_run_customer_safe_status_detail(status, raw_message, summary=summary, prefer_repair_step=True),
+    )
     held_back_total = _positive_int(summary.get("held_back_total"))
     if not held_back_total:
         held_back_total = (
@@ -492,23 +665,25 @@ def _property_run_candidate_reason_label(value: object) -> str:
     for tokens, label in positive_signals:
         if any(token in normalized for token in tokens) and any(token in normalized for token in ("found", "confirmed", "available", "evidence", "clear", "ready")):
             return f"{label} for candidate {ordinal} (score upgraded)"
-    soft_concerns = (
-        (("operating cost", "monthly cost", "total cost", "betriebskosten", "price"), "Cost evidence still needs verification"),
-        (("heating", "heizung"), "Heating evidence still needs verification"),
-        (("energy", "energy certificate", "energieausweis"), "Energy evidence still needs verification"),
-        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet evidence still needs verification"),
-        (("noise", "traffic noise", "nuisance"), "Noise risk needs verification"),
-        (("flood", "water", "groundwater"), "Water-risk evidence needs verification"),
-        (("air quality", "pollution", "emissions"), "Air-quality risk needs verification"),
-        (("crime", "safety"), "Local safety evidence needs verification"),
-        (("parking", "garage"), "Parking situation needs verification"),
-        (("winter", "driving"), "Winter access needs verification"),
-        (("septic", "senkgrube"), "Wastewater risk needs verification"),
-        (("sunlight", "orientation", "light"), "Light and orientation need verification"),
+    soft_concern_tokens = (
+        ("operating cost", "monthly cost", "total cost", "betriebskosten", "price"),
+        ("heating", "heizung"),
+        ("energy", "energy certificate", "energieausweis"),
+        ("internet", "broadband", "fiber", "fibre", "high-speed"),
+        ("noise", "traffic noise", "nuisance"),
+        ("flood", "water", "groundwater"),
+        ("air quality", "pollution", "emissions"),
+        ("crime", "safety"),
+        ("parking", "garage"),
+        ("winter", "driving"),
+        ("septic", "senkgrube"),
+        ("sunlight", "orientation", "light"),
     )
-    for tokens, label in soft_concerns:
-        if any(token in normalized for token in tokens) and any(token in normalized for token in ("missing", "unknown", "unclear", "risk", "burden", "verify", "verification")):
-            return f"{label} for candidate {ordinal} (score impact only)"
+    for tokens in soft_concern_tokens:
+        if any(token in normalized for token in tokens) and any(
+            token in normalized for token in ("missing", "unknown", "unclear", "risk", "burden", "verify", "verification")
+        ):
+            return ""
     if "district" in normalized or "postal" in normalized or "postcode" in normalized:
         if any(token in normalized for token in ("conflict", "mismatch", "outside", "wrong")):
             return f"Location evidence conflicted for candidate {ordinal} (hard area rule)"
@@ -613,7 +788,9 @@ def _property_run_candidate_reason_label(value: object) -> str:
     if "non-listing candidate" in normalized:
         return f"Candidate {ordinal} was a generic listing page"
     if "layout verification" in normalized or "floorplan" in normalized:
-        return f"Layout still needs verification for candidate {ordinal}"
+        if any(token in normalized for token in ("missing", "not attached", "unavailable", "without")):
+            return f"Floor plan was missing for candidate {ordinal} (score impact only)"
+        return ""
     return ""
 
 
@@ -1149,7 +1326,12 @@ def build_property_previous_run_summary(
     )
     status_label, status_note = property_run_status_copy(
         raw_run.get("status") or summary.get("status"),
-        raw_run.get("message") or summary.get("message"),
+        property_run_customer_safe_status_detail(
+            raw_run.get("status") or summary.get("status"),
+            raw_run.get("message") or summary.get("message"),
+            summary=summary,
+            prefer_repair_step=True,
+        ),
     )
     scope_preview = scope_preview_builder(country, region, location) if include_scope_preview else {}
     return {
@@ -1243,7 +1425,17 @@ def build_property_empty_outcome_summary(
             else:
                 stopped_context = f"The interrupted pass inspected {listing_label} before repair took over."
         else:
-            happened = str(run_message or "Search paused before a stable shortlist was ready.").strip()
+            if repair_task_open or repair_step_label or repair_status_label:
+                happened = "Search paused. Repair is retrying the saved search."
+            else:
+                happened = (
+                    property_run_customer_safe_status_detail(
+                        status_value,
+                        run_message,
+                        summary=run_summary,
+                    )
+                    or "Search paused before a stable shortlist was ready."
+                )
             stopped_context = ""
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         happened = "No shortlist yet inside the selected area."
@@ -1279,7 +1471,7 @@ def build_property_empty_outcome_summary(
             else "The brief and selected providers were still saved."
         )
     if status_value == "failed":
-        next_move = "Wait for repair; this page checks repair progress every 3s and will switch to the usable run when one is ready."
+        next_move = "Wait for repair; this page switches to the usable run when one is ready."
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         next_move = "Widen the selected districts or add a nearby radius; keep price and lifestyle preferences unchanged for the next pass."
     elif filtered_total <= 0 and score_demoted_total > 0:
@@ -1308,7 +1500,7 @@ def build_property_empty_outcome_summary(
     elif source_total:
         eta_feedback = "Change one rule and rerun for a fresh read."
     elif status_value == "failed":
-        eta_feedback = "Repair has the run queued; this page checks repair progress every 3s and will switch when a usable rerun is ready."
+        eta_feedback = "Repair has the run queued; this page switches when a usable rerun is ready."
     else:
         eta_feedback = "The run is complete; rerun after changing one rule to get a fresh ETA."
     return {

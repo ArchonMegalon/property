@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import concurrent.futures
 import html
 import hmac
 import io
 import json
 import os
 import re
+import threading
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -27,6 +30,7 @@ from app.api.dependencies import (
     get_cloudflare_access_identity,
     get_container,
     get_request_context,
+    get_request_context_if_available,
     require_operator_context,
 )
 from app.api.routes.landing_content import (
@@ -154,6 +158,23 @@ from app.services.registration_email import email_delivery_enabled, property_not
 from app.services.fliplink import build_fliplink_packet_service
 from app.services import brilliant_directories as brilliant_directories_service
 
+
+_PROPERTY_ACCOUNT_PREFERENCE_PROFILE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4,
+    thread_name_prefix="pq-account-pref-prof",
+)
+_PROPERTY_BILLING_HANDOFF_VERIFICATION_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="pq-billing-handoff",
+)
+_PROPERTY_BILLING_HANDOFF_CACHE_LOCK = threading.Lock()
+_PROPERTY_BILLING_HANDOFF_CACHE: dict[str, object] = {
+    "hosted_url": "",
+    "receipt": {},
+    "expires_at": 0.0,
+    "future": None,
+}
+
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
@@ -200,27 +221,62 @@ def _normalize_public_directory_profile_id(profile_id: str) -> str:
 def _property_brilliant_directories_billing_handoff() -> dict[str, object]:
     try:
         config = brilliant_directories_service.load_brilliant_directories_config()
-        hosted_url = brilliant_directories_service.brilliant_directories_billing_handoff_url(config)
+        hosted_urls = brilliant_directories_service.brilliant_directories_billing_handoff_urls(config)
     except brilliant_directories_service.BrilliantDirectoriesApiError:
         return {"available": False, "status": "unavailable"}
-    if not hosted_url:
+    if not hosted_urls:
         return {"available": False, "status": "disabled"}
+    primary_hosted_url = hosted_urls[0]
     runtime_dns_check = str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_CHECK") or "1").strip().lower()
     if runtime_dns_check not in {"0", "false", "no", "off", "disabled"}:
-        receipt = brilliant_directories_service.build_brilliant_directories_verification_receipt()
-        handoff_receipt = receipt.get("billing_handoff") if isinstance(receipt.get("billing_handoff"), dict) else {}
-        if not bool(handoff_receipt.get("host_resolves")):
-            return {
-                "available": False,
-                "status": "unresolved",
-                "hosted_href": hosted_url,
-                "error": str(handoff_receipt.get("error") or "billing_handoff_host_unresolved"),
-            }
+        first_blocked_state: dict[str, object] | None = None
+        for index, hosted_url in enumerate(hosted_urls):
+            handoff_receipt = _property_cached_billing_handoff_receipt(hosted_url=hosted_url)
+            if not handoff_receipt:
+                if index == 0:
+                    return {
+                        "available": False,
+                        "status": "verifying",
+                        "hosted_href": hosted_url,
+                        "error": "billing_handoff_verification_pending",
+                    }
+                continue
+            if bool(handoff_receipt.get("host_resolves")) and handoff_receipt.get("account_handoff_usable") is not False:
+                response = {
+                    "available": True,
+                    "status": "ready",
+                    "hosted_href": hosted_url,
+                    "open_href": hosted_url,
+                }
+                if index > 0:
+                    response["preferred_href"] = primary_hosted_url
+                    response["fallback_active"] = True
+                return response
+            if first_blocked_state is None:
+                if not bool(handoff_receipt.get("host_resolves")):
+                    first_blocked_state = {
+                        "available": False,
+                        "status": "unresolved",
+                        "hosted_href": hosted_url,
+                        "error": str(handoff_receipt.get("error") or "billing_handoff_host_unresolved"),
+                    }
+                else:
+                    first_blocked_state = {
+                        "available": False,
+                        "status": "login_required",
+                        "hosted_href": hosted_url,
+                        "error": str(
+                            handoff_receipt.get("account_handoff_error")
+                            or "billing_handoff_requires_separate_login"
+                        ),
+                    }
+        if first_blocked_state is not None:
+            return first_blocked_state
     return {
         "available": True,
         "status": "ready",
-        "hosted_href": hosted_url,
-        "open_href": hosted_url,
+        "hosted_href": primary_hosted_url,
+        "open_href": primary_hosted_url,
     }
 
 
@@ -309,6 +365,129 @@ def _propertyquarry_verified_public_tour_href(value: object) -> str:
         return ""
     verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)
     return _propertyquarry_public_href(verified_tour_href) if verified_tour_href else ""
+
+
+def _property_account_preference_profile_timeout_seconds() -> float:
+    raw_value = os.getenv("PROPERTYQUARRY_ACCOUNT_PREFERENCE_PROFILE_TIMEOUT_SECONDS", "0.9")
+    try:
+        timeout_seconds = float(raw_value)
+    except Exception:
+        timeout_seconds = 0.9
+    if timeout_seconds <= 0:
+        return 0.0
+    return max(0.25, timeout_seconds)
+
+
+def _property_account_preference_bundle(
+    *,
+    product,
+    principal_id: str,
+    person_id: str,
+) -> dict[str, object]:
+    timeout_seconds = _property_account_preference_profile_timeout_seconds()
+    if timeout_seconds <= 0:
+        return {}
+    try:
+        future = _PROPERTY_ACCOUNT_PREFERENCE_PROFILE_EXECUTOR.submit(
+            product.get_preference_profile,
+            principal_id=principal_id,
+            person_id=person_id,
+        )
+        return dict(future.result(timeout=timeout_seconds))
+    except Exception:
+        return {}
+
+
+def _property_billing_handoff_cache_ttl_seconds() -> float:
+    raw_value = os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_CACHE_TTL_SECONDS", "300")
+    try:
+        ttl_seconds = float(raw_value)
+    except Exception:
+        ttl_seconds = 300.0
+    if ttl_seconds <= 0:
+        return 0.0
+    return max(5.0, ttl_seconds)
+
+
+def _property_billing_handoff_timeout_seconds() -> float:
+    raw_value = os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_RUNTIME_DNS_TIMEOUT_SECONDS", "0.75")
+    try:
+        timeout_seconds = float(raw_value)
+    except Exception:
+        timeout_seconds = 0.75
+    if timeout_seconds <= 0:
+        return 0.0
+    return max(0.05, timeout_seconds)
+
+
+def _property_billing_handoff_verification_receipt(hosted_url: str) -> dict[str, object]:
+    if not str(hosted_url or "").strip():
+        return {}
+    receipt = brilliant_directories_service.build_brilliant_directories_billing_handoff_receipt(hosted_url)
+    return dict(receipt or {})
+
+
+def _property_billing_handoff_cache_key(hosted_url: str) -> str:
+    normalized_hosted_url = str(hosted_url or "").strip()
+    pytest_current_test = str(os.getenv("PYTEST_CURRENT_TEST") or "").strip()
+    if pytest_current_test:
+        return f"{normalized_hosted_url}::{pytest_current_test}"
+    return normalized_hosted_url
+
+
+def _property_cached_billing_handoff_receipt(*, hosted_url: str) -> dict[str, object]:
+    cache_key = _property_billing_handoff_cache_key(hosted_url)
+    now = time.monotonic()
+    cached_receipt: dict[str, object] = {}
+    cached_future: concurrent.futures.Future[dict[str, object]] | None = None
+    with _PROPERTY_BILLING_HANDOFF_CACHE_LOCK:
+        cached_hosted_url = str(_PROPERTY_BILLING_HANDOFF_CACHE.get("hosted_url") or "").strip()
+        if cached_hosted_url != cache_key:
+            _PROPERTY_BILLING_HANDOFF_CACHE["hosted_url"] = cache_key
+            _PROPERTY_BILLING_HANDOFF_CACHE["receipt"] = {}
+            _PROPERTY_BILLING_HANDOFF_CACHE["expires_at"] = 0.0
+            _PROPERTY_BILLING_HANDOFF_CACHE["future"] = None
+        cached_receipt = dict(_PROPERTY_BILLING_HANDOFF_CACHE.get("receipt") or {})
+        expires_at = float(_PROPERTY_BILLING_HANDOFF_CACHE.get("expires_at") or 0.0)
+        if cached_receipt and expires_at > now:
+            return cached_receipt
+        cached_future = _PROPERTY_BILLING_HANDOFF_CACHE.get("future")  # type: ignore[assignment]
+        if cached_future is None:
+            cached_future = _PROPERTY_BILLING_HANDOFF_VERIFICATION_EXECUTOR.submit(
+                _property_billing_handoff_verification_receipt,
+                hosted_url,
+            )
+            _PROPERTY_BILLING_HANDOFF_CACHE["future"] = cached_future
+        elif cached_future.done():
+            _PROPERTY_BILLING_HANDOFF_CACHE["future"] = None
+    if cached_receipt:
+        return cached_receipt
+    timeout_seconds = _property_billing_handoff_timeout_seconds()
+    if timeout_seconds <= 0 or cached_future is None:
+        return {}
+    try:
+        resolved_receipt = dict(cached_future.result(timeout=timeout_seconds) or {})
+    except concurrent.futures.TimeoutError:
+        if cached_receipt:
+            return cached_receipt
+        try:
+            resolved_receipt = _property_billing_handoff_verification_receipt(hosted_url)
+        except Exception:
+            return {}
+    except Exception:
+        with _PROPERTY_BILLING_HANDOFF_CACHE_LOCK:
+            current_future = _PROPERTY_BILLING_HANDOFF_CACHE.get("future")
+            if current_future is cached_future:
+                _PROPERTY_BILLING_HANDOFF_CACHE["future"] = None
+        return {}
+    ttl_seconds = _property_billing_handoff_cache_ttl_seconds()
+    with _PROPERTY_BILLING_HANDOFF_CACHE_LOCK:
+        current_future = _PROPERTY_BILLING_HANDOFF_CACHE.get("future")
+        if current_future is cached_future:
+            _PROPERTY_BILLING_HANDOFF_CACHE["future"] = None
+        _PROPERTY_BILLING_HANDOFF_CACHE["receipt"] = dict(resolved_receipt)
+        _PROPERTY_BILLING_HANDOFF_CACHE["expires_at"] = now + ttl_seconds if ttl_seconds > 0 else 0.0
+    return resolved_receipt
 
 
 def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[str, object] | object:
@@ -1585,12 +1764,22 @@ def _account_nav_context(*, request: Request, context: RequestContext) -> dict[s
             )
         )
 
+    if request_brand(request)["key"] == "propertyquarry":
+        if run_id:
+            billing_target = "/app/billing"
+        else:
+            billing_target = "/app/account#delivery"
+    else:
+        billing_target = "/app/billing"
+        if request.url.path == "/app/search":
+            billing_target = "/app/account#delivery"
+
     return {
         "label": account_label,
         "menu_label": menu_label,
         "profile_href": _with_run_suffix("/app/account#search-defaults"),
         "profile_label": "Search defaults",
-        "billing_href": _with_run_suffix("/app/billing"),
+        "billing_href": _with_run_suffix(billing_target),
         "settings_href": _with_run_suffix("/app/account#connected-services"),
         "sign_out_action": "/app/actions/sign-out",
         "sign_out_return_to": sign_out_return_to,
@@ -2008,12 +2197,10 @@ def _property_console_context(
             recent_matches = []
     if wants_preference_profile:
         try:
-            preference_bundle = dict(
-                product.get_preference_profile(
-                    principal_id=principal_id,
-                    person_id=preference_person_id,
-                )
-                or {}
+            preference_bundle = _property_account_preference_bundle(
+                product=product,
+                principal_id=principal_id,
+                person_id=preference_person_id,
             )
         except Exception:
             preference_bundle = {}
@@ -2696,6 +2883,7 @@ def pricing_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+    context: RequestContext = Depends(get_request_context_if_available),
 ) -> Response:
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     commercial = property_commercial_snapshot(None)
@@ -2710,6 +2898,14 @@ def pricing_page(
         or principal_id
         or _workspace_session_payload(request, container) is not None
     )
+    account_nav = _account_nav_context(request=request, context=context)
+    pricing_signed_in_billing_href = str(account_nav.get("billing_href") or "/app/account#delivery").strip() or "/app/account#delivery"
+    if checkout_session_ready and request_brand(request)["key"] == "propertyquarry":
+        billing_handoff = _property_brilliant_directories_billing_handoff()
+        pricing_signed_in_billing_href = (
+            str(billing_handoff.get("open_href") or "").strip()
+            or pricing_signed_in_billing_href
+        )
     return _render_public_template(
         request,
         "pricing_page.html",
@@ -2726,6 +2922,7 @@ def pricing_page(
                 "pricing_checkout_enabled_plans": checkout_enabled_plans,
                 "pricing_order_endpoints_by_plan": checkout_order_endpoints_by_plan,
                 "pricing_checkout_session_ready": checkout_session_ready,
+                "pricing_signed_in_billing_href": pricing_signed_in_billing_href,
                 "meta_description": "Choose a PropertyQuarry plan by search breadth, shortlist density, research depth, and the quality of the property review page.",
                 "structured_data_json": [
                     {
@@ -3575,7 +3772,8 @@ def property_research_packet(
         surface_mode="research",
     )
     normalized_candidate_ref = str(candidate_ref or "").strip()
-    resolved_run_id = str(run_id or "").strip()
+    requested_run_id = str(run_id or "").strip()
+    resolved_run_id = requested_run_id
     candidate = _property_lookup_candidate(
         property_context=property_context,
         candidate_ref=normalized_candidate_ref,
@@ -3605,6 +3803,19 @@ def property_research_packet(
         )
     if candidate is not None and not resolved_run_id:
         resolved_run_id = str(candidate.get("saved_from_run_id") or "").strip()
+    effective_run_id = str(resolved_run_id or "").strip()
+    research_route_recovery = (
+        {
+            "title": "Opened from a newer run",
+            "detail": "The original run link is no longer current, so PropertyQuarry opened the latest matching packet instead.",
+            "requested_run_id": requested_run_id,
+            "run_id": effective_run_id,
+            "action_href": f"/app/shortlist?run_id={urllib.parse.quote(effective_run_id, safe='')}",
+            "action_label": "Open current shortlist",
+        }
+        if requested_run_id and effective_run_id and effective_run_id != requested_run_id
+        else {}
+    )
     if candidate is None:
         return _property_missing_packet_response(
             request,
@@ -3707,33 +3918,12 @@ def property_research_packet(
         feedback_suggestions = dict(product.property_feedback_suggestions(property_facts=facts, assessment=assessment or candidate))
     except Exception:
         feedback_suggestions = {"negative": [], "positive": []}
-    packet_service = build_fliplink_packet_service(container)
+    # Keep the initial research packet fast and content-first.
+    # Detailed packet collaboration history belongs behind explicit follow-up actions,
+    # not on the critical render path for the mobile/desktop property page.
     feedback_summary: dict[str, object] = {}
     property_timeline_rows: list[dict[str, object]] = []
     structured_feedback_rows: list[dict[str, object]] = []
-    for feedback_ref in _property_feedback_reference_candidates(str(candidate_ref or "").strip(), candidate):
-        try:
-            summary_candidate = dict(packet_service.feedback_summary(principal_id=context.principal_id, property_ref=feedback_ref))
-        except Exception:
-            summary_candidate = {}
-        if not _property_feedback_summary_has_signal(summary_candidate):
-            continue
-        try:
-            timeline_candidate = list(packet_service.property_timeline(principal_id=context.principal_id, property_ref=feedback_ref))
-        except Exception:
-            timeline_candidate = []
-        try:
-            feedback_rows_candidate = list(packet_service.list_structured_feedback(principal_id=context.principal_id, property_ref=feedback_ref))
-        except Exception:
-            feedback_rows_candidate = []
-        if not feedback_summary:
-            feedback_summary = summary_candidate
-        if timeline_candidate and not property_timeline_rows:
-            property_timeline_rows = timeline_candidate
-        if feedback_rows_candidate and not structured_feedback_rows:
-            structured_feedback_rows = feedback_rows_candidate
-        if feedback_summary and property_timeline_rows and structured_feedback_rows:
-            break
     objection_clusters = [
         _object_detail_row(
             str(cluster.get("theme") or "feedback").replace("_", " ").title(),
@@ -3802,34 +3992,7 @@ def property_research_packet(
             _object_detail_row("Tour state", _property_tour_detail_line(candidate), "360"),
             _object_detail_row("Feedback state", "No timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
         ]
-    changed_rows = timeline_rows[:3] or [
-        _object_detail_row(
-            "No new deltas yet",
-            "The first saved decision, share event, or follow-up update will appear here.",
-            "Waiting",
-        )
-    ]
-    latest_magic_fit_scene = product.latest_property_magic_fit_scene(
-        principal_id=context.principal_id,
-        property_ref=str(candidate_ref or "").strip(),
-    )
-    magic_fit_rows = [
-        _object_detail_row(
-            str(latest_magic_fit_scene.get("scene_type") or "Lifestyle scene").replace("_", " ").title(),
-            str(latest_magic_fit_scene.get("summary") or "A generated family-in-space still is ready for the property page and PDF.").strip(),
-            "Visual simulation",
-            href=str(latest_magic_fit_scene.get("image_url") or "").strip(),
-            secondary_action_href=str(latest_magic_fit_scene.get("image_url") or "").strip(),
-            secondary_action_label="Open still" if str(latest_magic_fit_scene.get("image_url") or "").strip() else "",
-            secondary_action_method="get" if str(latest_magic_fit_scene.get("image_url") or "").strip() else "",
-        )
-    ] if latest_magic_fit_scene else [
-        _object_detail_row(
-            "No scene generated yet",
-            "Opt in to create a furnished family-life still for this property page. It stays clearly marked as a visual simulation and can be attached to the PDF dossier.",
-            "Opt-in",
-        )
-    ]
+    latest_magic_fit_scene: dict[str, object] = {}
     agent_question_rows = [
         _object_detail_row(
             f"Question {index + 1}",
@@ -4118,56 +4281,59 @@ def property_research_packet(
                 "title": "What the listing says",
                 "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("object_rows") or [])],
             },
-        {
-            "eyebrow": "Costs",
-            "title": "Price, running costs, and fees",
-            "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("cost_rows") or [])],
-        },
-        {
-            "eyebrow": "Description",
-            "title": "How the home is described",
-            "copy": str(detail_sections.get("description_text") or "").strip(),
-            "items": [],
-        },
-        {
-            "eyebrow": "Location & area",
-            "title": "How the wider area reads today",
-            "copy": str(detail_sections.get("location_text") or "").strip(),
-            "items": everyday_fit_rows[:6],
-        },
-        {
-            "eyebrow": "Energy & heating",
-            "title": "Energy and heating",
-            "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("energy_rows") or [])],
-        },
-        {
-            "eyebrow": "Before you decide",
-            "title": "What still needs an answer",
-            "items": (missing_rows + investment_risk_rows)[:10] or [_object_detail_row("No blocker recorded", "The current file does not show a blocking gap beyond normal due diligence.", "Clear")],
-        },
-        {
-            "eyebrow": "Next step",
-            "title": "What to do with this home now",
-            "items": decision_rows,
-        },
-        {
-            "eyebrow": "Evidence added",
-            "title": "What PropertyQuarry researched beyond the listing",
-            "items": (official_evidence_rows[:4] + official_posture_rows[:3] + future_research_rows[:3] + provenance_rows[:3])
-            or [_object_detail_row("No external evidence attached yet", "Broader research has not attached external datasets to this property yet.", "Pending")],
-        },
-        {
-            "eyebrow": "Ask next",
-            "title": "Questions worth sending now",
-            "items": agent_question_rows + ([_object_detail_row("Next household question", next_best_question, "Next")] if next_best_question else []),
-        },
-        {
-            "eyebrow": "What changed",
-            "title": "Timeline and follow-up",
-            "items": timeline_rows,
-        },
+            {
+                "eyebrow": "Costs",
+                "title": "Price, running costs, and fees",
+                "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("cost_rows") or [])],
+            },
+            {
+                "eyebrow": "Description",
+                "title": "How the home is described",
+                "copy": str(detail_sections.get("description_text") or "").strip(),
+                "items": [],
+            },
+            {
+                "eyebrow": "Location & area",
+                "title": "How the wider area reads today",
+                "copy": str(detail_sections.get("location_text") or "").strip(),
+                "items": everyday_fit_rows[:6],
+            },
+            {
+                "eyebrow": "Energy & heating",
+                "title": "Energy and heating",
+                "items": [_object_detail_row(str(row.get("label") or "").strip(), str(row.get("value") or "").strip(), "Listing") for row in list(detail_sections.get("energy_rows") or [])],
+            },
+            {
+                "eyebrow": "Before you decide",
+                "title": "What still needs an answer",
+                "items": (missing_rows + investment_risk_rows)[:10] or [_object_detail_row("No blocker recorded", "The current file does not show a blocking gap beyond normal due diligence.", "Clear")],
+            },
+            {
+                "eyebrow": "Next step",
+                "title": "What to do with this home now",
+                "items": decision_rows,
+            },
+            {
+                "eyebrow": "Evidence added",
+                "title": "What PropertyQuarry researched beyond the listing",
+                "items": (official_evidence_rows[:4] + official_posture_rows[:3] + future_research_rows[:3] + provenance_rows[:3])
+                or [_object_detail_row("No external evidence attached yet", "Broader research has not attached external datasets to this property yet.", "Pending")],
+            },
+            {
+                "eyebrow": "Ask next",
+                "title": "Questions worth sending now",
+                "items": agent_question_rows + ([_object_detail_row("Next household question", next_best_question, "Next")] if next_best_question else []),
+            },
         ]
     )
+    if timeline_rows:
+        research_sections.append(
+            {
+                "eyebrow": "What changed",
+                "title": "Timeline and follow-up",
+                "items": timeline_rows,
+            }
+        )
     if str(preferences.get("listing_mode") or "").strip().lower() == "buy":
         research_sections.insert(
             7,
@@ -4192,10 +4358,10 @@ def property_research_packet(
         }
     feedback_payload = {
         "person_id": preference_person_id,
-        "profile_href": f"/app/properties" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
+        "profile_href": f"/app/properties" + (f"?run_id={urllib.parse.quote(effective_run_id, safe='')}" if effective_run_id else ""),
         "suggestions": feedback_suggestions,
         "property_url": property_url,
-        "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
+        "packet_href": f"/app/research/{urllib.parse.quote(candidate_ref, safe='')}" + (f"?run_id={urllib.parse.quote(effective_run_id, safe='')}" if effective_run_id else ""),
         "property_title": display_title,
         "property_facts": facts,
         "assessment": feedback_assessment,
@@ -4228,7 +4394,7 @@ def property_research_packet(
         actions=hero_actions,
         visual_status_line=visual_status_line,
         source_ref=str(candidate.get("source_ref") or "").strip(),
-        run_id=str(run_id or "").strip(),
+        run_id=effective_run_id,
         candidate_ref=str(candidate_ref or "").strip(),
         overview_rows=overview_rows,
         sections=research_sections,
@@ -4278,6 +4444,7 @@ def property_research_packet(
             ),
             **research_snapshot,
             "research_ranked_run_rows": ranked_run_rows,
+            "research_route_recovery": research_route_recovery,
         },
     )
 
@@ -4376,6 +4543,8 @@ def app_shell(
     agent_id: str = Query(default=""),
     packet_missing: str = Query(default=""),
     missing_candidate_ref: str = Query(default=""),
+    stale_run: str = Query(default=""),
+    missing_run_id: str = Query(default=""),
 ) -> HTMLResponse:
     brand = request_brand(request)
     property_brand = brand["key"] == "propertyquarry"
@@ -4471,7 +4640,18 @@ def app_shell(
             if resolved_section == "properties" and str(context.auth_source or "").strip() == "workspace_access_session":
                 route_run = {}
             else:
-                raise HTTPException(status_code=404, detail="property_search_run_not_found")
+                query_pairs = [
+                    (key, value)
+                    for key, value in urllib.parse.parse_qsl(str(request.url.query or ""), keep_blank_values=True)
+                    if key not in {"run_id", "stale_run", "missing_run_id"}
+                ]
+                query_pairs.insert(0, ("stale_run", "1"))
+                query_pairs.insert(1, ("missing_run_id", normalized_run_id))
+                target_query = urllib.parse.urlencode(query_pairs)
+                target = request.url.path
+                if target_query:
+                    target = f"{target}?{target_query}"
+                return RedirectResponse(target, status_code=303)
         if resolved_section == "properties":
             route_run_status = str(route_run.get("status") or "").strip().lower()
             route_run_summary = dict(route_run.get("summary") or {}) if isinstance(route_run.get("summary"), dict) else {}
@@ -4618,6 +4798,22 @@ def app_shell(
                 return RedirectResponse(target, status_code=307)
         if property_context is not None and property_brand:
             property_context["surface_mode"] = current_nav
+            if str(stale_run or "").strip().lower() in {"1", "true", "yes"}:
+                recovered_run_id = str(missing_run_id or "").strip()
+                route_action_labels = {
+                    "search": "Open search",
+                    "shortlist": "Open shortlist",
+                    "research": "Open research",
+                    "properties": "Open results",
+                }
+                property_context["route_recovery"] = {
+                    "title": "That run is no longer available",
+                    "detail": "Showing the current workspace instead of the expired run link.",
+                    "run_id": recovered_run_id,
+                    "action_href": str(request.url.path or "").strip() or "/app/search",
+                    "action_label": route_action_labels.get(current_nav, "Stay here"),
+                    "tone": "warn",
+                }
             if str(packet_missing or "").strip().lower() in {"1", "true", "yes"}:
                 missing_ref = str(missing_candidate_ref or "").strip()
                 recovery_query = {"packet_missing": "1"}

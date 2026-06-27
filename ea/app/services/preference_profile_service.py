@@ -756,7 +756,10 @@ class PreferenceProfileService:
                         score -= 6.0 * weight
                         mismatch_reasons.append(f"Underground access is about {int(nearest_subway_m)} m away, which is weaker than preferred.")
                     else:
-                        unknowns.append("Underground access still needs verification.")
+                        if nearest_subway_m > 0.0:
+                            unknowns.append(f"Underground access is about {int(nearest_subway_m)} m away.")
+                        else:
+                            unknowns.append("The listing does not include a confirmed underground distance.")
             elif category == "soft_preference" and key == "prefer_supermarket_nearby":
                 if bool(value):
                     if nearest_supermarket_m > 0.0 and nearest_supermarket_m <= 700.0:
@@ -766,7 +769,10 @@ class PreferenceProfileService:
                         score -= 4.5 * weight
                         mismatch_reasons.append(f"Supermarket access is about {int(nearest_supermarket_m)} m away, which is weaker than preferred.")
                     else:
-                        unknowns.append("Supermarket access still needs verification.")
+                        if nearest_supermarket_m > 0.0:
+                            unknowns.append(f"Supermarket access is about {int(nearest_supermarket_m)} m away.")
+                        else:
+                            unknowns.append("The listing does not include a confirmed supermarket distance.")
             elif category == "soft_preference" and key == "prefer_pharmacy_nearby":
                 if bool(value):
                     if nearest_pharmacy_m > 0.0 and nearest_pharmacy_m <= 800.0:
@@ -776,7 +782,10 @@ class PreferenceProfileService:
                         score -= 3.5 * weight
                         mismatch_reasons.append(f"Pharmacy access is about {int(nearest_pharmacy_m)} m away, which is weaker than preferred.")
                     else:
-                        unknowns.append("Pharmacy access still needs verification.")
+                        if nearest_pharmacy_m > 0.0:
+                            unknowns.append(f"Pharmacy access is about {int(nearest_pharmacy_m)} m away.")
+                        else:
+                            unknowns.append("The listing does not include a confirmed pharmacy distance.")
             elif category == "soft_preference" and key == "prefer_unlimited_lease":
                 if bool(value):
                     if lease_term_years_max > 0.0 and lease_term_years_max <= 5.0:
@@ -786,7 +795,10 @@ class PreferenceProfileService:
                         score += 3.0 * weight
                         match_reasons.append("The lease duration looks compatible with a longer-term stability preference.")
                     else:
-                        unknowns.append("Lease duration still needs verification.")
+                        if lease_term_years_max > 0.0:
+                            unknowns.append(f"The lease runs about {int(lease_term_years_max)} years.")
+                        else:
+                            unknowns.append("The listing does not include a confirmed lease duration.")
             elif category == "soft_preference" and key == "prefer_lower_total_rent_eur" and isinstance(total_rent, (int, float)):
                 try:
                     preferred_rent = float(value)

@@ -559,6 +559,21 @@ def get_request_context(
     return context
 
 
+def get_request_context_if_available(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> RequestContext:
+    try:
+        return get_request_context(request=request, container=container, access_identity=access_identity)
+    except HTTPException as exc:
+        if int(exc.status_code or 0) != 401:
+            raise
+        context = RequestContext(principal_id="", authenticated=False, auth_source="anonymous")
+        setattr(request.state, "ea_request_context", context)
+        return context
+
+
 def require_operator_context(context: RequestContext = Depends(get_request_context)) -> None:
     if not is_operator_context(context):
         raise HTTPException(status_code=403, detail="operator_scope_required")

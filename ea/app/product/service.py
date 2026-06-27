@@ -61,7 +61,11 @@ from app.services.property_billing import (
 )
 from app.services.onboarding import normalize_property_notification_channel, normalize_property_notification_channels
 from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
-from app.services.property_media_factory import MediaRequirement, route_property_media_task
+from app.services.property_media_factory import (
+    MediaRequirement,
+    _normalize_provider_preference,
+    route_property_media_task,
+)
 from app.product import property_search_storage as _property_search_storage
 from app.product.property_worker_queues import property_worker_queue_spec
 from app.product.property_listing_extractors import (
@@ -129,6 +133,7 @@ from app.product.property_tour_hosting import (
     _download_public_tour_asset_with_type,
     _embedded_live_360_source_url,
     _existing_hosted_property_tour_payload,
+    _existing_hosted_property_tour_url_for_identity,
     _existing_hosted_property_tour_url,
     _hosted_property_tour_control_url,
     _hosted_property_tour_asset_suffix,
@@ -2392,6 +2397,13 @@ def _property_visual_elapsed_minutes(
     return max(int(elapsed.total_seconds() // 60), 0)
 
 
+def _normalize_property_visual_request_kind(request_kind: object) -> str:
+    normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+    if normalized_kind in {"walkthrough", "generated_reconstruction_walkthrough"}:
+        return "flythrough"
+    return normalized_kind if normalized_kind in {"tour", "flythrough"} else "tour"
+
+
 def _property_visual_initial_eta_minutes(*, status: object, eta_minutes: object = "") -> int:
     normalized_status = str(status or "").strip().lower()
     raw_eta = str(eta_minutes or "").strip()
@@ -2412,7 +2424,7 @@ def _property_visual_progress_pct(
     requested_at: object = "",
     status_updated_at: object = "",
 ) -> int:
-    normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+    normalized_kind = _normalize_property_visual_request_kind(request_kind)
     normalized_status = str(status or "").strip().lower()
     if str(ready_url or "").strip():
         return 100
@@ -11881,7 +11893,7 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
 
 
 def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") -> str:
-    normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+    normalized_kind = _normalize_property_visual_request_kind(request_kind)
     normalized_reason = str(reason or "").strip().lower()
     if normalized_reason in {
         "",
@@ -11919,7 +11931,7 @@ def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: st
         "crezlo_property_tour_not_configured",
     }:
         return ""
-    normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+    normalized_kind = _normalize_property_visual_request_kind(request_kind)
     return "skipped" if normalized_kind == "flythrough" else "blocked"
 
 
@@ -14891,7 +14903,10 @@ def _render_property_flythrough_into_hosted_tour(
     birthday_party_request: bool = False,
     person_motion_hint: str = "",
     diorama_style_hint: str = "",
+    preferred_provider_key: str = "",
 ) -> dict[str, object]:
+    normalized_preferred_provider = _normalize_provider_preference(preferred_provider_key)
+
     def _magicfit_fallback_allowed(rendered: dict[str, object]) -> bool:
         reason = str(rendered.get("reason") or "").strip().lower()
         error = str(rendered.get("error") or "").strip().lower()
@@ -14915,7 +14930,8 @@ def _render_property_flythrough_into_hosted_tour(
             task="walkthrough_video",
             first_frame_continuity=True,
             constant_speed=True,
-            must_be_magicfit=True,
+            preferred_provider_key=normalized_preferred_provider,
+            require_final_publisher=not bool(normalized_preferred_provider),
         )
     )
     route_payload = {
@@ -14926,7 +14942,7 @@ def _render_property_flythrough_into_hosted_tour(
     }
     if not route.ok:
         return {"status": "failed", "reason": route.reason or "flythrough_provider_unavailable", **route_payload}
-    if route.provider_key == "onemin_i2v":
+    if route.provider_key in {"mootion", "onemin_i2v"}:
         rendered = _render_onemin_property_flythrough_into_hosted_tour(
             tour_url=tour_url,
             title=title,
@@ -25042,7 +25058,7 @@ class ProductService:
     ) -> HumanTask | None:
         normalized_url = str(property_url or "").strip()
         normalized_variant = str(variant_key or "").strip().lower()
-        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_request_kind = _normalize_property_visual_request_kind(request_kind)
         if not normalized_url:
             return None
         for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
@@ -25053,7 +25069,7 @@ class ProductService:
                 continue
             if str(input_json.get("variant_key") or "").strip().lower() != normalized_variant:
                 continue
-            existing_request_kind = str(input_json.get("request_kind") or "tour").strip().lower() or "tour"
+            existing_request_kind = _normalize_property_visual_request_kind(input_json.get("request_kind"))
             if existing_request_kind != normalized_request_kind:
                 continue
             return row
@@ -25068,7 +25084,7 @@ class ProductService:
     ) -> HumanTask | None:
         normalized_principal = str(principal_id or "").strip()
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_request_kind = _normalize_property_visual_request_kind(request_kind)
         if not normalized_principal or not normalized_url:
             return None
         database_url = _property_search_run_database_url()
@@ -25085,7 +25101,7 @@ class ProductService:
                 task_url = urllib.parse.urldefrag(str(input_json.get("property_url") or "").strip())[0]
                 if task_url != normalized_url:
                     continue
-                task_kind = str(input_json.get("request_kind") or "tour").strip().lower() or "tour"
+                task_kind = _normalize_property_visual_request_kind(input_json.get("request_kind"))
                 if task_kind != normalized_request_kind:
                     continue
                 if latest is None or str(getattr(row, "updated_at", "") or "") > str(getattr(latest, "updated_at", "") or ""):
@@ -25103,6 +25119,9 @@ class ProductService:
 
         with psycopg.connect(database_url, autocommit=True) as conn:
             with conn.cursor() as cur:
+                request_kinds = {normalized_request_kind}
+                if normalized_request_kind == "flythrough":
+                    request_kinds.update({"generated_reconstruction_walkthrough", "walkthrough"})
                 cur.execute(
                     """
                     SELECT human_task_id, session_id, step_id, principal_id, task_type, role_required, brief,
@@ -25114,11 +25133,11 @@ class ProductService:
                     WHERE principal_id = %s
                       AND task_type = 'property_tour_followup'
                       AND input_json ->> 'property_url' = %s
-                      AND COALESCE(input_json ->> 'request_kind', 'tour') = %s
+                      AND COALESCE(input_json ->> 'request_kind', 'tour') = ANY(%s)
                     ORDER BY updated_at DESC, created_at DESC, human_task_id DESC
                     LIMIT 1
                     """,
-                    (normalized_principal, normalized_url, normalized_request_kind),
+                    (normalized_principal, normalized_url, list(request_kinds)),
                 )
                 row = cur.fetchone()
         if not row:
@@ -25197,8 +25216,9 @@ class ProductService:
         candidate_ref: str = "",
         allow_floorplan_only: bool = False,
         diorama_style_hint: str = "",
+        walkthrough_provider_key: str = "",
     ) -> HumanTask:
-        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_request_kind = _normalize_property_visual_request_kind(request_kind)
         normalized_style_hint = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
         existing = self._existing_property_tour_followup(
             principal_id=principal_id,
@@ -25252,6 +25272,7 @@ class ProductService:
                 "candidate_ref": str(candidate_ref or "").strip(),
                 "allow_floorplan_only": bool(allow_floorplan_only),
                 "diorama_style_hint": normalized_style_hint,
+                "walkthrough_provider_key": str(walkthrough_provider_key or "").strip(),
             },
             desired_output_json={
                 "status": "completed",
@@ -25273,6 +25294,7 @@ class ProductService:
             "run_id": str(run_id or "").strip(),
             "candidate_ref": str(candidate_ref or "").strip(),
             "allow_floorplan_only": bool(allow_floorplan_only),
+            "walkthrough_provider_key": str(walkthrough_provider_key or "").strip(),
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -26483,6 +26505,7 @@ class ProductService:
         allow_floorplan_only: bool = False,
         enforce_360_media: bool = True,
         suppress_human_followup: bool = False,
+        walkthrough_provider_key: str = "",
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
@@ -26593,6 +26616,7 @@ class ProductService:
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
                     connector_binding_id=resolved_binding_id,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
                 followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
@@ -26800,6 +26824,7 @@ class ProductService:
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
                     connector_binding_id="",
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
                 followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
@@ -27105,6 +27130,7 @@ class ProductService:
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
                     connector_binding_id=resolved_binding_id,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
                 followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
@@ -27153,6 +27179,7 @@ class ProductService:
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
                     connector_binding_id=resolved_binding_id,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
                 followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
@@ -27286,6 +27313,7 @@ class ProductService:
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
                     connector_binding_id=resolved_binding_id,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
                 followup_task_id = f"human_task:{followup.human_task_id}"
             payload.update(
@@ -27392,6 +27420,7 @@ class ProductService:
                             source_ref=resolved_source_ref,
                             external_id=resolved_external_id,
                             connector_binding_id=resolved_binding_id,
+                            walkthrough_provider_key=walkthrough_provider_key,
                         )
                         telegram_video_followup_ref = f"human_task:{followup.human_task_id}"
                     else:
@@ -27482,6 +27511,7 @@ class ProductService:
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
                     connector_binding_id=resolved_binding_id,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
                 followup_task_id = f"human_task:{followup.human_task_id}"
             payload.update(
@@ -28224,9 +28254,8 @@ class ProductService:
                 raise RuntimeError("handoff_not_assignable")
             current = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id) or current
         input_json = dict(current.input_json or {})
-        request_kind = str(input_json.get("request_kind") or "tour").strip().lower() or "tour"
-        if request_kind not in {"tour", "flythrough"}:
-            request_kind = "tour"
+        request_kind = _normalize_property_visual_request_kind(input_json.get("request_kind"))
+        walkthrough_provider_key = str(input_json.get("walkthrough_provider_key") or "").strip()
         result = self.request_property_visual_asset(
             principal_id=principal_id,
             property_url=str(input_json.get("property_url") or "").strip(),
@@ -28243,6 +28272,7 @@ class ProductService:
             actor=actor,
             queue_async_request=False,
             suppress_human_followup=True,
+            walkthrough_provider_key=walkthrough_provider_key,
         )
         resolution = str(result.get("status") or "").strip().lower() or "completed"
         if resolution == "created":
@@ -28317,6 +28347,7 @@ class ProductService:
         style_hint: str = "",
         birthday_party_request: bool = False,
         person_motion_hint: str = "",
+        walkthrough_provider_key: str = "",
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
@@ -28495,6 +28526,7 @@ class ProductService:
                 actor=resolved_actor,
                 birthday_party_request=birthday_party_request,
                 person_motion_hint=resolved_person_motion_hint,
+                preferred_provider_key=walkthrough_provider_key,
             )
             self._record_product_event(
                 principal_id=principal_id,
@@ -28875,6 +28907,7 @@ class ProductService:
         source_ref: str = "",
         external_id: str = "",
         preference_person_id: str = "self",
+        walkthrough_provider_key: str = "",
     ) -> dict[str, object]:
         normalized_pdf_url = str(source_pdf_url or "").strip()
         filename = str(source_pdf_filename or "").strip() or "property-upload.pdf"
@@ -29005,6 +29038,7 @@ class ProductService:
                 title=title,
                 property_facts=property_facts_json,
                 actor=resolved_actor,
+                preferred_provider_key=walkthrough_provider_key,
             )
             self._record_product_event(
                 principal_id=principal_id,
@@ -30567,9 +30601,24 @@ class ProductService:
                 matches_candidate = candidate_property_url == normalized_property_url
             if not matches_candidate:
                 return {}
+            tour_url = str(candidate_row.get("tour_url") or "").strip()
+            if not tour_url:
+                tour_url = _existing_hosted_property_tour_url_for_identity(
+                    property_url=candidate_property_url,
+                    source_ref=candidate_source_ref,
+                    external_id=(
+                        candidate_row.get("external_id")
+                        or candidate_row.get("listing_id")
+                        or candidate_row.get("listing_uuid")
+                        or ""
+                    ),
+                )
+            vendor_tour_url = str(candidate_row.get("vendor_tour_url") or "").strip()
+            if not vendor_tour_url and tour_url:
+                vendor_tour_url = _hosted_property_tour_verified_open_url(tour_url)
             return {
-                "tour_url": str(candidate_row.get("tour_url") or "").strip(),
-                "vendor_tour_url": str(candidate_row.get("vendor_tour_url") or "").strip(),
+                "tour_url": tour_url,
+                "vendor_tour_url": vendor_tour_url,
                 "tour_requested_at": str(candidate_row.get("tour_requested_at") or "").strip(),
                 "tour_status_updated_at": str(candidate_row.get("tour_status_updated_at") or "").strip(),
                 "tour_eta_minutes": str(candidate_row.get("tour_eta_minutes") or "").strip(),
@@ -30659,7 +30708,7 @@ class ProductService:
     ) -> bool:
         normalized_principal = str(principal_id or "").strip()
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-        normalized_request_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_request_kind = _normalize_property_visual_request_kind(request_kind)
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
         if not normalized_principal or not normalized_property_url:
             return False
@@ -30831,9 +30880,7 @@ class ProductService:
             attempted_total += 1
             task_input = dict(task.input_json or {})
             property_url = urllib.parse.urldefrag(str(task_input.get("property_url") or "").strip())[0]
-            request_kind = str(task_input.get("request_kind") or "tour").strip().lower() or "tour"
-            if request_kind not in {"tour", "flythrough"}:
-                request_kind = "tour"
+            request_kind = _normalize_property_visual_request_kind(task_input.get("request_kind"))
             source_ref = str(task_input.get("source_ref") or property_url).strip()
             external_id = str(task_input.get("external_id") or property_url).strip()
             run_id = str(task_input.get("run_id") or "").strip()
@@ -30844,6 +30891,7 @@ class ProductService:
             blocked_reason = str(task_input.get("blocked_reason") or "").strip()
             allow_floorplan_only = bool(task_input.get("allow_floorplan_only"))
             diorama_style_hint = _compact_diorama_style_hint(str(task_input.get("diorama_style_hint") or ""), max_length=180)
+            walkthrough_provider_key = str(task_input.get("walkthrough_provider_key") or "").strip()
             if not property_url:
                 self.complete_handoff(
                     principal_id=normalized_principal,
@@ -31007,6 +31055,7 @@ class ProductService:
                     queue_async_request=False,
                     suppress_human_followup=True,
                     diorama_style_hint=diorama_style_hint,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
             except Exception as exc:
                 blocked_reason = self._property_tour_execution_error_reason(exc)
@@ -31153,8 +31202,9 @@ class ProductService:
         queue_async_request: bool = True,
         suppress_human_followup: bool = False,
         diorama_style_hint: str = "",
+        walkthrough_provider_key: str = "",
     ) -> dict[str, object]:
-        normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_kind = _normalize_property_visual_request_kind(request_kind)
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
         resolved_style_hint = _compact_diorama_style_hint(str(diorama_style_hint or ""), max_length=180)
@@ -31201,6 +31251,7 @@ class ProductService:
                     candidate_ref=str(candidate_ref or "").strip(),
                     allow_floorplan_only=effective_allow_floorplan_only,
                     diorama_style_hint=resolved_style_hint,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 )
                 human_task_id = f"human_task:{followup.human_task_id}"
             except Exception:
@@ -31303,6 +31354,7 @@ class ProductService:
             actor=actor,
             enforce_360_media=effective_enforce_360_media,
             suppress_human_followup=suppress_human_followup,
+            walkthrough_provider_key=walkthrough_provider_key,
         )
         payload = dict(base_result or {})
         payload["request_kind"] = normalized_kind
@@ -31348,6 +31400,7 @@ class ProductService:
                     fit_score=100.0,
                     allow_below_threshold=True,
                     diorama_style_hint=resolved_style_hint,
+                    walkthrough_provider_key=walkthrough_provider_key,
                 ) or {})
                 flythrough_result = _normalize_property_flythrough_result(raw_flythrough_result)
                 flythrough_url = _hosted_property_tour_walkthrough_asset_url(payload.get("tour_url")) or _published_walkthrough_asset_url(
@@ -31521,7 +31574,7 @@ class ProductService:
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         normalized_run_id = str(run_id or "").strip()
-        normalized_kind = str(request_kind or "tour").strip().lower() or "tour"
+        normalized_kind = _normalize_property_visual_request_kind(request_kind)
         normalized_candidate_ref = str(candidate_ref or "").strip()
         normalized_source_ref = str(source_ref or "").strip()
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
@@ -32801,11 +32854,25 @@ class ProductService:
             return snapshot
         stale_result_refresh_copy = "The final results email was sent. Refreshing this page will continue to show the completed result desk."
         safe_result_ready_copy = "The final results email was sent. The completed result desk is ready."
+        summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
 
-        def _safe_run_message(value: object) -> str:
+        def _safe_run_message(value: object, *, status_value: object | None = None) -> str:
             text = str(value or "")
             if stale_result_refresh_copy in text:
-                return text.replace(stale_result_refresh_copy, safe_result_ready_copy)
+                text = text.replace(stale_result_refresh_copy, safe_result_ready_copy)
+            try:
+                from app.product.property_surface_state import property_run_customer_safe_status_detail
+
+                safe_text = property_run_customer_safe_status_detail(
+                    status_value or snapshot.get("status"),
+                    text,
+                    summary=summary,
+                    prefer_repair_step=True,
+                )
+                if safe_text:
+                    return safe_text
+            except Exception:
+                pass
             return text
 
         snapshot["message"] = _safe_run_message(snapshot.get("message"))
@@ -32815,10 +32882,12 @@ class ProductService:
                 if not isinstance(event, dict):
                     continue
                 safe_event = dict(event)
-                safe_event["message"] = _safe_run_message(safe_event.get("message"))
+                safe_event["message"] = _safe_run_message(
+                    safe_event.get("message"),
+                    status_value=safe_event.get("status") or safe_event.get("step"),
+                )
                 safe_events.append(safe_event)
             snapshot["events"] = safe_events
-        summary = dict(snapshot.get("summary") or {}) if isinstance(snapshot.get("summary"), dict) else {}
         summary, sources = _normalize_run_summary_counts(
             payload=snapshot,
             summary=summary,
@@ -40280,6 +40349,7 @@ class ProductService:
         fit_score: float,
         allow_below_threshold: bool = False,
         diorama_style_hint: str = "",
+        walkthrough_provider_key: str = "",
     ) -> dict[str, object]:
         if not allow_below_threshold and float(fit_score or 0.0) <= _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE:
             return {"status": "skipped", "reason": "fit_below_threshold", "video_url": ""}
@@ -40317,6 +40387,7 @@ class ProductService:
                 property_facts=facts,
                 actor=actor,
                 diorama_style_hint=diorama_style_hint,
+                preferred_provider_key=walkthrough_provider_key,
             )
         except Exception as exc:
             rendered = {

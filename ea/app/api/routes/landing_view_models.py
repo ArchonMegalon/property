@@ -60,6 +60,7 @@ PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "value": "warm_scandi",
         "label": "Warm Scandinavian",
+        "badge": "Default",
         "detail": "The default: calm, bright, natural wood, realistic family-home staging.",
         "prompt": "warm Scandinavian staging, bright neutral textiles, light oak, clean storage, realistic family-home warmth",
         "example_tone": "linear-gradient(135deg, #f5efe3 0%, #d9c6a4 48%, #b7c4bd 100%)",
@@ -68,6 +69,7 @@ PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "value": "ikea_practical",
         "label": "IKEA practical",
+        "badge": "Efficient",
         "detail": "Affordable modular storage, simple lines, rental-friendly, tidy and believable.",
         "prompt": "IKEA-inspired practical modular furniture, bright storage, simple rental-friendly pieces, realistic affordable staging",
         "example_tone": "linear-gradient(135deg, #f7f4e8 0%, #2f6fb3 54%, #f4c542 100%)",
@@ -76,6 +78,7 @@ PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "value": "urban_jungle",
         "label": "Urban jungle",
+        "badge": "Lush",
         "detail": "Plants, tactile natural materials, softer light, lived-in but not cluttered.",
         "prompt": "urban jungle interior with healthy plants, rattan, warm wood, linen, soft daylight, lived-in but uncluttered",
         "example_tone": "linear-gradient(135deg, #e7dcc5 0%, #4d7c59 52%, #1f3d2b 100%)",
@@ -84,6 +87,7 @@ PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "value": "landhaus",
         "label": "Landhaus",
+        "badge": "Classic",
         "detail": "Classic country-house warmth, wood, linen, ceramics, softer traditional details.",
         "prompt": "Austrian Landhaus country-home staging, warm timber, linen, ceramics, classic comfortable furniture, premium realistic finish",
         "example_tone": "linear-gradient(135deg, #ead8bd 0%, #9b6b43 50%, #6d7f52 100%)",
@@ -91,11 +95,12 @@ PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
     },
     {
         "value": "gilded_penthouse",
-        "label": "Gilded penthouse",
-        "detail": "A deliberately over-the-top gold, marble, brass, penthouse look.",
-        "prompt": "playful gilded penthouse staging with polished marble, brass, gold accents, oversized classical details, glossy luxury hotel lighting, photorealistic but tasteful",
+        "label": "Trump gold",
+        "badge": "Playful luxe",
+        "detail": "A tongue-in-cheek Trump-style gold, marble, brass, tower-lobby penthouse look with maximalist drama.",
+        "prompt": "playful Trump-style gold maximalist penthouse staging with polished marble, brass, gold accents, oversized classical details, photorealistic but tasteful",
         "example_tone": "linear-gradient(135deg, #fff4bd 0%, #c79a31 43%, #2a2117 100%)",
-        "example_caption": "Gold, marble, brass, maximal penthouse drama.",
+        "example_caption": "Gold, marble, brass, maximalist tower drama.",
     },
 )
 

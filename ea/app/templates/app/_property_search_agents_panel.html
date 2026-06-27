@@ -25,56 +25,46 @@
     <span><strong>{{ (outcomes_card.value.get('items') or [])|length }}</strong> recent</span>
   </div>
 
-  <div class="pqx-automation-grid" data-property-search-agent-grid>
+  <div class="pqx-automation-grid" data-property-search-agent-grid style="grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px;">
     {% for agent in search_agents %}
     {% set scope_preview = agent.get('scope_preview') or {} %}
     {% set scope_image_url = scope_preview.get('image_url') or '' %}
     {% set scope_preview_kind = scope_preview.get('preview_kind') or 'osm_map_pending' %}
     {% set agent_load_href = '/app/search?load_agent=' ~ ((agent.get('agent_id') or 'current')|urlencode) ~ (('&run_id=' ~ (run.get('run_id')|urlencode)) if run.get('run_id') else '') %}
-    <article class="pqx-automation-card{% if agent.get('is_active') %} is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}'>
+    <article class="pqx-automation-card{% if agent.get('is_active') %} is-selected{% endif %}" data-property-search-agent-row data-search-agent-id="{{ agent.get('agent_id') or 'current' }}" data-search-agent-payload='{{ (agent.get("load_payload") or {})|tojson|safe }}' style="display:grid; grid-template-columns:124px minmax(0, 1fr); gap:8px; min-height:0; max-height:204px; padding:8px; align-items:start; overflow:hidden;">
       <button class="pqx-automation-delete" type="button" data-search-agent-action="delete" aria-label="Delete {{ agent.get('name') or 'saved search' }}" title="Delete saved search">&times;</button>
-      <a class="pqx-automation-thumbnail" href="{{ agent_load_href }}" data-scope-preview-kind="{{ scope_preview_kind }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}">
+      <a class="pqx-automation-thumbnail" href="{{ agent_load_href }}" data-scope-preview-kind="{{ scope_preview_kind }}" data-scope-overlay="{{ 'true' if scope_preview.get('has_district_overlay') else 'false' }}" aria-label="Edit {{ agent.get('name') or 'saved search' }}" style="min-height:118px; height:118px;">
         {% if scope_image_url %}
-        <img src="{{ scope_image_url }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy">
+        <img src="{{ scope_image_url }}" alt="{{ scope_preview.get('alt') or 'Search area preview' }}" loading="lazy" style="min-height:118px; height:118px; object-fit:contain;">
         {% endif %}
         <span class="pqx-automation-thumbnail-action">Edit</span>
       </a>
-      <div class="pqx-automation-meta">
-        <div class="pqx-automation-headline">
-          <div>
-            <strong>{{ agent.get('name') or 'Saved search' }}</strong>
-            <span class="pqx-automation-subhead">{{ agent.get('scope_label') or 'No scope saved' }}</span>
+      <div class="pqx-automation-meta" style="gap:4px; overflow:hidden;">
+        <div class="pqx-automation-headline" style="gap:6px; padding-right:24px;">
+          <div style="min-width:0;">
+            <strong style="font-size:0.92rem; line-height:1.14;">{{ agent.get('name') or 'Saved search' }}</strong>
+            <span class="pqx-automation-subhead" style="font-size:11px; line-height:1.25;">{{ agent.get('scope_label') or 'No scope saved' }}</span>
           </div>
-          <div class="pqx-automation-row-meta">
+          <div class="pqx-automation-row-meta" style="gap:4px; margin-top:2px;">
             <span class="pqx-pill{% if agent.get('enabled') %} good{% endif %}">{{ agent.get('status_label') or ('Active' if agent.get('enabled') else 'Paused') }}</span>
             {% if agent.get('is_active') %}<span class="pqx-pill good">Selected</span>{% endif %}
           </div>
         </div>
-        <div class="pqx-automation-metrics">
+        <div class="pqx-automation-metrics" style="font-size:10px; line-height:1.2;">
           <span><b>{{ agent.get('provider_count') or 0 }}</b> provider{{ '' if agent.get('provider_count') == 1 else 's' }}</span>
           <span><b>{{ agent.get('duration_label') or 'Window' }}</b></span>
           <span><b>{{ agent.get('notification_label') or 'No cap' }}</b></span>
         </div>
-        <div class="pqx-automation-rhythm">
+        <div class="pqx-automation-rhythm" style="font-size:10px; line-height:1.2;">
           <span>{{ agent.get('run_label') or 'Waiting for first run' }}</span>
           <span>{{ agent.get('delivery_label') or 'Alerts not set' }}</span>
         </div>
-        <div class="pqx-note pqx-automation-note">
+        <div class="pqx-automation-actions" style="gap:5px; padding-top:0;">
+          <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}" style="min-height:28px; padding-inline:8px;">Run</button>
           {% if agent.get('enabled') %}
-          This brief can rerun without rebuilding the search profile.
+          <button class="pqx-button subtle" type="button" data-search-agent-action="pause" style="min-height:28px; padding-inline:8px;">Pause</button>
           {% else %}
-          Paused briefs keep their defaults and can be resumed without rebuilding the search profile.
-          {% endif %}
-          {% if agent.get('delivery_label') %}
-          {{ ' ' }}{{ agent.get('delivery_label') }}.
-          {% endif %}
-        </div>
-        <div class="pqx-automation-actions">
-          <button class="pqx-button primary" type="button" data-search-agent-action="run" data-run-agent-href="/app/search?run_agent={{ (agent.get('agent_id') or 'current')|urlencode }}">Run</button>
-          {% if agent.get('enabled') %}
-          <button class="pqx-button subtle" type="button" data-search-agent-action="pause">Pause</button>
-          {% else %}
-          <button class="pqx-button" type="button" data-search-agent-action="resume">Resume</button>
+          <button class="pqx-button" type="button" data-search-agent-action="resume" style="min-height:28px; padding-inline:8px;">Resume</button>
           {% endif %}
         </div>
       </div>

@@ -10,7 +10,8 @@ class MediaRequirement:
     first_frame_continuity: bool = False
     constant_speed: bool = False
     provider_verified: bool = True
-    must_be_magicfit: bool = False
+    preferred_provider_key: str = ""
+    require_final_publisher: bool = True
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,22 @@ class MediaRoute:
         return self.status == "selected" and bool(self.provider_key)
 
 
+def _normalize_provider_preference(value: str) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    normalized = normalized.replace(" ", "_")
+    if not normalized:
+        return ""
+    alias_map = {
+        "magic": "onemin_i2v",
+        "omagic": "onemin_i2v",
+        "mootion": "mootion",
+        "magicfit": "magicfit",
+        "onemin": "onemin_i2v",
+        "onemin_i2v": "onemin_i2v",
+    }
+    return alias_map.get(normalized, normalized)
+
+
 DEFAULT_PROPERTY_MEDIA_PROVIDERS: tuple[ProviderCapability, ...] = (
     ProviderCapability(
         provider_key="magicfit",
@@ -56,6 +73,16 @@ DEFAULT_PROPERTY_MEDIA_PROVIDERS: tuple[ProviderCapability, ...] = (
         supports_constant_speed_publication=True,
         final_publisher=True,
         reason="MagicFit is the required photoreal fly-through lane; publication is allowed only after first-frame chaining, duration, and continuity gates pass.",
+    ),
+    ProviderCapability(
+        provider_key="mootion",
+        role="image_to_video_walkthrough",
+        verified=True,
+        tasks=("walkthrough_video", "video_segment"),
+        supports_first_frame=True,
+        supports_constant_speed_publication=True,
+        final_publisher=False,
+        reason="Legacy image-to-video lane exposed through the mootion alias; publication remains off.",
     ),
     ProviderCapability(
         provider_key="onemin_i2v",
@@ -101,14 +128,21 @@ def route_property_media_task(
     candidates = [provider for provider in providers if task in provider.tasks]
     if requirement.provider_verified:
         candidates = [provider for provider in candidates if provider.verified]
-    if requirement.must_be_magicfit:
-        candidates = [provider for provider in candidates if provider.provider_key == "magicfit"]
+    ordered_keys = tuple(provider.provider_key for provider in candidates)
+    preferred_provider_key = _normalize_provider_preference(requirement.preferred_provider_key)
+    if preferred_provider_key:
+        candidates = [provider for provider in candidates if provider.provider_key == preferred_provider_key]
+        if not candidates:
+            return MediaRoute(
+                status="blocked",
+                reason="no_candidate_matches_preferred_provider",
+                candidates=ordered_keys,
+            )
     if requirement.first_frame_continuity:
         candidates = [provider for provider in candidates if provider.supports_first_frame]
     if requirement.constant_speed:
         candidates = [provider for provider in candidates if provider.supports_constant_speed_publication]
 
-    ordered_keys = tuple(provider.provider_key for provider in candidates)
     if not candidates:
         return MediaRoute(
             status="blocked",
@@ -118,7 +152,11 @@ def route_property_media_task(
 
     final_candidates = [provider for provider in candidates if provider.final_publisher]
     selected = final_candidates[0] if final_candidates else candidates[0]
-    if (requirement.first_frame_continuity or requirement.constant_speed) and not selected.final_publisher:
+    if (
+        requirement.require_final_publisher
+        and (requirement.first_frame_continuity or requirement.constant_speed)
+        and not selected.final_publisher
+    ):
         return MediaRoute(
             status="blocked",
             provider_key=selected.provider_key,

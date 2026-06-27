@@ -19,6 +19,7 @@ from discover_property_tour_exports import (  # noqa: E402
     _verified_entry,
     _video_has_playable_stream,
 )
+from property_tour_runtime_paths import preferred_public_tour_root  # noqa: E402
 from verify_property_tour_controls import build_property_tour_control_receipt
 
 
@@ -60,11 +61,24 @@ PROVIDER_DROP_CHECKLISTS = {
 
 
 def _tour_root() -> Path:
-    return Path(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours").expanduser().resolve()
+    return preferred_public_tour_root(
+        configured_root=os.getenv("EA_PUBLIC_TOUR_DIR") or "",
+        repo_root=Path.cwd() if (Path.cwd() / "docker-compose.property.yml").is_file() else Path(__file__).resolve().parents[1],
+        fallback_root="/docker/property/state/public_property_tours",
+        runtime_container=os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "",
+    )
 
 
 def _artifact_dir() -> Path:
-    return Path(os.getenv("EA_ARTIFACT_DIR") or os.getenv("EA_ARTIFACTS_DIR") or "/data/artifacts").expanduser().resolve()
+    configured = str(os.getenv("EA_ARTIFACT_DIR") or os.getenv("EA_ARTIFACTS_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    repo_root = Path.cwd() if (Path.cwd() / "docker-compose.property.yml").is_file() else Path(__file__).resolve().parents[1]
+    repo_local = (repo_root / "_completion" / "property_tour_exports").resolve()
+    data_artifacts = Path("/data/artifacts").expanduser()
+    if data_artifacts.is_dir():
+        return data_artifacts.resolve()
+    return repo_local
 
 
 def _incoming_root() -> Path:

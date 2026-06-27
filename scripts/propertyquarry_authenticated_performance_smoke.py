@@ -572,7 +572,7 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                         "grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));" in body
                         and "justify-content: start;" in body
                         and "max-width: 150px;" in body
-                        and "max-width: 132px;" in body
+                        and "grid-template-columns: minmax(0, 1fr) minmax(104px, 110px) minmax(96px, 100px);" in body
                         and "grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));" not in body
                     ),
                 },
@@ -682,11 +682,28 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                 {
                     "name": "account_logout_mobile_target",
                     "ok": ".pqx-account-logout-strip-form .pqx-link-button" in body
-                    and ("min-height: 46px;" in body or "min-height: 48px;" in body or "min-height: 56px;" in body),
+                    and (
+                        "min-height: 46px;" in body
+                        or "min-height: 48px;" in body
+                        or "min-height: 52px;" in body
+                        or "min-height: 56px;" in body
+                    ),
                 },
-                {"name": "notification_destination_controls", "ok": all(token in body for token in ("Email", "Telegram", "WhatsApp", "Destination mix"))},
-                {"name": "notification_primary_channel_controls", "ok": "Primary response lane" in body and "Save notification routing" in body},
-                {"name": "notification_opt_in_copy", "ok": "Strong matches and watch hits" in body and "Near-miss follow-up prompts" in body},
+                {
+                    "name": "notification_destination_controls",
+                    "ok": all(token in body for token in ("Email", "Telegram", "WhatsApp"))
+                    and ("Destination mix" in body or "Strong matches can land in more than one place." in body),
+                },
+                {
+                    "name": "notification_primary_channel_controls",
+                    "ok": ("Primary response lane" in body or "Primary route" in body)
+                    and "Save notification routing" in body,
+                },
+                {
+                    "name": "notification_opt_in_copy",
+                    "ok": ("Strong matches and watch hits" in body or "Strong matches go to every selected channel." in body)
+                    and ("Near-miss follow-up prompts" in body or "Near-miss follow-up stays Telegram-only when Telegram is primary." in body),
+                },
                 {"name": "notification_secret_safe", "ok": "telegram-secret-token" not in body and "raw_delivery_receipts" not in body},
                 {"name": "account_notifications", "ok": "<h2>Notifications</h2>" in body},
                 {"name": "account_notification_form", "ok": 'action="/app/api/property/account/notifications"' in body},
@@ -767,7 +784,8 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
 def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> dict[str, object]:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ["EA_API_TOKEN"] = ""
+    # Keep prod-mode startup valid even when this smoke runs outside the live container.
+    os.environ["EA_API_TOKEN"] = "performance-smoke-local-token"
     os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED"] = "1"
@@ -777,9 +795,17 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS"] = "billing.propertyquarry.test"
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL"] = "https://billing.propertyquarry.test/account"
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY"] = "performance-smoke-local-key"
+    api_token = str(os.environ.get("EA_API_TOKEN") or "").strip()
     principal_id = "pq-auth-performance-smoke"
     client = TestClient(create_app(), base_url="https://propertyquarry.com")
-    client.headers.update({"X-EA-Principal-ID": principal_id, "host": "propertyquarry.com"})
+    client.headers.update(
+        {
+            "X-EA-Principal-ID": principal_id,
+            "X-EA-API-Token": api_token,
+            "Authorization": f"Bearer {api_token}",
+            "host": "propertyquarry.com",
+        }
+    )
     _seed_workspace(client)
     _seed_saved_agents(client)
     run_id = _start_synthetic_run(client)

@@ -6,11 +6,19 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 
 from app.api.routes.public_tours import _tour_control_external_iframe_html
-from scripts.verify_property_tour_controls import _load_cli_env_defaults, _receipt_summary, build_property_tour_control_receipt, main
+from scripts.verify_property_tour_controls import (
+    _best_tour_root,
+    _load_cli_env_defaults,
+    _receipt_summary,
+    _running_container_public_tour_dir,
+    build_property_tour_control_receipt,
+    main,
+)
 
 
 def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[str, str | bytes] | None = None) -> None:
@@ -56,6 +64,33 @@ def _write_playable_mp4(path: Path) -> None:
 def _write_equirectangular_image(path: Path) -> None:
     image = Image.new("RGB", (2048, 1024), color=(28, 42, 36))
     image.save(path, format="JPEG")
+
+
+def test_best_tour_root_prefers_richer_runtime_snapshot(tmp_path: Path) -> None:
+    sparse = tmp_path / "sparse"
+    rich = tmp_path / "rich"
+    (sparse / "only-one").mkdir(parents=True)
+    (rich / "one").mkdir(parents=True)
+    (rich / "two").mkdir(parents=True)
+    (sparse / "only-one" / "tour.json").write_text("{}", encoding="utf-8")
+    (rich / "one" / "tour.json").write_text("{}", encoding="utf-8")
+    (rich / "two" / "tour.json").write_text("{}", encoding="utf-8")
+
+    assert _best_tour_root([sparse, rich]) == rich
+
+
+def test_running_container_public_tour_dir_reads_docker_mount(monkeypatch, tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime-public-tours"
+    runtime_root.mkdir()
+    monkeypatch.setenv("PROPERTYQUARRY_RUNTIME_CONTAINER", "propertyquarry-api")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=f"{runtime_root}\n", stderr=""),
+    )
+
+    assert _running_container_public_tour_dir() == runtime_root
 
 
 def test_public_tour_control_labels_manual_video_as_video_evidence_not_walkthrough() -> None:

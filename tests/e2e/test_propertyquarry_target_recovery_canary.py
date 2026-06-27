@@ -13,7 +13,7 @@ import pytest
 
 from app.product import service as property_service_module
 from app.product.service import ProductService
-from app.services.property_market_catalog import PROVIDERS, PropertyProviderSpec
+from app.services.property_market_catalog import CUSTOMER_SEARCH_COUNTRY_ORDER, PROVIDERS, PropertyProviderSpec
 from tests.product_test_helpers import build_property_client, start_workspace
 
 
@@ -699,12 +699,12 @@ def _country_codes() -> tuple[str, ...]:
     ).strip()
     if not raw and _target_provider_matrix_enabled():
         return tuple(
-            sorted(
-                {
-                    str(spec.country_code or "").strip().upper()
-                    for spec in PROVIDERS
-                    if str(spec.country_code or "").strip() and bool(spec.search_ready)
-                }
+            code
+            for code in CUSTOMER_SEARCH_COUNTRY_ORDER
+            if any(
+                str(spec.country_code or "").strip().upper() == code
+                and bool(spec.search_ready)
+                for spec in PROVIDERS
             )
         )
     if not raw:
@@ -1337,12 +1337,12 @@ def test_target_provider_matrix_expands_to_all_search_ready_countries(monkeypatc
     monkeypatch.delenv("PROPERTYQUARRY_TARGET_RECOVERY_COUNTRIES", raising=False)
     countries = _country_codes()
     expected = tuple(
-        sorted(
-            {
-                str(spec.country_code or "").strip().upper()
-                for spec in PROVIDERS
-                if str(spec.country_code or "").strip() and bool(spec.search_ready)
-            }
+        code
+        for code in CUSTOMER_SEARCH_COUNTRY_ORDER
+        if any(
+            str(spec.country_code or "").strip().upper() == code
+            and bool(spec.search_ready)
+            for spec in PROVIDERS
         )
     )
     assert countries == expected

@@ -66,6 +66,16 @@
       const provider = hostedTourProviderFromProof(...values);
       return hostedBase && provider ? `${hostedBase}/control/${provider}` : '';
     };
+    const normalizeWalkthroughProvider = (value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (['magicfit', 'magic'].includes(normalized)) return 'magicfit';
+      return 'magicfit';
+    };
+    const getWalkthroughProviderFromButton = (button) => {
+      if (!button) return 'magicfit';
+      const directProvider = normalizeWalkthroughProvider(button.getAttribute?.('data-pw-walkthrough-provider') || '');
+      return directProvider;
+    };
     const rybbitEventAliases = {
       property_search_start: 'pq.search.started',
       shortlist_decision_saved: 'pq.decision.saved',
@@ -286,7 +296,12 @@
       return hasUnlimitedProviderResults() ? normalized.slice() : normalized.slice(0, limit);
     };
     const furnitureStyleCatalog = Array.isArray(meta?.furniture_style_catalog) ? meta.furniture_style_catalog : [];
-    const selectedFurnitureStyle = () => String(briefPreferences.furniture_style || 'warm_scandi').trim() || 'warm_scandi';
+    let furnitureStyleSelect = null;
+    const selectedFurnitureStyle = () => {
+      const liveValue = String(furnitureStyleSelect?.value || '').trim();
+      if (liveValue) return liveValue;
+      return String(briefPreferences.furniture_style || 'warm_scandi').trim() || 'warm_scandi';
+    };
     const selectedFurnitureStylePrompt = () => {
       const selected = selectedFurnitureStyle();
       const match = furnitureStyleCatalog.find((row) => String(row?.value || '').trim() === selected);
@@ -347,7 +362,7 @@
         `<details class="pqx-decision-advanced" style="margin-top:12px;"><summary><strong>More actions</strong></summary><div class="pqx-note" style="margin-top:10px;">Open the source, share the shortlist, or request remote visuals only when you need them.</div><div class="pqx-actions" style="margin-top:14px;">${[
           visualPropertyUrl ? `<a class="pqx-link-button" href="${escapeHtml(visualPropertyUrl)}" target="_blank" rel="noreferrer" data-rybbit-event="pq.property.opened" data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="shortlist">Open listing</a>` : '',
           !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="shortlist">Request 3D tour</button>` : '',
-          !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="shortlist">Request walkthrough</button>` : '',
+          !tour.url && visualPropertyUrl ? `<button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(visualPropertyUrl)}" data-source-ref="${escapeHtml(candidate.source_ref || '')}" data-candidate-ref="${candidateRef}" data-run-id="${runId}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="shortlist" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
           `<button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="shortlist">Share results</button>`,
         ].filter(Boolean).join('')}</div><div class="pqx-decision-status" data-pw-visual-request-status>${!tour.url ? 'Request remote visuals only when this home deserves deeper screening.' : ''}</div></details>`,
       ].filter(Boolean).join('');
@@ -909,6 +924,7 @@
             candidate_ref: String(candidate.candidate_ref || '').trim(),
             auto_deliver: false,
             allow_floorplan_only: true,
+            walkthrough_provider_key: requestKind === 'flythrough' ? getWalkthroughProviderFromButton(button) : '',
             diorama_style_hint: selectedFurnitureStylePrompt(),
           }),
         });
@@ -1127,23 +1143,23 @@
           return `${label} for candidate ${ordinal} (score upgraded)`;
         }
       }
-      const softConcerns = [
-        [['operating cost', 'monthly cost', 'total cost', 'betriebskosten', 'price'], 'Cost evidence still needs verification'],
-        [['heating', 'heizung'], 'Heating evidence still needs verification'],
-        [['energy', 'energy certificate', 'energieausweis'], 'Energy evidence still needs verification'],
-        [['internet', 'broadband', 'fiber', 'fibre', 'high-speed'], 'Internet evidence still needs verification'],
-        [['noise', 'traffic noise', 'nuisance'], 'Noise risk needs verification'],
-        [['flood', 'water', 'groundwater'], 'Water-risk evidence needs verification'],
-        [['air quality', 'pollution', 'emissions'], 'Air-quality risk needs verification'],
-        [['crime', 'safety'], 'Local safety evidence needs verification'],
-        [['parking', 'garage'], 'Parking situation needs verification'],
-        [['winter', 'driving'], 'Winter access needs verification'],
-        [['septic', 'senkgrube'], 'Wastewater risk needs verification'],
-        [['sunlight', 'orientation', 'light'], 'Light and orientation need verification'],
+      const softConcernTokens = [
+        ['operating cost', 'monthly cost', 'total cost', 'betriebskosten', 'price'],
+        ['heating', 'heizung'],
+        ['energy', 'energy certificate', 'energieausweis'],
+        ['internet', 'broadband', 'fiber', 'fibre', 'high-speed'],
+        ['noise', 'traffic noise', 'nuisance'],
+        ['flood', 'water', 'groundwater'],
+        ['air quality', 'pollution', 'emissions'],
+        ['crime', 'safety'],
+        ['parking', 'garage'],
+        ['winter', 'driving'],
+        ['septic', 'senkgrube'],
+        ['sunlight', 'orientation', 'light'],
       ];
-      for (const [tokens, label] of softConcerns) {
+      for (const tokens of softConcernTokens) {
         if (tokens.some((token) => normalized.includes(token)) && ['missing', 'unknown', 'unclear', 'risk', 'burden', 'verify', 'verification'].some((token) => normalized.includes(token))) {
-          return `${label} for candidate ${ordinal} (score impact only)`;
+          return '';
         }
       }
       if (
@@ -1294,7 +1310,10 @@
         return `Candidate ${ordinal} was a generic listing page`;
       }
       if (normalized.includes('layout verification') || normalized.includes('floorplan')) {
-        return `Layout still needs verification for candidate ${ordinal}`;
+        if (['missing', 'not attached', 'unavailable', 'without'].some((token) => normalized.includes(token))) {
+          return `Floor plan was missing for candidate ${ordinal} (score impact only)`;
+        }
+        return '';
       }
       return '';
     };
@@ -1407,6 +1426,7 @@
           && !message.includes('suppressed_generic_listing_page')
         );
       };
+      const hasRealEvents = rawRows.some(isUsefulRunEvent);
       const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 4);
       return rows.map((event) => {
         const step = String(event?.step || 'Update').replaceAll('_', ' ');
@@ -1440,6 +1460,14 @@
       if (renderedText.includes('could not load property search status') || renderedText.includes('checking run status') || renderedText.includes('suppressed_generic_listing_page')) {
         return false;
       }
+      if (!Array.isArray(events)) return true;
+      const rawRows = Array.isArray(events) ? [...events] : [];
+      const hasRealEvents = rawRows.some((event) => {
+        const step = String(event?.step || '').trim().toLowerCase();
+        const message = String(event?.message || '').trim().toLowerCase();
+        return step !== 'status_refresh' && !message.includes('could not load property search status') && !message.includes('checking run status') && !message.includes('suppressed_generic_listing_page');
+      });
+      if (!hasRealEvents) return true;
       if (!Array.isArray(events)) return true;
       return events.length === 0;
     };
@@ -2080,7 +2108,7 @@
           propertyUrl && !shortlistSurface && !tourUrl && !tourPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="tour" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="results">Request 3D tour</button>` : '',
           flythroughUrl && !shortlistSurface ? `<a class="pqx-progress-button is-ready" href="${escapeHtml(flythroughUrl)}" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">Open walkthrough</a>` : '',
           flythroughPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(flythroughProgress)}%;" title="${escapeHtml(flythroughTooltip)}" aria-label="${escapeHtml(flythroughTooltip)}">${escapeHtml(flythroughLabel)}</button>` : '',
-          propertyUrl && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough">Request walkthrough</button>` : '',
+          propertyUrl && !shortlistSurface && !flythroughUrl && !flythroughPending ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-visual-request="flythrough" data-property-url="${escapeHtml(propertyUrl)}" data-source-ref="${escapeHtml(candidate?.source_ref || '')}" data-candidate-ref="${escapeHtml(candidateRef)}" data-run-id="${escapeHtml(String(data.run?.run_id || meta.run_id || ''))}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="results" title="${escapeHtml(flythroughTooltip)}" aria-label="Request walkthrough" data-pw-walkthrough-provider="magicfit">Request walkthrough</button>` : '',
           shortlistSurface ? `<button class="pqx-result-open pqx-result-open-button" type="button" data-pw-decision-state="archived" data-candidate-ref="${escapeHtml(candidateRef)}" data-pw-remove-row>Remove</button>` : '',
         ].filter(Boolean).join('');
         return `
@@ -2219,11 +2247,15 @@
           || priceSummaryFromText(candidate?.title);
       const fitScore = Number(candidate?.fit_score || candidate?.ranking_score || 0);
       const layout = String(candidate?.layout_display || '').trim();
-      const location = String(candidate?.location_label || candidate?.source_label || '').trim() || 'Source match';
-      const reason = String(candidate?.fit_summary || candidate?.compare_reason || candidate?.summary || '').trim() || 'Top-ranked home in the current run.';
+      const provider = compactProviderLabel(candidate?.source_label || candidate?.provider_label || candidate?.platform || '');
+      const location = String(candidate?.location_label || '').trim() || provider || 'Source match';
+      const reason = String(candidate?.fit_summary || candidate?.compare_reason || candidate?.summary || '').trim()
+        || (provider ? `Currently leads the run from ${provider}.` : 'Currently leads the run.');
       const href = String(candidate?.packet_url || candidate?.property_url || '').trim();
       const rawTitle = String(candidate?.title || '').trim();
-      const title = /^(https?:\/\/|www\.)/i.test(rawTitle) ? location : (rawTitle || 'Property candidate');
+      const title = /^(https?:\/\/|www\.)/i.test(rawTitle)
+        ? (provider && provider !== location ? `${location} · ${provider}` : location)
+        : (rawTitle || 'Property candidate');
       const action = href
         ? (String(candidate?.packet_url || '').trim()
             ? `<a class="pqx-link-button primary" href="${escapeHtml(href)}">Open property</a>`
@@ -2232,14 +2264,15 @@
       const factsRow = [
         price ? `<div><strong>Price</strong><small>${escapeHtml(price)}</small></div>` : '',
         layout ? `<div><strong>Layout</strong><small>${escapeHtml(layout)}</small></div>` : '',
-        `<div><strong>Area</strong><small>${escapeHtml(location)}</small></div>`,
+        location ? `<div><strong>Location</strong><small>${escapeHtml(location)}</small></div>` : '',
+        provider && provider !== location ? `<div><strong>Provider</strong><small>${escapeHtml(provider)}</small></div>` : '',
       ].filter(Boolean).join('');
       return `
         <section class="pqx-card" style="margin-top:14px;">
           <div class="pqx-section-head">
             <div>
-              <h2>Current best so far</h2>
-              <div class="pqx-note">This can still change before the run finishes.</div>
+              <h2>Current lead</h2>
+              <div class="pqx-note">Still provisional while the run is finishing.</div>
             </div>
             ${fitScore > 0 ? `<span class="pqx-pill">${escapeHtml(Math.round(fitScore))}/100</span>` : ''}
           </div>
@@ -2463,6 +2496,48 @@
       window.setInterval(check, 3000);
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
+    furnitureStyleSelect = form?.querySelector('[data-furniture-style-select]') || null;
+    const furnitureStyleCards = () => (form ? [...form.querySelectorAll('[data-furniture-style-card]')] : []);
+    const syncFurnitureStylePicker = () => {
+      const selected = selectedFurnitureStyle();
+      furnitureStyleCards().forEach((card) => {
+        const value = String(card.getAttribute('data-style-value') || '').trim();
+        const isSelected = Boolean(value) && value === selected;
+        card.classList.toggle('is-selected', isSelected);
+        card.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        if (card.hasAttribute('disabled')) return;
+        const pill = card.querySelector('.pqx-style-example-pill');
+        if (!pill) return;
+        const defaultLabel = String(card.getAttribute('data-style-default-label') || 'Included').trim() || 'Included';
+        const selectedLabel = String(card.getAttribute('data-style-selected-label') || 'Selected').trim() || 'Selected';
+        pill.textContent = isSelected ? selectedLabel : defaultLabel;
+      });
+    };
+    const setFurnitureStyleValue = (value) => {
+      const normalized = String(value || '').trim();
+      if (!normalized || !furnitureStyleSelect) return;
+      const available = [...furnitureStyleSelect.options].some((option) => {
+        return !option.disabled && String(option.value || '').trim() === normalized;
+      });
+      if (!available) return;
+      if (String(furnitureStyleSelect.value || '').trim() === normalized) {
+        syncFurnitureStylePicker();
+        return;
+      }
+      furnitureStyleSelect.value = normalized;
+      furnitureStyleSelect.dispatchEvent(new Event('input', { bubbles: true }));
+      furnitureStyleSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      syncFurnitureStylePicker();
+    };
+    furnitureStyleCards().forEach((card) => {
+      card.addEventListener('click', () => {
+        if (card.hasAttribute('disabled')) return;
+        setFurnitureStyleValue(card.getAttribute('data-style-value'));
+      });
+    });
+    furnitureStyleSelect?.addEventListener('input', syncFurnitureStylePicker);
+    furnitureStyleSelect?.addEventListener('change', syncFurnitureStylePicker);
+    syncFurnitureStylePicker();
     const wizardStepPresentation = (step, isInvestment) => {
       const key = String(step?.key || '').trim();
       const fallbackLabel = String(step?.label || 'Search').trim() || 'Search';
@@ -2588,7 +2663,15 @@
         node.hidden = false;
       });
       refreshStepLabels();
-      applyStep(0);
+      applyStep(0, { silent: true });
+      const initialStep = activeSteps()[0];
+      if (initialStep) {
+        form.dispatchEvent(
+          new CustomEvent('propertyquarry:stepchange', {
+            detail: { step: String(initialStep.key || '').trim() },
+          })
+        );
+      }
     };
     bindTooltips(root);
     if (form) {
@@ -2745,23 +2828,66 @@
       let locationMapPinchDistance = 0;
       let locationMapPinchScale = 1;
       let locationMapPinching = false;
+      let locationMapPreviousHtmlOverflow = '';
       let locationMapPreviousBodyOverflow = '';
+      let locationMapPreviousBodyPosition = '';
+      let locationMapPreviousBodyTop = '';
+      let locationMapPreviousBodyWidth = '';
+      let locationMapPreviousBodyTouchAction = '';
+      let locationMapPreviousScrollY = 0;
       let locationMapSuppressNextClick = false;
+      const safeSetPointerCapture = (target, pointerId) => {
+        try {
+          target?.setPointerCapture?.(pointerId);
+        } catch (_error) {
+          return;
+        }
+      };
+      const safeReleasePointerCapture = (target, pointerId) => {
+        try {
+          target?.releasePointerCapture?.(pointerId);
+        } catch (_error) {
+          return;
+        }
+      };
       const setLocationMapDialogOpenState = (open) => {
         const html = document.documentElement;
         const body = document.body;
         if (!html || !body) return;
         if (open) {
           if (html.dataset.pqxLocationMapOpen !== 'true') {
+            locationMapPreviousHtmlOverflow = html.style.overflow || '';
             locationMapPreviousBodyOverflow = body.style.overflow || '';
+            locationMapPreviousBodyPosition = body.style.position || '';
+            locationMapPreviousBodyTop = body.style.top || '';
+            locationMapPreviousBodyWidth = body.style.width || '';
+            locationMapPreviousBodyTouchAction = body.style.touchAction || '';
+            locationMapPreviousScrollY = Math.max(
+              0,
+              Number(window.scrollY || window.pageYOffset || document.documentElement.scrollTop || body.scrollTop || 0)
+            );
           }
           html.dataset.pqxLocationMapOpen = 'true';
+          html.style.overflow = 'hidden';
           body.style.overflow = 'hidden';
+          body.style.position = 'fixed';
+          body.style.top = `-${locationMapPreviousScrollY}px`;
+          body.style.width = '100%';
+          body.style.touchAction = 'none';
           return;
         }
         if (html.dataset.pqxLocationMapOpen === 'true') {
+          const restoreScrollY = Math.max(0, locationMapPreviousScrollY);
           delete html.dataset.pqxLocationMapOpen;
+          html.style.overflow = locationMapPreviousHtmlOverflow;
           body.style.overflow = locationMapPreviousBodyOverflow;
+          body.style.position = locationMapPreviousBodyPosition;
+          body.style.top = locationMapPreviousBodyTop;
+          body.style.width = locationMapPreviousBodyWidth;
+          body.style.touchAction = locationMapPreviousBodyTouchAction;
+          window.requestAnimationFrame(() => {
+            window.scrollTo(0, restoreScrollY);
+          });
         }
       };
       const locationMapPoint = (event) => ({ x: Number(event.clientX || 0), y: Number(event.clientY || 0) });
@@ -2836,6 +2962,12 @@
         if (nextMode === 'list' && locationMapDialog instanceof HTMLDialogElement && locationMapDialog.open) {
           locationMapDialog.close();
           setLocationMapDialogOpenState(false);
+        }
+        if (nextMode === 'list') {
+          const scrollTarget = locationFieldWrap?.querySelector('.pqx-choice-groupbox-head') || locationFieldWrap;
+          if (scrollTarget instanceof HTMLElement && typeof scrollTarget.scrollIntoView === 'function') {
+            scrollTarget.scrollIntoView({ block: 'start', inline: 'nearest' });
+          }
         }
       };
       const locationOptionRows = () => [...form.querySelectorAll('input[name="location_query"]')]
@@ -2980,7 +3112,7 @@
           locationMapMoved = true;
           locationMapPinchDistance = locationMapPointerDistance();
           locationMapPinchScale = locationMapScale;
-          locationMapViewport.setPointerCapture?.(event.pointerId);
+          safeSetPointerCapture(locationMapViewport, event.pointerId);
           return;
         }
         locationMapDragging = true;
@@ -2988,7 +3120,7 @@
         const point = locationMapPoint(event);
         locationMapStartX = point.x - locationMapPanX;
         locationMapStartY = point.y - locationMapPanY;
-        locationMapViewport.setPointerCapture?.(event.pointerId);
+        safeSetPointerCapture(locationMapViewport, event.pointerId);
       });
       locationMapViewport?.addEventListener('pointermove', (event) => {
         if (!(event instanceof PointerEvent)) return;
@@ -3027,7 +3159,7 @@
           locationMapPinchDistance = 0;
           locationMapPinchScale = locationMapScale;
         }
-        if (event instanceof PointerEvent) locationMapViewport.releasePointerCapture?.(event.pointerId);
+        if (event instanceof PointerEvent) safeReleasePointerCapture(locationMapViewport, event.pointerId);
         window.setTimeout(() => {
           locationMapMoved = false;
           locationMapSuppressNextClick = false;
@@ -3042,7 +3174,7 @@
             locationMapPinchDistance = 0;
             locationMapPinchScale = locationMapScale;
           }
-          if (event instanceof PointerEvent) locationMapViewport.releasePointerCapture?.(event.pointerId);
+          if (event instanceof PointerEvent) safeReleasePointerCapture(locationMapViewport, event.pointerId);
           window.setTimeout(() => {
             locationMapMoved = false;
             locationMapSuppressNextClick = false;

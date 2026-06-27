@@ -771,6 +771,106 @@ def settings_usage_detail(
             str(property_commercial.get("current_plan_key") or property_commercial.get("active_plan_key") or "").strip()
             or str(property_billing.get("current_plan_key") or property_billing.get("active_plan_key") or "free").strip()
         )
+        latest_run_rows = [
+            _object_detail_row(
+                f"Run {row['run_id'][:8] or 'latest'}",
+                f"{row['status']} · {row['ranked']} ranked · {row['filtered']} filtered",
+                "Search",
+                href=row["href"],
+            )
+            for row in list(property_usage["latest_rows"])
+        ]
+        results_items = [
+            _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
+            _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
+            _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
+            _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
+        ]
+        research_output_items = []
+        if int(property_usage["packet_ready_total"] or 0) > 0:
+            research_output_items.append(_object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"))
+        if int(property_usage["tour_ready_total"] or 0) > 0:
+            research_output_items.append(_object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"))
+        research_output_items.extend(
+            [
+                _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href="/app/billing"),
+                _object_detail_row("Support", "Account help and Google sign-in stay in settings.", "Support", href="/app/settings/support"),
+            ]
+        )
+        reliability_items = [
+            _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+            _object_detail_row(
+                "Source status",
+                "Waiting for first search" if int(property_usage["run_total"] or 0) <= 0 else "Derived from recent runs",
+                "Sources",
+            ),
+        ]
+        if int(property_usage["failed_source_total"] or 0) > 0:
+            reliability_items.append(_object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"))
+        if int(property_usage["repairing_source_total"] or 0) > 0:
+            reliability_items.append(_object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"))
+        usage_sidebar_rows = []
+        if int(property_usage["run_total"] or 0) <= 0:
+            usage_sidebar_rows.append(
+                _object_detail_row(
+                    "Start first search",
+                    "Usage appears after the first completed search run.",
+                    "Search",
+                    action_href="/app/search",
+                    action_label="Start search",
+                    action_method="get",
+                )
+            )
+        else:
+            usage_sidebar_rows.append(
+                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"]))
+            )
+        if int(property_usage["active_total"] or 0) > 0:
+            usage_sidebar_rows.append(_object_detail_row("Active searches", str(property_usage["active_total"]), "Search"))
+        usage_sidebar_rows.extend(
+            [
+                _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan", href="/app/billing"),
+                _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
+            ]
+        )
+        usage_sections = [
+            {
+                "eyebrow": "Search runs",
+                "title": "Recent run outcomes",
+                "items": latest_run_rows
+                or [
+                    _object_detail_row(
+                        "No searches yet",
+                        "Launch a search to create the first usage record.",
+                        "Search",
+                        href="/app/properties",
+                    )
+                ],
+                "open": True,
+            },
+        ]
+        usage_sections.append(
+            {
+                "eyebrow": "Results",
+                "title": "Shortlist and filtering volume",
+                "items": results_items,
+            }
+        )
+        usage_sections.append(
+            {
+                "eyebrow": "Research output",
+                "title": "Dossiers, pages, and 360 tours",
+                "items": research_output_items,
+            }
+        )
+        if reliability_items:
+            usage_sections.append(
+                {
+                    "eyebrow": "Reliability",
+                    "title": "Repair and delivery",
+                    "items": reliability_items,
+                }
+            )
         return _render_console_object_detail(
             request=request,
             context=context,
@@ -794,61 +894,8 @@ def settings_usage_detail(
             ],
             object_sidebar_title="What usage means here",
             object_sidebar_copy="PropertyQuarry usage is measured by searches completed, homes ranked, pages prepared, and whether repair work is still open.",
-            object_sidebar_rows=[
-                _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
-                _object_detail_row("Active searches", str(property_usage["active_total"]), "Search"),
-                _object_detail_row("Completed searches", str(property_usage["completed_total"]), "Search"),
-                _object_detail_row("Partial searches", str(property_usage["partial_total"]), "Coverage"),
-                _object_detail_row("Failed searches", str(property_usage["failed_run_total"]), "Coverage"),
-                _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
-                _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-            ],
-            object_sections=[
-                {
-                    "eyebrow": "Search runs",
-                    "title": "Recent run outcomes",
-                    "items": [
-                        _object_detail_row(
-                            f"Run {row['run_id'][:8] or 'latest'}",
-                            f"{row['status']} · {row['ranked']} ranked · {row['filtered']} filtered",
-                            "Search",
-                            href=row["href"],
-                        )
-                        for row in list(property_usage["latest_rows"])
-                    ] or [_object_detail_row("No searches yet", "Launch a search to create the first usage record.", "Search", href="/app/properties")],
-                },
-                {
-                    "eyebrow": "Results",
-                    "title": "Shortlist and filtering volume",
-                    "items": [
-                        _object_detail_row("Ranked homes", str(property_usage["ranked_total"]), "Shortlist"),
-                        _object_detail_row("Filtered homes", str(property_usage["filtered_total"]), "Rules"),
-                        _object_detail_row("Listings reviewed", str(property_usage["listing_total"]), "Sources"),
-                        _object_detail_row("Sources used", str(property_usage["source_total"]), "Sources"),
-                    ],
-                },
-                {
-                    "eyebrow": "Research output",
-                    "title": "Dossiers, pages, and 360 tours",
-                    "items": [
-                        _object_detail_row("Property pages ready", str(property_usage["packet_ready_total"]), "Dossier"),
-                        _object_detail_row("360 tours ready", str(property_usage["tour_ready_total"]), "Tour"),
-                        _object_detail_row("Support", "Available from settings", "Support", href="/app/settings/support"),
-                        _object_detail_row("Current plan", current_plan.replace("_", " ").title(), "Plan"),
-                    ],
-                },
-                {
-                    "eyebrow": "Reliability",
-                    "title": "Repair and delivery",
-                    "items": [
-                        _object_detail_row("Repair status", str(property_usage["repair_status"]), "Repair"),
-                        _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Repair"),
-                        _object_detail_row("Sources retrying", str(property_usage["repairing_source_total"]), "Repair"),
-                        _object_detail_row("Source status", "Derived from recent runs", "Sources"),
-                        _object_detail_row("Delivery reliability", "Account notifications", "Delivery", href="/app/settings/google"),
-                    ],
-                },
-            ],
+            object_sidebar_rows=usage_sidebar_rows,
+            object_sections=usage_sections,
         )
     diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
     usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
@@ -1813,43 +1860,61 @@ def settings_google_detail(
             ),
             _object_detail_row("Reauth", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
         ]
-        object_sections = [
-            {
-                "eyebrow": "Connection",
-                "title": "Google identity",
-                "items": [
-                    _object_detail_row("Primary account", primary_email or "Not connected", "Google"),
-                    _object_detail_row("Connected Google accounts", str(connected_account_total), "Google"),
-                    _object_detail_row("Active Google accounts", str(active_account_total), "Google"),
-                    _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
-                ],
-            },
-            {
-                "eyebrow": "Accounts",
-                "title": accounts_section_title,
-                "items": [
-                    _google_account_row(
-                        account,
-                        return_to="/app/settings/google",
-                        is_property_brand=is_property_brand,
-                        verification=verification_by_binding.get(str(account.binding.binding_id or "").strip()),
-                        sync_row=account_sync_by_email.get(str(account.google_email or "").strip().lower()),
-                        change_row=account_change_by_binding.get(str(account.binding.binding_id or "").strip()),
-                    )
-                    for account in google_accounts[:3]
-                ]
-                or [
-                    _object_detail_row(
-                        "No connected Google account",
-                        "Connect Google when you want account sign-in and verified return access from this device.",
-                        "Empty",
-                        action_href=connect_another_href,
-                        action_label="Connect Google",
-                        action_method="get",
-                    )
-                ],
-            },
-        ]
+        if connected_account_total > 0:
+            object_sections = [
+                {
+                    "eyebrow": "Connection",
+                    "title": "Google identity",
+                    "items": [
+                        _object_detail_row("Primary account", primary_email or "Not connected", "Google"),
+                        _object_detail_row("Connected Google accounts", str(connected_account_total), "Google"),
+                        _object_detail_row("Active Google accounts", str(active_account_total), "Google"),
+                        _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
+                    ],
+                    "open": True,
+                },
+                {
+                    "eyebrow": "Accounts",
+                    "title": accounts_section_title,
+                    "items": [
+                        _google_account_row(
+                            account,
+                            return_to="/app/settings/google",
+                            is_property_brand=is_property_brand,
+                            verification=verification_by_binding.get(str(account.binding.binding_id or "").strip()),
+                            sync_row=account_sync_by_email.get(str(account.google_email or "").strip().lower()),
+                            change_row=account_change_by_binding.get(str(account.binding.binding_id or "").strip()),
+                        )
+                        for account in google_accounts[:3]
+                    ],
+                },
+            ]
+        else:
+            object_meta = [
+                {"label": "Connected", "value": "No"},
+                {"label": "Connected Google accounts", "value": "0"},
+                {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
+            ]
+            object_sections = [
+                {
+                    "eyebrow": "Connection",
+                    "title": "Google sign-in",
+                    "items": [
+                        _object_detail_row(
+                            "No connected Google account",
+                            "Use Google when you want faster sign-in and verified return access from this device.",
+                            "Google",
+                            action_href=connect_another_href,
+                            action_label="Connect Google",
+                            action_method="get",
+                        ),
+                        _object_detail_row("Connected Google accounts", "0", "Google"),
+                        _object_detail_row("Primary account", "Not connected", "Google"),
+                        _object_detail_row("Token status", str(sync.get("token_status") or "missing").replace("_", " "), "Auth"),
+                    ],
+                    "open": True,
+                },
+            ]
     else:
         object_sidebar_rows = [
             _object_detail_row(
@@ -2031,6 +2096,7 @@ def settings_trust_detail(
             object_sidebar_rows=[
                 _object_detail_row("Summary", workspace_summary, "Summary"),
                 _object_detail_row("Account", readiness_detail_label, "Account"),
+                _object_detail_row("Source status", str(property_usage["repair_status"]), "Sources"),
                 _object_detail_row("Repair", str(property_usage["repair_status"]), "Sources"),
                 _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
                 _object_detail_row("Support tier", str(billing.get("support_tier") or "standard").title(), "Support"),
@@ -2043,6 +2109,7 @@ def settings_trust_detail(
                     "items": [
                         _object_detail_row("Account", readiness_status_label, "Account"),
                         _object_detail_row("Details", readiness_detail_label, "Account"),
+                        _object_detail_row("Source status", str(property_usage.get("repair_status") or "unknown"), "Sources"),
                         _object_detail_row("Latest run", str(property_usage["latest_status"]), "Search", href=str(property_usage["latest_href"])),
                         _object_detail_row("Repair status", str(property_usage["repair_status"]), "Sources"),
                         _object_detail_row("Source failures", str(property_usage["failed_source_total"]), "Sources"),
@@ -2088,7 +2155,7 @@ def settings_trust_detail(
     if is_property_brand:
         readiness_status_label = "Ready" if readiness_status_label.strip().lower() not in {"failed", "blocked"} else readiness_status_label
         readiness_detail_label = "Core account, search, and support surfaces are available."
-    return _render_console_object_detail(
+        return _render_console_object_detail(
         request=request,
         context=context,
         workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
@@ -2113,23 +2180,24 @@ def settings_trust_detail(
         object_sidebar_rows=[
             _object_detail_row("Summary", workspace_summary if workspace_summary != "Trust" else "No trust summary yet.", "Summary"),
             _object_detail_row("Account", readiness_detail_label, "Account"),
+            _object_detail_row("Source status", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
             _object_detail_row("Sources", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
             _object_detail_row("Delivery", str(reliability.get("delivery") or "watch"), "Delivery"),
             _object_detail_row("Access", str(reliability.get("access") or "watch"), "Access"),
             _object_detail_row("Sync", str(reliability.get("sync") or "watch"), "Sync"),
         ],
-        object_sections=[
-            {
-                "eyebrow": "Status",
-                "title": "Account and source status",
-                "items": [
-                    _object_detail_row("Account", readiness_status_label, "Account"),
-                    _object_detail_row("Details", readiness_detail_label, "Account"),
-                    _object_detail_row("Source status", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
-                    _object_detail_row("Source detail", str(provider_posture.get("risk_detail") or "No source issue recorded."), "Sources"),
-                    _object_detail_row("Fallback sources", str(provider_posture.get("lanes_with_fallback") or 0), "Sources"),
-                ],
-            },
+            object_sections=[
+                {
+                    "eyebrow": "Status",
+                    "title": "Account and source status",
+                    "items": [
+                        _object_detail_row("Account", readiness_status_label, "Account"),
+                        _object_detail_row("Details", readiness_detail_label, "Account"),
+                        _object_detail_row("Source status", str(provider_posture.get("risk_state") or "unknown"), "Sources"),
+                        _object_detail_row("Source detail", str(provider_posture.get("risk_detail") or "No source issue recorded."), "Sources"),
+                        _object_detail_row("Fallback sources", str(provider_posture.get("lanes_with_fallback") or 0), "Sources"),
+                    ],
+                },
             {
                 "eyebrow": "Trust controls",
                 "title": "Evidence, rules, and retention",
@@ -2285,6 +2353,50 @@ def settings_access_detail(
         )
     if not active_access_items:
         active_access_items = [_object_detail_row("No active access sessions", "Issue an account access link when someone needs direct entry into PropertyQuarry.", "Clear")]
+    revoked_section_items = [
+        _object_detail_row(
+            str(item.get("email") or "unknown"),
+            f"revoked by {str(item.get('revoked_by') or 'workspace')} · {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
+            "Revoked",
+        )
+        for item in visible_revoked_sessions
+    ]
+    access_sections = [
+        {
+            "eyebrow": "Active sessions",
+            "title": "Live access links",
+            "items": active_access_items,
+            "open": True,
+        },
+    ]
+    if revoked_section_items or not is_property_brand:
+        access_sections.append(
+            {
+                "eyebrow": "Recently revoked",
+                "title": "Sessions that no longer authenticate",
+                "items": revoked_section_items
+                or [
+                    _object_detail_row(
+                        "No revoked sessions",
+                        "Revoked links and sessions will appear here when access is withdrawn.",
+                        "History",
+                    )
+                ],
+            }
+        )
+    access_sidebar_rows = [
+        _object_detail_row("Active links", str(len(active_sessions)), "Access"),
+        _object_detail_row("Latest access action", access_detail, "Access"),
+    ]
+    if not is_property_brand:
+        access_sidebar_rows.insert(1, _object_detail_row("Revoked links", str(len(revoked_sessions)), "Access"))
+        access_sidebar_rows.append(
+            _object_detail_row(
+                "Default operator target",
+                "/admin/office",
+                "Access",
+            )
+        )
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -2315,37 +2427,15 @@ def settings_access_detail(
         ],
         object_sidebar_title="Access control",
         object_sidebar_copy="Create one clean link, then revoke it when the account no longer needs that entry point.",
-        object_sidebar_rows=[
-            _object_detail_row("Active links", str(len(active_sessions)), "Access"),
-            _object_detail_row("Revoked links", str(len(revoked_sessions)), "Access"),
-            _object_detail_row("Default collaborator target" if is_property_brand else "Default operator target", "/app/agents" if is_property_brand else "/admin/office", "Access"),
-            _object_detail_row("Latest access action", access_detail, "Access"),
-        ],
-        object_sections=[
-            {
-                "eyebrow": "Active sessions",
-                "title": "Live access links",
-                "items": active_access_items,
-            },
-            {
-                "eyebrow": "Recently revoked",
-                "title": "Sessions that no longer authenticate",
-                "items": [
-                    _object_detail_row(
-                        str(item.get("email") or "unknown"),
-                        f"revoked by {str(item.get('revoked_by') or 'workspace')} · {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
-                        "Revoked",
-                    )
-                    for item in visible_revoked_sessions
-                ] or [_object_detail_row("No revoked sessions", "Revoked links and sessions will appear here when access is withdrawn.", "History")],
-            },
-        ],
+        object_sidebar_rows=access_sidebar_rows,
+        object_sections=access_sections,
         object_sidebar_form={
             "action": "/app/actions/access-sessions/issue",
             "method": "post",
             "eyebrow": "Issue access",
             "title": "Create an access link",
             "copy": "Issue a direct account or collaborator access link without dropping into the API.",
+            "open": bool(issue_status or issue_error),
             "submit_label": "Issue access link",
             "fields": [
                 {"type": "hidden", "name": "return_to", "value": "/app/settings/access"},
@@ -3000,6 +3090,13 @@ def app_search(
     request: Request,
     query: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=100),
+    run_id: str = Query(default=""),
+    candidate: str = Query(default=""),
+    agent_id: str = Query(default=""),
+    packet_missing: str = Query(default=""),
+    missing_candidate_ref: str = Query(default=""),
+    stale_run: str = Query(default=""),
+    missing_run_id: str = Query(default=""),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
@@ -3011,6 +3108,13 @@ def app_search(
             container=container,
             context=context,
             access_identity=access_identity,
+            run_id=run_id,
+            candidate=candidate,
+            agent_id=agent_id,
+            packet_missing=packet_missing,
+            missing_candidate_ref=missing_candidate_ref,
+            stale_run=stale_run,
+            missing_run_id=missing_run_id,
         )
     workspace = dict(container.onboarding.status(principal_id=context.principal_id).get("workspace") or {})
     product = build_product_service(container)

@@ -738,6 +738,61 @@ def _existing_hosted_property_tour_payload(slug: str) -> dict[str, object]:
     payload.setdefault("creation_mode", "hosted_property_tour")
     return payload
 
+
+def _normalized_property_tour_identity_url(value: object) -> str:
+    return urllib.parse.urldefrag(str(value or "").strip())[0]
+
+
+def _existing_hosted_property_tour_url_for_identity(
+    *,
+    property_url: object = "",
+    source_ref: object = "",
+    external_id: object = "",
+    slug: object = "",
+) -> str:
+    normalized_slug = str(slug or "").strip()
+    if normalized_slug:
+        hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
+        if hosted_url:
+            return hosted_url
+    normalized_property_url = _normalized_property_tour_identity_url(property_url)
+    normalized_source_ref = str(source_ref or "").strip()
+    normalized_external_id = str(external_id or "").strip()
+    if not normalized_property_url and not normalized_source_ref and not normalized_external_id:
+        return ""
+    public_dir = _public_tour_dir()
+    try:
+        bundle_dirs = sorted(
+            (path for path in public_dir.iterdir() if path.is_dir() and not path.name.startswith(".")),
+            key=lambda path: path.name,
+        )
+    except Exception:
+        return ""
+    for bundle_dir in bundle_dirs:
+        payload = _load_hosted_property_tour_payload(bundle_dir)
+        if not payload:
+            continue
+        payload_property_urls = {
+            _normalized_property_tour_identity_url(payload.get("property_url")),
+            _normalized_property_tour_identity_url(payload.get("listing_url")),
+        }
+        payload_property_urls.discard("")
+        payload_source_ref = str(payload.get("source_ref") or "").strip()
+        payload_external_id = str(payload.get("external_id") or "").strip()
+        if normalized_property_url and normalized_property_url in payload_property_urls:
+            hosted_url = _existing_hosted_property_tour_url({"slug": bundle_dir.name})
+            if hosted_url:
+                return hosted_url
+        if normalized_source_ref and normalized_source_ref == payload_source_ref:
+            hosted_url = _existing_hosted_property_tour_url({"slug": bundle_dir.name})
+            if hosted_url:
+                return hosted_url
+        if normalized_external_id and normalized_external_id == payload_external_id:
+            hosted_url = _existing_hosted_property_tour_url({"slug": bundle_dir.name})
+            if hosted_url:
+                return hosted_url
+    return ""
+
 def _safe_live_property_tour_url(value: object) -> str:
     normalized = str(value or "").strip()
     if not normalized:

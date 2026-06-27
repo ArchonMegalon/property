@@ -114,10 +114,12 @@ DEFAULT_RECEIPT_PATTERNS = {
     "export_discovery": ("_completion/tours/property-tour-export-discovery*.json",),
     "import_manifest": ("_completion/property_tour_exports/import-manifest*.json",),
     "billing": ("_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION*.json",),
+    "tour_provider_ownership": ("_completion/property_tour_ownership/*.json",),
     "vendor_tooling": ("_completion/tours/property-tour-vendor-tooling*.json",),
     "repair_canary": ("_completion/repair/propertyquarry-repair-canary*.json",),
     "provider_matrix": (
         "_completion/smoke/property-live-provider*.json",
+        "_completion/provider_smoke/*provider-matrix*.json",
         "_completion/provider_smoke/all-search-ready*.json",
         "_completion/smoke/property-provider-e2e*.json",
     ),
@@ -130,13 +132,14 @@ DEFAULT_RECEIPT_PATTERNS = {
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
-    "live_mobile": "_completion/smoke/property-live-mobile-surface-with-research-detail-pass.json",
+    "live_mobile": "_completion/smoke/property-live-mobile-surface-latest.json",
     "public_smoke": "_completion/smoke/property-live-public-latest.json",
     "authenticated_smoke": "_completion/smoke/property-live-authenticated-latest.json",
     "tour_control": "_completion/tours/property-tour-controls-live-container-current.json",
     "export_discovery": "_completion/tours/property-tour-export-discovery-full-current.json",
     "import_manifest": "_completion/property_tour_exports/import-manifest-current.json",
     "billing": "_completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json",
+    "tour_provider_ownership": "_completion/property_tour_ownership/release-gate.json",
     "vendor_tooling": "_completion/tours/property-tour-vendor-tooling-current.json",
     "repair_canary": "_completion/repair/propertyquarry-repair-canary-latest.json",
     "provider_matrix": "_completion/smoke/property-live-provider-latest.json",
@@ -161,6 +164,41 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _receipt_is_complete_enough(payload: dict[str, Any]) -> bool:
+    if not isinstance(payload, dict) or not payload:
+        return False
+    status = str(payload.get("status") or "").strip().lower()
+    if status in {"running", "in_progress", "verifying"}:
+        return False
+    if payload.get("checkpoint") is True:
+        return False
+    if payload.get("complete") is False:
+        return False
+    return True
+
+
+def _provider_matrix_proof_rank(payload: dict[str, Any]) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    if "targeted_search_matrix_status" not in payload and "targeted_search_matrix_summary" not in payload:
+        return 0
+
+    summary = dict(payload.get("targeted_search_matrix_summary") or {})
+    status = str(payload.get("status") or "").strip().lower()
+    targeted_status = str(payload.get("targeted_search_matrix_status") or "").strip().lower()
+    executed = payload.get("targeted_search_matrix_executed") is True
+    summary_executed = summary.get("executed") is True
+    providers_covered = summary.get("all_search_ready_providers_covered") is True
+
+    if status == "pass" and targeted_status == "pass" and executed and summary_executed and providers_covered:
+        return 3
+    if executed and summary_executed:
+        return 2
+    if executed or status == "pass":
+        return 1
+    return 0
+
+
 def _latest_receipt_path(patterns: tuple[str, ...], *, fallback: str) -> Path:
     candidates: list[Path] = []
     for pattern in patterns:
@@ -168,15 +206,17 @@ def _latest_receipt_path(patterns: tuple[str, ...], *, fallback: str) -> Path:
     if not candidates:
         return Path(fallback).expanduser().resolve()
 
-    def sort_key(path: Path) -> tuple[float, float, str]:
+    def sort_key(path: Path) -> tuple[int, int, float, float, str]:
         payload = _load_json(path)
+        completeness_rank = 1 if _receipt_is_complete_enough(payload) else 0
+        provider_matrix_rank = _provider_matrix_proof_rank(payload)
         generated_at, _timestamp_source, _raw_generated_at = _receipt_generated_at(payload)
         generated_timestamp = generated_at.timestamp() if generated_at is not None else 0.0
         try:
             modified_timestamp = path.stat().st_mtime
         except OSError:
             modified_timestamp = 0.0
-        return (generated_timestamp, modified_timestamp, path.as_posix())
+        return (completeness_rank, provider_matrix_rank, generated_timestamp, modified_timestamp, path.as_posix())
 
     return max(candidates, key=sort_key).resolve()
 
@@ -558,6 +598,7 @@ def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
     return (
         bool(handoff.get("configured"))
         and bool(handoff.get("host_resolves"))
+        and handoff.get("account_handoff_usable") is not False
         and str(handoff.get("url") or "").strip().startswith("https://")
         and str(billing_receipt.get("status") or "").strip() != "blocked"
     )
@@ -1251,6 +1292,38 @@ def build_gold_status_receipt(
         billing_receipt.get("status") or ("not_configured" if billing_receipt_path is None else "missing")
     )
     billing_handoff_status = "ready" if billing_ok else billing_provider_status
+    notes: list[str] = []
+    if status == "pass":
+        notes.extend(
+            [
+                "Current gold gate is green on the active proof set.",
+                (
+                    f"Provider E2E is current: {provider_matrix_case_count} targeted strict/soft cases passed across every "
+                    "search-ready provider mode with wrong-country selections sanitized before dispatch."
+                ),
+                "Self-healing canary is current and proves repair-or-quarantine behavior for failed provider sources.",
+                (
+                    "Prepared operator import folders can still wait for future verified asset drops without blocking the "
+                    "current release."
+                    if operator_import_manifest_ready and export_repair_sample
+                    else "Prepared operator import folders are aligned with the active verified release."
+                ),
+            ]
+        )
+    else:
+        notes.append("Gold remains blocked until every failing gate below is repaired.")
+        if not missing_provider_modes:
+            notes.append("Tour provider coverage is complete in the active verifier output.")
+        if not repair_canary_ok:
+            notes.append("Self-healing is proven only when the repair canary repairs or safely quarantines a failed provider source.")
+        if not provider_matrix_ok:
+            notes.append(
+                "Provider E2E is proven only when every search-ready provider has executed strict and soft-filter targeted search cases."
+            )
+        if missing_provider_modes:
+            notes.append("Every required tour provider mode must stay backed by verified evidence.")
+    notes.append(_tour_provider_missing_note(missing_provider_modes))
+
     return {
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
@@ -1352,6 +1425,8 @@ def build_gold_status_receipt(
             "configured": bool((billing_receipt.get("billing_handoff") or {}).get("configured")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
             "host": str((billing_receipt.get("billing_handoff") or {}).get("host") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "host_resolves": bool((billing_receipt.get("billing_handoff") or {}).get("host_resolves")) if isinstance(billing_receipt.get("billing_handoff"), dict) else False,
+            "account_handoff_usable": (billing_receipt.get("billing_handoff") or {}).get("account_handoff_usable") if isinstance(billing_receipt.get("billing_handoff"), dict) else None,
+            "account_handoff_error": str((billing_receipt.get("billing_handoff") or {}).get("account_handoff_error") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "required_dns_record": (billing_receipt.get("billing_handoff") or {}).get("required_dns_record") if isinstance(billing_receipt.get("billing_handoff"), dict) and isinstance((billing_receipt.get("billing_handoff") or {}).get("required_dns_record"), dict) else {},
             "next_action": str((billing_receipt.get("billing_handoff") or {}).get("next_action") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "ready": billing_ok,
@@ -1487,12 +1562,7 @@ def build_gold_status_receipt(
         "blockers": blockers,
         "pass_areas": [row for row in pass_areas if row is not None],
         "next_required_actions": next_required_actions,
-        "notes": [
-            "Gold is not claimable until every required provider mode is backed by verified evidence.",
-            "Self-healing is proven only when the repair canary repairs or safely quarantines a failed provider source.",
-            "Provider E2E is proven only when every search-ready provider has executed strict and soft-filter targeted search cases.",
-            _tour_provider_missing_note(missing_provider_modes),
-        ],
+        "notes": notes,
     }
 
 
@@ -1530,7 +1600,7 @@ def main() -> int:
         export_discovery_receipt_path=Path(args.export_discovery_receipt) if args.export_discovery_receipt else _default_receipt_path("export_discovery"),
         import_manifest_receipt_path=Path(args.import_manifest_receipt) if args.import_manifest_receipt else _default_receipt_path("import_manifest"),
         billing_receipt_path=Path(args.billing_receipt) if args.billing_receipt else _default_receipt_path("billing"),
-        tour_provider_ownership_receipt_path=Path(args.tour_provider_ownership_receipt) if args.tour_provider_ownership_receipt else None,
+        tour_provider_ownership_receipt_path=Path(args.tour_provider_ownership_receipt) if args.tour_provider_ownership_receipt else _default_receipt_path("tour_provider_ownership"),
         vendor_tooling_receipt_path=Path(args.vendor_tooling_receipt) if args.vendor_tooling_receipt else _default_receipt_path("vendor_tooling"),
         whole_project_scope_receipt_path=Path(args.whole_project_scope_receipt) if args.whole_project_scope_receipt else _default_receipt_path("whole_project_scope"),
         security_posture_receipt_path=Path(args.security_posture_receipt) if args.security_posture_receipt else _default_receipt_path("security_posture"),

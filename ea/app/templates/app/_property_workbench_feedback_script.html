@@ -249,7 +249,7 @@
             'data-rybbit-prop-surface': 'research',
           },
         });
-        appendActionControl(actions, {
+        const walkthroughButton = appendActionControl(actions, {
           label: 'Request walkthrough',
           attributes: {
             'data-pw-visual-request': 'flythrough',
@@ -257,6 +257,7 @@
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
             'data-run-id': runId,
+            'data-pw-walkthrough-provider': 'magicfit',
             'data-rybbit-event': 'pq.flythrough.opened',
             'data-rybbit-prop-cta-key': 'request_flythrough',
             'data-rybbit-prop-surface': 'research',
@@ -276,7 +277,7 @@
       status.className = 'pqx-decision-status';
       status.setAttribute('data-pw-visual-request-status', '');
       status.textContent = !tour.url
-        ? 'Need a remote view? Request a 3D tour or walkthrough from the available source material.'
+        ? 'Need a remote view? Request a verified 3D tour or a receipt-backed MagicFit walkthrough.'
         : '';
       details.appendChild(status);
       node.appendChild(details);

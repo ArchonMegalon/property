@@ -12,6 +12,8 @@
   let reaction = '';
   const status = root.querySelector('[data-object-feedback-status]');
   const decisionStateStatus = root.querySelector('[data-object-decision-state-status]');
+  const advancedToggleButtons = [...root.querySelectorAll('[data-object-feedback-open-advanced]')];
+  const advancedDetails = root.querySelector('.prd-decision-advanced');
   const clippyToggle = root.querySelector('[data-object-clippy-toggle]');
   const clippyPanel = root.querySelector('[data-object-clippy-panel]');
   const clippyQuestion = root.querySelector('[data-object-clippy-question]');
@@ -507,6 +509,13 @@
         selectedReasons.add(key);
         button.classList.add('active');
       }
+    });
+  });
+  advancedToggleButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!(advancedDetails instanceof HTMLDetailsElement)) return;
+      advancedDetails.open = true;
+      advancedDetails.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
   root.querySelector('[data-object-feedback-save]')?.addEventListener('click', async () => {

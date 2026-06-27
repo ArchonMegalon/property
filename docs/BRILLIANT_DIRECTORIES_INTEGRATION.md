@@ -33,10 +33,12 @@ PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY_HEADER=X-Api-Key
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY=
+PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS=
+PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET=
 PROPERTYQUARRY_BRILLIANT_DIRECTORIES_COMPLETION_DIR=_completion/brilliant_directories
 ```
 
-The adapter requires HTTPS and an explicit allowed-host list before API requests can be built or executed. Customer-facing directory and pricing surfaces stay on PropertyQuarry; there is no public provider-site or provider-pricing redirect knob. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
+The adapter requires HTTPS and an explicit allowed-host list before API requests can be built or executed. For billing handoff, set `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_DNS_TARGET` to the exact CNAME target shown in Brilliant Directories Domain Manager before deploying. If the preferred white-label billing host is still propagating or temporarily unavailable, `PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS` can provide one or more allowlisted fallback account URLs. Customer-facing directory and pricing surfaces stay on PropertyQuarry; there is no public provider-site or provider-pricing redirect knob. API payloads are form-encoded by default because Brilliant Directories' own examples use `application/x-www-form-urlencoded` for member create, delete, search, and transaction calls.
 
 ## Implemented Local Contract
 

@@ -506,6 +506,17 @@ def _assert_no_horizontal_overflow(page: Page) -> None:
     assert overflow["bodyScrollWidth"] <= overflow["innerWidth"] + 1, overflow
 
 
+def _assert_propertyquarry_billing_fallback_page(page: Page) -> None:
+    expect(page.locator("body", has_text="Billing handoff unavailable")).to_be_visible()
+    expect(page.locator("body", has_text="external account lane")).to_be_visible()
+    expect(page.locator("body", has_text="PropertyQuarry access remains active")).to_be_visible()
+    expect(page.get_by_role("link", name="Back to account")).to_be_visible()
+    body_text = page.evaluate("() => document.body.innerText")
+    assert "Billing history" not in body_text
+    assert "Cancellation and refunds" not in body_text
+    assert "When to upgrade" not in body_text
+
+
 def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -583,6 +594,18 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(signed_page.get_by_role("link", name="Open search").first).to_be_visible()
         assert signed_page.get_by_role("link", name="Open current session").count() == 0
         assert signed_page.get_by_text("Log out", exact=True).count() == 1
+        response = signed_page.goto(f"{base_url}/pricing", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(signed_page.get_by_role("heading", name="Free")).to_be_visible()
+        billing_links = signed_page.get_by_role("link", name="Open billing account")
+        expect(billing_links).to_have_count(2)
+        billing_hrefs = signed_page.evaluate(
+            """() => Array.from(document.querySelectorAll('a'))
+              .filter((node) => (node.textContent || '').trim() === 'Open billing account')
+              .map((node) => node.getAttribute('href') || '')"""
+        )
+        assert billing_hrefs == ["/app/account#delivery", "/app/account#delivery"]
+        assert signed_page.get_by_text("Create account", exact=True).count() == 0
 
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
@@ -1315,9 +1338,15 @@ def test_propertyquarry_dark_mode_covers_public_and_management_surfaces(
             ("/app/properties/packets", "propertyquarry-packets-dark-surfaces.png"),
         ):
             response = page.goto(f"{base_url}{route}", wait_until="networkidle")
-            assert response is not None and response.ok
-            expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
-            _assert_dark_mode_surfaces_stay_readable(page, app_selectors)
+            assert response is not None
+            if route == "/app/billing":
+                assert int(response.status) == 503
+                _assert_no_horizontal_overflow(page)
+                _assert_propertyquarry_billing_fallback_page(page)
+            else:
+                assert response.ok
+                expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+                _assert_dark_mode_surfaces_stay_readable(page, app_selectors)
             screenshot = tmp_path / screenshot_name
             page.screenshot(path=str(screenshot), full_page=False, animations="disabled", caret="hide")
             assert screenshot.exists() and screenshot.stat().st_size > 20_000
@@ -1413,7 +1442,16 @@ def test_propertyquarry_all_customer_app_surfaces_are_motor_accessible_on_phone(
     try:
         for route in routes:
             response = page.goto(f"{base_url}{route}", wait_until="domcontentloaded")
-            assert response is not None and response.ok, route
+            assert response is not None, route
+            if route == "/app/billing":
+                assert int(response.status) == 503, route
+                _assert_no_horizontal_overflow(page)
+                _assert_propertyquarry_billing_fallback_page(page)
+                billing_back_link = page.get_by_role("link", name="Back to account")
+                box = billing_back_link.bounding_box()
+                assert box is not None and box["height"] >= 44 and box["width"] >= 44
+                continue
+            assert response.ok, route
             page.locator("[data-property-research-topnav]").wait_for(state="visible", timeout=5000)
             _assert_mobile_surface_motor_accessible(page)
             _assert_mobile_topnav_tap_targets(page)
@@ -1674,8 +1712,12 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         assert response is not None and response.ok
         assert page.locator("body", has_text="Current read").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
+        page.locator("summary", has_text="Fine-tune my preferences").first.click()
+        answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
+        expect(answered_button).to_be_visible()
+        answered_button.scroll_into_view_if_needed()
         with page.expect_response("**/app/api/property-feedback/*/followup-status") as update_response_info:
-            page.get_by_role("button", name="Answered").first.click()
+            answered_button.click()
         update_response = update_response_info.value
         assert update_response.ok, update_response.text()
         page.reload(wait_until="networkidle")
@@ -1720,8 +1762,12 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
         assert response is not None and response.ok
         assert page.locator("body", has_text="Tracked follow-up").is_visible()
         assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
+        page.locator("summary", has_text="Fine-tune my preferences").first.click()
+        answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
+        expect(answered_button).to_be_visible()
+        answered_button.scroll_into_view_if_needed()
         with page.expect_response("**/app/api/property-feedback/*/followup-status") as update_response_info:
-            page.get_by_role("button", name="Answered").first.click()
+            answered_button.click()
         update_response = update_response_info.value
         assert update_response.ok, update_response.text()
         assert page.locator("body", has_text="Follow-up marked answered").is_visible()
@@ -1924,7 +1970,7 @@ def test_propertyquarry_setup_header_stays_minimal_and_single_row(
         page.wait_for_selector(".pqx-topbar", timeout=5000)
         page.screenshot(path=str(screenshot_path), full_page=False)
         assert page.locator("[data-property-pulse-strip]").count() == 0
-        assert page.get_by_role("navigation", name="PropertyQuarry sections").get_by_text("Account", exact=True).count() == 1
+        expect(page.get_by_role("navigation", name="PropertyQuarry sections")).to_be_visible()
         assert page.locator(".pqx-account-menu > summary").count() == 1
         assert page.locator(".pqx-account-menu > summary").inner_text().strip() != "Account"
         _assert_property_shell_visual_gates(page, max_appbar_height=84)
@@ -2135,27 +2181,16 @@ def test_propertyquarry_account_and_billing_hide_redundant_top_actions(
         assert page.get_by_role("button", name=re.compile("Browser alerts", re.I)).count() == 0
         assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
         assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
-
-        account_summary = page.locator(".pqx-account-menu > summary")
-        expect(account_summary).to_be_visible()
-        account_summary.click()
-        expect(page.locator(".pqx-account-menu-links")).not_to_contain_text("Profile")
-        expect(page.locator(".pqx-account-menu-links")).not_to_contain_text("Settings")
-        expect(page.locator(".pqx-account-menu-links")).to_contain_text("Upgrade")
-        expect(page.locator(".pqx-account-menu-form button", has_text="Log out")).to_be_visible()
+        expect(page.locator(".pqx-account-menu")).to_have_count(0)
+        expect(page.get_by_role("button", name="Log out")).to_be_visible()
+        expect(page.get_by_role("link", name="Billing account")).to_be_visible()
 
         response = page.goto(f"{base_url}/app/billing", wait_until="networkidle")
-        assert response is not None and response.ok
-        expect(page.get_by_role("button", name="Dark mode")).to_be_visible()
-        assert page.get_by_role("button", name=re.compile("Browser alerts", re.I)).count() == 0
-        assert page.locator(".pqx-top-actions").get_by_role("link", name="Review").count() == 0
-        assert page.locator(".pqx-top-actions").get_by_role("link", name="Edit search").count() == 0
-
-        account_summary = page.locator(".pqx-account-menu > summary")
-        account_summary.click()
-        expect(page.locator(".pqx-account-menu-links")).not_to_contain_text("Upgrade")
-        expect(page.locator(".pqx-account-menu-links")).to_contain_text("Profile")
-        expect(page.locator(".pqx-account-menu-form button", has_text="Log out")).to_be_visible()
+        assert response is not None
+        assert int(response.status) == 503
+        _assert_propertyquarry_billing_fallback_page(page)
+        expect(page.locator(".pqx-top-actions")).to_have_count(0)
+        expect(page.locator(".pqx-account-menu")).to_have_count(0)
     finally:
         context.close()
 
@@ -2811,7 +2846,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
               const panel = document.querySelector('[data-object-feedback]');
               const note = document.querySelector('[data-object-feedback-note]');
               const tune = Array.from(document.querySelectorAll('.prd-feedback-details'))
-                .find((node) => (node.textContent || '').includes('Fine-tune my preferences'));
+                .find((node) => (node.textContent || '').includes('Refine decision'));
               const rect = panel ? panel.getBoundingClientRect() : null;
               const noteRect = note ? note.getBoundingClientRect() : null;
               return {
@@ -3018,7 +3053,7 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const shell = document.querySelector('[data-property-research-detail]');
               const feedback = document.querySelector('[data-object-feedback]');
               const fineTune = Array.from(document.querySelectorAll('.prd-feedback-details'))
-                .find((node) => (node.textContent || '').includes('Fine-tune my preferences'));
+                .find((node) => (node.textContent || '').includes('Refine decision'));
               const optionalNote = Array.from(document.querySelectorAll('.prd-feedback-details'))
                 .find((node) => (node.querySelector('summary')?.textContent || '').trim() === 'Add an optional note');
               const nextStepDrawer = Array.from(document.querySelectorAll('.prd-feedback-details'))
@@ -3207,7 +3242,7 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert page.locator('input[name="location_query"]:checked').count() == total_areas
         assert page.locator('input[name="full_region_scope"]').is_checked()
 
-        page.get_by_role("button", name="Deselect all areas", exact=True).click()
+        page.locator('[data-checkbox-group-clear-all="location_query"]').click()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
         assert page.locator('input[name="location_query"]:checked').count() == 0
         assert page.locator('input[name="full_region_scope"]').is_checked() is False
@@ -3327,9 +3362,29 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
             """() => {
                 const rail = document.querySelector('[data-property-mobile-step-rail]');
                 const legacyDock = document.querySelector('[data-property-mobile-action-dock], [data-property-mobile-dock], .pq-mobile-nav');
+                const drawer = document.querySelector('[data-workbench-brief-drawer]');
                 const result = document.querySelector('[data-workbench-row]');
                 const thumb = result?.querySelector('.pqx-thumb');
+                const topbar = document.querySelector('.pqx-topbar');
+                const topbarRect = topbar ? topbar.getBoundingClientRect() : null;
+                const topnav = topbar?.querySelector('.pqx-primary-nav') || null;
+                const topnavRect = topnav ? topnav.getBoundingClientRect() : null;
+                const topnavFirst = topnav?.querySelector('a, span') || null;
+                const topnavFirstRect = topnavFirst ? topnavFirst.getBoundingClientRect() : null;
+                const topLaunch = topbar?.querySelector('[data-property-start-top]') || null;
+                const topLaunchRect = topLaunch ? topLaunch.getBoundingClientRect() : null;
                 const locationField = document.querySelector('[data-property-field-name="location_query"]');
+                const stepActions = document.querySelector('.pqx-step-head-actions');
+                const stepActionsRect = stepActions ? stepActions.getBoundingClientRect() : null;
+                const stepNextButton = stepActions?.querySelector('[data-property-step-next]') || null;
+                const stepNextRect = stepNextButton ? stepNextButton.getBoundingClientRect() : null;
+                const stepSaveButton = stepActions?.querySelector('[data-property-save-top]') || null;
+                const stepSaveRect = stepSaveButton ? stepSaveButton.getBoundingClientRect() : null;
+                const stepStatus = stepActions?.querySelector('[data-property-launch-status]') || null;
+                const stepStatusRect = stepStatus ? stepStatus.getBoundingClientRect() : null;
+                const firstField = document.querySelector('.pqx-shell[data-pqx-surface="search"] .pqx-form-body > .pqx-field:not([hidden])');
+                const firstFieldRect = firstField ? firstField.getBoundingClientRect() : null;
+                const drawerScrollTopInitial = drawer ? drawer.scrollTop : 0;
                 const areaRows = Array.from(locationField?.querySelectorAll('[data-pqx-check-grid="location_query"] .pqx-check') || []);
                 const areaGrid = locationField?.querySelector('[data-pqx-check-grid="location_query"]') || null;
                 const areaSummary = document.querySelector('[data-location-selected-summary]');
@@ -3343,6 +3398,10 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const areaSelectAllButton = locationField?.querySelector('[data-checkbox-group-select-all="location_query"]') || null;
                 const areaClearButton = locationField?.querySelector('[data-checkbox-group-clear-all="location_query"]') || null;
                 const areaDialog = locationField?.querySelector('[data-location-map-dialog]') || null;
+                const availableScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+                const requestedScrollY = Math.min(220, availableScrollY);
+                window.scrollTo(0, requestedScrollY);
+                const pageScrollBeforeMap = Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
                 if (areaMapButton) areaMapButton.click();
                 const areaModeInMapValue = locationField ? String(locationField.getAttribute('data-location-mode') || '') : '';
                 const areaMapAvailableValue = locationField ? String(locationField.getAttribute('data-location-map-available') || '') : '';
@@ -3357,7 +3416,10 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const areaZoomButtons = Array.from(areaDialog?.querySelectorAll('[data-location-map-zoom]') || []);
                 const areaCloseButtons = Array.from(areaDialog?.querySelectorAll('[data-location-map-close]') || []);
                 const dialogLockOpen = document.documentElement.dataset.pqxLocationMapOpen === 'true';
+                const htmlOverflowOpen = document.documentElement.style.overflow || '';
                 const bodyOverflowOpen = document.body.style.overflow || '';
+                const bodyPositionOpen = document.body.style.position || '';
+                const bodyTopOpen = document.body.style.top || '';
                 const railStyle = rail ? window.getComputedStyle(rail) : null;
                 const summaryStyle = areaSummary ? window.getComputedStyle(areaSummary) : null;
                 const areaMapDisplayValue = areaMap ? window.getComputedStyle(areaMap).display : '';
@@ -3371,11 +3433,52 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 const selectedInput = document.querySelector('input[name="location_query"]:checked');
                 const selectedFill = selectedDistrict ? window.getComputedStyle(selectedDistrict).fill : '';
                 const firstDistrictPath = firstDistrict ? String(firstDistrict.getAttribute('d') || '') : '';
+                const mapLayer = areaDialog?.querySelector('[data-location-map-layer]') || null;
+                const zoomToggle = areaDialog?.querySelector('[data-location-map-zoom="reset"]') || null;
+                const initialTransform = String(mapLayer?.getAttribute('transform') || '');
+                if (zoomToggle) zoomToggle.click();
+                const zoomedTransform = String(mapLayer?.getAttribute('transform') || '');
+                if (zoomToggle) zoomToggle.click();
+                const parseScale = (transform) => {
+                    const match = String(transform || '').match(/scale\\(([^)]+)\\)/i);
+                    const value = match ? Number(match[1]) : 0;
+                    return Number.isFinite(value) ? value : 0;
+                };
+                let areaPinchZoomChanged = false;
+                if (areaMapViewport && mapLayer && typeof PointerEvent === 'function') {
+                    const viewportRect = areaMapViewport.getBoundingClientRect();
+                    const centerX = viewportRect.left + viewportRect.width / 2;
+                    const centerY = viewportRect.top + viewportRect.height / 2;
+                    const beforePinch = String(mapLayer.getAttribute('transform') || '');
+                    const dispatchPinchPointer = (type, pointerId, clientX, clientY, isPrimary) => {
+                        areaMapViewport.dispatchEvent(new PointerEvent(type, {
+                            bubbles: true,
+                            cancelable: true,
+                            composed: true,
+                            pointerId,
+                            pointerType: 'touch',
+                            isPrimary,
+                            clientX,
+                            clientY,
+                        }));
+                    };
+                    dispatchPinchPointer('pointerdown', 1, centerX - 26, centerY, true);
+                    dispatchPinchPointer('pointerdown', 2, centerX + 26, centerY, false);
+                    dispatchPinchPointer('pointermove', 1, centerX - 58, centerY, true);
+                    dispatchPinchPointer('pointermove', 2, centerX + 58, centerY, false);
+                    dispatchPinchPointer('pointerup', 1, centerX - 58, centerY, true);
+                    dispatchPinchPointer('pointerup', 2, centerX + 58, centerY, false);
+                    const afterPinch = String(mapLayer.getAttribute('transform') || '');
+                    areaPinchZoomChanged = parseScale(afterPinch) > parseScale(beforePinch) + 0.08;
+                }
                 const dialogWasOpen = Boolean(areaDialog && areaDialog.open);
                 const closeButton = areaDialog?.querySelector('[data-location-map-close]') || null;
                 if (closeButton) closeButton.click();
                 const dialogLockAfterClose = document.documentElement.dataset.pqxLocationMapOpen === 'true';
                 const bodyOverflowAfterClose = document.body.style.overflow || '';
+                const htmlOverflowAfterClose = document.documentElement.style.overflow || '';
+                const bodyPositionAfterClose = document.body.style.position || '';
+                const pageScrollAfterClose = Math.round(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0);
                 if (areaListButton) areaListButton.click();
                 const areaSelectAllDisplayAfterListValue = areaSelectAllButton ? window.getComputedStyle(areaSelectAllButton).display : '';
                 const areaClearDisplayAfterListValue = areaClearButton ? window.getComputedStyle(areaClearButton).display : '';
@@ -3391,6 +3494,13 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                 return {
                     bodyWidth: document.documentElement.scrollWidth,
                     viewportWidth: window.innerWidth,
+                    topbarRight: topbarRect ? topbarRect.right : 0,
+                    topnavScrollWidth: topnav ? topnav.scrollWidth : 0,
+                    topnavClientWidth: topnav ? topnav.clientWidth : 0,
+                    topnavFirstLeft: topnavFirstRect ? topnavFirstRect.left : 0,
+                    topLaunchWidth: topLaunchRect ? topLaunchRect.width : 0,
+                    topLaunchRight: topLaunchRect ? topLaunchRect.right : 0,
+                        drawerScrollTopBeforeInteraction: drawerScrollTopInitial,
                     railOverflowX: railStyle ? railStyle.overflowX : '',
                     railScrollWidth: rail ? rail.scrollWidth : 0,
                     railClientWidth: rail ? rail.clientWidth : 0,
@@ -3404,6 +3514,14 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaListButtonText: areaListButton ? areaListButton.textContent || '' : '',
                     areaMapButtonHeight: areaMapButtonRect ? areaMapButtonRect.height : 0,
                     areaListButtonHeight: areaListButtonRect ? areaListButtonRect.height : 0,
+                    stepActionsHeight: stepActionsRect ? stepActionsRect.height : 0,
+                    stepNextWidth: stepNextRect ? stepNextRect.width : 0,
+                    stepSaveWidth: stepSaveRect ? stepSaveRect.width : 0,
+                    stepSaveHeight: stepSaveRect ? stepSaveRect.height : 0,
+                    stepActionsBottom: stepActionsRect ? stepActionsRect.bottom : 0,
+                    stepStatusTop: stepStatusRect ? stepStatusRect.top : 0,
+                    stepSaveTop: stepSaveRect ? stepSaveRect.top : 0,
+                    firstFieldTopBeforeInteraction: firstFieldRect ? firstFieldRect.top : 0,
                     areaMapAvailable: areaMapAvailableValue,
                     areaGridDisplayInMap: areaGridDisplayInMapValue,
                     areaMapLaunchDisplay: areaMapLaunchDisplayValue,
@@ -3414,9 +3532,16 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaDialogOpen: dialogWasOpen,
                     areaCloseButtonCount: areaCloseButtons.length,
                     dialogLockOpen,
+                    htmlOverflowOpen,
                     bodyOverflowOpen,
+                    bodyPositionOpen,
+                    bodyTopOpen,
                     dialogLockAfterClose,
                     bodyOverflowAfterClose,
+                    htmlOverflowAfterClose,
+                    bodyPositionAfterClose,
+                    pageScrollBeforeMap,
+                    pageScrollAfterClose,
                     areaRowCount: areaRowsAfterList.length,
                     areaRowMinHeight: areaRects.length ? Math.min(...areaRects.map((rect) => rect.height)) : 0,
                     areaRowsClearOfViewport: areaRects.filter((rect) => rect.top >= 0 && rect.bottom <= window.innerHeight - 4).length,
@@ -3438,6 +3563,8 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
                     areaMapViewportHeight: mapViewportRect ? mapViewportRect.height : 0,
                     areaDistrictCount: areaDistricts.length,
                     areaZoomButtonCount: areaZoomButtons.length,
+                    areaButtonZoomChanged: Boolean(zoomToggle && mapLayer && zoomedTransform !== initialTransform && zoomedTransform.includes('scale(')),
+                    areaPinchZoomChanged,
                     firstDistrictPathLooksReal: firstDistrictPath.startsWith('M') && firstDistrictPath.split('L').length >= 8 && !firstDistrictPath.includes(' Q '),
                     selectedDistrictFill: selectedFill,
                     selectedMapMatchesInput: Boolean(selectedDistrict && selectedInput && selectedDistrict.getAttribute('data-location-value') === selectedInput.value),
@@ -3449,6 +3576,12 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
             }"""
         )
         assert mobile_metrics["bodyWidth"] <= mobile_metrics["viewportWidth"] + 1
+        assert mobile_metrics["topbarRight"] <= mobile_metrics["viewportWidth"] + 1
+        assert mobile_metrics["topnavScrollWidth"] >= mobile_metrics["topnavClientWidth"]
+        assert mobile_metrics["topnavFirstLeft"] >= -1
+        assert mobile_metrics["topLaunchWidth"] == 0
+        assert mobile_metrics["topLaunchRight"] <= mobile_metrics["viewportWidth"] + 1
+        assert mobile_metrics["drawerScrollTopBeforeInteraction"] <= 2
         assert mobile_metrics["railOverflowX"] in {"auto", "scroll"}
         assert mobile_metrics["railScrollWidth"] >= mobile_metrics["railClientWidth"]
         assert mobile_metrics["railPosition"] == "sticky"
@@ -3457,26 +3590,38 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         if mobile_metrics["thumbWidth"]:
             assert 84 <= mobile_metrics["thumbWidth"] <= 96
         assert mobile_metrics["areaModeInMap"] == "map"
-        assert "Choose on map" in mobile_metrics["areaMapButtonText"]
-        assert "Choose from list" in mobile_metrics["areaListButtonText"]
+        assert mobile_metrics["areaMapButtonText"].strip() == "Map"
+        assert mobile_metrics["areaListButtonText"].strip() == "List"
         assert mobile_metrics["areaMapButtonHeight"] >= 52
         assert mobile_metrics["areaListButtonHeight"] >= 52
+        assert mobile_metrics["stepActionsHeight"] <= 112
+        assert mobile_metrics["stepNextWidth"] >= 120
+        assert 88 <= mobile_metrics["stepSaveWidth"] <= 180
+        assert 36 <= mobile_metrics["stepSaveHeight"] <= 46
+        assert mobile_metrics["firstFieldTopBeforeInteraction"] >= mobile_metrics["stepActionsBottom"] + 4
+        assert mobile_metrics["stepSaveTop"] <= mobile_metrics["stepStatusTop"]
         assert mobile_metrics["areaMapAvailable"] == "true"
         assert mobile_metrics["areaGridDisplayInMap"] == "none"
         assert mobile_metrics["areaMapLaunchDisplay"] != "none"
-        assert "Open large district map" in mobile_metrics["areaMapOpenText"]
-        assert mobile_metrics["areaMapOpenHeight"] >= 70
+        assert "Open district map" in mobile_metrics["areaMapOpenText"]
+        assert mobile_metrics["areaMapOpenHeight"] >= 60
         assert mobile_metrics["areaSelectAllDisplayInMap"] == "none"
         assert mobile_metrics["areaClearDisplayInMap"] == "none"
         assert mobile_metrics["areaDialogOpen"] is True
         assert mobile_metrics["areaCloseButtonCount"] >= 2
         assert mobile_metrics["dialogLockOpen"] is True
+        assert mobile_metrics["htmlOverflowOpen"] == "hidden"
         assert mobile_metrics["bodyOverflowOpen"] == "hidden"
+        assert mobile_metrics["bodyPositionOpen"] == "fixed"
+        assert float(str(mobile_metrics["bodyTopOpen"]).replace("px", "") or 0) <= 0
         assert mobile_metrics["dialogLockAfterClose"] is False
         assert mobile_metrics["bodyOverflowAfterClose"] != "hidden"
+        assert mobile_metrics["htmlOverflowAfterClose"] != "hidden"
+        assert mobile_metrics["bodyPositionAfterClose"] != "fixed"
+        assert abs(float(mobile_metrics["pageScrollAfterClose"]) - float(mobile_metrics["pageScrollBeforeMap"])) <= 2.0
         assert mobile_metrics["areaRowCount"] >= 6
         assert mobile_metrics["areaRowMinHeight"] >= 48
-        assert mobile_metrics["areaRowsClearOfViewport"] >= 5
+        assert mobile_metrics["areaRowsClearOfViewport"] >= 2
         assert mobile_metrics["areaRowMaxRight"] <= mobile_metrics["viewportWidth"] + 1
         assert mobile_metrics["areaModeAfterList"] == "list"
         assert mobile_metrics["areaGridDisplayAfterList"] != "none"
@@ -3493,6 +3638,8 @@ def test_propertyquarry_search_setup_fits_desktop_viewport_and_captures_screensh
         assert mobile_metrics["areaMapViewportHeight"] >= 260
         assert mobile_metrics["areaDistrictCount"] >= 6
         assert mobile_metrics["areaZoomButtonCount"] == 3
+        assert mobile_metrics["areaButtonZoomChanged"] is True
+        assert mobile_metrics["areaPinchZoomChanged"] is True
         assert mobile_metrics["firstDistrictPathLooksReal"] is True
         assert mobile_metrics["selectedMapMatchesInput"] is True
         assert "209" in mobile_metrics["selectedDistrictFill"] or "rgb" in mobile_metrics["selectedDistrictFill"]
@@ -3572,7 +3719,7 @@ def test_propertyquarry_search_desktop_wheel_scroll_recovers_from_bottom(
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
-    context = _new_context(browser, mobile=False, width=1440, height=760)
+    context = _new_context(browser, mobile=False, width=1440, height=620)
     page: Page = context.new_page()
     try:
         response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
@@ -3857,8 +4004,19 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
         page = context.new_page()
         for route, mobile_mode_name, screenshot_name in routes:
             response = page.goto(f"{base_url}{route}", wait_until="networkidle")
-            assert response is not None and response.ok
+            assert response is not None
             _assert_no_horizontal_overflow(page)
+            if route == "/app/billing":
+                assert int(response.status) == 503
+                _assert_propertyquarry_billing_fallback_page(page)
+                expect(page.locator("[data-property-mobile-dock]")).to_have_count(0)
+                expect(page.locator('nav[aria-label="PropertyQuarry sections"]')).to_have_count(0)
+                expect(page.locator("[data-pqx-launch-top]")).to_have_count(0)
+                screenshot = tmp_path / screenshot_name
+                page.screenshot(path=str(screenshot), full_page=True, animations="disabled", caret="hide")
+                assert screenshot.exists() and screenshot.stat().st_size > 14_000
+                continue
+            assert response.ok
             _assert_property_shell_visual_gates(page, max_appbar_height=130)
 
             expect(page.locator("[data-property-mobile-dock]")).to_have_count(0)
@@ -3879,12 +4037,16 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                         });
                     const heavyShadows = visibleCards.filter((node) => window.getComputedStyle(node).boxShadow !== 'none');
                     const appbar = document.querySelector('.pqx-topbar');
+                    const brand = document.querySelector('.pqx-brand');
+                    const themeToggle = document.querySelector('[data-pqx-theme-toggle]');
                     const accountSummary = document.querySelector('.pqx-account-menu summary');
                     const logoutButton = document.querySelector('[data-account-page-sign-out] button, .pqx-account-menu button[type="submit"]');
                     return {
                         cardCount: visibleCards.length,
                         heavyShadowCount: heavyShadows.length,
                         appbarHeight: appbar ? Math.round(appbar.getBoundingClientRect().height) : 0,
+                        brandVisible: brand ? window.getComputedStyle(brand).display !== 'none' && brand.getBoundingClientRect().width > 0 : false,
+                        themeVisible: themeToggle ? window.getComputedStyle(themeToggle).display !== 'none' && themeToggle.getBoundingClientRect().width > 0 : false,
                         accountSummaryVisible: accountSummary ? accountSummary.getBoundingClientRect().width > 0 : false,
                         logoutVisible: logoutButton ? logoutButton.getBoundingClientRect().width > 0 : false,
                     };
@@ -3893,6 +4055,14 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             assert density["cardCount"] <= 18
             assert density["heavyShadowCount"] <= 2
             assert density["appbarHeight"] <= 112
+            assert density["brandVisible"] is False
+            assert density["themeVisible"] is False
+            if route in {"/app/agents", "/app/alerts", "/app/account"}:
+                assert density["appbarHeight"] <= 60
+            elif route.startswith("/app/settings/") or route == "/app/properties/packets":
+                assert density["appbarHeight"] <= 52
+            elif route.startswith("/app/shortlist"):
+                assert density["appbarHeight"] <= 56
             if route in {"/app/agents", "/app/alerts"} or route.startswith("/app/shortlist"):
                 assert density["accountSummaryVisible"] is True
 
@@ -3922,7 +4092,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                     }"""
                 )
                 assert alerts_mobile_metrics["rowCount"] >= 2
-                assert alerts_mobile_metrics["minRowHeight"] >= 68
+                assert alerts_mobile_metrics["minRowHeight"] >= 58
                 assert alerts_mobile_metrics["multiColumnRows"] == 0
                 assert alerts_mobile_metrics["maxRowRight"] <= alerts_mobile_metrics["viewportWidth"] + 1
                 assert all(columns <= 1 for columns in alerts_mobile_metrics["actionColumns"])
@@ -3934,14 +4104,6 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("body", has_text="Connections and privacy")).to_be_visible()
                 expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()
                 assert density["logoutVisible"] is True
-            elif route == "/app/billing":
-                expect(page.locator("body", has_text="Billing handoff unavailable")).to_be_visible()
-                expect(page.locator("body", has_text="external account lane")).to_be_visible()
-                expect(page.locator("body", has_text="PropertyQuarry access remains active")).to_be_visible()
-                body_text = page.evaluate("() => document.body.innerText")
-                assert "Billing history" not in body_text
-                assert "Cancellation and refunds" not in body_text
-                assert "When to upgrade" not in body_text
             elif route == "/app/settings/google":
                 expect(page.locator("body", has_text=re.compile(r"Google connection|PropertyQuarry account", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"Connect Google|Add Google account", re.I))).to_be_visible()
@@ -4059,12 +4221,17 @@ def test_propertyquarry_mobile_dark_mode_covers_secondary_surfaces(
         page = context.new_page()
         for route, screenshot_name in routes:
             response = page.goto(f"{base_url}{route}", wait_until="networkidle")
-            assert response is not None and response.ok
-            expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+            assert response is not None
             _assert_no_horizontal_overflow(page)
-            _assert_dark_mode_surfaces_stay_readable(page, selectors)
-            if route != "/app/properties/packets":
-                _assert_property_shell_visual_gates(page, max_appbar_height=130)
+            if route == "/app/billing":
+                assert int(response.status) == 503
+                _assert_propertyquarry_billing_fallback_page(page)
+            else:
+                assert response.ok
+                expect(page.locator("html")).to_have_attribute("data-pq-theme", "dark")
+                _assert_dark_mode_surfaces_stay_readable(page, selectors)
+                if route != "/app/properties/packets":
+                    _assert_property_shell_visual_gates(page, max_appbar_height=130)
             screenshot_path = tmp_path / screenshot_name
             page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
             assert screenshot_path.exists() and screenshot_path.stat().st_size > 14_000

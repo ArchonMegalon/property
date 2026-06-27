@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -30,16 +32,34 @@ def _presence(value: str) -> dict[str, object]:
     }
 
 
+def _load_optional_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def build_property_tour_provider_ownership_receipt(
     *,
     three_dvista_invoice_ids: tuple[str, ...] = ("60076", "60074"),
     pano2vr_order_id: str = "38984",
     pano2vr_product_id: str = "nferpd44",
+    receipt_root: Path | None = None,
 ) -> dict[str, Any]:
     three_dvista_email = _env("THREEDVISTA_LOGIN_EMAIL") or _env("THREEDVISTA_LICENSE_EMAIL")
     three_dvista_password = _env("THREEDVISTA_LOGIN_PASSWORD")
     pano2vr_email = _env("PANO2VR_EMAIL")
     pano2vr_license = _env("PANO2VR_LICENSE_KEY")
+    receipt_base = receipt_root.resolve() if receipt_root is not None else None
+    three_dvista_refresh = _load_optional_json(receipt_base / "3dvista_private_viewer_refresh_live_current.json") if receipt_base is not None else {}
+    three_dvista_import = _load_optional_json(receipt_base / "3dvista-import-current.json") if receipt_base is not None else {}
+    three_dvista_web_probe = _load_optional_json(receipt_base / "3dvista-web-account-probe-current.json") if receipt_base is not None else {}
+    pano2vr_import = _load_optional_json(receipt_base / "pano2vr-import-current.json") if receipt_base is not None else {}
+
+    three_dvista_private_viewer_verified = str(three_dvista_refresh.get("status") or "").strip().lower() == "refreshed"
+    three_dvista_import_verified = str(three_dvista_import.get("status") or "").strip().lower() == "imported"
+    pano2vr_import_verified = str(pano2vr_import.get("status") or "").strip().lower() == "imported"
     providers = {
         "3dvista": {
             "status": "owned_configured" if three_dvista_email and three_dvista_password and three_dvista_invoice_ids else "missing_config",
@@ -49,9 +69,18 @@ def build_property_tour_provider_ownership_receipt(
             "invoice_ids": list(three_dvista_invoice_ids),
             "owned_products": ["3DVista VT Pro", "Branded Pack"],
             "login_verified": False,
-            "export_verified": False,
-            "private_viewer_verified": False,
-            "next_action": "verify control-panel login, complete branded/private viewer setup, and import a real 3DVista export or allowlisted hosted 3DVista URL",
+            "web_account_probe_ok": str(three_dvista_web_probe.get("status") or "").strip().lower() == "ok",
+            "import_verified": three_dvista_import_verified,
+            "export_verified": three_dvista_private_viewer_verified and three_dvista_import_verified,
+            "private_viewer_verified": three_dvista_private_viewer_verified,
+            "control_url": str(three_dvista_import.get("control_url") or "") if three_dvista_import_verified else "",
+            "runtime_refresh_receipt_status": str(three_dvista_refresh.get("status") or ""),
+            "import_receipt_status": str(three_dvista_import.get("status") or ""),
+            "next_action": (
+                "keep the private-viewer runtime refreshed and publish a verified non-trial 3DVista export or allowlisted hosted 3DVista URL"
+                if three_dvista_private_viewer_verified and three_dvista_import_verified
+                else "verify control-panel login, complete branded/private viewer setup, and import a real 3DVista export or allowlisted hosted 3DVista URL"
+            ),
         },
         "pano2vr": {
             "status": "owned_configured" if pano2vr_email and pano2vr_license and pano2vr_order_id and pano2vr_product_id else "missing_config",
@@ -62,8 +91,15 @@ def build_property_tour_provider_ownership_receipt(
             "product_id": pano2vr_product_id,
             "owned_products": ["Pano2VR 8 Pro"],
             "account_verified": False,
-            "export_verified": False,
-            "next_action": "open Pano2VR, create a real export, and import the complete output folder or zip into the verified tour drop",
+            "import_verified": pano2vr_import_verified,
+            "export_verified": pano2vr_import_verified,
+            "control_url": str(pano2vr_import.get("control_url") or "") if pano2vr_import_verified else "",
+            "import_receipt_status": str(pano2vr_import.get("status") or ""),
+            "next_action": (
+                "keep generating and importing real Pano2VR exports into the verified tour drop"
+                if pano2vr_import_verified
+                else "open Pano2VR, create a real export, and import the complete output folder or zip into the verified tour drop"
+            ),
         },
     }
     required = ("3dvista", "pano2vr")
@@ -90,6 +126,7 @@ def build_property_tour_provider_ownership_receipt(
         },
         "notes": [
             "This receipt proves ownership/config readiness only.",
+            "When local import/runtime receipts are available, this record also captures current non-secret 3DVista/Pano2VR verification evidence.",
             "It does not satisfy gold tour readiness without verified 3DVista/Pano2VR exports or allowlisted hosted controls.",
         ],
     }
@@ -106,6 +143,7 @@ def main() -> int:
         three_dvista_invoice_ids=tuple(args.three_dvista_invoice_id or ("60076", "60074")),
         pano2vr_order_id=str(args.pano2vr_order_id),
         pano2vr_product_id=str(args.pano2vr_product_id),
+        receipt_root=ROOT / "_completion" / "tours",
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:

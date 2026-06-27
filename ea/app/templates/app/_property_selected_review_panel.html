@@ -47,7 +47,7 @@
       {% elif selected_flythrough_pending %}
         {% set selected_visual_status = (selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') %}
       {% elif selected_tour.get('status') == 'blocked' %}
-        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or 'No verified Matterport, 3DVista, Pano2VR, or licensed krpano control is attached yet.' %}
+        {% set selected_visual_status = selected_tour.get('status_detail') or selected_tour.get('eta_label') or 'No verified 3D tour is published yet. A Matterport, 3DVista, Pano2VR, or licensed krpano capture is still needed.' %}
       {% elif selected_flythrough.get('status') == 'blocked' %}
         {% set selected_visual_status = selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or 'No receipt-backed playable MagicFit walkthrough is attached yet.' %}
       {% elif not selected_tour.get('url') and not selected_flythrough.get('url') %}
@@ -67,8 +67,8 @@
         <a class="pqx-progress-button is-ready" id="walkthrough-preview" href="{{ selected_flythrough.get('url') }}" title="{{ selected_flythrough.get('detail') or 'Walkthrough ready' }}" aria-label="{{ selected_flythrough.get('detail') or 'Walkthrough ready' }}">Open walkthrough</a>
         {% elif selected_flythrough_pending and not is_shortlist_surface %}
         <button class="pqx-progress-button is-processing" id="walkthrough-preview" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Walkthrough is building.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
-        {% elif selected_visual_property_url and not is_shortlist_surface %}
-        <button class="pqx-button" id="walkthrough-preview" type="button" data-pw-visual-request="flythrough" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
+    {% elif selected_visual_property_url and not is_shortlist_surface %}
+        <button class="pqx-button" id="walkthrough-preview" type="button" data-pw-visual-request="flythrough" data-pw-walkthrough-provider="magicfit" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
         {% endif %}
         <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}" data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="selected_review">Share this home</button>
         <button class="pqx-button" type="button" data-fliplink-shortlist-share data-rybbit-event="pq.packet.shared" data-rybbit-prop-surface="selected_review">Share results</button>
@@ -91,7 +91,7 @@
         {% endif %}
       </div>
       {% endif %}
-      <div class="pqx-decision-status" data-pw-visual-request-status>{{ selected_visual_status }}</div>
+      <div class="pqx-decision-status" data-pw-visual-request-status>{{ selected_visual_status or 'Request a verified 3D tour or a receipt-backed MagicFit walkthrough only when the listing deserves a deeper review.' }}</div>
     </div>
   </div>
     <div class="pqx-evidence">

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import ssl
 import os
+import re
 import socket
+from ipaddress import ip_address
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -21,6 +24,181 @@ BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS = (
     "https://cloudflare-dns.com/dns-query",
     "https://dns.google/resolve",
 )
+
+
+def _dns_query_answers(name: str, qtype: str) -> list[dict[str, object]]:
+    normalized_name = str(name or "").strip().lower().rstrip(".")
+    if not normalized_name:
+        return []
+    answers: list[dict[str, object]] = []
+    for endpoint in BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS:
+        query = urllib.parse.urlencode({"name": normalized_name, "type": qtype})
+        request = urllib.request.Request(
+            f"{endpoint}?{query}",
+            headers={
+                "Accept": "application/dns-json",
+                "User-Agent": "PropertyQuarryBillingDnsVerifier/1.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            continue
+        for row in payload.get("Answer") or []:
+            if not isinstance(row, dict):
+                continue
+            answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
+            answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
+            answer_type = int(row.get("type") or 0)
+            if answer_name == normalized_name and answer_data:
+                answers.append({"type": answer_type, "data": answer_data, "endpoint": endpoint})
+    return answers
+
+
+def _dns_over_https_addresses(name: str) -> list[str]:
+    addresses: list[str] = []
+    seen: set[str] = set()
+    for qtype in ("A", "AAAA"):
+        for row in _dns_query_answers(name, qtype):
+            if int(row.get("type") or 0) not in {1, 28}:
+                continue
+            data = str(row.get("data") or "").strip()
+            if not data:
+                continue
+            norm = data.rstrip(".").lower()
+            if norm in seen:
+                continue
+            try:
+                ip_address(norm)
+            except Exception:
+                continue
+            seen.add(norm)
+            addresses.append(norm)
+    return addresses
+
+
+def _resolve_host_with_public_dns(name: str) -> list[str]:
+    addresses: list[str] = []
+    answers = _dns_query_answers(name, "CNAME")
+    cname_answers = [row for row in answers if int(row.get("type") or 0) == 5]
+    for row in cname_answers:
+        target = str(row.get("data") or "").strip().lower().rstrip(".")
+        addresses.extend(_dns_over_https_addresses(target))
+    addresses.extend(_dns_over_https_addresses(name))
+    return [address for address in addresses if address]
+
+
+def _parse_http_response_bytes(payload: bytes) -> tuple[int, dict[str, str], bytes]:
+    header_end = payload.find(b"\r\n\r\n")
+    if header_end < 0:
+        return 0, {}, b""
+    head = payload[:header_end].decode("utf-8", errors="replace").split("\r\n")
+    status_line = head[0].strip() if head else ""
+    pieces = status_line.split()
+    status_code = int(pieces[1]) if len(pieces) >= 2 and pieces[1].isdigit() else 0
+    headers: dict[str, str] = {}
+    for raw_line in head[1:]:
+        if ":" not in raw_line:
+            continue
+        name, value = raw_line.split(":", 1)
+        headers[name.strip()] = value.strip()
+    return status_code, headers, payload[header_end + 4 :]
+
+
+def _is_cloudflare_transport_error(body: str) -> bool:
+    normalized = body.replace("\n", " ").replace("\r", " ").lower()
+    return "error code:" in normalized
+
+
+def _cloudflare_error_code(body: str) -> str:
+    match = re.search(r"error code:\s*(\d{3,4})", str(body or ""), flags=re.IGNORECASE)
+    return str(match.group(1) or "").strip() if match else ""
+
+
+def _is_login_probe(redirect_location: str, body: str) -> bool:
+    login_target = redirect_location.lower()
+    body_lower = body.lower()
+    return (
+        "/login" in login_target
+        or "login_direct_url" in login_target
+        or ("<title" in body_lower and "login" in body_lower and ("email" in body_lower or "password" in body_lower))
+    )
+
+
+def _http_request_via_public_address(handoff_url: str, *, timeout_seconds: float, public_addresses: list[str]) -> dict[str, object]:
+    parsed = urllib.parse.urlparse(handoff_url)
+    host = str(parsed.hostname or "").strip().lower()
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    request_headers = {
+        "Accept": "text/html,application/json,*/*",
+        "User-Agent": "PropertyQuarryBillingHandoffVerifier/1.0",
+        "Host": host,
+        "Connection": "close",
+    }
+    body = ""
+    for address in public_addresses:
+        try:
+            with socket.create_connection((address, 443), timeout=timeout_seconds) as raw_socket:
+                context = ssl.create_default_context()
+                with context.wrap_socket(raw_socket, server_hostname=host) as tls_socket:
+                    request_bytes = (
+                        f"GET {path} HTTP/1.1\r\n"
+                        f"Host: {host}\r\n"
+                        f"Accept: {request_headers['Accept']}\r\n"
+                        f"User-Agent: {request_headers['User-Agent']}\r\n"
+                        "Connection: close\r\n"
+                        "\r\n"
+                    ).encode("utf-8")
+                    tls_socket.sendall(request_bytes)
+                    chunks: list[bytes] = []
+                    while True:
+                        piece = tls_socket.recv(16_384)
+                        if not piece:
+                            break
+                        chunks.append(piece)
+        except Exception as exc:
+            continue
+        response_bytes = b"".join(chunks)
+        status_code, headers, raw_body = _parse_http_response_bytes(response_bytes)
+        if status_code <= 0:
+            continue
+        body = raw_body[:16_384].decode("utf-8", errors="replace").lower()
+        redirect_location = str(headers.get("Location") or "")
+        requires_login = _is_login_probe(redirect_location or path, body)
+        is_cf_block = _is_cloudflare_transport_error(body)
+        cf_error_code = _cloudflare_error_code(body) if is_cf_block else ""
+        return {
+            "status_code": status_code,
+            "redirect_location": redirect_location,
+            "requires_login": requires_login,
+            "cloudflare_transport_error": is_cf_block,
+            "cloudflare_error_code": cf_error_code,
+            "body": body,
+            "used_public_address": address,
+            "raw_host": host,
+            "raw_status_line_address": address,
+        }
+    return {
+        "status_code": 0,
+        "redirect_location": "",
+            "requires_login": True,
+            "cloudflare_transport_error": False,
+            "cloudflare_error_code": "",
+            "body": body,
+    }
+
+
+def _billing_handoff_probe_error(*, status_code: int, requires_login: bool, cloudflare_error_code: str = "") -> str:
+    if requires_login:
+        return "billing_handoff_requires_separate_login"
+    if cloudflare_error_code:
+        return f"billing_handoff_cloudflare_error_{cloudflare_error_code}"
+    if status_code > 0:
+        return f"billing_handoff_http_{status_code}"
+    return "billing_handoff_probe_failed"
 
 BRILLIANT_DIRECTORIES_PUBLIC_PROFILE_FIELDS = frozenset(
     {
@@ -88,6 +266,10 @@ def brilliant_directories_enabled() -> bool:
 
 def _split_csv(raw: str) -> tuple[str, ...]:
     return tuple(item.strip().lower() for item in str(raw or "").split(",") if item.strip())
+
+
+def _split_csv_values(raw: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in str(raw or "").split(",") if item.strip())
 
 
 def _safe_public_url(raw_url: str, *, allowed_hosts: tuple[str, ...]) -> str:
@@ -283,16 +465,43 @@ def load_brilliant_directories_config() -> BrilliantDirectoriesConfig:
 
 
 def brilliant_directories_billing_handoff_url(config: BrilliantDirectoriesConfig | None = None) -> str:
+    urls = brilliant_directories_billing_handoff_urls(config)
+    return urls[0] if urls else ""
+
+
+def brilliant_directories_billing_handoff_urls(config: BrilliantDirectoriesConfig | None = None) -> tuple[str, ...]:
     resolved_config = config
     if resolved_config is None:
         resolved_config = load_brilliant_directories_config()
     allowed_hosts = tuple(resolved_config.allowed_hosts)
     if not allowed_hosts:
-        return ""
-    return _safe_white_label_handoff_url(
-        str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL") or "").strip(),
-        allowed_hosts=allowed_hosts,
-    )
+        return ()
+
+    urls: list[str] = []
+
+    def add_candidate(raw_url: str) -> None:
+        normalized = _safe_white_label_handoff_url(raw_url, allowed_hosts=allowed_hosts)
+        if normalized and normalized not in urls:
+            urls.append(normalized)
+
+    add_candidate(str(os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL") or "").strip())
+    for raw_url in _split_csv_values(
+        str(
+            os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URLS")
+            or os.getenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_FALLBACK_URL")
+            or ""
+        ).strip()
+    ):
+        add_candidate(raw_url)
+    return tuple(urls)
+
+
+def build_brilliant_directories_billing_handoff_receipt(
+    handoff_url: str,
+    *,
+    resolver: object | None = None,
+) -> dict[str, object]:
+    return _billing_handoff_dns_receipt(handoff_url, resolver=resolver)
 
 
 def _billing_handoff_dns_receipt(
@@ -315,6 +524,7 @@ def _billing_handoff_dns_receipt(
             "url": "",
             "host": "",
             "host_resolves": False,
+            "account_handoff_usable": False,
             "error": "",
             "required_dns_record": {},
             "next_action": "set PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL to an HTTPS allowlisted white-label account URL",
@@ -325,6 +535,7 @@ def _billing_handoff_dns_receipt(
             "url": handoff_url,
             "host": "",
             "host_resolves": False,
+            "account_handoff_usable": False,
             "error": "billing_handoff_host_missing",
             "required_dns_record": {},
             "next_action": "replace PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL with an HTTPS URL containing a host",
@@ -337,14 +548,20 @@ def _billing_handoff_dns_receipt(
         local_error = f"billing_handoff_host_unresolved:{exc.__class__.__name__}"
         public_dns = {} if resolver is not None else _public_dns_handoff_receipt(host=host, dns_target=dns_target)
         if public_dns.get("host_resolves"):
+            account_probe = _billing_handoff_account_probe(handoff_url)
             return {
                 "configured": True,
                 "url": handoff_url,
                 "host": host,
                 "host_resolves": True,
-                "error": "",
+                **account_probe,
+                "error": "" if account_probe.get("account_handoff_usable") else str(account_probe.get("account_handoff_error") or "billing_handoff_requires_separate_login"),
                 "required_dns_record": required_dns_record,
-                "next_action": "keep the resolving HTTPS billing handoff under the allowlisted white-label host",
+                "next_action": (
+                    "keep the resolving HTTPS billing handoff under the allowlisted white-label host"
+                    if account_probe.get("account_handoff_usable")
+                    else "configure Brilliant Directories SSO or a signed account handoff before redirecting signed-in PropertyQuarry users"
+                ),
                 "resolution_source": "public_dns_over_https",
                 "local_resolver_error": local_error,
                 "public_dns": public_dns,
@@ -361,6 +578,7 @@ def _billing_handoff_dns_receipt(
             "url": handoff_url,
             "host": host,
             "host_resolves": False,
+            "account_handoff_usable": False,
             "error": local_error,
             "required_dns_record": required_dns_record,
             "next_action": next_action,
@@ -368,15 +586,127 @@ def _billing_handoff_dns_receipt(
             "local_resolver_error": local_error,
             "public_dns": public_dns,
         }
+    account_probe = _billing_handoff_account_probe(handoff_url)
     return {
         "configured": True,
         "url": handoff_url,
         "host": host,
         "host_resolves": True,
-        "error": "",
+        **account_probe,
+        "error": "" if account_probe.get("account_handoff_usable") else str(account_probe.get("account_handoff_error") or "billing_handoff_requires_separate_login"),
         "required_dns_record": required_dns_record,
-        "next_action": "keep the resolving HTTPS billing handoff under the allowlisted white-label host",
+        "next_action": (
+            "keep the resolving HTTPS billing handoff under the allowlisted white-label host"
+            if account_probe.get("account_handoff_usable")
+            else "configure Brilliant Directories SSO or a signed account handoff before redirecting signed-in PropertyQuarry users"
+        ),
         "resolution_source": "local_resolver",
+    }
+
+
+def _billing_handoff_account_probe(handoff_url: str, *, timeout_seconds: float = 5.0) -> dict[str, object]:
+    parsed = urllib.parse.urlparse(str(handoff_url or "").strip())
+    if parsed.scheme != "https" or not parsed.hostname:
+        return {
+            "account_handoff_usable": False,
+            "account_handoff_status_code": 0,
+            "account_handoff_error": "billing_handoff_url_not_https",
+        }
+    request = urllib.request.Request(
+        handoff_url,
+        headers={
+            "Accept": "text/html,application/json,*/*",
+            "User-Agent": "PropertyQuarryBillingHandoffVerifier/1.0",
+        },
+    )
+    opener = urllib.request.build_opener(_BrilliantDirectoriesNoRedirectHandler())
+    status_code = 0
+    redirect_location = ""
+    body = ""
+    try:
+        with opener.open(request, timeout=timeout_seconds) as response:
+            status_code = int(response.status)
+            body = response.read(16_384).decode("utf-8", errors="replace").lower()
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        redirect_location = str(exc.headers.get("Location") or "").strip()
+        server_header = str(exc.headers.get("Server") or "").lower()
+        try:
+            body = exc.read(16_384).decode("utf-8", errors="replace").lower()
+        except Exception:
+            body = ""
+        login_target = redirect_location or urllib.parse.urlparse(handoff_url).path
+        requires_login = _is_login_probe(login_target, body)
+        cloudflare_error_code = (
+            _cloudflare_error_code(body)
+            if status_code == 403 and "cloudflare" in server_header and not requires_login
+            else ""
+        )
+        usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
+        return {
+            "account_handoff_usable": usable,
+            "account_handoff_status_code": status_code,
+            "account_handoff_redirect_location": redirect_location,
+            "account_handoff_error": "" if usable else _billing_handoff_probe_error(
+                status_code=status_code,
+                requires_login=requires_login,
+                cloudflare_error_code=cloudflare_error_code,
+            ),
+            "account_handoff_warning": "",
+        }
+    except Exception as exc:
+        public_addresses = _resolve_host_with_public_dns(parsed.hostname or "")
+        if public_addresses:
+            public_probe = _http_request_via_public_address(
+                handoff_url,
+                timeout_seconds=timeout_seconds,
+                public_addresses=public_addresses,
+            )
+            status_code = int(public_probe.get("status_code") or 0)
+            redirect_location = str(public_probe.get("redirect_location") or "").strip()
+            body = str(public_probe.get("body") or "").strip().lower()
+            if status_code > 0:
+                login_target = redirect_location or urllib.parse.urlparse(handoff_url).path
+                requires_login = _is_login_probe(login_target, body)
+                cloudflare_error_code = str(public_probe.get("cloudflare_error_code") or "").strip()
+                if not cloudflare_error_code and bool(public_probe.get("cloudflare_transport_error")):
+                    cloudflare_error_code = _cloudflare_error_code(body)
+                usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
+                return {
+                    "account_handoff_usable": usable,
+                    "account_handoff_status_code": status_code,
+                    "account_handoff_redirect_location": redirect_location,
+                    "account_handoff_error": "" if usable else _billing_handoff_probe_error(
+                        status_code=status_code,
+                        requires_login=requires_login,
+                        cloudflare_error_code=cloudflare_error_code,
+                    ),
+                    "account_handoff_warning": "",
+                }
+            return {
+                "account_handoff_usable": False,
+                "account_handoff_status_code": 0,
+                "account_handoff_error": f"billing_handoff_probe_failed:{type(exc).__name__}",
+            }
+        return {
+            "account_handoff_usable": False,
+            "account_handoff_status_code": 0,
+            "account_handoff_error": f"billing_handoff_probe_failed:{type(exc).__name__}",
+        }
+    login_target = redirect_location or urllib.parse.urlparse(handoff_url).path
+    requires_login = _is_login_probe(login_target, body)
+    cloudflare_error_code = _cloudflare_error_code(body) if status_code == 403 and not requires_login else ""
+    usable = 200 <= status_code < 400 and not requires_login and not cloudflare_error_code
+    return {
+        "account_handoff_usable": usable,
+        "account_handoff_status_code": status_code,
+        "account_handoff_redirect_location": redirect_location,
+        "account_handoff_error": "" if usable else _billing_handoff_probe_error(
+            status_code=status_code,
+            requires_login=requires_login,
+            cloudflare_error_code=cloudflare_error_code,
+        ),
+        "account_handoff_warning": "",
     }
 
 
@@ -385,49 +715,25 @@ def _public_dns_handoff_receipt(*, host: str, dns_target: str) -> dict[str, obje
     normalized_target = str(dns_target or "").strip().lower().rstrip(".")
     if not normalized_host:
         return {"checked": False, "host_resolves": False, "reason": "host_missing"}
-    errors: list[str] = []
 
-    def query_answers(name: str, qtype: str) -> list[dict[str, object]]:
-        normalized_name = str(name or "").strip().lower().rstrip(".")
-        if not normalized_name:
-            return []
-        answers: list[dict[str, object]] = []
-        for endpoint in BRILLIANT_DIRECTORIES_DNS_OVER_HTTPS_ENDPOINTS:
-            query = urllib.parse.urlencode({"name": normalized_name, "type": qtype})
-            url = f"{endpoint}?{query}"
-            request = urllib.request.Request(
-                url,
-                headers={
-                    "Accept": "application/dns-json",
-                    "User-Agent": "PropertyQuarryBillingDnsVerifier/1.0",
-                },
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=8) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-            except Exception as exc:
-                errors.append(f"{urllib.parse.urlparse(endpoint).hostname or endpoint}:{qtype}:{type(exc).__name__}")
-                continue
-            for row in payload.get("Answer") or []:
-                if not isinstance(row, dict):
-                    continue
-                answer_name = str(row.get("name") or "").strip().lower().rstrip(".")
-                answer_data = str(row.get("data") or "").strip().lower().rstrip(".")
-                answer_type = int(row.get("type") or 0)
-                if answer_name == normalized_name and answer_data:
-                    answers.append({"type": answer_type, "data": answer_data, "endpoint": endpoint})
-        return answers
-
-    answers = query_answers(normalized_host, "CNAME")
-    cname_answers = [row for row in answers if int(row.get("type") or 0) == 5]
+    cname_answers = [
+        row
+        for row in _dns_query_answers(normalized_host, "CNAME")
+        if int(row.get("type") or 0) == 5
+    ]
+    address_answers = [
+        row
+        for qtype in ("A", "AAAA")
+        for row in _dns_query_answers(normalized_host, qtype)
+        if int(row.get("type") or 0) in {1, 28}
+    ]
     if normalized_target:
         matched = any(str(row.get("data") or "").strip().lower().rstrip(".") == normalized_target for row in cname_answers)
-        target_answers = [
-            row
-            for qtype in ("A", "AAAA")
-            for row in query_answers(normalized_target, qtype)
-            if int(row.get("type") or 0) in {1, 28}
-        ] if matched else []
+        target_answers = [row for row in _dns_query_answers(normalized_target, "A") if int(row.get("type") or 0) == 1] if matched else []
+        if not target_answers:
+            target_answers.extend(
+                row for row in _dns_query_answers(normalized_target, "AAAA") if int(row.get("type") or 0) == 28
+            )
         target_resolves = bool(target_answers)
         return {
             "checked": True,
@@ -437,13 +743,11 @@ def _public_dns_handoff_receipt(*, host: str, dns_target: str) -> dict[str, obje
             "target_resolves": target_resolves,
             "answers": cname_answers[:5],
             "target_answers": target_answers[:5],
-            "errors": errors,
         }
     return {
         "checked": True,
-        "host_resolves": bool(answers),
-        "answers": answers[:5],
-        "errors": errors,
+        "host_resolves": bool(cname_answers or address_answers),
+        "answers": (cname_answers or address_answers)[:5],
     }
 
 
@@ -903,13 +1207,20 @@ def build_brilliant_directories_verification_receipt(*, billing_handoff_resolver
     handoff_url = ""
     if not error:
         handoff_url = brilliant_directories_billing_handoff_url(config)
-    billing_handoff = _billing_handoff_dns_receipt(
+    billing_handoff = build_brilliant_directories_billing_handoff_receipt(
         handoff_url,
         resolver=billing_handoff_resolver,
     )
-    if billing_handoff["configured"] and not billing_handoff["host_resolves"]:
+    if billing_handoff["configured"] and (
+        not billing_handoff["host_resolves"]
+        or billing_handoff.get("account_handoff_usable") is False
+    ):
         status = "blocked"
-        error = str(billing_handoff["error"] or "billing_handoff_host_unresolved")
+        error = str(
+            billing_handoff.get("error")
+            or billing_handoff.get("account_handoff_error")
+            or "billing_handoff_host_unresolved"
+        )
     return {
         "contract_name": BRILLIANT_DIRECTORIES_VERIFICATION_CONTRACT_NAME,
         "generated_at": _utc_now_iso(),
