@@ -56,6 +56,7 @@ def _base_metrics() -> dict[str, object]:
         "research_detail_walkthrough_magicfit_only": True,
         "research_detail_no_walkthrough_provider_chooser": True,
         "research_detail_no_legacy_walkthrough_providers": True,
+        "research_detail_mobile_secondary_collapsed": True,
     }
 
 
@@ -145,6 +146,7 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
             "research_detail_walkthrough_magicfit_only": False,
             "research_detail_no_walkthrough_provider_chooser": False,
             "research_detail_no_legacy_walkthrough_providers": False,
+            "research_detail_mobile_secondary_collapsed": False,
         }
     )
 
@@ -161,6 +163,7 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
         "research_detail_walkthrough_magicfit_only",
         "research_detail_no_walkthrough_provider_chooser",
         "research_detail_no_legacy_walkthrough_providers",
+        "research_detail_mobile_secondary_collapsed",
     }
 
 
@@ -179,6 +182,15 @@ def test_live_mobile_smoke_rejects_vague_research_detail_visual_copy() -> None:
 
     assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
         "research_detail_no_vague_visual_copy",
+    }
+
+
+def test_live_mobile_smoke_requires_compact_mobile_research_detail_secondary_sections() -> None:
+    metrics = _base_metrics()
+    metrics["research_detail_mobile_secondary_collapsed"] = False
+
+    assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
+        "research_detail_mobile_secondary_collapsed",
     }
 
 

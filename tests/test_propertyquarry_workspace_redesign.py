@@ -6034,6 +6034,19 @@ def test_property_research_detail_uses_user_facing_visual_and_decision_copy() ->
     assert "data-prd-hero-fallback-src" in body
 
 
+def test_property_research_detail_collapses_secondary_mobile_sections() -> None:
+    template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
+    body = template_path.read_text(encoding="utf-8")
+    assert 'data-prd-mobile-secondary="listing"' in body
+    assert 'data-prd-mobile-secondary="costs"' in body
+    assert 'node.open = false;' in body
+    assert 'mobileSecondaryQuery.matches' in body
+    assert 'other !== node && other instanceof HTMLDetailsElement' in body
+    assert '.prd-mobile-secondary > summary::after' in body
+    assert '.prd-body > .prd-decision-workspace {' in body
+    assert 'grid-row: 1;' in body
+
+
 def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     template_path = Path(__file__).resolve().parents[1] / "ea/app/templates/app/property_research_detail.html"
     body = template_path.read_text(encoding="utf-8")

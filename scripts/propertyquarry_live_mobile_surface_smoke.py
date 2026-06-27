@@ -317,6 +317,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "research_detail_walkthrough_magicfit_only", "ok": bool(metrics.get("research_detail_walkthrough_magicfit_only"))},
                 {"name": "research_detail_no_walkthrough_provider_chooser", "ok": bool(metrics.get("research_detail_no_walkthrough_provider_chooser"))},
                 {"name": "research_detail_no_legacy_walkthrough_providers", "ok": bool(metrics.get("research_detail_no_legacy_walkthrough_providers"))},
+                {"name": "research_detail_mobile_secondary_collapsed", "ok": bool(metrics.get("research_detail_mobile_secondary_collapsed"))},
             )
         )
     return checks
@@ -444,6 +445,7 @@ def _collect_metrics_script() -> str:
       const researchBody = document.querySelector('.prd-body');
       const sectionsBlock = researchBody ? Array.from(researchBody.children).find((node) => node?.classList?.contains('prd-sections')) : null;
       const firstAside = researchBody ? Array.from(researchBody.children).find((node) => String(node?.tagName || '').toLowerCase() === 'aside') : document.querySelector('aside');
+      const mobileSecondarySections = Array.from(document.querySelectorAll('[data-prd-mobile-secondary]'));
       const decisionRect = decisionWorkspace?.getBoundingClientRect();
       const sectionsRect = sectionsBlock?.getBoundingClientRect();
       const asideRect = firstAside?.getBoundingClientRect();
@@ -452,6 +454,14 @@ def _collect_metrics_script() -> str:
         && (!sectionsRect || decisionRect.top <= sectionsRect.top + 1)
         && (!asideRect || decisionRect.top <= asideRect.top + 1)
       );
+      const mobileSecondaryCollapsed = mobileSecondarySections.filter((node) => !node.open).length;
+      const mobileSecondaryVisibleSummaries = mobileSecondarySections.filter((node) => {
+        const summary = node.querySelector('summary');
+        if (!summary) return false;
+        const rect = summary.getBoundingClientRect();
+        const style = window.getComputedStyle(summary);
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      }).length;
       const mediaStage = document.querySelector('[data-object-media-stage]');
       const visualControls = visibleNodes('[data-pw-visual-request], [data-object-magicfit-generate], [data-object-magicfit-toggle]');
       const bodyText = String(document.body?.textContent || '').toLowerCase();
@@ -524,6 +534,7 @@ def _collect_metrics_script() -> str:
         research_detail_walkthrough_magicfit_only: walkthroughMagicfitOnly,
         research_detail_no_walkthrough_provider_chooser: !walkthroughProviderChooser && !pageHtml.includes('data-pw-walkthrough-provider-select'),
         research_detail_no_legacy_walkthrough_providers: !pageHtml.includes('mootion') && !pageHtml.includes('omagic'),
+        research_detail_mobile_secondary_collapsed: Boolean(mobileSecondaryCollapsed >= 2 && mobileSecondaryVisibleSummaries >= 2),
       };
     }
     """

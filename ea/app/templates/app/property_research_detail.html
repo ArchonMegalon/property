@@ -1236,6 +1236,33 @@
     display: grid;
     gap: 10px;
   }
+  .prd-mobile-secondary {
+    border: 1px solid color-mix(in srgb, var(--line) 88%, var(--prd-gold) 12%);
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, var(--prd-gold) 4%), color-mix(in srgb, var(--panel) 94%, transparent));
+    overflow: hidden;
+  }
+  .prd-mobile-secondary > summary {
+    display: none;
+  }
+  .prd-mobile-secondary > .prd-collapse-body {
+    padding: 16px;
+    gap: 12px;
+  }
+  .prd-mobile-secondary-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .prd-mobile-secondary-toggle strong {
+    font-size: 0.92rem;
+    line-height: 1.2;
+  }
+  .prd-mobile-secondary-toggle .prd-kicker {
+    margin-bottom: 0;
+  }
   .prd-section-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1845,6 +1872,42 @@
       gap: 8px;
       padding: 0 12px 12px;
     }
+    .prd-mobile-secondary {
+      padding: 0;
+    }
+    .prd-mobile-secondary > summary {
+      display: flex;
+      list-style: none;
+      cursor: pointer;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+    }
+    .prd-mobile-secondary > summary::-webkit-details-marker {
+      display: none;
+    }
+    .prd-mobile-secondary > summary::after {
+      content: "+";
+      color: var(--text-soft);
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .prd-mobile-secondary[open] > summary::after {
+      content: "−";
+    }
+    .prd-mobile-secondary > .prd-collapse-body {
+      gap: 6px;
+      padding: 0 8px 8px;
+    }
+    .prd-mobile-secondary > .prd-collapse-body > .prd-kicker,
+    .prd-mobile-secondary > .prd-collapse-body > .prd-section-title {
+      display: none;
+    }
+    .prd-mobile-secondary > .prd-collapse-body .prd-facts[style],
+    .prd-mobile-secondary > .prd-collapse-body .prd-key-points[style] {
+      margin-top: 0 !important;
+    }
     .prd-meta {
       grid-template-columns: 1fr 1fr;
     }
@@ -2098,6 +2161,18 @@
       border-radius: 11px;
       background-image: none;
       box-shadow: none;
+    }
+    .prd-body > .prd-decision-workspace {
+      grid-row: 1;
+    }
+    .prd-body > .prd-sections {
+      grid-row: 2;
+    }
+    .prd-body > .prd-side-stack {
+      grid-row: 3;
+    }
+    .prd-body > .prd-wide-context {
+      grid-row: 4;
     }
     .prd-decision-workspace {
       padding: 8px;
@@ -2686,88 +2761,133 @@
       {% endif %}
 
       <section class="prd-split">
-        <section class="prd-band">
-          <div class="prd-kicker">Listing facts</div>
-          <h2 class="prd-section-title">What the listing clearly says</h2>
-          <div class="object-list">
-            {% for row in research_listing_rows %}
-            <div class="prd-row">
-              <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
-              <span class="prd-tag">Listing</span>
+        <details class="prd-mobile-secondary" open data-prd-mobile-secondary="listing">
+          <summary>
+            <span class="prd-mobile-secondary-toggle">
+              <span class="prd-kicker">Listing facts</span>
+              <strong>What the listing clearly says</strong>
+            </span>
+            <span class="prd-tag">{{ research_listing_rows|length }} item{% if research_listing_rows|length != 1 %}s{% endif %}</span>
+          </summary>
+          <div class="prd-collapse-body">
+            <div class="prd-kicker">Listing facts</div>
+            <h2 class="prd-section-title">What the listing clearly says</h2>
+            <div class="object-list">
+              {% for row in research_listing_rows %}
+              <div class="prd-row">
+                <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
+                <span class="prd-tag">Listing</span>
+              </div>
+              {% endfor %}
             </div>
-            {% endfor %}
-          </div>
-          {% if research_feature_values %}
-          <div class="prd-facts" style="margin-top:14px;">
-            {% for value in research_feature_values %}
-            <span class="prd-chip">{{ value }}</span>
-            {% endfor %}
-          </div>
-          {% endif %}
-        </section>
-        <section class="prd-band">
-          <div class="prd-kicker">Return and costs</div>
-          <h2 class="prd-section-title">Price, rent, financing, and running costs</h2>
-          <div class="object-list">
-            {% for row in research_cost_rows %}
-            <div class="prd-row">
-              <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
-              <span class="prd-tag">Cost</span>
-            </div>
-            {% endfor %}
-            {% if not research_cost_rows %}
-            <div class="prd-row">
-              <div><strong>No full cost sheet yet</strong><small>The current source does not expose enough cost detail for a cleaner underwriting read.</small></div>
-              <span class="prd-tag">Open</span>
+            {% if research_feature_values %}
+            <div class="prd-facts" style="margin-top:14px;">
+              {% for value in research_feature_values %}
+              <span class="prd-chip">{{ value }}</span>
+              {% endfor %}
             </div>
             {% endif %}
           </div>
-        </section>
+        </details>
+        <details class="prd-mobile-secondary" open data-prd-mobile-secondary="costs">
+          <summary>
+            <span class="prd-mobile-secondary-toggle">
+              <span class="prd-kicker">Return and costs</span>
+              <strong>Price, rent, financing, and running costs</strong>
+            </span>
+            <span class="prd-tag">{% if research_cost_rows %}{{ research_cost_rows|length }} item{% if research_cost_rows|length != 1 %}s{% endif %}{% else %}Open{% endif %}</span>
+          </summary>
+          <div class="prd-collapse-body">
+            <div class="prd-kicker">Return and costs</div>
+            <h2 class="prd-section-title">Price, rent, financing, and running costs</h2>
+            <div class="object-list">
+              {% for row in research_cost_rows %}
+              <div class="prd-row">
+                <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
+                <span class="prd-tag">Cost</span>
+              </div>
+              {% endfor %}
+              {% if not research_cost_rows %}
+              <div class="prd-row">
+                <div><strong>No full cost sheet yet</strong><small>The current source does not expose enough cost detail for a cleaner underwriting read.</small></div>
+                <span class="prd-tag">Open</span>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </details>
       </section>
 
       {% if research_description_text %}
-      <section class="prd-band">
-        <div class="prd-kicker">Narrative</div>
-        <h2 class="prd-section-title">How the provider is selling the property</h2>
-        <p class="prd-copy">{{ research_description_text }}</p>
-      </section>
+      <details class="prd-mobile-secondary" open data-prd-mobile-secondary="narrative">
+        <summary>
+          <span class="prd-mobile-secondary-toggle">
+            <span class="prd-kicker">Narrative</span>
+            <strong>How the provider is selling the property</strong>
+          </span>
+          <span class="prd-tag">Listing</span>
+        </summary>
+        <div class="prd-collapse-body">
+          <div class="prd-kicker">Narrative</div>
+          <h2 class="prd-section-title">How the provider is selling the property</h2>
+          <p class="prd-copy">{{ research_description_text }}</p>
+        </div>
+      </details>
       {% endif %}
 
+      {% if research_location_text or research_everyday_fit_rows or research_energy_rows %}
       <section class="prd-split">
-        <section class="prd-band">
-          <div class="prd-kicker">Area</div>
-          <h2 class="prd-section-title">Location and daily fit</h2>
-          {% if research_location_text %}<p class="prd-copy">{{ research_location_text }}</p>{% endif %}
-          {% if research_everyday_fit_rows %}
-          <div class="prd-key-points" style="margin-top:14px;">
-            {% for row in research_everyday_fit_rows[:6] %}
-            <div class="prd-key-point">
-              <strong>{{ row.get('title') }}</strong>
-              <span>{{ row.get('detail') }}</span>
-            </div>
-            {% endfor %}
-          </div>
-          {% endif %}
-        </section>
-        <section class="prd-band">
-          <div class="prd-kicker">Energy</div>
-          <h2 class="prd-section-title">Energy and heating</h2>
-          <div class="object-list">
-            {% for row in research_energy_rows %}
-            <div class="prd-row">
-              <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
-              <span class="prd-tag">Listing</span>
-            </div>
-            {% endfor %}
-            {% if not research_energy_rows %}
-            <div class="prd-row">
-              <div><strong>No energy facts attached yet</strong><small>The source page does not expose a reliable energy or heating read.</small></div>
-              <span class="prd-tag">Open</span>
+        {% if research_location_text or research_everyday_fit_rows %}
+        <details class="prd-mobile-secondary" open data-prd-mobile-secondary="area">
+          <summary>
+            <span class="prd-mobile-secondary-toggle">
+              <span class="prd-kicker">Area</span>
+              <strong>Location and daily fit</strong>
+            </span>
+            <span class="prd-tag">{% if research_everyday_fit_rows %}{{ research_everyday_fit_rows[:6]|length }} notes{% else %}Area{% endif %}</span>
+          </summary>
+          <div class="prd-collapse-body">
+            <div class="prd-kicker">Area</div>
+            <h2 class="prd-section-title">Location and daily fit</h2>
+            {% if research_location_text %}<p class="prd-copy">{{ research_location_text }}</p>{% endif %}
+            {% if research_everyday_fit_rows %}
+            <div class="prd-key-points" style="margin-top:14px;">
+              {% for row in research_everyday_fit_rows[:6] %}
+              <div class="prd-key-point">
+                <strong>{{ row.get('title') }}</strong>
+                <span>{{ row.get('detail') }}</span>
+              </div>
+              {% endfor %}
             </div>
             {% endif %}
           </div>
-        </section>
+        </details>
+        {% endif %}
+        {% if research_energy_rows %}
+        <details class="prd-mobile-secondary" open data-prd-mobile-secondary="energy">
+          <summary>
+            <span class="prd-mobile-secondary-toggle">
+              <span class="prd-kicker">Energy</span>
+              <strong>Energy and heating</strong>
+            </span>
+            <span class="prd-tag">{{ research_energy_rows|length }} item{% if research_energy_rows|length != 1 %}s{% endif %}</span>
+          </summary>
+          <div class="prd-collapse-body">
+            <div class="prd-kicker">Energy</div>
+            <h2 class="prd-section-title">Energy and heating</h2>
+            <div class="object-list">
+              {% for row in research_energy_rows %}
+              <div class="prd-row">
+                <div><strong>{{ row.get('label') }}</strong><small>{{ row.get('value') }}</small></div>
+                <span class="prd-tag">Listing</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </details>
+        {% endif %}
       </section>
+      {% endif %}
 
       <details class="prd-collapse">
         <summary>
@@ -3396,6 +3516,39 @@
         button.textContent = 'Copy failed';
         window.setTimeout(() => { button.textContent = 'Copy page link'; }, 2200);
       }
+    });
+  });
+
+  const mobileSecondaryDetails = Array.from(document.querySelectorAll('[data-prd-mobile-secondary]'));
+  const mobileSecondaryQuery = window.matchMedia('(max-width: 760px)');
+  const syncMobileSecondaryDetails = () => {
+    const mobile = mobileSecondaryQuery.matches;
+    mobileSecondaryDetails.forEach((node) => {
+      if (!(node instanceof HTMLDetailsElement)) return;
+      if (mobile) {
+        if (node.dataset.prdMobileSecondarySynced !== '1') {
+          node.open = false;
+          node.dataset.prdMobileSecondarySynced = '1';
+        }
+      } else {
+        node.open = true;
+        delete node.dataset.prdMobileSecondarySynced;
+      }
+    });
+  };
+  syncMobileSecondaryDetails();
+  const bindMobileSecondaryMediaQuery = () => syncMobileSecondaryDetails();
+  if (typeof mobileSecondaryQuery.addEventListener === 'function') {
+    mobileSecondaryQuery.addEventListener('change', bindMobileSecondaryMediaQuery);
+  } else if (typeof mobileSecondaryQuery.addListener === 'function') {
+    mobileSecondaryQuery.addListener(bindMobileSecondaryMediaQuery);
+  }
+  mobileSecondaryDetails.forEach((node) => {
+    node.addEventListener('toggle', () => {
+      if (!(node instanceof HTMLDetailsElement) || !mobileSecondaryQuery.matches || !node.open) return;
+      mobileSecondaryDetails.forEach((other) => {
+        if (other !== node && other instanceof HTMLDetailsElement) other.open = false;
+      });
     });
   });
 

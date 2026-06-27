@@ -3052,6 +3052,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const summaryBoxes = Array.from(document.querySelectorAll('.prd-current-read .prd-summary-box'));
               const shell = document.querySelector('[data-property-research-detail]');
               const feedback = document.querySelector('[data-object-feedback]');
+              const sections = document.querySelector('.prd-sections');
+              const decision = document.querySelector('.prd-decision-workspace');
+              const secondaryDetails = Array.from(document.querySelectorAll('[data-prd-mobile-secondary]'));
               const fineTune = Array.from(document.querySelectorAll('.prd-feedback-details'))
                 .find((node) => (node.textContent || '').includes('Refine decision'));
               const optionalNote = Array.from(document.querySelectorAll('.prd-feedback-details'))
@@ -3070,6 +3073,8 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
               const shellRect = shell ? shell.getBoundingClientRect() : null;
               const feedbackRect = feedback ? feedback.getBoundingClientRect() : null;
               const feedbackStyle = feedback ? getComputedStyle(feedback) : null;
+              const sectionsRect = sections ? sections.getBoundingClientRect() : null;
+              const decisionRect = decision ? decision.getBoundingClientRect() : null;
               const savebarRect = savebar ? savebar.getBoundingClientRect() : null;
               return {
                 viewportWidth: window.innerWidth,
@@ -3091,6 +3096,16 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
                 summaryShortestCard: Math.min(...summaryBoxRects.map((rect) => Math.round(rect.height))),
                 summaryTallestCard: Math.max(0, ...summaryBoxRects.map((rect) => Math.round(rect.height))),
                 summaryMaxRight: Math.max(0, ...summaryBoxRects.map((rect) => Math.round(rect.right))),
+                decisionTop: decisionRect ? Math.round(decisionRect.top) : 0,
+                sectionsTop: sectionsRect ? Math.round(sectionsRect.top) : 0,
+                secondarySectionCount: secondaryDetails.length,
+                closedSecondarySections: secondaryDetails.filter((node) => !node.open).length,
+                visibleSecondarySummaries: secondaryDetails.filter((node) => {
+                  const summary = node.querySelector('summary');
+                  if (!summary) return false;
+                  const rect = summary.getBoundingClientRect();
+                  return rect.width > 0 && rect.height > 0 && getComputedStyle(summary).display !== 'none';
+                }).length,
                 feedbackHeight: feedbackRect ? Math.round(feedbackRect.height) : 0,
                 feedbackBottom: feedbackRect ? Math.round(feedbackRect.bottom) : 0,
                 feedbackOverflowY: feedbackStyle ? feedbackStyle.overflowY : '',
@@ -3119,6 +3134,10 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
             assert layout["summaryShortestCard"] >= 68
             assert layout["summaryTallestCard"] <= 112
         assert layout["summaryMaxRight"] <= layout["viewportWidth"] + 1
+        assert 0 < layout["decisionTop"] < layout["sectionsTop"]
+        assert layout["secondarySectionCount"] >= 2
+        assert layout["closedSecondarySections"] >= 2
+        assert layout["visibleSecondarySummaries"] >= 2
         assert 180 <= layout["feedbackHeight"] <= min(420, layout["viewportHeight"] - 54)
         assert 0 < layout["savebarBottom"] <= layout["feedbackBottom"] + 1
         assert layout["feedbackOverflowY"] == "visible"
