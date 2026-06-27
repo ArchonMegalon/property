@@ -833,7 +833,11 @@ def test_propertyquarry_research_missing_rows_respect_confirmed_distance_aliases
 def test_propertyquarry_research_missing_rows_use_concrete_open_check_copy() -> None:
     rows = landing_property_research._property_packet_missing_rows(
         facts={},
-        preferences={"keywords": "playground nearby, underground nearby", "prefer_good_air_quality": True},
+        preferences={
+            "keywords": "playground nearby, underground nearby, supermarket nearby",
+            "prefer_good_air_quality": True,
+            "max_distance_to_supermarket_m": 500,
+        },
     )
 
     details_by_title = {row["title"]: row["detail"] for row in rows}
@@ -843,6 +847,20 @@ def test_propertyquarry_research_missing_rows_use_concrete_open_check_copy() -> 
     assert details_by_title["Underground distance"] == "No confirmed underground distance yet."
     assert details_by_title["Air-quality risk"] == "No verified air-quality read yet."
     assert "Needed to" not in json.dumps(details_by_title)
+
+
+def test_propertyquarry_research_missing_rows_hide_unspecified_distance_noise() -> None:
+    rows = landing_property_research._property_packet_missing_rows(
+        facts={},
+        preferences={},
+    )
+
+    titles = {row["title"] for row in rows}
+    assert "Lift status" in titles
+    assert "Supermarket distance" not in titles
+    assert "Playground distance" not in titles
+    assert "Zoo distance" not in titles
+    assert "Underground distance" not in titles
 
 
 def test_propertyquarry_scout_source_labels_strip_search_scope_for_any_postal_code() -> None:
@@ -7638,7 +7656,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Next move" in packet.text
     assert "Fine-tune my preferences" in packet.text
     assert "prd-decision-workspace" in packet.text
-    assert packet.text.index('class="prd-panel prd-decision-workspace object-feedback"') > packet.text.index("</aside>")
+    assert re.search(r"\.prd-decision-workspace\s*\{[^}]*order:\s*-1;", packet.text, re.S)
     assert "What to do next" not in packet.text
     assert "Evidence added" in packet.text
     assert "Manual clearance required" in packet.text

@@ -1086,6 +1086,12 @@ def _property_packet_missing_rows(
     preferences: dict[str, object],
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    wanted_keywords = {
+        str(value).strip().lower()
+        for value in str(preferences.get("keywords") or "").split(",")
+        if str(value).strip()
+    }
+    family_context = _property_family_context_active(preferences)
 
     def _open_check_detail(*, title: str, primary_key: str) -> str:
         normalized_key = str(primary_key or "").strip().lower()
@@ -1130,6 +1136,114 @@ def _property_packet_missing_rows(
         key_group = (keys,) if isinstance(keys, str) else tuple(keys)
         return any(facts.get(key) not in (None, "", []) for key in key_group)
 
+    def _preference_value_present(key: str) -> bool:
+        raw_value = preferences.get(key)
+        if raw_value in (None, "", [], {}, False):
+            return False
+        if isinstance(raw_value, str):
+            normalized = raw_value.strip().lower()
+            if normalized in {"0", "0.0", "false", "off", "none", "null", "neutral", "any"}:
+                return False
+            return True
+        if isinstance(raw_value, (int, float)):
+            return float(raw_value) > 0
+        return True
+
+    def _distance_check_requested(
+        *,
+        preference_keys: tuple[str, ...] = (),
+        keyword_markers: tuple[str, ...] = (),
+        family_only: bool = False,
+    ) -> bool:
+        if any(_preference_value_present(key) for key in preference_keys):
+            return True
+        if any(marker in wanted_keywords for marker in keyword_markers):
+            return True
+        return family_only and family_context
+
+    distance_request_specs: dict[str, dict[str, object]] = {
+        "nearest_supermarket_m": {
+            "preference_keys": ("max_distance_to_supermarket_m",),
+            "keyword_markers": ("supermarket nearby",),
+        },
+        "distance_supermarket_m": {
+            "preference_keys": ("max_distance_to_supermarket_m",),
+            "keyword_markers": ("supermarket nearby",),
+        },
+        "nearest_playground_m": {
+            "preference_keys": ("max_distance_to_playground_m",),
+            "keyword_markers": ("playground nearby",),
+            "family_only": True,
+        },
+        "distance_playground_m": {
+            "preference_keys": ("max_distance_to_playground_m",),
+            "keyword_markers": ("playground nearby",),
+            "family_only": True,
+        },
+        "nearest_library_m": {
+            "preference_keys": ("max_distance_to_library_m",),
+            "keyword_markers": ("library nearby",),
+            "family_only": True,
+        },
+        "nearest_zoo_m": {
+            "preference_keys": ("max_distance_to_zoo_m",),
+            "keyword_markers": ("zoo nearby",),
+            "family_only": True,
+        },
+        "nearest_pharmacy_m": {
+            "preference_keys": ("max_distance_to_medical_care_m",),
+            "keyword_markers": ("pharmacy nearby", "medical care nearby"),
+            "family_only": True,
+        },
+        "distance_pharmacy_m": {
+            "preference_keys": ("max_distance_to_medical_care_m",),
+            "keyword_markers": ("pharmacy nearby", "medical care nearby"),
+            "family_only": True,
+        },
+        "nearest_medical_care_m": {
+            "preference_keys": ("max_distance_to_medical_care_m",),
+            "keyword_markers": ("medical care nearby", "pharmacy nearby"),
+            "family_only": True,
+        },
+        "nearest_market_m": {
+            "preference_keys": ("max_distance_to_market_m",),
+            "keyword_markers": ("market nearby",),
+        },
+        "nearest_hardware_store_m": {
+            "preference_keys": ("max_distance_to_hardware_store_m",),
+            "keyword_markers": ("baumarkt nearby",),
+        },
+        "nearest_shopping_center_m": {
+            "preference_keys": ("max_distance_to_shopping_center_m",),
+            "keyword_markers": ("shopping center nearby",),
+        },
+        "nearest_shopping_street_m": {
+            "preference_keys": ("max_distance_to_shopping_street_m",),
+            "keyword_markers": ("flaniermeile nearby",),
+        },
+        "nearest_theatre_m": {
+            "preference_keys": ("max_distance_to_theatre_m",),
+            "keyword_markers": ("theatre nearby",),
+        },
+        "nearest_public_pool_m": {
+            "preference_keys": ("max_distance_to_public_pool_m",),
+            "keyword_markers": ("public pool nearby",),
+            "family_only": True,
+        },
+        "nearest_subway_m": {
+            "preference_keys": ("max_distance_to_subway_m",),
+            "keyword_markers": ("underground nearby",),
+        },
+        "nearest_transit_m": {
+            "preference_keys": ("max_distance_to_subway_m",),
+            "keyword_markers": ("underground nearby",),
+        },
+        "distance_underground_m": {
+            "preference_keys": ("max_distance_to_subway_m",),
+            "keyword_markers": ("underground nearby",),
+        },
+    }
+
     missing_fact_specs = [
         (("address", "exact_address", "street_address", "postal_name"), "Exact address", "Needed for precise neighbourhood checks and revisit logistics."),
         ("heating_type", "Heating type", "Needed to confirm if the building avoids the wrong heating setup."),
@@ -1155,16 +1269,16 @@ def _property_packet_missing_rows(
         ("winter_access_risk", "Winter driving access", "Needed to understand snow, slope, and seasonal access constraints."),
         ("flood_risk", "Flood exposure", "Needed to understand historic flooding, runoff, and zone risk."),
     ]
-    wanted_keywords = {str(value).strip().lower() for value in str(preferences.get("keywords") or "").split(",") if str(value).strip()}
     for key, title, detail in missing_fact_specs:
         if _has_any_fact_value(key):
             continue
         primary_key = key[0] if isinstance(key, tuple) else key
-        if primary_key == "nearest_playground_m" and "playground nearby" not in wanted_keywords and "family" not in wanted_keywords:
-            continue
-        if primary_key == "nearest_library_m" and "library nearby" not in wanted_keywords and "family" not in wanted_keywords:
-            continue
-        if primary_key == "nearest_subway_m" and "underground nearby" not in wanted_keywords:
+        distance_request = distance_request_specs.get(primary_key)
+        if distance_request and not _distance_check_requested(
+            preference_keys=tuple(distance_request.get("preference_keys") or ()),
+            keyword_markers=tuple(distance_request.get("keyword_markers") or ()),
+            family_only=bool(distance_request.get("family_only")),
+        ):
             continue
         if primary_key == "heating_type" and not ({"no gas", "district heating"} & wanted_keywords):
             continue

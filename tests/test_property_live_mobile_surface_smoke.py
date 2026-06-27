@@ -44,7 +44,7 @@ def _base_metrics() -> dict[str, object]:
         "account_menu_mobile_sheet": True,
         "account_menu_trigger_compact": True,
         "research_detail_workspace": True,
-        "research_detail_decision_after_aside": True,
+        "research_detail_decision_precedes_secondary_content": True,
         "research_detail_media_stage": True,
         "research_detail_visual_controls": True,
         "research_detail_fake_visual_ready": False,
@@ -133,7 +133,7 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
     metrics.update(
         {
             "research_detail_workspace": False,
-            "research_detail_decision_after_aside": False,
+            "research_detail_decision_precedes_secondary_content": False,
             "research_detail_media_stage": False,
             "research_detail_visual_controls": False,
             "research_detail_fake_visual_ready": True,
@@ -149,7 +149,7 @@ def test_live_mobile_smoke_requires_real_research_detail_layout() -> None:
 
     assert _failed_names("/app/research/perf-candidate-1020?run_id=run-gold", metrics) == {
         "research_detail_workspace",
-        "research_detail_decision_after_aside",
+        "research_detail_decision_precedes_secondary_content",
         "research_detail_media_stage",
         "research_detail_visual_controls",
         "research_detail_no_fake_visual_ready",

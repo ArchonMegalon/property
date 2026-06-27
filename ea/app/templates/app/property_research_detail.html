@@ -280,6 +280,7 @@
   }
   .prd-decision-workspace {
     position: relative;
+    order: -1;
     overflow-y: visible;
     max-height: none;
     overscroll-behavior: contain;
@@ -1163,8 +1164,14 @@
   .prd-open-checks {
     gap: 12px;
   }
-  .prd-open-checks .prd-gate-list {
-    gap: 0;
+  .prd-open-checks-summary {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.85rem;
+    line-height: 1.38;
+  }
+  .prd-open-checks-chips {
+    gap: 8px;
   }
   .prd-gate-item {
     display: grid;
@@ -2197,6 +2204,11 @@
     .prd-key-point span {
       display: none !important;
     }
+    .prd-open-checks-summary {
+      display: block !important;
+      font-size: 11px;
+      line-height: 1.24;
+    }
     .prd-current-read,
     .prd-hero-gallery,
     .prd-map-card:not(.prd-map-inline),
@@ -2630,23 +2642,20 @@
       {% if open_check_rows %}
       <section class="prd-band prd-open-checks">
         <div class="prd-kicker">Open checks</div>
-        <div class="prd-gate-list">
-          {% for item in open_check_rows[:3] %}
-          <div class="prd-gate-item">
-            <div>
-              <strong>{{ item.get('title') }}</strong>
-              <span>{{ item.get('detail') }}</span>
-            </div>
-            <span class="prd-tag">{{ item.get('tag') }}</span>
-          </div>
+        <h2 class="prd-section-title">Still unconfirmed</h2>
+        <p class="prd-open-checks-summary">
+          {{ open_check_rows|length }} item{% if open_check_rows|length != 1 %}s{% endif %} still need verification before this property is fully decision-ready.
+        </p>
+        <div class="prd-facts prd-open-checks-chips">
+          {% for item in open_check_rows[:4] %}
+          <span class="prd-chip">{{ item.get('title') }}</span>
           {% endfor %}
         </div>
-        {% if open_check_rows[3:] %}
         <details class="prd-feedback-details prd-open-checks-more">
-          <summary>{{ open_check_rows[3:]|length }} more open checks</summary>
+          <summary>Show details</summary>
           <div class="prd-feedback-body">
             <div class="prd-gate-list">
-              {% for item in open_check_rows[3:] %}
+              {% for item in open_check_rows %}
               <div class="prd-gate-item">
                 <div>
                   <strong>{{ item.get('title') }}</strong>
@@ -2658,7 +2667,6 @@
             </div>
           </div>
         </details>
-        {% endif %}
       </section>
       {% endif %}
 

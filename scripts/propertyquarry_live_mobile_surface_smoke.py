@@ -305,7 +305,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
         checks.extend(
             (
                 {"name": "research_detail_workspace", "ok": bool(metrics.get("research_detail_workspace"))},
-                {"name": "research_detail_decision_after_aside", "ok": bool(metrics.get("research_detail_decision_after_aside"))},
+                {"name": "research_detail_decision_precedes_secondary_content", "ok": bool(metrics.get("research_detail_decision_precedes_secondary_content"))},
                 {"name": "research_detail_media_stage", "ok": bool(metrics.get("research_detail_media_stage"))},
                 {"name": "research_detail_visual_controls", "ok": bool(metrics.get("research_detail_visual_controls"))},
                 {"name": "research_detail_no_fake_visual_ready", "ok": not bool(metrics.get("research_detail_fake_visual_ready"))},
@@ -434,7 +434,17 @@ def _collect_metrics_script() -> str:
       const accountPanelStyle = accountPanel ? window.getComputedStyle(accountPanel) : null;
       const accountPanelRect = accountPanel?.getBoundingClientRect();
       const decisionWorkspace = document.querySelector('.prd-decision-workspace');
-      const firstAside = document.querySelector('aside');
+      const researchBody = document.querySelector('.prd-body');
+      const sectionsBlock = researchBody ? Array.from(researchBody.children).find((node) => node?.classList?.contains('prd-sections')) : null;
+      const firstAside = researchBody ? Array.from(researchBody.children).find((node) => String(node?.tagName || '').toLowerCase() === 'aside') : document.querySelector('aside');
+      const decisionRect = decisionWorkspace?.getBoundingClientRect();
+      const sectionsRect = sectionsBlock?.getBoundingClientRect();
+      const asideRect = firstAside?.getBoundingClientRect();
+      const decisionPrecedesSecondaryContent = Boolean(
+        decisionRect
+        && (!sectionsRect || decisionRect.top <= sectionsRect.top + 1)
+        && (!asideRect || decisionRect.top <= asideRect.top + 1)
+      );
       const mediaStage = document.querySelector('[data-object-media-stage]');
       const visualControls = visibleNodes('[data-pw-visual-request], [data-object-magicfit-generate], [data-object-magicfit-toggle]');
       const bodyText = String(document.body?.textContent || '').toLowerCase();
@@ -495,7 +505,7 @@ def _collect_metrics_script() -> str:
         account_menu_mobile_sheet: Boolean(accountPanel && accountPanelStyle?.position === 'fixed' && accountPanelRect && accountPanelRect.width >= window.innerWidth - 24),
         account_menu_trigger_compact: Boolean(accountSummaryRect && accountSummaryRect.width <= 58),
         research_detail_workspace: visible(decisionWorkspace),
-        research_detail_decision_after_aside: Boolean(decisionWorkspace && firstAside && (firstAside.compareDocumentPosition(decisionWorkspace) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        research_detail_decision_precedes_secondary_content: decisionPrecedesSecondaryContent,
         research_detail_media_stage: visible(mediaStage),
         research_detail_visual_controls: visualControls.length > 0,
         research_detail_fake_visual_ready: bodyText.includes('fake 3d') || bodyText.includes('fake tour') || bodyText.includes('placeholder 3d') || bodyText.includes('placeholder tour'),
