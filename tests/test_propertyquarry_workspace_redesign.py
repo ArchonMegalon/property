@@ -14504,6 +14504,19 @@ def test_property_google_settings_uses_fast_local_status(monkeypatch) -> None:
     assert "Connect Google" in response.text
 
 
+def test_property_google_settings_disconnected_state_stays_compact() -> None:
+    client = build_property_client(principal_id="pq-settings-google-compact")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    response = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert "Google not connected" in response.text
+    assert "Google sign-in" in response.text
+    assert "Connect Google" in response.text
+    assert "No connected Google account" not in response.text
+
+
 def test_propertyquarry_shell_uses_the_new_surface_navigation() -> None:
     client = build_property_client(principal_id="pq-surface-nav")
     start_workspace(client, mode="personal", workspace_name="Surface Nav")

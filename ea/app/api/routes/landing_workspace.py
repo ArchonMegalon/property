@@ -1895,26 +1895,7 @@ def settings_google_detail(
                 {"label": "Connected Google accounts", "value": "0"},
                 {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
             ]
-            object_sections = [
-                {
-                    "eyebrow": "Connection",
-                    "title": "Google sign-in",
-                    "items": [
-                        _object_detail_row(
-                            "No connected Google account",
-                            "Use Google when you want faster sign-in and verified return access from this device.",
-                            "Google",
-                            action_href=connect_another_href,
-                            action_label="Connect Google",
-                            action_method="get",
-                        ),
-                        _object_detail_row("Connected Google accounts", "0", "Google"),
-                        _object_detail_row("Primary account", "Not connected", "Google"),
-                        _object_detail_row("Token status", str(sync.get("token_status") or "missing").replace("_", " "), "Auth"),
-                    ],
-                    "open": True,
-                },
-            ]
+            object_sections = []
     else:
         object_sidebar_rows = [
             _object_detail_row(
