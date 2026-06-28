@@ -1354,12 +1354,24 @@ def test_billing_handoff_worker_includes_propertyquarry_bridge_consumer() -> Non
     assert "async fetch(request, env)" in source
     assert "const bridgePath = \"/sso/propertyquarry\"" in source
     assert "const bridgeCookieName = 'pq_bridge'" in source
+    assert "const bridgeCookieHeader = (token) =>" in source
     assert "env.PQ_BRIDGE_SECRET" in source
     assert "incoming.pathname === bridgePath" in source
-    assert "title: 'Billing ready'" in source
-    assert "'x-pq-billing-worker-branch': 'bridge-ready'" in source
-    assert "Back to PropertyQuarry" in source
-    assert "View plans" in source
+    assert "'location': `${incoming.origin}/account`" in source
+    assert "'set-cookie': bridgeCookieHeader(bridgeContext.token)" in source
+    assert "'x-pq-billing-worker-branch': 'bridge-account-redirect'" in source
+
+
+def test_billing_handoff_worker_only_injects_bridge_banner_on_login_surface() -> None:
+    source = _worker_source(
+        target_base_url="https://propertyquarry.directoryup.com",
+        pricing_url="https://propertyquarry.com/pricing",
+        property_origin="https://propertyquarry.com",
+        bridge_path="/sso/propertyquarry",
+    )
+
+    assert "if (bridgeContext && incoming.pathname === '/login')" in source
+    assert "incoming.pathname === '/account'" not in source.split("if (bridgeContext && incoming.pathname === '/login')", 1)[1].split("html = /<\\/body>/i.test(html)", 1)[0]
 
 
 def test_billing_handoff_worker_scrubs_score_filter_noise_from_proxied_html() -> None:
