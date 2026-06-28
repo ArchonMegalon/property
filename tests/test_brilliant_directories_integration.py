@@ -338,7 +338,30 @@ def test_brilliant_directories_billing_sso_bridge_launch_url_embeds_signed_token
     assert query["tenant"] == "main"
     assert query["source"] == "propertyquarry"
     assert payload["principal_id"] == "exec-bd-sso"
+    assert payload["access_email"] == "troger.vienna@gmail.com"
     assert payload["return_to_origin"] == "https://propertyquarry.com"
+
+
+def test_brilliant_directories_billing_sso_bridge_launch_url_derives_email_from_cf_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_BRILLIANT_DIRECTORIES_SSO_BRIDGE_SECRET", "bridge-secret")
+
+    launch_url = build_brilliant_directories_billing_sso_bridge_launch_url(
+        principal_id="cf-email:troger.vienna@gmail.com",
+        access_email="",
+        return_to="/app/account",
+        bridge_url="https://billing.propertyquarry.com/sso/propertyquarry",
+        issued_at=1_717_200_000,
+    )
+
+    parsed = urllib.parse.urlparse(launch_url)
+    query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+    payload = verify_brilliant_directories_billing_sso_bridge_token(query["pq_bridge"], now=1_717_200_120)
+
+    assert parsed.netloc == "billing.propertyquarry.com"
+    assert payload["access_email"] == "troger.vienna@gmail.com"
 
 
 def test_brilliant_directories_verifier_blocks_unresolved_billing_handoff(monkeypatch: pytest.MonkeyPatch) -> None:

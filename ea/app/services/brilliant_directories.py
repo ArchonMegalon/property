@@ -987,9 +987,10 @@ def build_brilliant_directories_billing_sso_bridge_launch_url(
     resolved_bridge_url = str(bridge_url if bridge_url is not None else brilliant_directories_billing_sso_bridge_url()).strip()
     if not resolved_bridge_url:
         raise RuntimeError("billing_sso_bridge_url_missing")
+    resolved_access_email = str(access_email or "").strip().lower() or _principal_email_hint(principal_id)
     token = sign_brilliant_directories_billing_sso_bridge_token(
         principal_id=principal_id,
-        access_email=access_email,
+        access_email=resolved_access_email,
         return_to=return_to,
         issued_at=issued_at,
         bridge_url=resolved_bridge_url,
