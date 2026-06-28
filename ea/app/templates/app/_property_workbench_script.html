@@ -1830,6 +1830,45 @@
       return raw;
     };
     const pollRetryEvents = () => [];
+    const parseRunEventTimestamp = (event = {}) => parseUtcish(
+      event?.created_at
+      || event?.updated_at
+      || event?.observed_at
+      || event?.at
+      || ''
+    );
+    const mergeCanonicalRunEvents = (previousEvents, nextEvents) => {
+      const prior = Array.isArray(previousEvents)
+        ? previousEvents.filter((event) => event && typeof event === 'object')
+        : [];
+      const incoming = Array.isArray(nextEvents)
+        ? nextEvents.filter((event) => event && typeof event === 'object')
+        : [];
+      if (!prior.length) return incoming.slice(-12);
+      if (!incoming.length) return prior.slice(-12);
+      const merged = [];
+      const seen = new Set();
+      [...prior, ...incoming].forEach((event) => {
+        const signature = [
+          String(event?.step || '').trim().toLowerCase(),
+          String(event?.status || '').trim().toLowerCase(),
+          String(event?.message || '').trim(),
+          String(event?.created_at || event?.updated_at || event?.observed_at || event?.at || '').trim(),
+        ].join('|');
+        if (seen.has(signature)) return;
+        seen.add(signature);
+        merged.push({ ...event });
+      });
+      merged.sort((left, right) => {
+        const leftAt = parseRunEventTimestamp(left);
+        const rightAt = parseRunEventTimestamp(right);
+        if (leftAt && rightAt && leftAt !== rightAt) return leftAt - rightAt;
+        if (leftAt && !rightAt) return -1;
+        if (!leftAt && rightAt) return 1;
+        return 0;
+      });
+      return merged.slice(-12);
+    };
     const stripLastConfirmedPrefix = (value = '') => String(value || '').replace(/^Using the last confirmed update\.\s*/i, '').trim();
     const isGenericPollRetryMessage = (value = '') => {
       const lowered = stripLastConfirmedPrefix(value).toLowerCase();
@@ -2643,11 +2682,29 @@
       const previousSummary = previousRun.summary && typeof previousRun.summary === 'object'
         ? previousRun.summary
         : {};
+      const previousEvents = Array.isArray(previousRun.events)
+        ? previousRun.events
+        : [];
       const nextSummary = runPayload.summary && typeof runPayload.summary === 'object'
         ? runPayload.summary
         : {};
+      const nextEvents = Array.isArray(runPayload.events)
+        ? runPayload.events
+        : [];
       const mergedRun = { ...previousRun, ...runPayload };
       const mergedSummary = { ...previousSummary, ...nextSummary };
+      const liveUpdatedAt = String(runPayload.updated_at || runPayload.generated_at || mergedRun.updated_at || '').trim();
+      if (liveUpdatedAt) {
+        mergedRun.updated_at = liveUpdatedAt;
+        mergedSummary.updated_at = liveUpdatedAt;
+      }
+      const liveProgress = Number(runPayload.progress);
+      if (Number.isFinite(liveProgress)) {
+        mergedSummary.progress = liveProgress;
+        mergedSummary.progress_percent = liveProgress;
+      }
+      const mergedEvents = mergeCanonicalRunEvents(previousEvents, nextEvents);
+      if (mergedEvents.length) mergedRun.events = mergedEvents;
       if (Object.keys(mergedSummary).length) mergedRun.summary = mergedSummary;
       data.run = mergedRun;
       const nextRunId = String(mergedRun.run_id || '').trim();

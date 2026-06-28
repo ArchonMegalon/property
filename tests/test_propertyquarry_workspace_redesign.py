@@ -14941,6 +14941,24 @@ def test_propertyquarry_run_script_promotes_latest_polled_run_to_canonical_state
     assert "runPayload = syncCanonicalRunState(runPayload);" in bundle
 
 
+def test_propertyquarry_run_script_backfills_live_summary_timestamp_and_progress() -> None:
+    bundle = _read_workbench_bundle()
+    assert "const liveUpdatedAt = String(runPayload.updated_at || runPayload.generated_at || mergedRun.updated_at || '').trim();" in bundle
+    assert "mergedSummary.updated_at = liveUpdatedAt;" in bundle
+    assert "const liveProgress = Number(runPayload.progress);" in bundle
+    assert "mergedSummary.progress = liveProgress;" in bundle
+    assert "mergedSummary.progress_percent = liveProgress;" in bundle
+
+
+def test_propertyquarry_run_script_keeps_recent_polled_events_in_canonical_trail() -> None:
+    bundle = _read_workbench_bundle()
+    assert "const mergeCanonicalRunEvents = (previousEvents, nextEvents) => {" in bundle
+    assert "const previousEvents = Array.isArray(previousRun.events)" in bundle
+    assert "const nextEvents = Array.isArray(runPayload.events)" in bundle
+    assert "const mergedEvents = mergeCanonicalRunEvents(previousEvents, nextEvents);" in bundle
+    assert "if (mergedEvents.length) mergedRun.events = mergedEvents;" in bundle
+
+
 def test_propertyquarry_run_script_prefers_concrete_provider_labels_for_grouped_sources() -> None:
     bundle = _read_workbench_bundle()
     assert "const genericSourceFamilies = new Set([" in bundle
