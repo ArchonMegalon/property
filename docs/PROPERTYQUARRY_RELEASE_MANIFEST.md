@@ -14,7 +14,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
   - the live login probe still returns `Invalid recaptcha response or setup.` until BD reCAPTCHA is disabled for this lane or a trusted SSO/account handoff exists.
 - The backend repair lane at `https://propertyquarry.directoryup.com/admin/login` is reachable without reCAPTCHA and exposes a password-recovery URL, but the locally seeded shared account did not authenticate there on 2026-06-27; the remaining self-service repair dependency is the real Brilliant Directories admin username/password or a completed backend password reset.
 - The PropertyQuarry runtime Telegram notification path is verified end to end for `cf-email:tibor.girschele@gmail.com`; after the current gold receipt turned green, `scripts/propertyquarry_notify_gold_status.py` sent the gold message and wrote `_completion/property_gold_status/telegram-notify-report.json` with `sent=true` and `message_ids=["3101"]`.
-- `scripts/check_property_release_hygiene.py` was rerun on 2026-06-27 and refreshed `_completion/release_hygiene/property-release-hygiene-latest.json` so the manifest runtime commit and current `HEAD` now match again.
+- `scripts/check_property_release_hygiene.py` was rerun after the 2026-06-28 live polish deploy so the manifest can track the current deployed candidate commit again instead of the earlier 2026-06-27 billing-handoff candidate.
 
 That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
@@ -29,10 +29,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `3ee0d912e9987aa4e778db1722e7f83f54b8aa01` |
+| Runtime commit SHA | `4362c7f040d2b3ae424b1755a47b1c12b57f6f71` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-28 after `3ee0d912` to expose post-run ranking-bar controls, keep score-bar messaging honest on empty runs, and show ranked counts per provider instead of falling back to high-fit totals |
+| Deployment ID | local compose redeploy on 2026-06-28 after `4362c7f0` to keep Brilliant Directories handoff copy free of score-filter hints, align mobile account-sheet hooks across customer surfaces, and preserve the latest live workspace polish pass |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
@@ -40,7 +40,9 @@ That means the billing account lane still requires a second vendor login even th
 The live rollout on 2026-06-28 verified:
 
 - `make deploy` completed successfully and rebuilt the live `propertyquarry-api` / `propertyquarry-scheduler` stack on `http://localhost:8097`.
+- `https://propertyquarry.com/pricing`, `https://billing.propertyquarry.com/join`, `https://billing.propertyquarry.com/account`, `https://propertyquarry.directoryup.com/join`, and `https://propertyquarry.directoryup.com/account` were rechecked after deploy and no longer render public score-filter language such as `Score ceiling`, `Per provider`, `All ranked`, `35/100`, `45/100`, `60/100`, or `score gate`.
 - Focused regressions for ranked-home visibility and empty-state ranking-bar recovery passed locally: `tests/test_propertyquarry_workspace_redesign.py::test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_ranked_results_render_even_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_shortlist_panel_builds_cards_and_actions`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_empty_state_promotes_ranking_bar_control`, and `tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_desk`.
+- Focused regressions for the shared mobile account sheet and research-detail top-nav hooks passed locally: `tests/test_propertyquarry_workspace_redesign.py -k 'mobile_top_nav_uses_core_loop_instead_of_noisy_tab_strip or research_detail_mobile_nav_uses_shared_mobile_nav_hook'` and `tests/test_property_live_mobile_surface_smoke.py -k 'requires_compact_account_menu_sheet or requires_real_research_detail_layout'`.
 - The ranking bar now stays score-only across the customer surfaces: below-bar homes remain visible in ranked results, run-summary counts prefer real ranked candidates over `high_fit_total`, and empty-result recovery still exposes the ranking-bar control after a live run finishes with no hard-rule conflicts.
 
 The live rollout on 2026-06-27 verified:
