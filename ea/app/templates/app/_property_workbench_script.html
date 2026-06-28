@@ -2637,8 +2637,26 @@
         ...candidate,
       }));
     };
+    const syncCanonicalRunState = (runPayload) => {
+      if (!runPayload || typeof runPayload !== 'object') return runPayload;
+      const previousRun = data.run && typeof data.run === 'object' ? data.run : {};
+      const previousSummary = previousRun.summary && typeof previousRun.summary === 'object'
+        ? previousRun.summary
+        : {};
+      const nextSummary = runPayload.summary && typeof runPayload.summary === 'object'
+        ? runPayload.summary
+        : {};
+      const mergedRun = { ...previousRun, ...runPayload };
+      const mergedSummary = { ...previousSummary, ...nextSummary };
+      if (Object.keys(mergedSummary).length) mergedRun.summary = mergedSummary;
+      data.run = mergedRun;
+      const nextRunId = String(mergedRun.run_id || '').trim();
+      if (nextRunId) meta.run_id = nextRunId;
+      return mergedRun;
+    };
     const renderRun = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return;
+      runPayload = syncCanonicalRunState(runPayload);
       const normalizedSummary = runPayload.summary && typeof runPayload.summary === 'object'
         ? { ...runPayload.summary }
         : {};

@@ -14923,6 +14923,16 @@ def test_propertyquarry_run_script_preserves_non_empty_trail_from_omitted_or_emp
     assert "failedPolls >= 3 ? message" not in bundle
 
 
+def test_propertyquarry_run_script_promotes_latest_polled_run_to_canonical_state() -> None:
+    bundle = _read_workbench_bundle()
+    assert "const syncCanonicalRunState = (runPayload) => {" in bundle
+    assert "const previousRun = data.run && typeof data.run === 'object' ? data.run : {};" in bundle
+    assert "const mergedRun = { ...previousRun, ...runPayload };" in bundle
+    assert "data.run = mergedRun;" in bundle
+    assert "if (nextRunId) meta.run_id = nextRunId;" in bundle
+    assert "runPayload = syncCanonicalRunState(runPayload);" in bundle
+
+
 def test_propertyquarry_run_script_prefers_concrete_provider_labels_for_grouped_sources() -> None:
     bundle = _read_workbench_bundle()
     assert "const genericSourceFamilies = new Set([" in bundle
