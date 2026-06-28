@@ -237,6 +237,49 @@ def test_live_authenticated_smoke_accepts_local_bridge_launch_then_external_bill
     json.dumps(receipt, sort_keys=True)
 
 
+def test_live_authenticated_smoke_accepts_local_bridge_launch_then_internal_account_fallback_without_network() -> None:
+    bodies = {
+        "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,
+        "https://propertyquarry.com/app/billing": "",
+        "https://propertyquarry.com/sign-in": SIGN_IN_BODY,
+        "https://propertyquarry.com/app/api/property/billing/bridge-launch": "",
+    }
+
+    def fetcher(url: str, _timeout: float) -> dict[str, object]:
+        if url.endswith("/app/billing"):
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "/app/api/property/billing/bridge-launch"},
+            )
+        if "/app/api/property/billing/bridge-launch" in url:
+            return _fake_response(
+                "",
+                status_code=303,
+                final_url=url,
+                headers={**SECURITY_HEADERS, "Location": "/app/account?billing=1#delivery"},
+            )
+        return _fake_response(bodies[url], final_url=url)
+
+    receipt = build_live_authenticated_smoke_receipt(
+        base_url="https://propertyquarry.com",
+        api_token="token",
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        expected_plan_label="Agent",
+        fetcher=fetcher,
+    )
+
+    assert receipt["status"] == "pass"
+    billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
+    assert billing_row["billing_handoff_resolution"]["bridge_launch_used"] is True
+    assert billing_row["billing_handoff_resolution"]["bridge_launch_status_code"] == 303
+    assert any(check["name"] == "billing_bridge_launch" and check["ok"] is True for check in billing_row["checks"])
+    assert any(check["name"] == "billing_internal_account_fallback" and check["ok"] is True for check in billing_row["checks"])
+    assert billing_row.get("billing_handoff_probe") == {}
+    json.dumps(receipt, sort_keys=True)
+
+
 def test_live_authenticated_smoke_rejects_external_billing_redirect_404_without_network() -> None:
     bodies = {
         "https://propertyquarry.com/app/account": ACCOUNT_AGENT_BODY,

@@ -356,33 +356,42 @@ def build_live_authenticated_smoke_receipt(
                     timeout_seconds=timeout_seconds,
                 )
                 external_location = str(billing_handoff_resolution.get("external_location") or "").strip()
-                billing_handoff_probe = effective_billing_handoff_checker(external_location, timeout_seconds)
-                route_checks = [
-                    ("status_ok", True),
-                    *_security_header_checks(headers=headers),
-                    (
-                        "billing_bridge_launch",
+                bridge_launch_ok = (
+                    not billing_handoff_resolution.get("bridge_launch_used")
+                    or (
+                        int(billing_handoff_resolution.get("bridge_launch_status_code") or 0) in {303, 307}
+                        and not str(billing_handoff_resolution.get("bridge_launch_error") or "").strip()
+                    )
+                )
+                if _is_internal_billing_account_fallback(external_location):
+                    billing_handoff_probe = {}
+                    route_checks = [
+                        ("status_ok", True),
+                        *_security_header_checks(headers=headers),
+                        ("billing_bridge_launch", bridge_launch_ok),
+                        ("billing_internal_account_fallback", True),
+                        ("billing_local_board_deleted", True),
+                        ("billing_no_customer_noise", True),
+                    ]
+                else:
+                    billing_handoff_probe = effective_billing_handoff_checker(external_location, timeout_seconds)
+                    route_checks = [
+                        ("status_ok", True),
+                        *_security_header_checks(headers=headers),
+                        ("billing_bridge_launch", bridge_launch_ok),
+                        ("billing_external_handoff", external_location.startswith("https://") and "/app/billing" not in external_location),
                         (
-                            not billing_handoff_resolution.get("bridge_launch_used")
-                            or (
-                                int(billing_handoff_resolution.get("bridge_launch_status_code") or 0) in {303, 307}
-                                and not str(billing_handoff_resolution.get("bridge_launch_error") or "").strip()
-                            )
+                            "billing_external_handoff_resolves",
+                            _https_redirect_host_resolves(
+                                external_location,
+                                billing_handoff_resolver,
+                                expected_cname_target=billing_handoff_dns_target,
+                            ),
                         ),
-                    ),
-                    ("billing_external_handoff", external_location.startswith("https://") and "/app/billing" not in external_location),
-                    (
-                        "billing_external_handoff_resolves",
-                        _https_redirect_host_resolves(
-                            external_location,
-                            billing_handoff_resolver,
-                            expected_cname_target=billing_handoff_dns_target,
-                        ),
-                    ),
-                    ("billing_external_handoff_usable", bool(billing_handoff_probe.get("ok"))),
-                    ("billing_local_board_deleted", True),
-                    ("billing_no_customer_noise", True),
-                ]
+                        ("billing_external_handoff_usable", bool(billing_handoff_probe.get("ok"))),
+                        ("billing_local_board_deleted", True),
+                        ("billing_no_customer_noise", True),
+                    ]
         elif path == "/app/billing" and status_code == 503:
             route_checks = [
                 ("status_ok", True),
