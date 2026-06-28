@@ -30,7 +30,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `7837fa6179e49793fbce33e09c433b1ab00a6cc0` |
+| Runtime commit SHA | `7837fa61cffc5ba1961ce009327ac2cd666c2219` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | current release candidate on 2026-06-28 after `7837fa61`, carrying the live research-detail hero polish plus the removal of customer-visible score-filter/result-cap hints from the first-party Brilliant Directories billing handoff |
