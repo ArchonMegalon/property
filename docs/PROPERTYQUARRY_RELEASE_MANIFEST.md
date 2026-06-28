@@ -29,7 +29,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `5646ce5db3e1e97357bc611f97cf4b305dcd5599` |
+| Runtime commit SHA | `5646ce5de3905505cff499ddb37b1fb4f17b2d4c` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | current release candidate on 2026-06-28 after `5646ce5d`, carrying the latest billing fail-closed surface, compact What Matters distance controls, quieter notification copy, and usage-and-activation wording on top of the live billing-copy and mobile-sheet polish pass |
