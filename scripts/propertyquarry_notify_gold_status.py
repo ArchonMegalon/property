@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,10 @@ _DIRECT_CHAT_ENV_KEYS = (
     "PROPERTYQUARRY_GOLD_NOTIFY_TELEGRAM_CHAT_ID",
     "EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID",
     "EA_TELEGRAM_DEFAULT_CHAT_ID",
+)
+_RUNTIME_CONTAINER_ENV_KEYS = (
+    "PROPERTYQUARRY_API_CONTAINER_NAME",
+    "PROPERTYQUARRY_GOLD_NOTIFICATION_RUNTIME_CONTAINER",
 )
 
 
@@ -78,6 +83,14 @@ def _direct_chat_id() -> str:
         if value:
             return value
     return ""
+
+
+def _runtime_container_name() -> str:
+    for key in _RUNTIME_CONTAINER_ENV_KEYS:
+        value = str(os.getenv(key) or "").strip()
+        if value:
+            return value
+    return "propertyquarry-api"
 
 
 def _resolve_receipt_path(raw_path: str) -> Path:
@@ -129,6 +142,62 @@ def _send_direct_telegram_message(
         "bot_key": "default",
         "chat_id": chat_id,
         "message_ids": [value for value in message_ids if value],
+    }
+
+
+def _send_container_runtime_telegram_message(
+    *,
+    principal_id: str,
+    text: str,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
+) -> dict[str, Any]:
+    container_name = _runtime_container_name()
+    runtime_script = "\n".join(
+        (
+            "from __future__ import annotations",
+            "import json",
+            "from app.services.telegram_delivery import send_telegram_message_for_principal",
+            "from app.services.tool_runtime import build_tool_runtime",
+            f"principal_id = {json.dumps(str(principal_id or '').strip())}",
+            f"text = {json.dumps(str(text or ''))}",
+            f"url_buttons = {json.dumps(list(url_buttons or []))}",
+            "runtime = build_tool_runtime()",
+            "receipt = send_telegram_message_for_principal(",
+            "    runtime,",
+            "    principal_id=principal_id,",
+            "    text=text,",
+            "    url_buttons=url_buttons,",
+            ")",
+            "print(json.dumps({'message_ids': list(receipt.message_ids)}))",
+        )
+    )
+    result = subprocess.run(
+        [
+            "docker",
+            "exec",
+            "-i",
+            container_name,
+            "/bin/sh",
+            "-lc",
+            "cd /app && PYTHONPATH=/app python -",
+        ],
+        input=runtime_script,
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = str(result.stderr or "").strip()
+        stdout = str(result.stdout or "").strip()
+        detail = stderr or stdout or f"container_runtime_exit_{result.returncode}"
+        raise RuntimeError(f"container_runtime_send_failed:{detail}")
+    payload = json.loads(str(result.stdout or "{}").strip() or "{}")
+    if not isinstance(payload, dict):
+        raise RuntimeError("container_runtime_invalid_json")
+    return {
+        "container_name": container_name,
+        "message_ids": [str(value) for value in list(payload.get("message_ids") or []) if str(value or "").strip()],
     }
 
 
@@ -197,30 +266,57 @@ def build_notification_report(
     message = _build_message(payload=payload, receipt_path=receipt_path, base_url=base_url)
     url_buttons = [[("Open PropertyQuarry", base_url)]]
     runtime_error = ""
+    container_runtime_error = ""
     try:
         runtime = build_tool_runtime()
-        receipt = send_telegram_message_for_principal(
-            runtime,
-            principal_id=principal_id,
-            text=message,
-            url_buttons=url_buttons,
-        )
-        report["delivery_mode"] = "principal_binding"
-        report["message_ids"] = list(receipt.message_ids)
     except Exception as exc:
         runtime_error = f"{type(exc).__name__}: {exc}"
-        chat_id = _direct_chat_id()
-        if not chat_id:
-            raise
-        receipt = _send_direct_telegram_message(
-            chat_id=chat_id,
-            text=message,
-            url_buttons=url_buttons,
-        )
-        report["delivery_mode"] = "direct_chat_fallback"
-        report["message_ids"] = list(receipt.get("message_ids") or [])
+        try:
+            receipt = _send_container_runtime_telegram_message(
+                principal_id=principal_id,
+                text=message,
+                url_buttons=url_buttons,
+            )
+            report["delivery_mode"] = "container_runtime_fallback"
+            report["message_ids"] = list(receipt.get("message_ids") or [])
+        except Exception as container_exc:
+            container_runtime_error = f"{type(container_exc).__name__}: {container_exc}"
+            chat_id = _direct_chat_id()
+            if not chat_id:
+                raise
+            receipt = _send_direct_telegram_message(
+                chat_id=chat_id,
+                text=message,
+                url_buttons=url_buttons,
+            )
+            report["delivery_mode"] = "direct_chat_fallback"
+            report["message_ids"] = list(receipt.get("message_ids") or [])
+    else:
+        try:
+            receipt = send_telegram_message_for_principal(
+                runtime,
+                principal_id=principal_id,
+                text=message,
+                url_buttons=url_buttons,
+            )
+            report["delivery_mode"] = "principal_binding"
+            report["message_ids"] = list(receipt.message_ids)
+        except Exception as exc:
+            runtime_error = f"{type(exc).__name__}: {exc}"
+            chat_id = _direct_chat_id()
+            if not chat_id:
+                raise
+            receipt = _send_direct_telegram_message(
+                chat_id=chat_id,
+                text=message,
+                url_buttons=url_buttons,
+            )
+            report["delivery_mode"] = "direct_chat_fallback"
+            report["message_ids"] = list(receipt.get("message_ids") or [])
     if runtime_error:
         report["runtime_error"] = runtime_error
+    if container_runtime_error:
+        report["container_runtime_error"] = container_runtime_error
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(

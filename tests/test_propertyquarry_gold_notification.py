@@ -173,6 +173,11 @@ def test_gold_notification_falls_back_to_direct_chat_when_runtime_bootstrap_fail
         "build_tool_runtime",
         lambda: (_ for _ in ()).throw(RuntimeError("failed to resolve host 'ea-db'")),
     )
+    monkeypatch.setattr(
+        notify_gold_status,
+        "_send_container_runtime_telegram_message",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("container runtime unavailable")),
+    )
     monkeypatch.setenv("EA_PROACTIVE_OODA_TELEGRAM_CHAT_ID", "1354554303")
     monkeypatch.setattr(
         notify_gold_status,
@@ -193,10 +198,56 @@ def test_gold_notification_falls_back_to_direct_chat_when_runtime_bootstrap_fail
     assert report["delivery_mode"] == "direct_chat_fallback"
     assert report["message_ids"] == ["4202"]
     assert report["runtime_error"] == "RuntimeError: failed to resolve host 'ea-db'"
+    assert report["container_runtime_error"] == "RuntimeError: container runtime unavailable"
     assert sent["chat_id"] == "1354554303"
     state_payload = json.loads(state_path.read_text(encoding="utf-8"))
     assert state_payload["delivery_mode"] == "direct_chat_fallback"
     assert state_payload["message_ids"] == ["4202"]
+
+
+def test_gold_notification_falls_back_to_container_runtime_when_host_runtime_bootstrap_fails(tmp_path: Path, monkeypatch) -> None:
+    receipt_payload = {
+        "status": "pass",
+        "ready_for_notification": True,
+        "generated_at": "2026-06-27T08:14:13Z",
+        "pass_areas": [{"area": "billing_handoff"}],
+    }
+    receipt_path = _write_json(
+        tmp_path / "_completion" / "propertyquarry-gold-status-latest.json",
+        receipt_payload,
+    )
+    state_path = tmp_path / "_completion" / "propertyquarry-gold-notification-state.json"
+    observed: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        notify_gold_status,
+        "build_tool_runtime",
+        lambda: (_ for _ in ()).throw(RuntimeError("failed to resolve host 'ea-db'")),
+    )
+    monkeypatch.setattr(
+        notify_gold_status,
+        "_send_container_runtime_telegram_message",
+        lambda **kwargs: observed.update(kwargs) or {"message_ids": ["4301"], "container_name": "propertyquarry-api"},
+    )
+
+    report = notify_gold_status.build_notification_report(
+        payload=receipt_payload,
+        receipt_path=receipt_path,
+        state_path=state_path,
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        base_url="https://propertyquarry.com",
+        force=False,
+    )
+
+    assert report["sent"] is True
+    assert report["delivery_mode"] == "container_runtime_fallback"
+    assert report["message_ids"] == ["4301"]
+    assert report["runtime_error"] == "RuntimeError: failed to resolve host 'ea-db'"
+    assert observed["principal_id"] == "cf-email:tibor.girschele@gmail.com"
+    assert observed["url_buttons"] == [[("Open PropertyQuarry", "https://propertyquarry.com")]]
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["delivery_mode"] == "container_runtime_fallback"
+    assert state_payload["message_ids"] == ["4301"]
 
 
 def test_gold_notification_dedupes_same_pass_receipt(tmp_path: Path, monkeypatch) -> None:
