@@ -809,21 +809,31 @@ def _read_first_available_readme(row: dict[str, Any]) -> tuple[str, str, str]:
     return "", ", ".join(attempted), ""
 
 
-def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
+def _billing_handoff_ready(
+    billing_receipt: dict[str, Any],
+    *,
+    authenticated_smoke: dict[str, Any] | None = None,
+) -> bool:
     handoff = billing_receipt.get("billing_handoff")
     if not isinstance(handoff, dict):
         return False
+    pricing_probe = handoff.get("pricing_surface_probe")
     direct_ready = (
         bool(handoff.get("configured"))
         and bool(handoff.get("host_resolves"))
-        and handoff.get("account_handoff_usable") is not False
+        and handoff.get("account_handoff_usable") is True
         and str(handoff.get("url") or "").strip().startswith("https://")
         and str(billing_receipt.get("status") or "").strip() != "blocked"
+        and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
     )
     if direct_ready:
         return True
     bridge = billing_receipt.get("billing_sso_bridge")
-    pricing_probe = handoff.get("pricing_surface_probe")
+    authenticated_route_row, authenticated_passed_checks, _ = _route_named_checks(
+        authenticated_smoke or {},
+        "/app/billing",
+    )
+    authenticated_external_handoff_ok = bool(authenticated_route_row) and "billing_external_handoff" in authenticated_passed_checks
     return (
         isinstance(bridge, dict)
         and bridge.get("ready") is True
@@ -831,6 +841,7 @@ def _billing_handoff_ready(billing_receipt: dict[str, Any]) -> bool:
         and bool(handoff.get("host_resolves"))
         and str(handoff.get("url") or "").strip().startswith("https://")
         and str(billing_receipt.get("status") or "").strip() != "blocked"
+        and authenticated_external_handoff_ok
         and not (isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True)
     )
 
@@ -1052,7 +1063,10 @@ def build_gold_status_receipt(
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
     export_discovery_ok = export_discovery.get("status") in {"ready", "pass"}
-    billing_ok = billing_receipt_path is None or _billing_handoff_ready(billing_receipt)
+    billing_ok = billing_receipt_path is None or _billing_handoff_ready(
+        billing_receipt,
+        authenticated_smoke=authenticated_smoke if authenticated_smoke_receipt_path is not None else None,
+    )
     manifest_providers = {
         str(provider or "").strip().lower()
         for provider in list(import_manifest.get("providers") or [])
@@ -1262,7 +1276,7 @@ def build_gold_status_receipt(
                 "host_resolves": bool(billing_handoff.get("host_resolves")),
                 "required_dns_record": billing_handoff.get("required_dns_record") if isinstance(billing_handoff.get("required_dns_record"), dict) else {},
                 "next_action": str(billing_handoff.get("next_action") or ""),
-                "action": "configure the Brilliant Directories white-label billing host so /app/billing redirects to a resolving billing portal",
+                "action": "configure the Brilliant Directories white-label billing host or signed member-login handoff so /app/billing opens a usable external account lane without a second login",
             }
         )
     if import_manifest_receipt_path is not None and import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"} and not hardened_readmes_ok:

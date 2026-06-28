@@ -1477,7 +1477,7 @@ def test_gold_status_blocks_when_brilliant_directories_billing_handoff_does_not_
     assert "Brilliant Directories" in blocker["action"]
 
 
-def test_gold_status_accepts_resolving_url_only_brilliant_directories_billing_handoff(tmp_path: Path) -> None:
+def test_gold_status_blocks_when_brilliant_directories_billing_handoff_only_resolves_but_is_not_proven_usable(tmp_path: Path) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
     live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
     tour_controls = _write_json(
@@ -1512,17 +1512,18 @@ def test_gold_status_accepts_resolving_url_only_brilliant_directories_billing_ha
         provider_matrix_receipt_path=provider_matrix,
     )
 
-    assert receipt["status"] == "pass"
-    assert receipt["billing_handoff"]["ready"] is True
+    assert receipt["status"] == "blocked"
+    assert receipt["billing_handoff"]["ready"] is False
     assert receipt["billing_handoff"]["host_resolves"] is True
-    assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert "usable external account lane" in blocker["action"]
 
 
 def test_gold_status_accepts_signed_billing_bridge_when_vendor_account_lane_needs_login(tmp_path: Path) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
     authenticated_smoke = _write_json(
         tmp_path / "authenticated-smoke.json",
-        _authenticated_smoke_payload(),
+        _authenticated_smoke_payload(billing_external=True, billing_fail_closed=False),
     )
     live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
     tour_controls = _write_json(
@@ -1561,6 +1562,52 @@ def test_gold_status_accepts_signed_billing_bridge_when_vendor_account_lane_need
     assert receipt["status"] == "pass"
     assert receipt["billing_handoff"]["ready"] is True
     assert not any(row["area"] == "billing_handoff" for row in receipt["blockers"])
+
+
+def test_gold_status_blocks_when_signed_billing_bridge_is_configured_but_live_surface_only_fails_closed(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    authenticated_smoke = _write_json(
+        tmp_path / "authenticated-smoke.json",
+        _authenticated_smoke_payload(billing_external=False, billing_fail_closed=True),
+    )
+    live_mobile = _write_json(tmp_path / "live-mobile.json", _live_mobile_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    billing = _write_json(tmp_path / "billing.json", _billing_bridge_payload())
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        authenticated_smoke_receipt_path=authenticated_smoke,
+        live_mobile_receipt_path=live_mobile,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        billing_receipt_path=billing,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["billing_handoff"]["ready"] is False
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert "usable external account lane" in blocker["action"]
 
 
 def test_gold_status_blocks_when_authenticated_billing_surface_exposes_local_board(tmp_path: Path) -> None:
