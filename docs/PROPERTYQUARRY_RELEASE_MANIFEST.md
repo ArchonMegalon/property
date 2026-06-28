@@ -29,13 +29,19 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `ad4dd9372ae36543e1c36a8ed7a01092e2cc96c5` |
+| Runtime commit SHA | `f75b3e31758801e4533001d85389816bbce7f37c` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | local compose redeploy on 2026-06-27 after `make deploy` for the compact mobile/settings pass, live public/auth/mobile/market-scope verification refresh, the resumed narrowed provider E2E matrix on `AT/DE/CR`, and subsequent working-tree follow-up fixes; tracked-commit and live-runtime reconciliation remains open until the next committed deploy receipt is cut |
+| Deployment ID | local compose redeploy on 2026-06-28 after `f75b3e31` to keep ranked homes visible even when the ranking bar demotes them below the current score threshold; this manifest-only follow-up commit keeps branch/deployment reconciliation explicit |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The live rollout on 2026-06-28 verified:
+
+- `make deploy` completed successfully and rebuilt the live `propertyquarry-api` / `propertyquarry-scheduler` stack on `http://localhost:8097`.
+- Focused regressions for ranked-home visibility and empty-state ranking-bar recovery passed locally: `tests/test_propertyquarry_workspace_redesign.py::test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_ranked_results_render_even_when_high_fit_total_is_zero`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_shortlist_panel_builds_cards_and_actions`, `tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_empty_state_promotes_ranking_bar_control`, and `tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_desk`.
+- The ranking bar now stays score-only across the customer surfaces: below-bar homes remain visible in ranked results, run-summary counts prefer real ranked candidates over `high_fit_total`, and empty-result recovery still exposes the ranking-bar control after a live run finishes with no hard-rule conflicts.
 
 The live rollout on 2026-06-27 verified:
 
